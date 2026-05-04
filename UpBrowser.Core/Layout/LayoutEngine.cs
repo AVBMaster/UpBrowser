@@ -206,8 +206,7 @@ public class LayoutEngine
                 {
                     box.Children.Add(childBox2);
                     childBox2.Parent = box;
-                    currentY += childBox2.MarginBox.Height - marginTop;
-                    currentY += marginBottom;
+                    currentY = childBox2.MarginBox.Bottom + marginBottom;
                 }
             }
             else if (child is TextNode textNode)
@@ -246,6 +245,7 @@ public class LayoutEngine
         float lineY = y;
         float lineHeight = style.LineHeight * style.FontSize;
         float baseline = lineY + lineHeight * 0.85f;
+        float maxHeightInLine = lineHeight;
 
         var line = new LineBox { Y = lineY, Baseline = baseline, Height = lineHeight };
         box.Lines = new List<LineBox> { line };
@@ -259,15 +259,20 @@ public class LayoutEngine
 
                 if (childStyle.Display == DisplayType.Block || childStyle.Display == DisplayType.ListItem)
                 {
+                    // 完成当前行
+                    line.Height = maxHeightInLine;
+                    lineY += maxHeightInLine;
+                    
                     line = new LineBox { Y = lineY, Baseline = lineY + lineHeight * 0.85f, Height = lineHeight };
                     box.Lines.Add(line);
+                    
                     var childBox = CreateLayoutBox(childElement, x, lineY, availableWidth, box);
                     if (childBox != null)
                     {
                         box.Children.Add(childBox);
                         childBox.Parent = box;
                         lineY += childBox.MarginBox.Height;
-                        lineHeight = lineHeight;
+                        maxHeightInLine = lineHeight;
                         baseline = lineY + lineHeight * 0.85f;
                         line = new LineBox { Y = lineY, Baseline = baseline, Height = lineHeight };
                         box.Lines.Add(line);
@@ -276,31 +281,41 @@ public class LayoutEngine
                 }
 
                 var childFontSize = childStyle.FontSize > 0 ? childStyle.FontSize : 16f;
-                var childBox2 = CreateLayoutBox(childElement, currentX, baseline - childFontSize, availableWidth - (currentX - x), box);
-                if (childBox2 != null)
+                float childWidth = 50; // 默认宽度
+                if (childStyle.Width is PixelLength pw)
+                    childWidth = pw.Value;
+                else if (childStyle.Width is PercentLength pwp)
+                    childWidth = pwp.Value * availableWidth;
+                
+                float childHeight = childFontSize * 1.2f;
+                if (childStyle.Height is PixelLength ph)
+                    childHeight = ph.Value;
+                else if (childStyle.Height is PercentLength php)
+                    childHeight = php.Value * availableWidth;
+
+                if (currentX + childWidth > x + availableWidth && currentX > x)
                 {
-                    float childWidth = childBox2.MarginBox.Width;
-                    float childHeight = childBox2.MarginBox.Height;
-
-                    if (currentX + childWidth > x + availableWidth && currentX > x)
-                    {
-                        lineY += lineHeight;
-                        baseline = lineY + lineHeight * 0.85f;
-                        currentX = x;
-                        line = new LineBox { Y = lineY, Baseline = baseline, Height = lineHeight };
-                        box.Lines.Add(line);
-                    }
-
-                    childBox2.MarginBox = new SKRect(currentX, baseline - childHeight, currentX + childWidth, baseline);
-                    childBox2.ContentBox = childBox2.MarginBox;
-                    childElement.LayoutBox = childBox2;
-
-                    box.Children.Add(childBox2);
-                    childBox2.Parent = box;
-
-                    currentX += childWidth;
-                    if (childHeight > lineHeight) lineHeight = childHeight;
+                    line.Height = maxHeightInLine;
+                    lineY += maxHeightInLine;
+                    baseline = lineY + lineHeight * 0.85f;
+                    currentX = x;
+                    maxHeightInLine = lineHeight;
+                    line = new LineBox { Y = lineY, Baseline = baseline, Height = lineHeight };
+                    box.Lines.Add(line);
                 }
+
+                var childBox2 = new LayoutBox();
+                childBox2.MarginBox = new SKRect(currentX, baseline - childHeight, currentX + childWidth, baseline);
+                childBox2.ContentBox = childBox2.MarginBox;
+                childBox2.BorderBox = childBox2.MarginBox;
+                childBox2.PaddingBox = childBox2.MarginBox;
+                childElement.LayoutBox = childBox2;
+
+                box.Children.Add(childBox2);
+                childBox2.Parent = box;
+
+                currentX += childWidth;
+                if (childHeight > maxHeightInLine) maxHeightInLine = childHeight;
             }
             else if (child is TextNode textNode)
             {
@@ -312,9 +327,11 @@ public class LayoutEngine
 
                 if (currentX + textWidth > x + availableWidth && currentX > x)
                 {
-                    lineY += lineHeight;
+                    line.Height = maxHeightInLine;
+                    lineY += maxHeightInLine;
                     baseline = lineY + lineHeight * 0.85f;
                     currentX = x;
+                    maxHeightInLine = lineHeight;
                     line = new LineBox { Y = lineY, Baseline = baseline, Height = lineHeight };
                     box.Lines.Add(line);
                 }
@@ -333,10 +350,18 @@ public class LayoutEngine
                 line.Runs.Add(run);
 
                 currentX += textWidth;
+                if (fontSize > maxHeightInLine) maxHeightInLine = fontSize;
             }
         }
 
-        box.ContentBox = new SKRect(x, y, currentX, lineY + lineHeight);
+        line.Height = maxHeightInLine;
+        float totalHeight = 0;
+        foreach (var l in box.Lines)
+        {
+            totalHeight += l.Height;
+        }
+        
+        box.ContentBox = new SKRect(x, y, currentX, y + totalHeight);
     }
 
 private void LayoutFlexChildren(Element element, LayoutBox box, float x, float y, float availableWidth)
@@ -344,78 +369,34 @@ private void LayoutFlexChildren(Element element, LayoutBox box, float x, float y
         var style = element.ComputedStyle;
         if (style == null) return;
 
-        float containerPaddingLeft = style.PaddingLeft is PixelLength cpl ? cpl.Value : 0;
-        float containerPaddingRight = style.PaddingRight is PixelLength cpr ? cpr.Value : 0;
-        float flexContentWidth = box.ContentBox.Width - containerPaddingLeft - containerPaddingRight;
+        var children = element.Children.OfType<Element>().Where(e => e.ComputedStyle != null && e.ComputedStyle.Display != DisplayType.None).ToList();
+        if (children.Count == 0) return;
 
-        var items = new List<(Element element, LayoutBox box)>();
-
-        foreach (var child in element.Children)
-        {
-            if (child is Element childElement)
-            {
-                var childStyle = childElement.ComputedStyle;
-                if (childStyle == null || childStyle.Display == DisplayType.None) continue;
-
-                var childBox = CreateLayoutBox(childElement, 0, 0, flexContentWidth, box);
-                if (childBox != null)
-                {
-                    items.Add((childElement, childBox));
-                }
-            }
-        }
-
-        if (items.Count == 0) return;
-
-        bool isRow = style.FlexDirection == FlexDirectionType.Row || style.FlexDirection == FlexDirectionType.RowReverse;
-        float offsetX = x + containerPaddingLeft;
-        float offsetY = y;
+        // 平均分配宽度
+        float totalWidth = box.ContentBox.Width;
+        float itemWidth = totalWidth / children.Count;
         
-        float totalFlex = 0;
-        foreach (var (elem, _) in items)
+        for (int i = 0; i < children.Count; i++)
         {
-            var childStyle = elem.ComputedStyle;
-            if (childStyle?.FlexGrow > 0 || childStyle?.FlexShrink > 0)
-            {
-                totalFlex += childStyle.FlexGrow > 0 ? childStyle.FlexGrow : 1;
-            }
-            else
-            {
-                totalFlex += 1;
-            }
-        }
-        
-        float itemSpacing = style.JustifyContent == JustifyContentType.SpaceBetween ? 10 : 0;
-        
-        foreach (var (elem, childBox) in items)
-        {
-            var childStyle = elem.ComputedStyle;
-            float flexGrow = childStyle?.FlexGrow > 0 ? childStyle.FlexGrow : 1;
-            float itemWidth = (flexContentWidth / items.Count);
+            var childElement = children[i];
             
-            float marginLeft = childStyle?.MarginLeft is PixelLength ml ? ml.Value : 0;
-            float marginRight = childStyle?.MarginRight is PixelLength mr ? mr.Value : 0;
-            float paddingLeft = childStyle?.PaddingLeft is PixelLength pl ? pl.Value : 0;
-            float paddingRight = childStyle?.PaddingRight is PixelLength pr ? pr.Value : 0;
-            float borderLeft = childStyle?.BorderLeftWidth ?? 0;
-            float borderRight = childStyle?.BorderRightWidth ?? 0;
+            // 创建布局盒 - 使用平均宽度
+            var childBox = CreateLayoutBox(childElement, x + i * itemWidth, y, itemWidth, box);
+            if (childBox == null) continue;
             
-            float contentWidth = itemWidth - marginLeft - marginRight - paddingLeft - paddingRight - borderLeft - borderRight;
-            contentWidth = Math.Max(0, contentWidth);
-            
-            float h = childBox.MarginBox.Height;
-            float totalW = marginLeft + borderLeft + paddingLeft + contentWidth + paddingRight + borderRight + marginRight;
-
-            childBox.MarginBox = new SKRect(offsetX, offsetY, offsetX + totalW, offsetY + h);
-            childBox.BorderBox = new SKRect(offsetX + marginLeft, offsetY + 0, offsetX + marginLeft + borderLeft + paddingLeft + contentWidth + paddingRight + borderRight, offsetY + h);
-            childBox.PaddingBox = new SKRect(offsetX + marginLeft + borderLeft, offsetY + 0, offsetX + marginLeft + borderLeft + paddingLeft + contentWidth, offsetY + h);
-            childBox.ContentBox = new SKRect(offsetX + marginLeft + borderLeft + paddingLeft, offsetY + 0, offsetX + marginLeft + borderLeft + paddingLeft + contentWidth, offsetY + h);
-            
-            elem.LayoutBox = childBox;
+            childElement.LayoutBox = childBox;
             box.Children.Add(childBox);
             childBox.Parent = box;
-
-            offsetX += totalW + itemSpacing;
+        }
+        
+        // 更新容器高度为子元素的最大高度
+        if (box.Children.Count > 0)
+        {
+            float maxHeight = box.Children.Max(c => c.MarginBox.Height);
+            box.ContentBox = new SKRect(box.ContentBox.Left, box.ContentBox.Top, box.ContentBox.Right, y + maxHeight);
+            box.PaddingBox = box.ContentBox;
+            box.BorderBox = new SKRect(box.BorderBox.Left, box.BorderBox.Top, box.BorderBox.Right, y + maxHeight);
+            box.MarginBox = new SKRect(box.MarginBox.Left, box.MarginBox.Top, box.MarginBox.Right, y + maxHeight);
         }
     }
 

@@ -101,6 +101,9 @@ public class PaintVisitor
         DrawElementBackground(element, layoutBox, style, offsetBorderBox);
         DrawElementBorder(element, layoutBox, style, offsetBorderBox);
 
+        DrawElementBackground(element, layoutBox, style, offsetBorderBox);
+        DrawElementBorder(element, layoutBox, style, offsetBorderBox);
+
         if (element.TagName.Equals("HR", StringComparison.OrdinalIgnoreCase))
         {
             float y = layoutBox.ContentBox.Top + TotalOffsetY + layoutBox.ContentBox.Height / 2;
@@ -127,15 +130,16 @@ public class PaintVisitor
             DrawListMarker(element, layoutBox, style);
         }
 
-        var sortedChildren = element.Children
-            .OfType<Element>()
-            .Where(e => e.ComputedStyle != null && e.ComputedStyle.Display != DisplayType.None)
-            .OrderBy(e => e.ComputedStyle?.ZIndex ?? 0)
-            .ThenBy(e => GetTreeOrder(element, e));
-
-        foreach (var child in sortedChildren)
+        // 遍历所有子元素进行渲染
+        foreach (var child in element.Children)
         {
-            VisitElement(child);
+            if (child is Element childElement)
+            {
+                if (childElement.ComputedStyle != null && childElement.ComputedStyle.Display != DisplayType.None)
+                {
+                    VisitElement(childElement);
+                }
+            }
         }
     }
 
@@ -411,7 +415,27 @@ public class PaintVisitor
             return;
         }
 
-        DrawInlineRuns(box);
+        // 如果有 line runs，先绘制它们
+        if (box.LineRuns != null && box.LineRuns.Count > 0)
+        {
+            DrawInlineRuns(box);
+            return;
+        }
+        // 如果有 line boxes，也绘制它们
+        if (box.Lines != null && box.Lines.Count > 0)
+        {
+            DrawInlineRuns(box);
+            return;
+        }
+
+        // 否则，绘制子元素的内联内容
+        foreach (var child in element.Children)
+        {
+            if (child is TextNode textNode)
+            {
+                DrawTextNode(textNode, box, style);
+            }
+        }
     }
 
     private void DrawTextNode(TextNode textNode, LayoutBox box, ComputedStyle parentStyle)
@@ -493,46 +517,49 @@ public class PaintVisitor
             return;
         }
 
-        float y = box.ContentBox.Top + TotalOffsetY;
-        float x = box.ContentBox.Left;
+        float boxTop = box.ContentBox.Top + TotalOffsetY;
 
         if (box.Lines != null)
         {
+            float currentX = box.ContentBox.Left;
+            
             foreach (var line in box.Lines)
             {
+                float lineY = line.Y + TotalOffsetY;
+                float baseline = line.Baseline + TotalOffsetY;
+                
                 foreach (var run in line.Runs)
                 {
                     if (run.IsText && run.Node is TextNode textNode)
                     {
                         var parentStyle = textNode.Parent?.ParentElement?.ComputedStyle;
+                        var actualFontSize = run.FontSize ?? parentStyle?.FontSize ?? 16;
 
                         var op = new DrawTextOp
                         {
                             Text = run.Text,
-                            X = x,
-                            Y = y + line.Baseline - box.ContentBox.Top,
+                            X = currentX,
+                            Y = baseline,
                             Color = run.Color ?? parentStyle?.Color ?? SKColors.Black,
-                            FontSize = run.FontSize ?? parentStyle?.FontSize ?? 16,
+                            FontSize = actualFontSize,
                             FontFamily = run.FontFamily ?? parentStyle?.FontFamily ?? "Arial",
                             Underline = parentStyle?.TextDecoration == TextDecorationType.Underline,
                             LineThrough = parentStyle?.TextDecoration == TextDecorationType.LineThrough,
-                            Bounds = new SKRect(x, y, x + run.Width, y + run.Height)
+                            Bounds = new SKRect(currentX, lineY, currentX + run.Width, lineY + line.Height)
                         };
                         _displayList.Add(op);
                     }
-                    x += run.Width;
+                    currentX += run.Width;
                 }
-                x = box.ContentBox.Left;
-                y += line.Height;
+                currentX = box.ContentBox.Left;
             }
         }
 
         if (box.LineRuns != null && (box.Lines == null || box.Lines.Count == 0))
         {
-            y = box.ContentBox.Top + TotalOffsetY;
-            x = box.ContentBox.Left;
+            float x = box.ContentBox.Left;
             float fontSize = box.LineRuns.FirstOrDefault()?.FontSize ?? 16;
-            float baseline = box.ContentBox.Top + TotalOffsetY + fontSize * 0.85f;
+            float baseline = boxTop + fontSize * 0.85f;
 
             foreach (var run in box.LineRuns)
             {
@@ -541,19 +568,19 @@ public class PaintVisitor
                     var parentStyle = textNode.Parent?.ParentElement?.ComputedStyle;
                     var actualFontSize = run.FontSize ?? parentStyle?.FontSize ?? 16;
 
-var op = new DrawTextOp
-                        {
-                            Text = run.Text,
-                            X = x,
-                            Y = baseline,
-                            Color = run.Color ?? parentStyle?.Color ?? SKColors.Black,
-                            FontSize = actualFontSize,
-                            FontFamily = run.FontFamily ?? parentStyle?.FontFamily ?? "Arial",
-                            Underline = parentStyle?.TextDecoration == TextDecorationType.Underline,
-                            LineThrough = parentStyle?.TextDecoration == TextDecorationType.LineThrough,
-                            Bounds = new SKRect(x, box.ContentBox.Top + TotalOffsetY, x + run.Width, box.ContentBox.Top + TotalOffsetY + run.Height)
-                        };
-                        _displayList.Add(op);
+                    var op = new DrawTextOp
+                    {
+                        Text = run.Text,
+                        X = x,
+                        Y = baseline,
+                        Color = run.Color ?? parentStyle?.Color ?? SKColors.Black,
+                        FontSize = actualFontSize,
+                        FontFamily = run.FontFamily ?? parentStyle?.FontFamily ?? "Arial",
+                        Underline = parentStyle?.TextDecoration == TextDecorationType.Underline,
+                        LineThrough = parentStyle?.TextDecoration == TextDecorationType.LineThrough,
+                        Bounds = new SKRect(x, boxTop, x + run.Width, boxTop + run.Height)
+                    };
+                    _displayList.Add(op);
                 }
                 x += run.Width;
             }

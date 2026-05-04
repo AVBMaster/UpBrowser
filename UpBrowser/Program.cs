@@ -25,45 +25,146 @@ class Program
         var html = @"<!DOCTYPE html>
 <html>
 <head>
-    <title>UpBrowser</title>
+    <title>UpBrowser Test Page</title>
 </head>
-<body style='background: #f5f5f5; margin: 0; padding: 20px; font-family: Arial, sans-serif;'>
-    <h1 style='color: #333; font-size: 32px; margin: 0 0 20px 0;'>Hello World</h1>
-    <p style='color: #666; font-size: 16px; line-height: 1.5;'>This is a test paragraph with some text content.</p>
-    <div style='background: #ffeb3b; padding: 20px; border: 2px solid #f44336; margin: 20px 0; border-radius: 8px;'>
-        <h2 style='color: #333; margin: 0 0 10px 0;'>Box Model Test</h2>
-        <p style='color: #555;'>This div has margin, border, padding, and content.</p>
+<body style='background: #f0f0f0; margin: 0; padding: 20px; font-family: Arial, sans-serif;'>
+    <!-- 测试标题 -->
+    <h1>标题1 - H1</h1>
+    <h2>标题2 - H2</h2>
+    <h3>标题3 - H3</h3>
+    <h4>标题4 - H4</h4>
+    <h5>标题5 - H5</h5>
+    <h6>标题6 - H6</h6>
+    
+    <hr>
+    
+    <!-- 测试段落 -->
+    <p>这是一个普通段落，包含一些文本内容。</p>
+    <p style='color: red;'>红色文字的段落</p>
+    <p style='font-size: 20px;'>大号文字段落</p>
+    <p style='font-weight: bold;'>粗体段落</p>
+    <p style='font-style: italic;'>斜体段落</p>
+    <p><strong>粗体</strong>和<em>斜体</em>混排</p>
+    <p><u>下划线</u>和<s>删除线</s></p>
+    <a href='#'>这是一个链接</a>
+    
+    <hr>
+    
+    <!-- 测试 div 块级元素 -->
+    <div style='background: yellow; padding: 15px; margin: 10px 0; border: 2px solid orange;'>
+        普通 div 块级元素
     </div>
-    <ul style='color: #333;'>
-        <li>List item 1</li>
-        <li>List item 2</li>
-        <li>List item 3</li>
+    
+    <!-- 测试 span 内联元素 -->
+    <div style='background: #e0e0e0; padding: 15px; margin: 10px 0;'>
+        这是一些<span style='color: red;'>红色</span>和<span style='color: blue;'>蓝色</span>的<span style='background: yellow;'>内联</span>文本。
+    </div>
+    
+    <hr>
+    
+    <!-- 测试无序列表 -->
+    <h3>无序列表 (ul)</h3>
+    <ul style='background: #f9f9f9; padding: 15px; border: 1px solid #ccc;'>
+        <li>列表项 1</li>
+        <li>列表项 2</li>
+        <li>列表项 3</li>
     </ul>
-    <button style='background: #2196F3; color: white; padding: 10px 20px; border: none; border-radius: 4px; font-size: 14px;'>Click Me</button>
-    <div style='margin-top: 20px; padding: 15px; background: white; border: 1px solid #ddd;'>
-        <span style='color: red;'>Red text</span> and <span style='color: blue;'>blue text</span> in same line.
-    </div>
-    <div style='display: flex; gap: 10px; margin-top: 20px;'>
+    
+    <!-- 测试有序列表 -->
+    <h3>有序列表 (ol)</h3>
+    <ol style='background: #f9f9f9; padding: 15px; border: 1px solid #ccc;'>
+        <li>第一项</li>
+        <li>第二项</li>
+        <li>第三项</li>
+    </ol>
+    
+    <hr>
+    
+    <!-- 测试按钮 -->
+    <h3>按钮测试</h3>
+    <button style='background: #2196F3; color: white; padding: 10px 20px; border: none; border-radius: 4px;'>普通按钮</button>
+    <button style='background: #4CAF50; color: white; padding: 10px 20px; border: 2px solid #388E3C;'>带边框按钮</button>
+    <input type='text' placeholder='文本输入框' style='padding: 8px; border: 1px solid #ccc;'>
+    
+    <hr>
+    
+    <!-- 测试 Flexbox 布局 -->
+    <h3>Flexbox 布局测试</h3>
+    <div style='display: flex; gap: 10px; margin: 10px 0;'>
         <div style='background: #e3f2fd; padding: 15px; flex: 1;'>Flex Item 1</div>
         <div style='background: #f3e5f5; padding: 15px; flex: 1;'>Flex Item 2</div>
         <div style='background: #e8f5e9; padding: 15px; flex: 1;'>Flex Item 3</div>
     </div>
-    <div style='position: relative; height: 100px; margin-top: 20px; background: #fff3e0;'>
-        <div style='position: absolute; top: 10px; right: 10px; background: #ff5722; color: white; padding: 5px 10px;'>Absolute Position</div>
+    <div style='display: flex; gap: 10px; margin: 10px 0; flex-wrap: wrap;'>
+        <div style='background: #ffebee; padding: 15px; width: 200px;'>换行 Item 1</div>
+        <div style='background: #fff3e0; padding: 15px; width: 200px;'>换行 Item 2</div>
+        <div style='background: #e8eaf6; padding: 15px; width: 200px;'>换行 Item 3</div>
     </div>
-    <div style='margin-top: 30px;'>
-        <p>More content below - Testing scroll functionality</p>
-        <p>Line 2</p>
-        <p>Line 3</p>
-        <p>Line 4</p>
-        <p>Line 5</p>
-        <p>Line 6</p>
-        <p>Line 7</p>
-        <p>Line 8</p>
-        <p>Line 9</p>
-        <p>Line 10</p>
-        <p style='color: red;'>This is the bottom of the page!</p>
+    
+    <hr>
+    
+    <!-- 测试表格 -->
+    <h3>表格测试</h3>
+    <table style='border-collapse: collapse; width: 100%; margin: 10px 0;'>
+        <tr style='background: #f5f5f5;'>
+            <th style='border: 1px solid #ccc; padding: 10px;'>表头1</th>
+            <th style='border: 1px solid #ccc; padding: 10px;'>表头2</th>
+            <th style='border: 1px solid #ccc; padding: 10px;'>表头3</th>
+        </tr>
+        <tr>
+            <td style='border: 1px solid #ccc; padding: 10px;'>单元格1</td>
+            <td style='border: 1px solid #ccc; padding: 10px;'>单元格2</td>
+            <td style='border: 1px solid #ccc; padding: 10px;'>单元格3</td>
+        </tr>
+        <tr style='background: #fafafa;'>
+            <td style='border: 1px solid #ccc; padding: 10px;'>单元格4</td>
+            <td style='border: 1px solid #ccc; padding: 10px;'>单元格5</td>
+            <td style='border: 1px solid #ccc; padding: 10px;'>单元格6</td>
+        </tr>
+    </table>
+    
+    <hr>
+    
+    <!-- 测试绝对定位 -->
+    <h3>绝对定位测试</h3>
+    <div style='position: relative; height: 100px; background: #fff3e0; border: 1px solid #ff9800; margin: 10px 0;'>
+        <div style='position: absolute; top: 10px; left: 10px; background: #ff5722; color: white; padding: 5px 10px;'>左上角</div>
+        <div style='position: absolute; top: 10px; right: 10px; background: #4CAF50; color: white; padding: 5px 10px;'>右上角</div>
+        <div style='position: absolute; bottom: 10px; left: 10px; background: #2196F3; color: white; padding: 5px 10px;'>左下角</div>
+        <div style='position: absolute; bottom: 10px; right: 10px; background: #9C27B0; color: white; padding: 5px 10px;'>右下角</div>
     </div>
+    
+    <hr>
+    
+    <!-- 测试更多样式 -->
+    <h3>其他样式测试</h3>
+    <div style='background: linear-gradient(to right, red, orange, yellow, green, blue, indigo, violet); padding: 20px; margin: 10px 0; color: white;'>
+        渐变背景 (暂不支持，仅作占位)
+    </div>
+    <div style='background: #ff9800; padding: 20px; margin: 10px 0; border-radius: 10px;'>
+        圆角 div
+    </div>
+    <div style='border: 3px dashed #666; padding: 15px; margin: 10px 0;'>
+        虚线边框
+    </div>
+    
+    <hr>
+    
+    <!-- 测试多行文本 -->
+    <h3>多行文本测试</h3>
+    <p style='line-height: 1.5;'>
+        这是第一行文本。
+        这是第二行文本。
+        这是第三行文本。
+        这是第四行文本。
+    </p>
+    <p style='line-height: 2.0;'>
+        行高2.0的第一行。
+        行高2.0的第二行。
+        行高2.0的第三行。
+    </p>
+    
+    <div style='height: 50px;'></div>
 </body>
 </html>";
 
