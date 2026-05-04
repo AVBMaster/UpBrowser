@@ -1,1 +1,7 @@
-<Solution />
+<Solution>
+  <Project Path="UpBrowser.Native\UpBrowser.Native.csproj" />
+  <Project Path="UpBrowser.Platform\UpBrowser.Platform.csproj" />
+  <Project Path="UpBrowser.Rendering\UpBrowser.Rendering.csproj" />
+  <Project Path="UpBrowser.Core\UpBrowser.Core.csproj" />
+  <Project Path="UpBrowser\UpBrowser.csproj" />
+</Solution>

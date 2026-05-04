@@ -1,0 +1,227 @@
+using System.Runtime.InteropServices;
+using UpBrowser.Platform.Windows;
+
+namespace UpBrowser.Platform;
+
+public class BrowserWindow : IDisposable
+{
+    private IntPtr _hwnd;
+    private bool _disposed;
+    private bool _isRunning;
+    private Action<double>? _onFrame;
+    private DateTime _lastFrameTime;
+    private int _width;
+    private int _height;
+    private NativeWindow.WndProc? _wndProc;
+
+    private void TriggerFrameRender()
+    {
+        if (_onFrame != null)
+        {
+            var now = DateTime.Now;
+            var dt = (now - _lastFrameTime).TotalSeconds;
+            _lastFrameTime = now;
+            _onFrame(dt);
+        }
+    }
+
+    public IntPtr Handle => _hwnd;
+    public int Width => _width;
+    public int Height => _height;
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct RECT
+    {
+        public int Left, Top, Right, Bottom;
+    }
+
+    [DllImport("user32.dll")]
+    private static extern bool GetClientRect(IntPtr hWnd, out RECT lpRect);
+
+    [DllImport("user32.dll")]
+    private static extern bool InvalidateRect(IntPtr hWnd, IntPtr lpRect, bool bErase);
+
+    public (int width, int height) GetClientSize()
+    {
+        if (_hwnd == IntPtr.Zero) return (0, 0);
+        GetClientRect(_hwnd, out RECT rect);
+        return (rect.Right - rect.Left, rect.Bottom - rect.Top);
+    }
+
+    private static BrowserWindow? _instance;
+
+    public static BrowserWindow Create(int width, int height, string title)
+    {
+        var instance = new BrowserWindow();
+        instance._width = width;
+        instance._height = height;
+        instance.Initialize(width, height, title);
+        return instance;
+    }
+
+    private unsafe void Initialize(int width, int height, string title)
+    {
+        var hInstance = NativeWindow.GetModuleHandleW(null);
+
+        _wndProc = new NativeWindow.WndProc(WndProc);
+        NativeWindow.GetOrRegisterClass(_wndProc, hInstance);
+
+        _hwnd = NativeWindow.CreateWindowExW(
+            0,
+            NativeWindow.GetClassName(),
+            title,
+            NativeWindow.WS_OVERLAPPEDWINDOW | NativeWindow.WS_VISIBLE,
+            NativeWindow.CW_USEDEFAULT,
+            NativeWindow.CW_USEDEFAULT,
+            width,
+            height,
+            NativeWindow.HWND_DESKTOP,
+            IntPtr.Zero,
+            hInstance,
+            IntPtr.Zero);
+
+        if (_hwnd == IntPtr.Zero)
+        {
+            throw new InvalidOperationException("Failed to create window");
+        }
+
+        NativeWindow.ShowWindow(_hwnd, NativeWindow.SW_SHOWNORMAL);
+        NativeWindow.UpdateWindow(_hwnd);
+
+        _instance = this;
+    }
+
+    private IntPtr WndProc(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam)
+    {
+        switch (msg)
+        {
+            case NativeWindow.WM_DESTROY:
+                _isRunning = false;
+                NativeWindow.PostQuitMessage(0);
+                return IntPtr.Zero;
+
+            case NativeWindow.WM_PAINT:
+            case NativeWindow.WM_ERASEBKGND:
+            case NativeWindow.WM_NCPAINT:
+                return IntPtr.Zero;
+
+            case NativeWindow.WM_SIZE:
+                _width = (int)(lParam.ToInt64() & 0xFFFF);
+                _height = (int)((lParam.ToInt64() >> 16) & 0xFFFF);
+                TriggerFrameRender();
+                return IntPtr.Zero;
+
+            case NativeWindow.WM_ENTERSIZEMOVE:
+            case NativeWindow.WM_EXITSIZEMOVE:
+                TriggerFrameRender();
+                return IntPtr.Zero;
+
+            case NativeWindow.WM_CLOSE:
+                _isRunning = false;
+                NativeWindow.DestroyWindow(_hwnd);
+                return IntPtr.Zero;
+
+            default:
+                return NativeWindow.DefWindowProcW(hWnd, msg, wParam, lParam);
+        }
+    }
+
+    public void Run(Action<double> onFrame)
+    {
+        if (_hwnd == IntPtr.Zero) return;
+
+        _onFrame = onFrame;
+        _lastFrameTime = DateTime.Now;
+        _isRunning = true;
+
+        NativeWindow.MSG msg;
+        while (_isRunning)
+        {
+            if (NativeWindow.PeekMessageW(out msg, IntPtr.Zero, 0, 0, 1))
+            {
+                if (msg.message == NativeWindow.WM_QUIT)
+                {
+                    break;
+                }
+
+                NativeWindow.TranslateMessage(ref msg);
+                NativeWindow.DispatchMessageW(ref msg);
+            }
+
+            if (_onFrame != null)
+            {
+                var now = DateTime.Now;
+                var dt = (now - _lastFrameTime).TotalSeconds;
+                _lastFrameTime = now;
+                _onFrame(dt);
+            }
+        }
+    }
+
+    public unsafe void Render(byte[] pixels, int width, int height)
+    {
+        if (_hwnd == IntPtr.Zero) return;
+        if (pixels.Length == 0) return;
+
+        var hdc = NativeWindow.GetDC(_hwnd);
+        var memDC = NativeWindow.CreateCompatibleDC(hdc);
+
+        var bmi = new NativeWindow.BITMAPINFO();
+        bmi.bmiHeader.biSize = (uint)sizeof(NativeWindow.BITMAPINFOHEADER);
+        bmi.bmiHeader.biWidth = width;
+        bmi.bmiHeader.biHeight = height;
+        bmi.bmiHeader.biPlanes = 1;
+        bmi.bmiHeader.biBitCount = 32;
+        bmi.bmiHeader.biCompression = 0;
+
+        IntPtr bits;
+        var hBitmap = NativeWindow.CreateDIBSection(hdc, ref bmi, NativeWindow.DIB_RGB_COLORS, out bits, IntPtr.Zero, 0);
+        
+        if (hBitmap != IntPtr.Zero && bits != IntPtr.Zero)
+        {
+            // Convert RGBA to BGRA and flip vertically
+            byte* dst = (byte*)bits.ToPointer();
+            int rowBytes = width * 4;
+            for (int y = 0; y < height; y++)
+            {
+                int srcRow = (height - 1 - y) * rowBytes;
+                int dstRow = y * rowBytes;
+                for (int x = 0; x < width; x++)
+                {
+                    int srcIdx = srcRow + x * 4;
+                    int dstIdx = dstRow + x * 4;
+                    dst[dstIdx] = pixels[srcIdx + 2];     // B <- R
+                    dst[dstIdx + 1] = pixels[srcIdx + 1]; // G <- G
+                    dst[dstIdx + 2] = pixels[srcIdx];     // R <- B
+                    dst[dstIdx + 3] = pixels[srcIdx + 3]; // A <- A
+                }
+            }
+            
+            var oldBitmap = NativeWindow.SelectObject(memDC, hBitmap);
+            NativeWindow.BitBlt(hdc, 0, 0, width, height, memDC, 0, 0, NativeWindow.SRCCOPY);
+            NativeWindow.SelectObject(memDC, oldBitmap);
+            NativeWindow.DeleteObject(hBitmap);
+        }
+
+        NativeWindow.DeleteDC(memDC);
+        NativeWindow.ReleaseDC(_hwnd, hdc);
+    }
+
+    public void Close()
+    {
+        if (_hwnd != IntPtr.Zero)
+        {
+            NativeWindow.DestroyWindow(_hwnd);
+            _hwnd = IntPtr.Zero;
+        }
+        _isRunning = false;
+    }
+
+    public void Dispose()
+    {
+        if (_disposed) return;
+        Close();
+        _disposed = true;
+        GC.SuppressFinalize(this);
+    }
+}

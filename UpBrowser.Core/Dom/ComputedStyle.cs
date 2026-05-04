@@ -1,0 +1,295 @@
+using SkiaSharp;
+
+namespace UpBrowser.Core.Dom;
+
+public abstract class Length
+{
+    public abstract float ToPixels(float reference, float rootFontSize, float viewportWidth, float viewportHeight);
+
+    public static Length Parse(string value)
+    {
+        if (string.IsNullOrEmpty(value) || value == "auto" || value == "inherit")
+            return AutoLength.Instance;
+
+        if (value.EndsWith("px"))
+            return new PixelLength(float.Parse(value[..^2]));
+        if (value.EndsWith("em"))
+            return new EmLength(float.Parse(value[..^2]));
+        if (value.EndsWith("rem"))
+            return new RemLength(float.Parse(value[..^2]));
+        if (value.EndsWith("%"))
+            return new PercentLength(float.Parse(value[..^2]) / 100f);
+        if (value.EndsWith("vw"))
+            return new VwLength(float.Parse(value[..^2]));
+        if (value.EndsWith("vh"))
+            return new VhLength(float.Parse(value[..^2]));
+        if (value == "0")
+            return new PixelLength(0);
+
+        return AutoLength.Instance;
+    }
+}
+
+public class AutoLength : Length
+{
+    public static readonly AutoLength Instance = new();
+    public override float ToPixels(float reference, float rootFontSize, float viewportWidth, float viewportHeight) => float.NaN;
+    public override string ToString() => "auto";
+}
+
+public class PixelLength : Length
+{
+    public float Value { get; }
+    public PixelLength(float value) => Value = value;
+    public override float ToPixels(float reference, float rootFontSize, float viewportWidth, float viewportHeight) => Value;
+    public override string ToString() => $"{Value}px";
+}
+
+public class EmLength : Length
+{
+    public float Value { get; }
+    public EmLength(float value) => Value = value;
+    public override float ToPixels(float reference, float rootFontSize, float viewportWidth, float viewportHeight) => Value * reference;
+}
+
+public class RemLength : Length
+{
+    public float Value { get; }
+    public RemLength(float value) => Value = value;
+    public override float ToPixels(float reference, float rootFontSize, float viewportWidth, float viewportHeight) => Value * rootFontSize;
+}
+
+public class PercentLength : Length
+{
+    public float Value { get; }
+    public PercentLength(float value) => Value = value;
+    public override float ToPixels(float reference, float rootFontSize, float viewportWidth, float viewportHeight) => Value * reference;
+}
+
+public class VwLength : Length
+{
+    public float Value { get; }
+    public VwLength(float value) => Value = value;
+    public override float ToPixels(float reference, float rootFontSize, float viewportWidth, float viewportHeight) => Value * viewportWidth / 100f;
+}
+
+public class VhLength : Length
+{
+    public float Value { get; }
+    public VhLength(float value) => Value = value;
+    public override float ToPixels(float reference, float rootFontSize, float viewportWidth, float viewportHeight) => Value * viewportHeight / 100f;
+}
+
+public class ComputedStyle
+{
+    public Length Width { get; set; } = AutoLength.Instance;
+    public Length Height { get; set; } = AutoLength.Instance;
+    public Length Top { get; set; } = AutoLength.Instance;
+    public Length Left { get; set; } = AutoLength.Instance;
+    public Length Right { get; set; } = AutoLength.Instance;
+    public Length Bottom { get; set; } = AutoLength.Instance;
+
+    public Length MarginTop { get; set; } = new PixelLength(0);
+    public Length MarginBottom { get; set; } = new PixelLength(0);
+    public Length MarginLeft { get; set; } = new PixelLength(0);
+    public Length MarginRight { get; set; } = new PixelLength(0);
+
+    public Length PaddingTop { get; set; } = new PixelLength(0);
+    public Length PaddingBottom { get; set; } = new PixelLength(0);
+    public Length PaddingLeft { get; set; } = new PixelLength(0);
+    public Length PaddingRight { get; set; } = new PixelLength(0);
+
+    public float BorderTopWidth { get; set; }
+    public float BorderBottomWidth { get; set; }
+    public float BorderLeftWidth { get; set; }
+    public float BorderRightWidth { get; set; }
+    public SKColor BorderTopColor { get; set; } = SKColors.Black;
+    public SKColor BorderBottomColor { get; set; } = SKColors.Black;
+    public SKColor BorderLeftColor { get; set; } = SKColors.Black;
+    public SKColor BorderRightColor { get; set; } = SKColors.Black;
+    public BorderStyle BorderTopStyle { get; set; } = BorderStyle.None;
+    public BorderStyle BorderBottomStyle { get; set; } = BorderStyle.None;
+    public BorderStyle BorderLeftStyle { get; set; } = BorderStyle.None;
+    public BorderStyle BorderRightStyle { get; set; } = BorderStyle.None;
+    public float BorderTopLeftRadius { get; set; }
+    public float BorderTopRightRadius { get; set; }
+    public float BorderBottomLeftRadius { get; set; }
+    public float BorderBottomRightRadius { get; set; }
+
+    public DisplayType Display { get; set; } = DisplayType.Block;
+    public PositionType Position { get; set; } = PositionType.Static;
+    public FloatType Float { get; set; } = FloatType.None;
+    public ClearType Clear { get; set; } = ClearType.None;
+
+    public string FontFamily { get; set; } = "Arial, sans-serif";
+    public float FontSize { get; set; } = 16;
+    public FontWeight FontWeight { get; set; } = FontWeight.Normal;
+    public FontStyleType FontStyle { get; set; } = FontStyleType.Normal;
+    public float LineHeight { get; set; } = 1.2f;
+
+    public SKColor Color { get; set; } = SKColors.Black;
+    public SKColor? BackgroundColor { get; set; }
+    public string? BackgroundImage { get; set; }
+    public Length? BackgroundPositionX { get; set; }
+    public Length? BackgroundPositionY { get; set; }
+    public BackgroundRepeat BackgroundRepeat { get; set; } = BackgroundRepeat.Repeat;
+
+    public TextAlignType TextAlign { get; set; } = TextAlignType.Start;
+    public TextDecorationType TextDecoration { get; set; } = TextDecorationType.None;
+    public VerticalAlignType VerticalAlign { get; set; } = VerticalAlignType.Baseline;
+    public WhiteSpaceMode WhiteSpace { get; set; } = WhiteSpaceMode.Normal;
+
+    public OverflowType Overflow { get; set; } = OverflowType.Visible;
+    public VisibilityType Visibility { get; set; } = VisibilityType.Visible;
+    public int? ZIndex { get; set; }
+
+    public FlexDirectionType FlexDirection { get; set; } = FlexDirectionType.Row;
+    public FlexWrapType FlexWrap { get; set; } = FlexWrapType.NoWrap;
+    public float FlexGrow { get; set; } = 0;
+    public float FlexShrink { get; set; } = 1;
+    public Length FlexBasis { get; set; } = AutoLength.Instance;
+    public JustifyContentType JustifyContent { get; set; } = JustifyContentType.FlexStart;
+    public AlignItemsType AlignItems { get; set; } = AlignItemsType.Stretch;
+    public AlignSelfType AlignSelf { get; set; } = AlignSelfType.Auto;
+
+    public Length? MinWidth { get; set; }
+    public Length? MaxWidth { get; set; }
+    public Length? MinHeight { get; set; }
+    public Length? MaxHeight { get; set; }
+
+    public BoxSizingType BoxSizing { get; set; } = BoxSizingType.ContentBox;
+    public bool BorderCollapse { get; set; }
+
+    public float GetWidth(float viewportWidth, float rootFontSize)
+    {
+        if (Width is AutoLength) return float.NaN;
+        return Width.ToPixels(viewportWidth, rootFontSize, viewportWidth, 0);
+    }
+
+    public float GetHeight(float viewportHeight, float rootFontSize)
+    {
+        if (Height is AutoLength) return float.NaN;
+        return Height.ToPixels(viewportHeight, rootFontSize, 0, viewportHeight);
+    }
+
+    public static ComputedStyle CreateDefault() => new();
+}
+
+public enum DisplayType { Block, Inline, InlineBlock, Flex, InlineFlex, ListItem, Table, TableRow, TableCell, None }
+public enum PositionType { Static, Relative, Absolute, Fixed, Sticky }
+public enum FloatType { None, Left, Right }
+public enum ClearType { None, Left, Right, Both }
+public enum BorderStyle { None, Solid, Dashed, Dotted, Double }
+public enum FontWeight { Normal = 400, Bold = 700 }
+public enum FontStyleType { Normal, Italic, Oblique }
+public enum TextAlignType { Start, End, Left, Right, Center, Justify }
+public enum TextDecorationType { None, Underline, Overline, LineThrough }
+public enum VerticalAlignType { Baseline, Top, Middle, Bottom, Sub, Super, TextTop, TextBottom }
+public enum WhiteSpaceMode { Normal, Nowrap, Pre, PreWrap, PreLine }
+public enum OverflowType { Visible, Hidden, Scroll, Auto }
+public enum VisibilityType { Visible, Hidden, Collapse }
+public enum FlexDirectionType { Row, RowReverse, Column, ColumnReverse }
+public enum FlexWrapType { NoWrap, Wrap, WrapReverse }
+public enum JustifyContentType { FlexStart, FlexEnd, Center, SpaceBetween, SpaceAround, SpaceEvenly }
+public enum AlignItemsType { Stretch, FlexStart, FlexEnd, Center, Baseline }
+public enum AlignSelfType { Auto, Stretch, FlexStart, FlexEnd, Center, Baseline }
+public enum BackgroundRepeat { Repeat, RepeatX, RepeatY, NoRepeat }
+public enum BoxSizingType { ContentBox, BorderBox }
+
+public class BoxDimensions
+{
+    public float MarginTop { get; set; }
+    public float MarginRight { get; set; }
+    public float MarginBottom { get; set; }
+    public float MarginLeft { get; set; }
+
+    public float BorderTopWidth { get; set; }
+    public float BorderRightWidth { get; set; }
+    public float BorderBottomWidth { get; set; }
+    public float BorderLeftWidth { get; set; }
+
+    public float PaddingTop { get; set; }
+    public float PaddingRight { get; set; }
+    public float PaddingBottom { get; set; }
+    public float PaddingLeft { get; set; }
+
+    public static BoxDimensions FromStyle(ComputedStyle style)
+    {
+        return new BoxDimensions
+        {
+            MarginTop = style.MarginTop is PixelLength p ? p.Value : 0,
+            MarginRight = style.MarginRight is PixelLength r ? r.Value : 0,
+            MarginBottom = style.MarginBottom is PixelLength b ? b.Value : 0,
+            MarginLeft = style.MarginLeft is PixelLength l ? l.Value : 0,
+            BorderTopWidth = style.BorderTopWidth,
+            BorderRightWidth = style.BorderRightWidth,
+            BorderBottomWidth = style.BorderBottomWidth,
+            BorderLeftWidth = style.BorderLeftWidth,
+            PaddingTop = style.PaddingTop is PixelLength pt ? pt.Value : 0,
+            PaddingRight = style.PaddingRight is PixelLength pr ? pr.Value : 0,
+            PaddingBottom = style.PaddingBottom is PixelLength pb ? pb.Value : 0,
+            PaddingLeft = style.PaddingLeft is PixelLength pl ? pl.Value : 0
+        };
+    }
+
+    public float TotalWidth => MarginLeft + BorderLeftWidth + PaddingLeft + MarginRight + BorderRightWidth + PaddingRight;
+    public float TotalHeight => MarginTop + BorderTopWidth + PaddingTop + MarginBottom + BorderBottomWidth + PaddingBottom;
+}
+
+public class LayoutBox
+{
+    public SKRect MarginBox { get; set; }
+    public SKRect BorderBox { get; set; }
+    public SKRect PaddingBox { get; set; }
+    public SKRect ContentBox { get; set; }
+
+    public float LineHeight { get; set; } = 16;
+    public List<LayoutBox> Children { get; } = new();
+    public LayoutBox? Parent { get; set; }
+    public int? ZIndex { get; set; }
+    public BoxDimensions? Dimensions { get; set; }
+
+    public float Width => ContentBox.Width;
+    public float Height => ContentBox.Height;
+
+    public LayoutBox? ContainingBlock { get; set; }
+
+    public List<LineBox>? Lines { get; set; }
+    public List<InlineRun>? LineRuns { get; set; }
+    public bool IsFloating { get; set; }
+    public FloatType Float { get; set; }
+}
+
+public class InlineRun
+{
+    public string Text { get; set; } = string.Empty;
+    public float Width { get; set; }
+    public float Height { get; set; }
+    public float Baseline { get; set; }
+    public Node? Node { get; set; }
+    public bool IsText { get; set; }
+    public SKColor? Color { get; set; }
+    public float? FontSize { get; set; }
+    public string? FontFamily { get; set; }
+}
+
+public class LineBox
+{
+    public float X { get; set; }
+    public float Y { get; set; }
+    public float Width { get; set; }
+    public float Height { get; set; }
+    public float Baseline { get; set; }
+    public List<InlineRun> Runs { get; } = new();
+}
+
+public class PaintContext
+{
+    public float CurrentX { get; set; }
+    public float CurrentY { get; set; }
+    public float AvailableWidth { get; set; }
+    public List<LineBox> Lines { get; } = new();
+    public LineBox CurrentLine { get; set; } = new();
+    public float MaxLineHeight { get; set; } = 16;
+    public bool NeedsNewLine { get; set; }
+}
