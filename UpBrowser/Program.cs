@@ -211,7 +211,7 @@ window.Run((dt) =>
                     var bodyBox = doc.Body?.LayoutBox;
                     float contentWidth = bodyBox?.BorderBox.Width ?? windowWidth;
                     float contentHeight = bodyBox?.BorderBox.Height ?? 0;
-                    float viewportHeight = windowHeight - contentOffset;
+                    float viewportHeight = windowHeight - contentOffset - chromeRenderer.GetStatusBarHeight();
                     
                     scrollManager.UpdateScroll(contentWidth, contentHeight, windowWidth, viewportHeight);
                     

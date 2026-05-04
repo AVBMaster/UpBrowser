@@ -188,7 +188,9 @@ public class ChromeRenderer
         // 水平滚动条
         if (scrollManager.CanScrollX && viewportWidth > 0)
         {
-            float scrollbarTop = height - StatusBarHeight - ScrollManager.ScrollbarWidth;
+            // 水平滚动条应该在内容视口的底部（status bar 上方）
+            float contentBottom = height - StatusBarHeight;
+            float scrollbarTop = contentBottom - ScrollManager.ScrollbarWidth;
             float trackLeft = 0;
             float trackWidth = viewportWidth;
             float contentWidth = scrollManager.ContentWidth;

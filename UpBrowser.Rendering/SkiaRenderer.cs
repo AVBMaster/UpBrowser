@@ -108,9 +108,8 @@ public class SkiaRenderer : IDisposable
         // 保存状态
         Canvas.Save();
 
-        // 裁剪到内容区域（视口）
-        float statusBarHeight = 20; // 可以从参数传入
-        var clipRect = new SKRect(0, contentOffsetY, viewportWidth, contentOffsetY + viewportHeight - statusBarHeight);
+        // 裁剪到内容区域（视口）- viewportHeight 已经包含了 status bar 的偏移
+        var clipRect = new SKRect(0, contentOffsetY, viewportWidth, contentOffsetY + viewportHeight);
         Canvas.ClipRect(clipRect);
 
         // 应用滚动变换
