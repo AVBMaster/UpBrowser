@@ -145,6 +145,7 @@ public class ComputedStyle
     public OverflowType OverflowY { get; set; } = OverflowType.Visible;
     public VisibilityType Visibility { get; set; } = VisibilityType.Visible;
     public int? ZIndex { get; set; }
+    public string? Cursor { get; set; } = "auto";
 
     public FlexDirectionType FlexDirection { get; set; } = FlexDirectionType.Row;
     public FlexWrapType FlexWrap { get; set; } = FlexWrapType.NoWrap;
@@ -181,7 +182,7 @@ public class ComputedStyle
     public static ComputedStyle CreateDefault() => new();
 }
 
-public enum DisplayType { Block, Inline, InlineBlock, Flex, InlineFlex, ListItem, Table, TableRow, TableCell, None }
+public enum DisplayType { Block, Inline, InlineBlock, Flex, InlineFlex, ListItem, Table, TableRow, TableRowGroup, TableCell, TableCaption, TableColumnGroup, TableColumn, Ruby, None }
 public enum PositionType { Static, Relative, Absolute, Fixed, Sticky }
 public enum FloatType { None, Left, Right }
 public enum ClearType { None, Left, Right, Both }
@@ -190,7 +191,7 @@ public enum FontWeight { Normal = 400, Bold = 700 }
 public enum FontStyleType { Normal, Italic, Oblique }
 public enum TextAlignType { Start, End, Left, Right, Center, Justify }
 public enum TextDecorationType { None, Underline, Overline, LineThrough }
-public enum VerticalAlignType { Baseline, Top, Middle, Bottom, Sub, Super, TextTop, TextBottom }
+public enum VerticalAlignType { Baseline, Top, Middle, Bottom, Sub, Super, TextTop, TextBottom, Inherit }
 public enum WhiteSpaceMode { Normal, Nowrap, Pre, PreWrap, PreLine }
 public enum OverflowType { Visible, Hidden, Scroll, Auto }
 public enum VisibilityType { Visible, Hidden, Collapse }
@@ -272,6 +273,7 @@ public class LayoutBox
 public class InlineRun
 {
     public string Text { get; set; } = string.Empty;
+    public float X { get; set; }
     public float Width { get; set; }
     public float Height { get; set; }
     public float Baseline { get; set; }

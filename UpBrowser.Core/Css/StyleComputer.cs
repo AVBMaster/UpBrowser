@@ -1,6 +1,7 @@
 using UpBrowser.Core.Dom;
 using SkiaSharp;
 using System.Text.RegularExpressions;
+using UpBrowser.Core.Css.ElementStyles;
 
 namespace UpBrowser.Core.Css;
 
@@ -97,132 +98,7 @@ public class StyleComputer
 
     private void ApplyUserAgentStyles(ComputedStyle style, string tagName)
     {
-        tagName = tagName.ToLowerInvariant();
-
-        switch (tagName)
-        {
-            case "html": case "body":
-                style.Display = DisplayType.Block;
-                style.MarginTop = new PixelLength(0);
-                style.MarginBottom = new PixelLength(0);
-                break;
-            case "div": style.Display = DisplayType.Block; break;
-            case "span": style.Display = DisplayType.Inline; break;
-            case "p":
-                style.Display = DisplayType.Block;
-                style.MarginTop = new PixelLength(16);
-                style.MarginBottom = new PixelLength(16);
-                break;
-            case "h1":
-                style.Display = DisplayType.Block;
-                style.FontSize = 32;
-                style.FontWeight = FontWeight.Bold;
-                style.MarginTop = new PixelLength(24);
-                style.MarginBottom = new PixelLength(16);
-                break;
-            case "h2":
-                style.Display = DisplayType.Block;
-                style.FontSize = 24;
-                style.FontWeight = FontWeight.Bold;
-                style.MarginTop = new PixelLength(20);
-                style.MarginBottom = new PixelLength(12);
-                break;
-            case "h3":
-                style.Display = DisplayType.Block;
-                style.FontSize = 20;
-                style.FontWeight = FontWeight.Bold;
-                style.MarginTop = new PixelLength(18);
-                style.MarginBottom = new PixelLength(10);
-                break;
-            case "a":
-                style.Display = DisplayType.Inline;
-                style.Color = SKColor.Parse("#0000EE");
-                style.TextDecoration = TextDecorationType.Underline;
-                break;
-            case "ul": case "ol":
-                style.Display = DisplayType.Block;
-                style.MarginTop = new PixelLength(16);
-                style.MarginBottom = new PixelLength(16);
-                style.PaddingLeft = new PixelLength(40);
-                break;
-            case "li": 
-                style.Display = DisplayType.ListItem; 
-                style.PaddingLeft = new PixelLength(20);
-                break;
-            case "table":
-                style.Display = DisplayType.Table;
-                style.BorderCollapse = true;
-                break;
-            case "tr": style.Display = DisplayType.TableRow; break;
-            case "td": case "th":
-                style.Display = DisplayType.TableCell;
-                style.PaddingTop = new PixelLength(4);
-                style.PaddingBottom = new PixelLength(4);
-                style.PaddingLeft = new PixelLength(8);
-                style.PaddingRight = new PixelLength(8);
-                break;
-            case "img":
-                style.Display = DisplayType.InlineBlock;
-                break;
-            case "input": case "textarea": case "select":
-                style.Display = DisplayType.InlineBlock;
-                style.BorderTopWidth = 1;
-                style.BorderRightWidth = 1;
-                style.BorderBottomWidth = 1;
-                style.BorderLeftWidth = 1;
-                style.BorderTopColor = SKColors.Gray;
-                style.BorderRightColor = SKColors.Gray;
-                style.BorderBottomColor = SKColors.Gray;
-                style.BorderLeftColor = SKColors.Gray;
-                style.PaddingTop = new PixelLength(2);
-                style.PaddingBottom = new PixelLength(2);
-                style.PaddingLeft = new PixelLength(4);
-                style.PaddingRight = new PixelLength(4);
-                style.BackgroundColor = SKColors.White;
-                break;
-            case "button":
-                style.Display = DisplayType.InlineBlock;
-                style.BorderTopWidth = 2;
-                style.BorderRightWidth = 2;
-                style.BorderBottomWidth = 2;
-                style.BorderLeftWidth = 2;
-                style.BorderTopColor = SKColors.Gray;
-                style.BorderRightColor = SKColors.DarkGray;
-                style.BorderBottomColor = SKColors.DarkGray;
-                style.BorderLeftColor = SKColors.Gray;
-                style.PaddingTop = new PixelLength(4);
-                style.PaddingBottom = new PixelLength(4);
-                style.PaddingLeft = new PixelLength(12);
-                style.PaddingRight = new PixelLength(12);
-                style.BackgroundColor = SKColor.Parse("#E0E0E0");
-                style.Height = new PixelLength(24);
-                break;
-            case "br": style.Display = DisplayType.Inline; break;
-            case "hr":
-                style.Display = DisplayType.Block;
-                style.BorderTopWidth = 1;
-                style.BorderTopColor = SKColors.Gray;
-                style.MarginTop = new PixelLength(16);
-                style.MarginBottom = new PixelLength(16);
-                break;
-            case "pre": case "code":
-                style.Display = DisplayType.Block;
-                style.FontFamily = "monospace";
-                style.WhiteSpace = WhiteSpaceMode.Pre;
-                break;
-            case "strong": case "b":
-                style.FontWeight = FontWeight.Bold;
-                break;
-            case "em": case "i":
-                style.FontStyle = FontStyleType.Italic;
-                break;
-            case "u": case "ins":
-                style.TextDecoration = TextDecorationType.Underline;
-                break;
-            case "s": case "del":
-                style.TextDecoration = TextDecorationType.LineThrough;
-                break;
-        }
+        ElementStyleRegistry.ApplyUserAgentStyle(style, tagName);
     }
 
     private void ApplyStylePropertyWithPriority(ComputedStyle style, string name, string value, PropertyPriority priority)

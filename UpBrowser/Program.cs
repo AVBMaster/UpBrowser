@@ -188,16 +188,29 @@ class Program
         var stylesheet = cssParser.Parse(@"
             body { font-family: Arial, sans-serif; display: block; }
             h1 { display: block; margin: 0 0 20px 0; font-size: 32px; font-weight: bold; }
-            h2 { display: block; margin: 0 0 10px 0; font-weight: bold; }
+            h2 { display: block; margin: 0 0 15px 0; font-size: 24px; font-weight: bold; }
+            h3 { display: block; margin: 0 0 12px 0; font-size: 20px; font-weight: bold; }
+            h4 { display: block; margin: 0 0 10px 0; font-size: 18px; font-weight: bold; }
+            h5 { display: block; margin: 0 0 8px 0; font-size: 16px; font-weight: bold; }
+            h6 { display: block; margin: 0 0 6px 0; font-size: 14px; font-weight: bold; }
             p { display: block; margin: 0 0 10px 0; }
-            ul { display: block; margin: 10px 0; padding-left: 20px; }
-            li { display: list-item; }
-            button { display: inline-block; cursor: pointer; }
             div { display: block; }
             span { display: inline; }
-            a { display: inline; color: #0000EE; }
+            ul { display: block; margin: 10px 0; padding-left: 20px; }
+            ol { display: block; margin: 10px 0; padding-left: 20px; }
+            li { display: list-item; margin: 5px 0; }
+            table { display: table; border-collapse: collapse; }
+            tr { display: table-row; }
+            th { display: table-cell; font-weight: bold; }
+            td { display: table-cell; }
+            button { display: inline-block; cursor: pointer; }
+            input { display: inline-block; }
+            a { display: inline; color: #0000EE; text-decoration: underline; }
             strong { font-weight: bold; }
             em { font-style: italic; }
+            u { text-decoration: underline; }
+            s { text-decoration: line-through; }
+            hr { display: block; margin: 20px 0; border: none; border-top: 1px solid #ccc; }
         ");
         styleComputer.AddStylesheet(stylesheet);
         styleComputer.ComputeStyles(doc);
