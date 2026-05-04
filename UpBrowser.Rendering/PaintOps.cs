@@ -163,16 +163,113 @@ public class DrawTextOp : PaintOp
         }
     }
 
+    private static SKTypeface? _cachedChineseTypeface;
+    private static bool _isChineseTypefaceDisposed = false;
+    
+    private static SKTypeface GetCachedChineseTypeface()
+    {
+        if (_cachedChineseTypeface != null && !_isChineseTypefaceDisposed)
+        {
+            try
+            {
+                // Try to use the cached typeface
+                return _cachedChineseTypeface;
+            }
+            catch (ObjectDisposedException)
+            {
+                _isChineseTypefaceDisposed = true;
+                _cachedChineseTypeface = null;
+            }
+        }
+        
+        var families = SKFontManager.Default.FontFamilies.ToArray();
+        string[] chineseFonts = { "Microsoft YaHei", "Microsoft YaHei UI", "SimSun", "SimHei", "KaiTi", "FangSong", "YouYuan", "STSong" };
+        
+        foreach (var fontName in chineseFonts)
+        {
+            var index = Array.IndexOf(families, fontName);
+            if (index >= 0)
+            {
+                var tf = SKFontManager.Default.GetFontStyles(index).CreateTypeface(0);
+                if (tf != null && tf.FamilyName != null)
+                {
+                    _cachedChineseTypeface = tf;
+                    _isChineseTypefaceDisposed = false;
+                    return tf;
+                }
+            }
+        }
+        
+        _cachedChineseTypeface = SKTypeface.Default;
+        _isChineseTypefaceDisposed = false;
+        return _cachedChineseTypeface!;
+    }
+    
     private SKTypeface GetTypeface()
     {
+        if (!string.IsNullOrEmpty(FontFamily))
+        {
+            var fontName = FontFamily.Split(',')[0].Trim();
+            
+            if (IsChineseString(fontName))
+            {
+                var chineseTf = TryGetChineseFont(fontName);
+                if (chineseTf != null)
+                    return chineseTf;
+            }
+            
+            var families = SKFontManager.Default.FontFamilies.ToArray();
+            var index = Array.IndexOf(families, fontName);
+            if (index >= 0)
+            {
+                var style = SKFontManager.Default.GetFontStyles(index);
+                var tf = style.CreateTypeface(0);
+                if (tf != null && tf.FamilyName != null)
+                {
+                    bool isSystemFont = tf.FamilyName == "Segoe UI" || tf.FamilyName == "Arial";
+                    if (!isSystemFont)
+                        return tf;
+                }
+            }
+        }
+        
+        return GetCachedChineseTypeface();
+    }
+    
+    private static bool IsChineseString(string text)
+    {
+        foreach (char c in text)
+        {
+            if (c >= 0x4E00 && c <= 0x9FFF)
+                return true;
+        }
+        return false;
+    }
+    
+    private static SKTypeface? TryGetChineseFont(string fontName)
+    {
         var families = SKFontManager.Default.FontFamilies.ToArray();
-        var index = Array.IndexOf(families, FontFamily);
+        var index = Array.IndexOf(families, fontName);
         if (index >= 0)
         {
-            var style = SKFontManager.Default.GetFontStyles(index);
-            return style.CreateTypeface(0) ?? SKTypeface.Default;
+            return SKFontManager.Default.GetFontStyles(index).CreateTypeface(0);
         }
-        return SKTypeface.Default;
+        
+        string[] chineseFonts = { "Microsoft YaHei", "Microsoft YaHei UI", "SimSun", "SimHei", "KaiTi", "FangSong" };
+        foreach (var cnFont in chineseFonts)
+        {
+            if (fontName.Contains(cnFont, StringComparison.OrdinalIgnoreCase) ||
+                cnFont.Contains(fontName, StringComparison.OrdinalIgnoreCase))
+            {
+                index = Array.IndexOf(families, cnFont);
+                if (index >= 0)
+                {
+                    return SKFontManager.Default.GetFontStyles(index).CreateTypeface(0);
+                }
+            }
+        }
+        
+        return null;
     }
 }
 

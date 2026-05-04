@@ -9,10 +9,31 @@ public class BrowserWindow : IDisposable
     private bool _disposed;
     private bool _isRunning;
     private Action<double>? _onFrame;
+    private Action<double>? _onMouseWheel;
+    private Action<bool, bool>? _onScrollbarClick;
+    private Action<Key>? _onKeyDown;
     private DateTime _lastFrameTime;
     private int _width;
     private int _height;
     private NativeWindow.WndProc? _wndProc;
+
+    public Action<double>? OnMouseWheel
+    {
+        get => _onMouseWheel;
+        set => _onMouseWheel = value;
+    }
+    
+    public Action<bool, bool>? OnScrollbarClick
+    {
+        get => _onScrollbarClick;
+        set => _onScrollbarClick = value;
+    }
+
+    public Action<Key>? OnKeyDown
+    {
+        get => _onKeyDown;
+        set => _onKeyDown = value;
+    }
 
     private void TriggerFrameRender()
     {
@@ -114,6 +135,34 @@ public class BrowserWindow : IDisposable
             case NativeWindow.WM_ENTERSIZEMOVE:
             case NativeWindow.WM_EXITSIZEMOVE:
                 TriggerFrameRender();
+                return IntPtr.Zero;
+
+            case NativeWindow.WM_MOUSEWHEEL:
+                // 正确提取滚轮delta：wParam高16位是滚轮值，通常120的倍数
+                // 正数表示向上滚动（滚轮远离用户）
+                int rawDelta = (int)((short)((wParam.ToInt64() >> 16) & 0xFFFF));
+                _onMouseWheel?.Invoke(rawDelta);
+                return IntPtr.Zero;
+
+            case NativeWindow.WM_KEYDOWN:
+                int virtualKey = wParam.ToInt32();
+                _onKeyDown?.Invoke((Key)virtualKey);
+                return IntPtr.Zero;
+
+            case NativeWindow.WM_LBUTTONDOWN:
+                int mouseX = (int)(lParam.ToInt64() & 0xFFFF);
+                int mouseY = (int)((lParam.ToInt64() >> 16) & 0xFFFF);
+                
+                if (_width > 0 && _height > 0 && _onScrollbarClick != null)
+                {
+                    float scrollbarLeft = _width - 12;
+                    bool inVerticalScrollbar = mouseX >= scrollbarLeft;
+                    
+                    if (inVerticalScrollbar)
+                    {
+                        _onScrollbarClick(true, true);
+                    }
+                }
                 return IntPtr.Zero;
 
             case NativeWindow.WM_CLOSE:

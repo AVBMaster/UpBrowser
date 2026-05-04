@@ -13,8 +13,13 @@ namespace UpBrowser;
 
 class Program
 {
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern bool SetProcessDPIAware();
+
     static async Task Main(string[] args)
     {
+        SetProcessDPIAware();
+
         Console.WriteLine("UpBrowser - Starting...");
 
         var html = @"<!DOCTYPE html>
@@ -45,6 +50,19 @@ class Program
     </div>
     <div style='position: relative; height: 100px; margin-top: 20px; background: #fff3e0;'>
         <div style='position: absolute; top: 10px; right: 10px; background: #ff5722; color: white; padding: 5px 10px;'>Absolute Position</div>
+    </div>
+    <div style='margin-top: 30px;'>
+        <p>More content below - Testing scroll functionality</p>
+        <p>Line 2</p>
+        <p>Line 3</p>
+        <p>Line 4</p>
+        <p>Line 5</p>
+        <p>Line 6</p>
+        <p>Line 7</p>
+        <p>Line 8</p>
+        <p>Line 9</p>
+        <p>Line 10</p>
+        <p style='color: red;'>This is the bottom of the page!</p>
     </div>
 </body>
 </html>";
@@ -89,7 +107,7 @@ class Program
         var devTool = new LayoutDevTool();
         var debugReport = devTool.GenerateReport(doc, 1024, 768);
         File.WriteAllText("layout_debug.txt", debugReport);
-        Console.WriteLine("📊 Debug report saved to layout_debug.txt");
+        Console.WriteLine("Debug report saved to layout_debug.txt");
         Console.WriteLine(devTool.GenerateQuickReport(doc));
 
         using var jsEngine = new JavaScriptEngine();
@@ -107,6 +125,7 @@ class Program
         skiaRenderer.Initialize(1024, 768, enableDirtyRegions: true);
 
         var contentOffset = chromeRenderer.GetContentOffset();
+        var scrollManager = new ScrollManager();
 
         var paintVisitor = new PaintVisitor(contentOffset);
         paintVisitor.VisitDocument(doc);
@@ -116,42 +135,115 @@ class Program
 
         PaintVisitor? cachedPaintVisitor = null;
         float lastLayoutWidth = 0;
+        float lastContentHeight = 0;
 
-        window.Run((dt) =>
+        window.OnMouseWheel = (delta) =>
+        {
+            scrollManager.ScrollBy((float)delta);
+            // 不需要重建显示列表，滚动变换在渲染时应用
+        };
+
+        window.OnScrollbarClick = (isVertical, isUp) =>
+        {
+            if (isVertical)
+            {
+                if (isUp)
+                    scrollManager.PageUp();
+                else
+                    scrollManager.PageDown();
+                // 不需要重建显示列表，滚动变换在渲染时应用
+            }
+        };
+
+        window.OnKeyDown = (key) =>
+        {
+            switch (key)
+            {
+                case Key.PageUp:
+                    scrollManager.PageUp();
+                    break;
+                case Key.PageDown:
+                    scrollManager.PageDown();
+                    break;
+                case Key.Home:
+                    scrollManager.ScrollHome();
+                    break;
+                case Key.End:
+                    scrollManager.ScrollEnd();
+                    break;
+                case Key.Up:
+                    scrollManager.ScrollBy(0, -40);
+                    break;
+                case Key.Down:
+                    scrollManager.ScrollBy(0, 40);
+                    break;
+                case Key.Left:
+                    scrollManager.ScrollBy(-40, 0);
+                    break;
+                case Key.Right:
+                    scrollManager.ScrollBy(40, 0);
+                    break;
+            }
+            // 不需要重建显示列表，滚动变换在渲染时应用
+        };
+
+window.Run((dt) =>
         {
             eventLoop.ProcessTasks();
 
             var (windowWidth, windowHeight) = window.GetClientSize();
             if (windowWidth > 0 && windowHeight > 0)
             {
-                bool needsRepaint = false;
+                bool needsLayout = false;
 
                 if (skiaRenderer.Width != windowWidth || skiaRenderer.Height != windowHeight)
                 {
                     skiaRenderer.Resize(windowWidth, windowHeight);
-                    needsRepaint = true;
+                    needsLayout = true;
                 }
 
-                if (needsRepaint || windowWidth != lastLayoutWidth)
+                if (needsLayout || windowWidth != lastLayoutWidth)
                 {
                     lastLayoutWidth = windowWidth;
                     
                     layoutEngine.Layout(doc, windowWidth, windowHeight);
+                    
+                    var bodyBox = doc.Body?.LayoutBox;
+                    float contentWidth = bodyBox?.BorderBox.Width ?? windowWidth;
+                    float contentHeight = bodyBox?.BorderBox.Height ?? 0;
+                    float viewportHeight = windowHeight - contentOffset;
+                    
+                    scrollManager.UpdateScroll(contentWidth, contentHeight, windowWidth, viewportHeight);
+                    
+                    if (lastContentHeight != contentHeight)
+                    {
+                        lastContentHeight = contentHeight;
+                        needsLayout = true;
+                    }
                     
                     cachedPaintVisitor = new PaintVisitor(contentOffset);
                     cachedPaintVisitor.VisitDocument(doc);
                     displayList = cachedPaintVisitor.GetDisplayList();
                     displayList.SortByZIndex();
                 }
+
+                // 新的渲染流程：先绘制 Chrome，再绘制内容（带滚动变换），最后绘制滚动条
+                skiaRenderer.Canvas.Clear(SKColors.White);
+                
+                // 1. 绘制 Chrome（不受滚动影响）
+                var title = angleSharpDoc.Title ?? "UpBrowser";
+                chromeRenderer.RenderChrome(skiaRenderer.Canvas, windowWidth, windowHeight, "upbrowser://local", title);
+                
+                // 2. 绘制内容（应用滚动变换）
+                float contentViewportHeight = windowHeight - contentOffset - chromeRenderer.GetStatusBarHeight();
+                skiaRenderer.RenderWithScroll(displayList, contentOffset, scrollManager.ScrollX, scrollManager.ScrollY, windowWidth, contentViewportHeight);
+                
+                // 3. 绘制滚动条（不受滚动影响）
+                chromeRenderer.RenderScrollbars(skiaRenderer.Canvas, windowWidth, windowHeight, scrollManager);
+
+                var pixels = skiaRenderer.GetPixelData();
+                window.Render(pixels, skiaRenderer.Width, skiaRenderer.Height);
             }
-
-            skiaRenderer.Render(displayList);
-
-            var title = angleSharpDoc.Title ?? "UpBrowser";
-            chromeRenderer.RenderChrome(skiaRenderer.Canvas, windowWidth, windowHeight, "upbrowser://local", title);
-
-            var pixels = skiaRenderer.GetPixelData();
-            window.Render(pixels, skiaRenderer.Width, skiaRenderer.Height);
         });
 
         Console.WriteLine("UpBrowser closed.");

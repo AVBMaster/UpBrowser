@@ -424,8 +424,10 @@ private void LayoutFlexChildren(Element element, LayoutBox box, float x, float y
         var style = element.ComputedStyle;
         if (style == null || parentBox == null) return;
 
-        float left = style.Left is PixelLength l ? l.Value : 0;
-        float top = style.Top is PixelLength t ? t.Value : 0;
+        float marginLeft = style.MarginLeft is PixelLength ml ? ml.Value : 0;
+        float marginRight = style.MarginRight is PixelLength mr ? mr.Value : 0;
+        float marginTop = style.MarginTop is PixelLength mt ? mt.Value : 0;
+        float marginBottom = style.MarginBottom is PixelLength mb ? mb.Value : 0;
 
         float width = box.ContentBox.Width;
         if (style.Width is PixelLength wl)
@@ -433,13 +435,44 @@ private void LayoutFlexChildren(Element element, LayoutBox box, float x, float y
         else if (style.Width is PercentLength wp)
             width = wp.Value * parentBox.ContentBox.Width;
 
+        float height = box.ContentBox.Height;
+        if (style.Height is PixelLength hl)
+            height = hl.Value;
+        else if (style.Height is PercentLength hp)
+            height = hp.Value * parentBox.ContentBox.Height;
+
         float cbLeft = parentBox.ContentBox.Left;
         float cbTop = parentBox.ContentBox.Top;
 
-        box.MarginBox = new SKRect(cbLeft + left, cbTop + top, cbLeft + left + width, cbTop + top + box.ContentBox.Height);
-        box.BorderBox = box.MarginBox;
-        box.PaddingBox = box.MarginBox;
-        box.ContentBox = new SKRect(cbLeft + left, cbTop + top, cbLeft + left + width, cbTop + top + box.ContentBox.Height);
+        float left = 0;
+        float top = 0;
+
+        if (style.Left is PixelLength sl)
+            left = sl.Value + marginLeft;
+        else if (style.Left is PercentLength spl)
+            left = spl.Value * parentBox.ContentBox.Width + marginLeft;
+
+        if (style.Top is PixelLength st)
+            top = st.Value + marginTop;
+        else if (style.Top is PercentLength spt)
+            top = spt.Value * parentBox.ContentBox.Height + marginTop;
+
+        if (style.Right is PixelLength sr && style.Left == null)
+        {
+            float rightOffset = sr.Value + marginRight;
+            left = parentBox.ContentBox.Right - rightOffset - width;
+        }
+
+        if (style.Bottom is PixelLength sb && style.Top == null)
+        {
+            float bottomOffset = sb.Value + marginBottom;
+            top = parentBox.ContentBox.Bottom - bottomOffset - height;
+        }
+
+        box.MarginBox = new SKRect(cbLeft + left, cbTop + top, cbLeft + left + width + marginRight, cbTop + top + height + marginBottom);
+        box.BorderBox = new SKRect(cbLeft + left + marginLeft, cbTop + top + marginTop, cbLeft + left + marginLeft + width, cbTop + top + marginTop + height);
+        box.PaddingBox = box.BorderBox;
+        box.ContentBox = new SKRect(cbLeft + left + marginLeft, cbTop + top + marginTop, cbLeft + left + marginLeft + width, cbTop + top + marginTop + height);
     }
 
     private void LayoutTable(Element element, LayoutBox box, float x, float y, float availableWidth)

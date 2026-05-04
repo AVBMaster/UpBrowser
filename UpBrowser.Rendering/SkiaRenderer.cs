@@ -12,9 +12,38 @@ public class SkiaRenderer : IDisposable
     private DisplayList? _currentDisplayList;
     private DirtyRegionManager? _dirtyManager;
     private bool _useDirtyRegions;
+    private float _scrollX;
+    private float _scrollY;
+    private float _contentOffsetY;
 
     public SKCanvas Canvas { get; private set; } = null!;
     public DisplayList? CurrentDisplayList => _currentDisplayList;
+
+    public float ScrollX
+    {
+        get => _scrollX;
+        set { _scrollX = value; InvalidateContent(); }
+    }
+
+    public float ScrollY
+    {
+        get => _scrollY;
+        set { _scrollY = value; InvalidateContent(); }
+    }
+
+    public float ContentOffsetY
+    {
+        get => _contentOffsetY;
+        set { _contentOffsetY = value; InvalidateContent(); }
+    }
+
+    private void InvalidateContent()
+    {
+        if (_dirtyManager != null)
+        {
+            _dirtyManager.Invalidate(new SKRect(0, _contentOffsetY, _width, _height));
+        }
+    }
 
     public void Initialize(int width, int height, bool enableDirtyRegions = true)
     {
@@ -67,6 +96,31 @@ public class SkiaRenderer : IDisposable
             Canvas.Clear(SKColors.White);
             displayList.Execute(Canvas);
         }
+    }
+
+    public void RenderWithScroll(DisplayList displayList, float contentOffsetY, float scrollX, float scrollY, float viewportWidth, float viewportHeight)
+    {
+        _currentDisplayList = displayList;
+
+        if (displayList == null)
+            return;
+
+        // 保存状态
+        Canvas.Save();
+
+        // 裁剪到内容区域（视口）
+        float statusBarHeight = 20; // 可以从参数传入
+        var clipRect = new SKRect(0, contentOffsetY, viewportWidth, contentOffsetY + viewportHeight - statusBarHeight);
+        Canvas.ClipRect(clipRect);
+
+        // 应用滚动变换
+        Canvas.Translate(-scrollX, -scrollY);
+
+        // 执行显示列表
+        displayList.Execute(Canvas);
+
+        // 恢复状态
+        Canvas.Restore();
     }
 
     private void RenderDirtyRegions(DisplayList displayList)

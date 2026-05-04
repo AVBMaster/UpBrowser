@@ -141,6 +141,8 @@ public class ComputedStyle
     public WhiteSpaceMode WhiteSpace { get; set; } = WhiteSpaceMode.Normal;
 
     public OverflowType Overflow { get; set; } = OverflowType.Visible;
+    public OverflowType OverflowX { get; set; } = OverflowType.Visible;
+    public OverflowType OverflowY { get; set; } = OverflowType.Visible;
     public VisibilityType Visibility { get; set; } = VisibilityType.Visible;
     public int? ZIndex { get; set; }
 

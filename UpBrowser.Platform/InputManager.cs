@@ -116,6 +116,10 @@ public enum Key
     Backspace = 8,
     Delete = 46,
     Left = 37, Up = 38, Right = 39, Down = 40,
+    Home = 36,
+    End = 35,
+    PageUp = 33,
+    PageDown = 34,
 }
 
 public enum MouseButton

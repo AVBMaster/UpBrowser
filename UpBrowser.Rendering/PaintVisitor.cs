@@ -19,6 +19,9 @@ public class PaintVisitor
         _defaultTypeface = GetChineseTypeface();
     }
 
+    private float TotalOffsetY => _contentOffsetY;
+    private float TotalOffsetX => 0;
+
     public DisplayList GetDisplayList() => _displayList;
 
     private SKTypeface? GetChineseTypeface()
@@ -91,16 +94,16 @@ public class PaintVisitor
 
         var offsetBorderBox = new SKRect(
             layoutBox.BorderBox.Left,
-            layoutBox.BorderBox.Top + _contentOffsetY,
+            layoutBox.BorderBox.Top + TotalOffsetY,
             layoutBox.BorderBox.Right,
-            layoutBox.BorderBox.Bottom + _contentOffsetY);
+            layoutBox.BorderBox.Bottom + TotalOffsetY);
 
         DrawElementBackground(element, layoutBox, style, offsetBorderBox);
         DrawElementBorder(element, layoutBox, style, offsetBorderBox);
 
         if (element.TagName.Equals("HR", StringComparison.OrdinalIgnoreCase))
         {
-            float y = layoutBox.ContentBox.Top + _contentOffsetY + layoutBox.ContentBox.Height / 2;
+            float y = layoutBox.ContentBox.Top + TotalOffsetY + layoutBox.ContentBox.Height / 2;
             float x1 = layoutBox.ContentBox.Left;
             float x2 = layoutBox.ContentBox.Right;
 
@@ -175,7 +178,7 @@ public class PaintVisitor
         {
             Text = markerText,
             X = markerX,
-            Y = markerY + _contentOffsetY,
+            Y = markerY + TotalOffsetY,
             Color = style.Color,
             FontSize = style.FontSize,
             FontFamily = style.FontFamily ?? "Arial",
@@ -490,7 +493,7 @@ public class PaintVisitor
             return;
         }
 
-        float y = box.ContentBox.Top + _contentOffsetY;
+        float y = box.ContentBox.Top + TotalOffsetY;
         float x = box.ContentBox.Left;
 
         if (box.Lines != null)
@@ -526,10 +529,10 @@ public class PaintVisitor
 
         if (box.LineRuns != null && (box.Lines == null || box.Lines.Count == 0))
         {
-            y = box.ContentBox.Top + _contentOffsetY;
+            y = box.ContentBox.Top + TotalOffsetY;
             x = box.ContentBox.Left;
             float fontSize = box.LineRuns.FirstOrDefault()?.FontSize ?? 16;
-            float baseline = box.ContentBox.Top + _contentOffsetY + fontSize * 0.85f;
+            float baseline = box.ContentBox.Top + TotalOffsetY + fontSize * 0.85f;
 
             foreach (var run in box.LineRuns)
             {
@@ -548,7 +551,7 @@ var op = new DrawTextOp
                             FontFamily = run.FontFamily ?? parentStyle?.FontFamily ?? "Arial",
                             Underline = parentStyle?.TextDecoration == TextDecorationType.Underline,
                             LineThrough = parentStyle?.TextDecoration == TextDecorationType.LineThrough,
-                            Bounds = new SKRect(x, box.ContentBox.Top + _contentOffsetY, x + run.Width, box.ContentBox.Top + _contentOffsetY + run.Height)
+                            Bounds = new SKRect(x, box.ContentBox.Top + TotalOffsetY, x + run.Width, box.ContentBox.Top + TotalOffsetY + run.Height)
                         };
                         _displayList.Add(op);
                 }

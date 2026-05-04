@@ -195,6 +195,7 @@ public class StyleComputer
                 style.PaddingLeft = new PixelLength(12);
                 style.PaddingRight = new PixelLength(12);
                 style.BackgroundColor = SKColor.Parse("#E0E0E0");
+                style.Height = new PixelLength(24);
                 break;
             case "br": style.Display = DisplayType.Inline; break;
             case "hr":
@@ -267,7 +268,14 @@ public class StyleComputer
             case "line-height": style.LineHeight = ParseLineHeight(value); break;
             case "white-space": style.WhiteSpace = ParseWhiteSpace(value); break;
             case "visibility": style.Visibility = value.ToLowerInvariant() == "hidden" ? VisibilityType.Hidden : VisibilityType.Visible; break;
-            case "overflow": style.Overflow = ParseOverflow(value); break;
+            case "overflow": 
+                var overflow = ParseOverflow(value);
+                style.Overflow = overflow;
+                style.OverflowX = overflow;
+                style.OverflowY = overflow;
+                break;
+            case "overflow-x": style.OverflowX = ParseOverflow(value); break;
+            case "overflow-y": style.OverflowY = ParseOverflow(value); break;
             case "z-index": if (value != "auto") style.ZIndex = int.TryParse(value, out var z) ? z : null; break;
             case "border":
                 ParseBorderShorthand(value, style);

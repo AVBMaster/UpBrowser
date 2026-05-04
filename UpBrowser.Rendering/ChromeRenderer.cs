@@ -133,11 +133,93 @@ public class ChromeRenderer
         canvas.DrawRect(0, statusTop, width, StatusBarHeight, _backgroundPaint);
         canvas.DrawLine(0, statusTop, width, statusTop, _borderPaint);
 
-        canvas.DrawText("���سɹ�", 5, statusTop + 14, _textPaint);
+        canvas.DrawText("Ready", 5, statusTop + 14, _textPaint);
     }
 
     public float GetContentOffset() => TabBarHeight + ToolbarHeight;
     public float GetStatusBarHeight() => StatusBarHeight;
+
+    public void RenderScrollbars(SKCanvas canvas, float width, float height, ScrollManager scrollManager)
+    {
+        float contentTop = GetContentOffset();
+        float viewportHeight = scrollManager.ViewportHeight;
+        float viewportWidth = scrollManager.ViewportWidth;
+
+        // 垂直滚动条 - 参考 ScrollViewer.ConfigureScrollBar 的逻辑
+        if (scrollManager.CanScrollY && viewportHeight > 0)
+        {
+            float scrollbarLeft = width - ScrollManager.ScrollbarWidth;
+            float trackTop = contentTop;
+            float trackHeight = viewportHeight;
+            float contentHeight = scrollManager.ContentHeight;
+            
+            if (contentHeight <= viewportHeight)
+                return; // 不需要滚动条
+
+            // 轨道背景
+            using var trackPaint = new SKPaint { Color = new SKColor(240, 240, 240), Style = SKPaintStyle.Fill };
+            canvas.DrawRect(scrollbarLeft, trackTop, ScrollManager.ScrollbarWidth, trackHeight, trackPaint);
+
+            // 滑块大小：轨道高度 * (视口高度 / 内容高度)
+            // 参考 ScrollViewer: thumbSize = (ViewportSize / Maximum) * trackSize
+            float thumbHeight = Math.Max(ScrollManager.ScrollbarMinThumbSize, 
+                trackHeight * viewportHeight / contentHeight);
+            
+            // 滑块位置：当前滚动偏移 / 最大滚动偏移 * (轨道高度 - 滑块高度)
+            float maxScrollY = contentHeight - viewportHeight;
+            float thumbTop = trackTop;
+            if (maxScrollY > 0)
+            {
+                thumbTop += (scrollManager.ScrollY / maxScrollY) * (trackHeight - thumbHeight);
+            }
+
+            // 绘制滑块
+            var thumbRect = new SKRect(scrollbarLeft + 2, thumbTop, 
+                scrollbarLeft + ScrollManager.ScrollbarWidth - 2, thumbTop + thumbHeight);
+            using var thumbPaint = new SKPaint 
+            { 
+                Color = SKColors.Gray, 
+                Style = SKPaintStyle.Fill,
+                IsAntialias = true
+            };
+            canvas.DrawRoundRect(thumbRect, 4, 4, thumbPaint);
+        }
+
+        // 水平滚动条
+        if (scrollManager.CanScrollX && viewportWidth > 0)
+        {
+            float scrollbarTop = height - StatusBarHeight - ScrollManager.ScrollbarWidth;
+            float trackLeft = 0;
+            float trackWidth = viewportWidth;
+            float contentWidth = scrollManager.ContentWidth;
+            
+            if (contentWidth <= viewportWidth)
+                return;
+
+            using var trackPaint = new SKPaint { Color = new SKColor(240, 240, 240), Style = SKPaintStyle.Fill };
+            canvas.DrawRect(trackLeft, scrollbarTop, trackWidth, ScrollManager.ScrollbarWidth, trackPaint);
+
+            float thumbWidth = Math.Max(ScrollManager.ScrollbarMinThumbSize, 
+                trackWidth * viewportWidth / contentWidth);
+            
+            float maxScrollX = contentWidth - viewportWidth;
+            float thumbLeft = trackLeft;
+            if (maxScrollX > 0)
+            {
+                thumbLeft += (scrollManager.ScrollX / maxScrollX) * (trackWidth - thumbWidth);
+            }
+
+            var thumbRect = new SKRect(thumbLeft, scrollbarTop + 2, 
+                thumbLeft + thumbWidth, scrollbarTop + ScrollManager.ScrollbarWidth - 2);
+            using var thumbPaint = new SKPaint 
+            { 
+                Color = SKColors.Gray, 
+                Style = SKPaintStyle.Fill,
+                IsAntialias = true
+            };
+            canvas.DrawRoundRect(thumbRect, 4, 4, thumbPaint);
+        }
+    }
 
     public void Dispose()
     {
