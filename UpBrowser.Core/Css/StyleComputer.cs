@@ -137,6 +137,7 @@ public class StyleComputer
             case "a":
                 style.Display = DisplayType.Inline;
                 style.Color = SKColor.Parse("#0000EE");
+                style.TextDecoration = TextDecorationType.Underline;
                 break;
             case "ul": case "ol":
                 style.Display = DisplayType.Block;
@@ -144,7 +145,10 @@ public class StyleComputer
                 style.MarginBottom = new PixelLength(16);
                 style.PaddingLeft = new PixelLength(40);
                 break;
-            case "li": style.Display = DisplayType.ListItem; break;
+            case "li": 
+                style.Display = DisplayType.ListItem; 
+                style.PaddingLeft = new PixelLength(20);
+                break;
             case "table":
                 style.Display = DisplayType.Table;
                 style.BorderCollapse = true;
@@ -160,14 +164,45 @@ public class StyleComputer
             case "img":
                 style.Display = DisplayType.InlineBlock;
                 break;
-            case "input": case "button": case "textarea": case "select":
+            case "input": case "textarea": case "select":
                 style.Display = DisplayType.InlineBlock;
+                style.BorderTopWidth = 1;
+                style.BorderRightWidth = 1;
+                style.BorderBottomWidth = 1;
+                style.BorderLeftWidth = 1;
+                style.BorderTopColor = SKColors.Gray;
+                style.BorderRightColor = SKColors.Gray;
+                style.BorderBottomColor = SKColors.Gray;
+                style.BorderLeftColor = SKColors.Gray;
+                style.PaddingTop = new PixelLength(2);
+                style.PaddingBottom = new PixelLength(2);
+                style.PaddingLeft = new PixelLength(4);
+                style.PaddingRight = new PixelLength(4);
+                style.BackgroundColor = SKColors.White;
+                break;
+            case "button":
+                style.Display = DisplayType.InlineBlock;
+                style.BorderTopWidth = 2;
+                style.BorderRightWidth = 2;
+                style.BorderBottomWidth = 2;
+                style.BorderLeftWidth = 2;
+                style.BorderTopColor = SKColors.Gray;
+                style.BorderRightColor = SKColors.DarkGray;
+                style.BorderBottomColor = SKColors.DarkGray;
+                style.BorderLeftColor = SKColors.Gray;
+                style.PaddingTop = new PixelLength(4);
+                style.PaddingBottom = new PixelLength(4);
+                style.PaddingLeft = new PixelLength(12);
+                style.PaddingRight = new PixelLength(12);
+                style.BackgroundColor = SKColor.Parse("#E0E0E0");
                 break;
             case "br": style.Display = DisplayType.Inline; break;
             case "hr":
                 style.Display = DisplayType.Block;
-                style.MarginTop = new PixelLength(8);
-                style.MarginBottom = new PixelLength(8);
+                style.BorderTopWidth = 1;
+                style.BorderTopColor = SKColors.Gray;
+                style.MarginTop = new PixelLength(16);
+                style.MarginBottom = new PixelLength(16);
                 break;
             case "pre": case "code":
                 style.Display = DisplayType.Block;
@@ -216,6 +251,7 @@ public class StyleComputer
             case "padding-left": style.PaddingLeft = Length.Parse(value); break;
             case "padding-right": style.PaddingRight = Length.Parse(value); break;
             case "color": style.Color = ParseColor(value); break;
+            case "background": ParseBackgroundShorthand(value, style); break;
             case "background-color": style.BackgroundColor = ParseColor(value); break;
             case "background-image": style.BackgroundImage = value == "none" ? null : ParseUrl(value); break;
             case "background-repeat": style.BackgroundRepeat = ParseBackgroundRepeat(value); break;
@@ -264,6 +300,10 @@ public class StyleComputer
             case "bottom": style.Bottom = Length.Parse(value); break;
             case "left": style.Left = Length.Parse(value); break;
             case "right": style.Right = Length.Parse(value); break;
+            case "list-style-type": style.ListStyleType = ParseListStyleType(value); break;
+            case "list-style-position": style.ListStylePosition = value.Contains("inside") ? ListStylePosition.Inside : ListStylePosition.Outside; break;
+            case "list-style-image": style.ListStyleImage = value == "none" ? null : ParseUrl(value); break;
+            case "list-style": ParseListStyle(value, style); break;
         }
     }
 
@@ -478,6 +518,43 @@ public class StyleComputer
         }
     }
 
+    private void ParseBackgroundShorthand(string value, ComputedStyle style)
+    {
+        var parts = value.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        foreach (var part in parts)
+        {
+            var lower = part.ToLowerInvariant();
+            if (lower == "none" || lower == "transparent")
+            {
+                style.BackgroundColor = SKColors.Transparent;
+                style.BackgroundImage = null;
+            }
+            else if (lower.StartsWith("#") || lower.StartsWith("rgb") || lower.StartsWith("rgba") || IsColorName(lower))
+            {
+                style.BackgroundColor = ParseColor(part);
+            }
+            else if (lower.StartsWith("url("))
+            {
+                style.BackgroundImage = ParseUrl(part);
+            }
+            else if (lower == "repeat" || lower == "repeat-x" || lower == "repeat-y" || lower == "no-repeat")
+            {
+                style.BackgroundRepeat = ParseBackgroundRepeat(part);
+            }
+            else if (lower == "scroll" || lower == "fixed")
+            {
+                style.BackgroundAttachment = lower == "fixed" ? BackgroundAttachment.Fixed : BackgroundAttachment.Scroll;
+            }
+        }
+    }
+
+    private bool IsColorName(string name)
+    {
+        return name is "black" or "white" or "red" or "green" or "blue" or "yellow" or "cyan" or "magenta" or
+               "gray" or "silver" or "maroon" or "olive" or "lime" or "aqua" or "teal" or "navy" or "fuchsia" or
+               "orange" or "purple" or "pink" or "brown" or "gold" or "coral" or "salmon" or "turquoise";
+    }
+
     private void ParseBorderShorthand(string value, ComputedStyle style)
     {
         var parts = value.Split(' ', StringSplitOptions.RemoveEmptyEntries);
@@ -570,9 +647,9 @@ public class StyleComputer
         var s = styles.Select(ParseBorderStyleValue).ToList();
 
         style.BorderTopStyle = s.Count > 0 ? s[0] : BorderStyle.None;
-        style.BorderRightStyle = s.Count > 1 ? s[1] : s[0];
-        style.BorderBottomStyle = s.Count > 2 ? s[2] : s[0];
-        style.BorderLeftStyle = s.Count > 3 ? s[3] : s[1];
+        style.BorderRightStyle = s.Count > 1 ? s[1] : (s.Count > 0 ? s[0] : BorderStyle.None);
+        style.BorderBottomStyle = s.Count > 2 ? s[2] : (s.Count > 0 ? s[0] : BorderStyle.None);
+        style.BorderLeftStyle = s.Count > 3 ? s[3] : (s.Count > 1 ? s[1] : (s.Count > 0 ? s[0] : BorderStyle.None));
     }
 
     private void ParseBorderRadius(string value, ComputedStyle style)
@@ -700,6 +777,39 @@ public class StyleComputer
         if (value.EndsWith("rem") && float.TryParse(value[..^2], out var rem)) return rem * 16;
         if (value == "0") return 0;
         return null;
+    }
+
+    private ListStyleType ParseListStyleType(string value) => value.ToLowerInvariant() switch
+    {
+        "disc" => ListStyleType.Disc,
+        "circle" => ListStyleType.Circle,
+        "square" => ListStyleType.Square,
+        "decimal" => ListStyleType.Decimal,
+        "lower-roman" => ListStyleType.LowerRoman,
+        "upper-roman" => ListStyleType.UpperRoman,
+        "none" => ListStyleType.None,
+        _ => ListStyleType.Disc
+    };
+
+    private void ParseListStyle(string value, ComputedStyle style)
+    {
+        var parts = value.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        foreach (var part in parts)
+        {
+            var lower = part.ToLowerInvariant();
+            if (lower == "inside" || lower == "outside")
+            {
+                style.ListStylePosition = lower == "inside" ? ListStylePosition.Inside : ListStylePosition.Outside;
+            }
+            else if (lower == "none")
+            {
+                style.ListStyleType = ListStyleType.None;
+            }
+            else if (lower is "disc" or "circle" or "square" or "decimal" or "lower-roman" or "upper-roman")
+            {
+                style.ListStyleType = ParseListStyleType(part);
+            }
+        }
     }
 
     private ComputedStyle CreateUserAgentStyle(string tagName)

@@ -104,6 +104,8 @@ public class DrawTextOp : PaintOp
     public FontWeight FontWeight { get; set; } = FontWeight.Normal;
     public TextAlignType TextAlign { get; set; } = TextAlignType.Start;
     public float? MaxWidth { get; set; }
+    public bool Underline { get; set; }
+    public bool LineThrough { get; set; }
 
     public override void Execute(SKCanvas canvas)
     {
@@ -131,6 +133,34 @@ public class DrawTextOp : PaintOp
         }
 
         canvas.DrawText(Text, x, Y, font, paint);
+
+        float textWidth = paint.MeasureText(Text);
+
+        if (Underline)
+        {
+            float underlineY = Y + 2;
+            using var underlinePaint = new SKPaint
+            {
+                Color = Color,
+                StrokeWidth = 1,
+                Style = SKPaintStyle.Stroke,
+                IsAntialias = true
+            };
+            canvas.DrawLine(x, underlineY, x + textWidth, underlineY, underlinePaint);
+        }
+
+        if (LineThrough)
+        {
+            float strikeY = Y - FontSize * 0.3f;
+            using var strikePaint = new SKPaint
+            {
+                Color = Color,
+                StrokeWidth = 1,
+                Style = SKPaintStyle.Stroke,
+                IsAntialias = true
+            };
+            canvas.DrawLine(x, strikeY, x + textWidth, strikeY, strikePaint);
+        }
     }
 
     private SKTypeface GetTypeface()

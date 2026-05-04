@@ -64,12 +64,17 @@ public class PaintVisitor
 
     public void VisitDocument(Document document)
     {
-        _displayList.Clear();
-
         var root = document.DocumentElement ?? document.Body;
-        if (root != null)
+        if (root == null) return;
+
+        VisitElement(root);
+
+        foreach (var child in root.Children)
         {
-            VisitElement(root);
+            if (child is Element element)
+            {
+                VisitElement(element);
+            }
         }
     }
 
@@ -93,7 +98,31 @@ public class PaintVisitor
         DrawElementBackground(element, layoutBox, style, offsetBorderBox);
         DrawElementBorder(element, layoutBox, style, offsetBorderBox);
 
+        if (element.TagName.Equals("HR", StringComparison.OrdinalIgnoreCase))
+        {
+            float y = layoutBox.ContentBox.Top + _contentOffsetY + layoutBox.ContentBox.Height / 2;
+            float x1 = layoutBox.ContentBox.Left;
+            float x2 = layoutBox.ContentBox.Right;
+
+            var lineOp = new DrawLineOp
+            {
+                X1 = x1,
+                Y1 = y,
+                X2 = x2,
+                Y2 = y,
+                Color = style.BorderTopColor,
+                StrokeWidth = style.BorderTopWidth,
+                Bounds = new SKRect(x1, y - 1, x2, y + 1)
+            };
+            _displayList.Add(lineOp);
+        }
+
         DrawElementContent(element, layoutBox, style);
+
+        if (style.Display == DisplayType.ListItem)
+        {
+            DrawListMarker(element, layoutBox, style);
+        }
 
         var sortedChildren = element.Children
             .OfType<Element>()
@@ -110,6 +139,66 @@ public class PaintVisitor
     private int GetTreeOrder(Element parent, Element child)
     {
         return parent.Children.IndexOf(child);
+    }
+
+    private void DrawListMarker(Element element, LayoutBox box, ComputedStyle style)
+    {
+        if (style.ListStyleType == ListStyleType.None) return;
+
+        if (element.Parent is not Element parent || parent.LayoutBox == null) return;
+
+        int itemIndex = 0;
+        foreach (var child in parent.Children)
+        {
+            if (child is Element childElement && childElement.ComputedStyle?.Display == DisplayType.ListItem)
+            {
+                if (childElement == element) break;
+                itemIndex++;
+            }
+        }
+
+        float markerX = parent.LayoutBox.ContentBox.Left - 25;
+        float markerY = box.ContentBox.Top + style.FontSize * 0.8f;
+
+        string markerText = style.ListStyleType switch
+        {
+            ListStyleType.Disc => "\u2022",
+            ListStyleType.Circle => "\u25CB",
+            ListStyleType.Square => "\u25A0",
+            ListStyleType.Decimal => (itemIndex + 1).ToString() + ".",
+            ListStyleType.LowerRoman => ToRoman(itemIndex + 1).ToLower() + ".",
+            ListStyleType.UpperRoman => ToRoman(itemIndex + 1) + ".",
+            _ => "\u2022"
+        };
+
+        var op = new DrawTextOp
+        {
+            Text = markerText,
+            X = markerX,
+            Y = markerY + _contentOffsetY,
+            Color = style.Color,
+            FontSize = style.FontSize,
+            FontFamily = style.FontFamily ?? "Arial",
+            Bounds = new SKRect(markerX, markerY, markerX + 20, markerY + style.FontSize)
+        };
+        _displayList.Add(op);
+    }
+
+    private string ToRoman(int number)
+    {
+        if (number <= 0) return "";
+        var result = "";
+        var values = new[] { 1000, 900, 500, 400, 100, 90, 50, 40, 10, 9, 5, 4, 1 };
+        var symbols = new[] { "M", "CM", "D", "CD", "C", "XC", "L", "XL", "X", "IX", "V", "IV", "I" };
+        for (int i = 0; i < values.Length; i++)
+        {
+            while (number >= values[i])
+            {
+                result += symbols[i];
+                number -= values[i];
+            }
+        }
+        return result;
     }
 
     private void DrawElementBackground(Element element, LayoutBox box, ComputedStyle style, SKRect borderRect)
@@ -145,23 +234,85 @@ public class PaintVisitor
         var image = await _imageCache.GetImageAsync(url);
         if (image == null) return;
 
-        var destRect = rect;
-        if (style.BackgroundRepeat == BackgroundRepeat.NoRepeat)
+        float posX = 0, posY = 0;
+        if (style.BackgroundPositionX != null)
         {
-            float x = style.BackgroundPositionX is PixelLength px ? px.Value : 0;
-            float y = style.BackgroundPositionY is PixelLength py ? py.Value : 0;
-            destRect = new SKRect(rect.Left + x, rect.Top + y, rect.Left + x + image.Width, rect.Top + y + image.Height);
+            if (style.BackgroundPositionX is PixelLength px) posX = px.Value;
+            else if (style.BackgroundPositionX is PercentLength ppx) posX = rect.Width * ppx.Value;
+        }
+        if (style.BackgroundPositionY != null)
+        {
+            if (style.BackgroundPositionY is PixelLength py) posY = py.Value;
+            else if (style.BackgroundPositionY is PercentLength ppy) posY = rect.Height * ppy.Value;
         }
 
-        var op = new DrawImageOp
+        if (style.BackgroundRepeat == BackgroundRepeat.NoRepeat)
         {
-            Image = image,
-            SourceRect = new SKRect(0, 0, image.Width, image.Height),
-            DestRect = destRect,
-            Fit = ImageFit.Cover,
-            Bounds = rect
-        };
-        _displayList.Add(op);
+            var destRect = new SKRect(rect.Left + posX, rect.Top + posY, 
+                rect.Left + posX + image.Width, rect.Top + posY + image.Height);
+            var op = new DrawImageOp
+            {
+                Image = image,
+                SourceRect = new SKRect(0, 0, image.Width, image.Height),
+                DestRect = destRect,
+                Fit = ImageFit.None,
+                Bounds = rect
+            };
+            _displayList.Add(op);
+            return;
+        }
+
+        float tileWidth = image.Width;
+        float tileHeight = image.Height;
+        bool repeatX = style.BackgroundRepeat == BackgroundRepeat.Repeat || style.BackgroundRepeat == BackgroundRepeat.RepeatX;
+        bool repeatY = style.BackgroundRepeat == BackgroundRepeat.Repeat || style.BackgroundRepeat == BackgroundRepeat.RepeatY;
+
+        float startX = rect.Left + posX;
+        if (repeatX)
+        {
+            while (startX > rect.Left) startX -= tileWidth;
+        }
+
+        float startY = rect.Top + posY;
+        if (repeatY)
+        {
+            while (startY > rect.Top) startY -= tileHeight;
+        }
+
+        for (float y = startY; y < rect.Bottom; y += tileHeight)
+        {
+            if (!repeatY && y > rect.Top) break;
+            for (float x = startX; x < rect.Right; x += tileWidth)
+            {
+                if (!repeatX && x > rect.Left) break;
+
+                var tileRect = new SKRect(x, y, x + tileWidth, y + tileHeight);
+
+                var clipRect = tileRect;
+                clipRect.Left = Math.Max(clipRect.Left, rect.Left);
+                clipRect.Top = Math.Max(clipRect.Top, rect.Top);
+                clipRect.Right = Math.Min(clipRect.Right, rect.Right);
+                clipRect.Bottom = Math.Min(clipRect.Bottom, rect.Bottom);
+
+                if (clipRect.Width > 0 && clipRect.Height > 0)
+                {
+                    float srcLeft = (clipRect.Left - x) / tileWidth * image.Width;
+                    float srcTop = (clipRect.Top - y) / tileHeight * image.Height;
+                    float srcRight = srcLeft + (clipRect.Width / tileWidth * image.Width);
+                    float srcBottom = srcTop + (clipRect.Height / tileHeight * image.Height);
+
+                    var op = new DrawImageOp
+                    {
+                        Image = image,
+                        SourceRect = new SKRect(srcLeft, srcTop, srcRight, srcBottom),
+                        DestRect = clipRect,
+                        Fit = ImageFit.None,
+                        Bounds = rect
+                    };
+                    _displayList.Add(op);
+                }
+            }
+        }
     }
 
     private void DrawElementBorder(Element element, LayoutBox box, ComputedStyle style, SKRect borderRect)
@@ -278,6 +429,8 @@ public class PaintVisitor
             FontFamily = parentStyle?.FontFamily ?? "Arial",
             FontWeight = parentStyle?.FontWeight ?? FontWeight.Normal,
             TextAlign = parentStyle?.TextAlign ?? TextAlignType.Start,
+            Underline = parentStyle?.TextDecoration == TextDecorationType.Underline,
+            LineThrough = parentStyle?.TextDecoration == TextDecorationType.LineThrough,
             Bounds = new SKRect(contentBox.Left, contentBox.Top, contentBox.Right, contentBox.Bottom)
         };
         _displayList.Add(op);
@@ -358,6 +511,8 @@ public class PaintVisitor
                             Color = run.Color ?? parentStyle?.Color ?? SKColors.Black,
                             FontSize = run.FontSize ?? parentStyle?.FontSize ?? 16,
                             FontFamily = run.FontFamily ?? parentStyle?.FontFamily ?? "Arial",
+                            Underline = parentStyle?.TextDecoration == TextDecorationType.Underline,
+                            LineThrough = parentStyle?.TextDecoration == TextDecorationType.LineThrough,
                             Bounds = new SKRect(x, y, x + run.Width, y + run.Height)
                         };
                         _displayList.Add(op);
@@ -391,6 +546,8 @@ var op = new DrawTextOp
                             Color = run.Color ?? parentStyle?.Color ?? SKColors.Black,
                             FontSize = actualFontSize,
                             FontFamily = run.FontFamily ?? parentStyle?.FontFamily ?? "Arial",
+                            Underline = parentStyle?.TextDecoration == TextDecorationType.Underline,
+                            LineThrough = parentStyle?.TextDecoration == TextDecorationType.LineThrough,
                             Bounds = new SKRect(x, box.ContentBox.Top + _contentOffsetY, x + run.Width, box.ContentBox.Top + _contentOffsetY + run.Height)
                         };
                         _displayList.Add(op);

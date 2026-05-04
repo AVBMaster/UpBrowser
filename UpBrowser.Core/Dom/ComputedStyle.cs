@@ -133,6 +133,7 @@ public class ComputedStyle
     public Length? BackgroundPositionX { get; set; }
     public Length? BackgroundPositionY { get; set; }
     public BackgroundRepeat BackgroundRepeat { get; set; } = BackgroundRepeat.Repeat;
+    public BackgroundAttachment BackgroundAttachment { get; set; } = BackgroundAttachment.Scroll;
 
     public TextAlignType TextAlign { get; set; } = TextAlignType.Start;
     public TextDecorationType TextDecoration { get; set; } = TextDecorationType.None;
@@ -159,6 +160,9 @@ public class ComputedStyle
 
     public BoxSizingType BoxSizing { get; set; } = BoxSizingType.ContentBox;
     public bool BorderCollapse { get; set; }
+    public ListStyleType ListStyleType { get; set; } = ListStyleType.Disc;
+    public string? ListStyleImage { get; set; }
+    public ListStylePosition ListStylePosition { get; set; } = ListStylePosition.Outside;
 
     public float GetWidth(float viewportWidth, float rootFontSize)
     {
@@ -194,7 +198,10 @@ public enum JustifyContentType { FlexStart, FlexEnd, Center, SpaceBetween, Space
 public enum AlignItemsType { Stretch, FlexStart, FlexEnd, Center, Baseline }
 public enum AlignSelfType { Auto, Stretch, FlexStart, FlexEnd, Center, Baseline }
 public enum BackgroundRepeat { Repeat, RepeatX, RepeatY, NoRepeat }
+public enum BackgroundAttachment { Scroll, Fixed }
 public enum BoxSizingType { ContentBox, BorderBox }
+public enum ListStyleType { Disc, Circle, Square, Decimal, LowerRoman, UpperRoman, None }
+public enum ListStylePosition { Inside, Outside }
 
 public class BoxDimensions
 {

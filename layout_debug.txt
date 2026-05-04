@@ -48,19 +48,19 @@
     │  display=ListItem position=Static
     │  width=auto height=auto
     │  margin=0px,0px,0px,0px
-    │  padding=0px,0px,0px,0px
+    │  padding=0px,0px,0px,20px
     │  └─ "List item 1"
     ├─ <li> id="" class=""
     │  display=ListItem position=Static
     │  width=auto height=auto
     │  margin=0px,0px,0px,0px
-    │  padding=0px,0px,0px,0px
+    │  padding=0px,0px,0px,20px
     │  └─ "List item 2"
     ├─ <li> id="" class=""
     │  display=ListItem position=Static
     │  width=auto height=auto
     │  margin=0px,0px,0px,0px
-    │  padding=0px,0px,0px,0px
+    │  padding=0px,0px,0px,20px
     │  └─ "List item 3"
   ├─ <button> id="" class=""
   │  display=InlineBlock position=Static
@@ -124,162 +124,162 @@
 
 📦 Layout Boxes:
   📦 <body>
-     MarginBox:    L=0.0, T=0.0, R=1064.0, B=812.0 (W=1064.0, H=812.0)
-   BorderBox:   L=0.0, T=0.0, R=1044.0, B=792.0 (W=1044.0, H=792.0)
-   PaddingBox:  L=20.0, T=20.0, R=1044.0, B=792.0 (W=1024.0, H=772.0)
-   ContentBox:  L=20.0, T=20.0, R=1044.0, B=792.0 (W=1024.0, H=772.0)
+     MarginBox:    L=0.0, T=0.0, R=1024.0, B=816.0 (W=1024.0, H=816.0)
+   BorderBox:   L=0.0, T=0.0, R=1024.0, B=796.0 (W=1024.0, H=796.0)
+   PaddingBox:  L=20.0, T=20.0, R=1004.0, B=796.0 (W=984.0, H=776.0)
+   ContentBox:  L=20.0, T=20.0, R=1004.0, B=796.0 (W=984.0, H=776.0)
    LineHeight:  38.4
      Children (8):
   📦 <h1>
-     MarginBox:    L=20.0, T=20.0, R=1044.0, B=52.0 (W=1024.0, H=32.0)
-   BorderBox:   L=20.0, T=20.0, R=1044.0, B=52.0 (W=1024.0, H=32.0)
-   PaddingBox:  L=20.0, T=20.0, R=1044.0, B=52.0 (W=1024.0, H=32.0)
-   ContentBox:  L=20.0, T=20.0, R=1044.0, B=52.0 (W=1024.0, H=32.0)
+     MarginBox:    L=20.0, T=20.0, R=964.0, B=52.0 (W=944.0, H=32.0)
+   BorderBox:   L=20.0, T=20.0, R=964.0, B=52.0 (W=944.0, H=32.0)
+   PaddingBox:  L=20.0, T=20.0, R=964.0, B=52.0 (W=944.0, H=32.0)
+   ContentBox:  L=20.0, T=20.0, R=964.0, B=52.0 (W=944.0, H=32.0)
    LineHeight:  38.4
      LineRuns (1):
        "Hello World" Width=193.6 Height=32.0
   📦 <p>
-     MarginBox:    L=20.0, T=104.0, R=1044.0, B=136.0 (W=1024.0, H=32.0)
-   BorderBox:   L=20.0, T=104.0, R=1044.0, B=120.0 (W=1024.0, H=16.0)
-   PaddingBox:  L=20.0, T=104.0, R=1044.0, B=120.0 (W=1024.0, H=16.0)
-   ContentBox:  L=20.0, T=104.0, R=1044.0, B=120.0 (W=1024.0, H=16.0)
+     MarginBox:    L=20.0, T=104.0, R=964.0, B=136.0 (W=944.0, H=32.0)
+   BorderBox:   L=20.0, T=104.0, R=964.0, B=120.0 (W=944.0, H=16.0)
+   PaddingBox:  L=20.0, T=104.0, R=964.0, B=120.0 (W=944.0, H=16.0)
+   ContentBox:  L=20.0, T=104.0, R=964.0, B=120.0 (W=944.0, H=16.0)
    LineHeight:  24
      LineRuns (1):
        "This is a test paragraph with ..." Width=422.4 Height=16.0
   📦 <div>
-     MarginBox:    L=20.0, T=160.0, R=1088.0, B=338.0 (W=1068.0, H=178.0)
-   BorderBox:   L=22.0, T=162.0, R=1068.0, B=298.0 (W=1046.0, H=136.0)
-   PaddingBox:  L=42.0, T=182.0, R=1066.0, B=296.0 (W=1024.0, H=114.0)
-   ContentBox:  L=42.0, T=182.0, R=1066.0, B=296.0 (W=1024.0, H=114.0)
+     MarginBox:    L=20.0, T=160.0, R=1008.0, B=338.0 (W=988.0, H=178.0)
+   BorderBox:   L=22.0, T=162.0, R=1008.0, B=298.0 (W=986.0, H=136.0)
+   PaddingBox:  L=42.0, T=182.0, R=986.0, B=296.0 (W=944.0, H=114.0)
+   ContentBox:  L=42.0, T=182.0, R=986.0, B=296.0 (W=944.0, H=114.0)
    LineHeight:  38.4
      Children (2):
   📦 <h2>
-     MarginBox:    L=42.0, T=182.0, R=1066.0, B=206.0 (W=1024.0, H=24.0)
-   BorderBox:   L=42.0, T=182.0, R=1066.0, B=206.0 (W=1024.0, H=24.0)
-   PaddingBox:  L=42.0, T=182.0, R=1066.0, B=206.0 (W=1024.0, H=24.0)
-   ContentBox:  L=42.0, T=182.0, R=1066.0, B=206.0 (W=1024.0, H=24.0)
+     MarginBox:    L=42.0, T=182.0, R=946.0, B=206.0 (W=904.0, H=24.0)
+   BorderBox:   L=42.0, T=182.0, R=946.0, B=206.0 (W=904.0, H=24.0)
+   PaddingBox:  L=42.0, T=182.0, R=946.0, B=206.0 (W=904.0, H=24.0)
+   ContentBox:  L=42.0, T=182.0, R=946.0, B=206.0 (W=904.0, H=24.0)
    LineHeight:  28.800001
      LineRuns (1):
        "Box Model Test" Width=184.8 Height=24.0
   📦 <p>
-     MarginBox:    L=42.0, T=248.0, R=1066.0, B=296.0 (W=1024.0, H=48.0)
-   BorderBox:   L=42.0, T=248.0, R=1066.0, B=280.0 (W=1024.0, H=32.0)
-   PaddingBox:  L=42.0, T=248.0, R=1066.0, B=280.0 (W=1024.0, H=32.0)
-   ContentBox:  L=42.0, T=248.0, R=1066.0, B=280.0 (W=1024.0, H=32.0)
+     MarginBox:    L=42.0, T=248.0, R=946.0, B=296.0 (W=904.0, H=48.0)
+   BorderBox:   L=42.0, T=248.0, R=946.0, B=280.0 (W=904.0, H=32.0)
+   PaddingBox:  L=42.0, T=248.0, R=946.0, B=280.0 (W=904.0, H=32.0)
+   ContentBox:  L=42.0, T=248.0, R=946.0, B=280.0 (W=904.0, H=32.0)
    LineHeight:  38.4
      LineRuns (1):
        "This div has margin, border, p..." Width=880.0 Height=32.0
   📦 <ul>
-     MarginBox:    L=20.0, T=350.0, R=1084.0, B=462.0 (W=1064.0, H=112.0)
-   BorderBox:   L=20.0, T=350.0, R=1044.0, B=446.0 (W=1024.0, H=96.0)
-   PaddingBox:  L=60.0, T=350.0, R=1084.0, B=446.0 (W=1024.0, H=96.0)
-   ContentBox:  L=60.0, T=350.0, R=1084.0, B=446.0 (W=1024.0, H=96.0)
+     MarginBox:    L=20.0, T=350.0, R=1004.0, B=462.0 (W=984.0, H=112.0)
+   BorderBox:   L=20.0, T=350.0, R=1004.0, B=446.0 (W=984.0, H=96.0)
+   PaddingBox:  L=60.0, T=350.0, R=1004.0, B=446.0 (W=944.0, H=96.0)
+   ContentBox:  L=60.0, T=350.0, R=1004.0, B=446.0 (W=944.0, H=96.0)
    LineHeight:  38.4
      Children (3):
   📦 <li>
-     MarginBox:    L=60.0, T=350.0, R=1084.0, B=382.0 (W=1024.0, H=32.0)
-   BorderBox:   L=60.0, T=350.0, R=1084.0, B=382.0 (W=1024.0, H=32.0)
-   PaddingBox:  L=60.0, T=350.0, R=1084.0, B=382.0 (W=1024.0, H=32.0)
-   ContentBox:  L=60.0, T=350.0, R=1084.0, B=382.0 (W=1024.0, H=32.0)
+     MarginBox:    L=60.0, T=350.0, R=984.0, B=382.0 (W=924.0, H=32.0)
+   BorderBox:   L=60.0, T=350.0, R=984.0, B=382.0 (W=924.0, H=32.0)
+   PaddingBox:  L=80.0, T=350.0, R=984.0, B=382.0 (W=904.0, H=32.0)
+   ContentBox:  L=80.0, T=350.0, R=984.0, B=382.0 (W=904.0, H=32.0)
    LineHeight:  38.4
      LineRuns (1):
        "List item 1" Width=193.6 Height=32.0
   📦 <li>
-     MarginBox:    L=60.0, T=382.0, R=1084.0, B=414.0 (W=1024.0, H=32.0)
-   BorderBox:   L=60.0, T=382.0, R=1084.0, B=414.0 (W=1024.0, H=32.0)
-   PaddingBox:  L=60.0, T=382.0, R=1084.0, B=414.0 (W=1024.0, H=32.0)
-   ContentBox:  L=60.0, T=382.0, R=1084.0, B=414.0 (W=1024.0, H=32.0)
+     MarginBox:    L=60.0, T=382.0, R=984.0, B=414.0 (W=924.0, H=32.0)
+   BorderBox:   L=60.0, T=382.0, R=984.0, B=414.0 (W=924.0, H=32.0)
+   PaddingBox:  L=80.0, T=382.0, R=984.0, B=414.0 (W=904.0, H=32.0)
+   ContentBox:  L=80.0, T=382.0, R=984.0, B=414.0 (W=904.0, H=32.0)
    LineHeight:  38.4
      LineRuns (1):
        "List item 2" Width=193.6 Height=32.0
   📦 <li>
-     MarginBox:    L=60.0, T=414.0, R=1084.0, B=446.0 (W=1024.0, H=32.0)
-   BorderBox:   L=60.0, T=414.0, R=1084.0, B=446.0 (W=1024.0, H=32.0)
-   PaddingBox:  L=60.0, T=414.0, R=1084.0, B=446.0 (W=1024.0, H=32.0)
-   ContentBox:  L=60.0, T=414.0, R=1084.0, B=446.0 (W=1024.0, H=32.0)
+     MarginBox:    L=60.0, T=414.0, R=984.0, B=446.0 (W=924.0, H=32.0)
+   BorderBox:   L=60.0, T=414.0, R=984.0, B=446.0 (W=924.0, H=32.0)
+   PaddingBox:  L=80.0, T=414.0, R=984.0, B=446.0 (W=904.0, H=32.0)
+   ContentBox:  L=80.0, T=414.0, R=984.0, B=446.0 (W=904.0, H=32.0)
    LineHeight:  38.4
      LineRuns (1):
        "List item 3" Width=193.6 Height=32.0
   📦 <button>
-     MarginBox:    L=20.0, T=446.0, R=1084.0, B=466.0 (W=1064.0, H=20.0)
-   BorderBox:   L=20.0, T=446.0, R=1064.0, B=456.0 (W=1044.0, H=10.0)
-   PaddingBox:  L=40.0, T=456.0, R=1064.0, B=456.0 (W=1024.0, H=0.0)
-   ContentBox:  L=40.0, T=456.0, R=101.6, B=472.8 (W=61.6, H=16.8)
+     MarginBox:    L=20.0, T=446.0, R=1008.0, B=470.0 (W=988.0, H=24.0)
+   BorderBox:   L=22.0, T=448.0, R=1008.0, B=460.0 (W=986.0, H=12.0)
+   PaddingBox:  L=42.0, T=458.0, R=986.0, B=458.0 (W=944.0, H=0.0)
+   ContentBox:  L=42.0, T=458.0, R=103.6, B=474.8 (W=61.6, H=16.8)
    LineHeight:  16.800001
      Lines (1):
-       Line 0: Y=456.0 Baseline=470.3 Height=16.8 Runs=1
+       Line 0: Y=458.0 Baseline=472.3 Height=16.8 Runs=1
          "Click Me" Width=61.6
   📦 <div>
-     MarginBox:    L=20.0, T=506.0, R=1076.0, B=590.0 (W=1056.0, H=84.0)
-   BorderBox:   L=21.0, T=507.0, R=1061.0, B=555.0 (W=1040.0, H=48.0)
-   PaddingBox:  L=36.0, T=522.0, R=1060.0, B=554.0 (W=1024.0, H=32.0)
-   ContentBox:  L=36.0, T=522.0, R=1060.0, B=554.0 (W=1024.0, H=32.0)
+     MarginBox:    L=20.0, T=510.0, R=996.0, B=594.0 (W=976.0, H=84.0)
+   BorderBox:   L=21.0, T=511.0, R=996.0, B=559.0 (W=975.0, H=48.0)
+   PaddingBox:  L=36.0, T=526.0, R=980.0, B=558.0 (W=944.0, H=32.0)
+   ContentBox:  L=36.0, T=526.0, R=980.0, B=558.0 (W=944.0, H=32.0)
    LineHeight:  38.4
      Children (2):
      LineRuns (2):
        "and" Width=52.8 Height=32.0
        "in same line." Width=228.8 Height=32.0
   📦 <span>
-     MarginBox:    L=36.0, T=522.0, R=1060.0, B=522.0 (W=1024.0, H=0.0)
-   BorderBox:   L=36.0, T=522.0, R=1060.0, B=522.0 (W=1024.0, H=0.0)
-   PaddingBox:  L=36.0, T=522.0, R=1060.0, B=522.0 (W=1024.0, H=0.0)
-   ContentBox:  L=36.0, T=522.0, R=176.8, B=560.4 (W=140.8, H=38.4)
+     MarginBox:    L=36.0, T=526.0, R=950.0, B=526.0 (W=914.0, H=0.0)
+   BorderBox:   L=36.0, T=526.0, R=950.0, B=526.0 (W=914.0, H=0.0)
+   PaddingBox:  L=36.0, T=526.0, R=950.0, B=526.0 (W=914.0, H=0.0)
+   ContentBox:  L=36.0, T=526.0, R=176.8, B=564.4 (W=140.8, H=38.4)
    LineHeight:  38.4
      Lines (1):
-       Line 0: Y=522.0 Baseline=554.6 Height=38.4 Runs=1
+       Line 0: Y=526.0 Baseline=558.6 Height=38.4 Runs=1
          "Red text" Width=140.8
   📦 <span>
-     MarginBox:    L=36.0, T=522.0, R=1060.0, B=522.0 (W=1024.0, H=0.0)
-   BorderBox:   L=36.0, T=522.0, R=1060.0, B=522.0 (W=1024.0, H=0.0)
-   PaddingBox:  L=36.0, T=522.0, R=1060.0, B=522.0 (W=1024.0, H=0.0)
-   ContentBox:  L=36.0, T=522.0, R=194.4, B=560.4 (W=158.4, H=38.4)
+     MarginBox:    L=36.0, T=526.0, R=950.0, B=526.0 (W=914.0, H=0.0)
+   BorderBox:   L=36.0, T=526.0, R=950.0, B=526.0 (W=914.0, H=0.0)
+   PaddingBox:  L=36.0, T=526.0, R=950.0, B=526.0 (W=914.0, H=0.0)
+   ContentBox:  L=36.0, T=526.0, R=194.4, B=564.4 (W=158.4, H=38.4)
    LineHeight:  38.4
      Lines (1):
-       Line 0: Y=522.0 Baseline=554.6 Height=38.4 Runs=1
+       Line 0: Y=526.0 Baseline=558.6 Height=38.4 Runs=1
          "blue text" Width=158.4
   📦 <div>
-     MarginBox:    L=20.0, T=590.0, R=1044.0, B=672.0 (W=1024.0, H=82.0)
-   BorderBox:   L=20.0, T=590.0, R=1044.0, B=652.0 (W=1024.0, H=62.0)
-   PaddingBox:  L=20.0, T=590.0, R=1044.0, B=652.0 (W=1024.0, H=62.0)
-   ContentBox:  L=20.0, T=590.0, R=1044.0, B=652.0 (W=1024.0, H=62.0)
+     MarginBox:    L=20.0, T=594.0, R=964.0, B=676.0 (W=944.0, H=82.0)
+   BorderBox:   L=20.0, T=594.0, R=964.0, B=656.0 (W=944.0, H=62.0)
+   PaddingBox:  L=20.0, T=594.0, R=964.0, B=656.0 (W=944.0, H=62.0)
+   ContentBox:  L=20.0, T=594.0, R=964.0, B=656.0 (W=944.0, H=62.0)
    LineHeight:  38.4
      Children (3):
   📦 <div>
-     MarginBox:    L=20.0, T=590.0, R=1074.0, B=652.0 (W=1054.0, H=62.0)
-   BorderBox:   L=20.0, T=590.0, R=1074.0, B=652.0 (W=1054.0, H=62.0)
-   PaddingBox:  L=20.0, T=590.0, R=1074.0, B=652.0 (W=1054.0, H=62.0)
-   ContentBox:  L=20.0, T=590.0, R=1074.0, B=652.0 (W=1054.0, H=62.0)
+     MarginBox:    L=20.0, T=594.0, R=334.7, B=656.0 (W=314.7, H=62.0)
+   BorderBox:   L=20.0, T=594.0, R=334.7, B=656.0 (W=314.7, H=62.0)
+   PaddingBox:  L=20.0, T=594.0, R=319.7, B=656.0 (W=299.7, H=62.0)
+   ContentBox:  L=35.0, T=594.0, R=319.7, B=656.0 (W=284.7, H=62.0)
    LineHeight:  38.4
      LineRuns (1):
        "Flex Item 1" Width=193.6 Height=32.0
   📦 <div>
-     MarginBox:    L=1074.0, T=590.0, R=2128.0, B=652.0 (W=1054.0, H=62.0)
-   BorderBox:   L=1074.0, T=590.0, R=2128.0, B=652.0 (W=1054.0, H=62.0)
-   PaddingBox:  L=1074.0, T=590.0, R=2128.0, B=652.0 (W=1054.0, H=62.0)
-   ContentBox:  L=1074.0, T=590.0, R=2128.0, B=652.0 (W=1054.0, H=62.0)
+     MarginBox:    L=334.7, T=594.0, R=649.3, B=656.0 (W=314.7, H=62.0)
+   BorderBox:   L=334.7, T=594.0, R=649.3, B=656.0 (W=314.7, H=62.0)
+   PaddingBox:  L=334.7, T=594.0, R=634.3, B=656.0 (W=299.7, H=62.0)
+   ContentBox:  L=349.7, T=594.0, R=634.3, B=656.0 (W=284.7, H=62.0)
    LineHeight:  38.4
      LineRuns (1):
        "Flex Item 2" Width=193.6 Height=32.0
   📦 <div>
-     MarginBox:    L=2128.0, T=590.0, R=3182.0, B=652.0 (W=1054.0, H=62.0)
-   BorderBox:   L=2128.0, T=590.0, R=3182.0, B=652.0 (W=1054.0, H=62.0)
-   PaddingBox:  L=2128.0, T=590.0, R=3182.0, B=652.0 (W=1054.0, H=62.0)
-   ContentBox:  L=2128.0, T=590.0, R=3182.0, B=652.0 (W=1054.0, H=62.0)
+     MarginBox:    L=649.3, T=594.0, R=964.0, B=656.0 (W=314.7, H=62.0)
+   BorderBox:   L=649.3, T=594.0, R=964.0, B=656.0 (W=314.7, H=62.0)
+   PaddingBox:  L=649.3, T=594.0, R=949.0, B=656.0 (W=299.7, H=62.0)
+   ContentBox:  L=664.3, T=594.0, R=949.0, B=656.0 (W=284.7, H=62.0)
    LineHeight:  38.4
      LineRuns (1):
        "Flex Item 3" Width=193.6 Height=32.0
   📦 <div>
-     MarginBox:    L=20.0, T=672.0, R=1044.0, B=792.0 (W=1024.0, H=120.0)
-   BorderBox:   L=20.0, T=672.0, R=1044.0, B=772.0 (W=1024.0, H=100.0)
-   PaddingBox:  L=20.0, T=672.0, R=1044.0, B=772.0 (W=1024.0, H=100.0)
-   ContentBox:  L=20.0, T=672.0, R=1044.0, B=772.0 (W=1024.0, H=100.0)
+     MarginBox:    L=20.0, T=676.0, R=964.0, B=796.0 (W=944.0, H=120.0)
+   BorderBox:   L=20.0, T=676.0, R=964.0, B=776.0 (W=944.0, H=100.0)
+   PaddingBox:  L=20.0, T=676.0, R=964.0, B=776.0 (W=944.0, H=100.0)
+   ContentBox:  L=20.0, T=676.0, R=964.0, B=776.0 (W=944.0, H=100.0)
    LineHeight:  38.4
      Children (1):
   📦 <div>
-     MarginBox:    L=20.0, T=682.0, R=1044.0, B=714.0 (W=1024.0, H=32.0)
-   BorderBox:   L=20.0, T=682.0, R=1044.0, B=714.0 (W=1024.0, H=32.0)
-   PaddingBox:  L=20.0, T=682.0, R=1044.0, B=714.0 (W=1024.0, H=32.0)
-   ContentBox:  L=20.0, T=682.0, R=1044.0, B=714.0 (W=1024.0, H=32.0)
+     MarginBox:    L=20.0, T=686.0, R=964.0, B=718.0 (W=944.0, H=32.0)
+   BorderBox:   L=20.0, T=686.0, R=964.0, B=718.0 (W=944.0, H=32.0)
+   PaddingBox:  L=20.0, T=686.0, R=964.0, B=718.0 (W=944.0, H=32.0)
+   ContentBox:  L=20.0, T=686.0, R=964.0, B=718.0 (W=944.0, H=32.0)
    LineHeight:  38.4
      LineRuns (1):
        "Absolute Position" Width=299.2 Height=32.0

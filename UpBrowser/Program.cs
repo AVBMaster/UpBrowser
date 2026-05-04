@@ -114,6 +114,9 @@ class Program
         var displayList = paintVisitor.GetDisplayList();
         displayList.SortByZIndex();
 
+        PaintVisitor? cachedPaintVisitor = null;
+        float lastLayoutWidth = 0;
+
         window.Run((dt) =>
         {
             eventLoop.ProcessTasks();
@@ -121,9 +124,24 @@ class Program
             var (windowWidth, windowHeight) = window.GetClientSize();
             if (windowWidth > 0 && windowHeight > 0)
             {
+                bool needsRepaint = false;
+
                 if (skiaRenderer.Width != windowWidth || skiaRenderer.Height != windowHeight)
                 {
                     skiaRenderer.Resize(windowWidth, windowHeight);
+                    needsRepaint = true;
+                }
+
+                if (needsRepaint || windowWidth != lastLayoutWidth)
+                {
+                    lastLayoutWidth = windowWidth;
+                    
+                    layoutEngine.Layout(doc, windowWidth, windowHeight);
+                    
+                    cachedPaintVisitor = new PaintVisitor(contentOffset);
+                    cachedPaintVisitor.VisitDocument(doc);
+                    displayList = cachedPaintVisitor.GetDisplayList();
+                    displayList.SortByZIndex();
                 }
             }
 
