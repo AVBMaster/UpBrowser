@@ -16,9 +16,50 @@ class Program
     [System.Runtime.InteropServices.DllImport("user32.dll")]
     private static extern bool SetProcessDPIAware();
 
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern int SetProcessDpiAwarenessContext(IntPtr dpiAwarenessContext);
+
+    private static readonly IntPtr DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 = new IntPtr(-4);
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern IntPtr GetDC(IntPtr hWnd);
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern bool ReleaseDC(IntPtr hWnd, IntPtr hDC);
+
+    [System.Runtime.InteropServices.DllImport("gdi32.dll")]
+    private static extern int GetDeviceCaps(IntPtr hdc, int nIndex);
+
+    private const int LOGPIXELSX = 88;
+    private const int LOGPIXELSY = 90;
+
+    static float GetDpiScale()
+    {
+        try
+        {
+            // Try modern DPI awareness first
+            SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+        }
+        catch
+        {
+            // Fall back to old API
+            SetProcessDPIAware();
+        }
+
+        IntPtr hdc = GetDC(IntPtr.Zero);
+        if (hdc != IntPtr.Zero)
+        {
+            int dpiX = GetDeviceCaps(hdc, LOGPIXELSX);
+            ReleaseDC(IntPtr.Zero, hdc);
+            return dpiX / 96.0f;
+        }
+        return 1.0f;
+    }
+
     static async Task Main(string[] args)
     {
-        SetProcessDPIAware();
+        float dpiScale = GetDpiScale();
+        Console.WriteLine($"DPI Scale: {dpiScale:F2} ({dpiScale * 100}%)");
 
         Console.WriteLine("UpBrowser - Starting...");
 
@@ -132,10 +173,18 @@ class Program
         var eventLoop = new EventLoop();
         eventLoop.Start();
 
-        var window = BrowserWindow.Create(1024, 768, "UpBrowser");
+        int logicalWidth = 1024;
+        int logicalHeight = 768;
+
+        // 根据DPI缩放调整窗口大小，让用户看到合适的大小
+        int physicalWidth = (int)(logicalWidth * dpiScale);
+        int physicalHeight = (int)(logicalHeight * dpiScale);
+
+        var window = BrowserWindow.Create(physicalWidth, physicalHeight, "UpBrowser");
 
         var skiaRenderer = new SkiaRenderer();
-        skiaRenderer.Initialize(1024, 768, enableDirtyRegions: true);
+        skiaRenderer.Initialize(logicalWidth, logicalHeight, enableDirtyRegions: true);
+        skiaRenderer.DpiScale = dpiScale;
 
         var contentOffset = chromeRenderer.GetContentOffset();
         var scrollManager = new ScrollManager();
@@ -225,7 +274,12 @@ class Program
                 {
                     eventLoop.ProcessTasks();
 
-                    var (windowWidth, windowHeight) = window.GetClientSize();
+                    var (physicalWidth, physicalHeight) = window.GetClientSize();
+
+                    // 将物理大小转换为逻辑大小
+                    int windowWidth = (int)(physicalWidth / dpiScale);
+                    int windowHeight = (int)(physicalHeight / dpiScale);
+
                     if (windowWidth > 0 && windowHeight > 0)
                     {
                         bool needsLayout = false;
@@ -264,19 +318,20 @@ class Program
                         // 新的渲染流程：先绘制 Chrome，再绘制内容（带滚动变换），最后绘制滚动条
                         skiaRenderer.Canvas.Clear(SKColors.White);
 
-                        // 1. 绘制 Chrome（不受滚动影响）
+                        // 1. 绘制 Chrome（不受滚动影响，使用逻辑坐标）
                         var title = angleSharpDoc.Title ?? "UpBrowser";
                         chromeRenderer.RenderChrome(skiaRenderer.Canvas, windowWidth, windowHeight, "upbrowser://local", title);
 
-                        // 2. 绘制内容（应用滚动变换）
+                        // 2. 绘制内容（应用滚动变换，使用逻辑坐标）
                         float contentViewportHeight = windowHeight - contentOffset - chromeRenderer.GetStatusBarHeight();
                         skiaRenderer.RenderWithScroll(displayList, contentOffset, scrollManager.ScrollX, scrollManager.ScrollY, windowWidth, contentViewportHeight);
 
-                        // 3. 绘制滚动条（不受滚动影响）
+                        // 3. 绘制滚动条（不受滚动影响，使用逻辑坐标）
                         chromeRenderer.RenderScrollbars(skiaRenderer.Canvas, windowWidth, windowHeight, scrollManager);
 
                         var pixels = skiaRenderer.GetPixelData();
-                        window.Render(pixels, skiaRenderer.Width, skiaRenderer.Height);
+                        // 传递物理大小，因为bitmap是按DPI缩放创建的
+                        window.Render(pixels, skiaRenderer.PhysicalWidth, skiaRenderer.PhysicalHeight);
                     }
                 });
 

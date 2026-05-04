@@ -19,6 +19,8 @@ public class SkiaRenderer : IDisposable
     public SKCanvas Canvas { get; private set; } = null!;
     public DisplayList? CurrentDisplayList => _currentDisplayList;
 
+    public float DpiScale { get; set; } = 1.0f;
+
     public float ScrollX
     {
         get => _scrollX;
@@ -49,8 +51,13 @@ public class SkiaRenderer : IDisposable
     {
         _width = width;
         _height = height;
-        _bitmap = new SKBitmap(width, height, SKColorType.Rgba8888, SKAlphaType.Premul);
+        // 根据DPI缩放创建更大的bitmap，让内容在高DPI下更清晰
+        int physicalWidth = (int)(width * DpiScale);
+        int physicalHeight = (int)(height * DpiScale);
+        _bitmap = new SKBitmap(physicalWidth, physicalHeight, SKColorType.Rgba8888, SKAlphaType.Premul);
         Canvas = new SKCanvas(_bitmap);
+        // 应用DPI缩放变换，这样所有绘制都会自动缩放
+        Canvas.Scale(DpiScale, DpiScale);
 
         if (enableDirtyRegions)
         {
@@ -66,8 +73,13 @@ public class SkiaRenderer : IDisposable
         _width = width;
         _height = height;
         _bitmap?.Dispose();
-        _bitmap = new SKBitmap(width, height, SKColorType.Rgba8888, SKAlphaType.Premul);
+        // 根据DPI缩放创建更大的bitmap
+        int physicalWidth = (int)(width * DpiScale);
+        int physicalHeight = (int)(height * DpiScale);
+        _bitmap = new SKBitmap(physicalWidth, physicalHeight, SKColorType.Rgba8888, SKAlphaType.Premul);
         Canvas = new SKCanvas(_bitmap);
+        // 应用DPI缩放变换
+        Canvas.Scale(DpiScale, DpiScale);
 
         if (_dirtyManager != null)
         {
@@ -77,6 +89,8 @@ public class SkiaRenderer : IDisposable
 
     public int Width => _width;
     public int Height => _height;
+    public int PhysicalWidth => _bitmap?.Width ?? 0;
+    public int PhysicalHeight => _bitmap?.Height ?? 0;
 
     public void SetDisplayList(DisplayList displayList)
     {
@@ -105,14 +119,15 @@ public class SkiaRenderer : IDisposable
         if (displayList == null)
             return;
 
-        // 保存状态
+        // 保存状态（Canvas已经有DPI缩放变换）
         Canvas.Save();
 
         // 裁剪到内容区域（视口）- viewportHeight 已经包含了 status bar 的偏移
+        // 因为Canvas已经应用了DPI缩放，所以这里使用逻辑坐标
         var clipRect = new SKRect(0, contentOffsetY, viewportWidth, contentOffsetY + viewportHeight);
         Canvas.ClipRect(clipRect);
 
-        // 应用滚动变换
+        // 应用滚动变换（使用逻辑坐标）
         Canvas.Translate(-scrollX, -scrollY);
 
         // 执行显示列表
