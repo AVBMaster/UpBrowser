@@ -151,7 +151,28 @@ class Program
                     scrollManager.PageUp();
                 else
                     scrollManager.PageDown();
-                // 不需要重建显示列表，滚动变换在渲染时应用
+            }
+            else
+            {
+                if (isUp)
+                    scrollManager.PageLeft();
+                else
+                    scrollManager.PageRight();
+            }
+        };
+
+        window.OnScrollbarDrag = (deltaX, deltaY) =>
+        {
+            if (deltaY != 0)
+            {
+                // 将像素移动转换为滚动增量
+                float scrollDelta = deltaY * 3.0f;
+                scrollManager.ScrollBy(0, scrollDelta);
+            }
+            if (deltaX != 0)
+            {
+                float scrollDelta = deltaX * 3.0f;
+                scrollManager.ScrollBy(scrollDelta, 0);
             }
         };
 

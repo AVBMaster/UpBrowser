@@ -67,6 +67,7 @@ public static class NativeWindow
     public const uint WM_RBUTTONDOWN = 0x0204;
     public const uint WM_RBUTTONUP = 0x0205;
     public const uint WM_MOUSEWHEEL = 0x020A;
+    public const uint WM_CAPTURECHANGED = 0x0215;
 
     public const int CW_USEDEFAULT = -1;
 
@@ -246,6 +247,12 @@ public static class NativeWindow
 
     [DllImport("user32.dll")]
     public static extern int ReleaseDC(IntPtr hWnd, IntPtr hDC);
+
+    [DllImport("user32.dll")]
+    public static extern IntPtr SetCapture(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    public static extern bool ReleaseCapture();
 
     public const uint DIB_RGB_COLORS = 0;
     public const uint SRCCOPY = 0x00CC0020;

@@ -11,6 +11,10 @@ public class BrowserWindow : IDisposable
     private Action<double>? _onFrame;
     private Action<double>? _onMouseWheel;
     private Action<bool, bool>? _onScrollbarClick;
+    private Action<float, float>? _onScrollbarDrag;
+    private bool _isDraggingVertical;
+    private bool _isDraggingHorizontal;
+    private float _dragStartY;
     private Action<Key>? _onKeyDown;
     private DateTime _lastFrameTime;
     private int _width;
@@ -27,6 +31,12 @@ public class BrowserWindow : IDisposable
     {
         get => _onScrollbarClick;
         set => _onScrollbarClick = value;
+    }
+
+    public Action<float, float>? OnScrollbarDrag
+    {
+        get => _onScrollbarDrag;
+        set => _onScrollbarDrag = value;
     }
 
     public Action<Key>? OnKeyDown
@@ -150,20 +160,94 @@ public class BrowserWindow : IDisposable
                 return IntPtr.Zero;
 
             case NativeWindow.WM_LBUTTONDOWN:
-                int mouseX = (int)(lParam.ToInt64() & 0xFFFF);
-                int mouseY = (int)((lParam.ToInt64() >> 16) & 0xFFFF);
-                
-                if (_width > 0 && _height > 0 && _onScrollbarClick != null)
                 {
-                    float scrollbarLeft = _width - 12;
-                    bool inVerticalScrollbar = mouseX >= scrollbarLeft;
+                    int mouseX = (int)(lParam.ToInt64() & 0xFFFF);
+                    int mouseY = (int)((lParam.ToInt64() >> 16) & 0xFFFF);
                     
-                    if (inVerticalScrollbar)
+                    if (_width > 0 && _height > 0)
                     {
-                        _onScrollbarClick(true, true);
+                        float contentOffset = 75;
+                        float statusBarHeight = 20;
+                        float scrollbarWidth = 12;
+                        
+                        float scrollbarLeft = _width - scrollbarWidth;
+                        float contentTop = contentOffset;
+                        float contentBottom = _height - statusBarHeight;
+                        float trackHeight = contentBottom - contentTop;
+                        
+                        // 垂直滚动条区域
+                        if (mouseX >= scrollbarLeft && mouseY >= contentTop && mouseY <= contentBottom)
+                        {
+                            NativeWindow.SetCapture(_hwnd);
+                            
+                            // 简化处理：点击上半部分PageUp，下半部分PageDown，中间区域拖拽
+                            float middleTop = contentTop + trackHeight * 0.2f;
+                            float middleBottom = contentTop + trackHeight * 0.8f;
+                            
+                            if (mouseY < middleTop)
+                            {
+                                _onScrollbarClick?.Invoke(true, true); // PageUp
+                            }
+                            else if (mouseY > middleBottom)
+                            {
+                                _onScrollbarClick?.Invoke(true, false); // PageDown
+                            }
+                            else
+                            {
+                                // 点击中间区域，拖拽
+                                _isDraggingVertical = true;
+                                _dragStartY = mouseY;
+                            }
+                        }
+                        
+                        // 水平滚动条区域
+                        float horizontalBarTop = contentBottom - scrollbarWidth;
+                        if (mouseY >= horizontalBarTop && mouseY <= contentBottom && mouseX < scrollbarLeft)
+                        {
+                            NativeWindow.SetCapture(_hwnd);
+                            float trackWidth = scrollbarLeft;
+                            float thumbWidth = Math.Max(20, trackWidth * 0.3f);
+                            
+                            if (mouseX < thumbWidth)
+                                _onScrollbarClick?.Invoke(false, true); // PageLeft
+                            else if (mouseX > scrollbarLeft - thumbWidth)
+                                _onScrollbarClick?.Invoke(false, false); // PageRight
+                            else
+                            {
+                                _isDraggingHorizontal = true;
+                                _dragStartY = mouseX;
+                            }
+                        }
                     }
+                    return IntPtr.Zero;
                 }
-                return IntPtr.Zero;
+
+            case NativeWindow.WM_MOUSEMOVE:
+                {
+                    if (_isDraggingVertical && _onScrollbarDrag != null)
+                    {
+                        int mouseY = (int)((lParam.ToInt64() >> 16) & 0xFFFF);
+                        float deltaY = mouseY - _dragStartY;
+                        _dragStartY = mouseY;
+                        _onScrollbarDrag(0, deltaY);
+                    }
+                    else if (_isDraggingHorizontal && _onScrollbarDrag != null)
+                    {
+                        int mouseX = (int)(lParam.ToInt64() & 0xFFFF);
+                        float deltaX = mouseX - _dragStartY;
+                        _dragStartY = mouseX;
+                        _onScrollbarDrag(deltaX, 0);
+                    }
+                    return IntPtr.Zero;
+                }
+
+            case NativeWindow.WM_LBUTTONUP:
+                {
+                    _isDraggingVertical = false;
+                    _isDraggingHorizontal = false;
+                    NativeWindow.ReleaseCapture();
+                    return IntPtr.Zero;
+                }
 
             case NativeWindow.WM_CLOSE:
                 _isRunning = false;
