@@ -532,7 +532,7 @@ public class PaintVisitor
                 {
                     if (run.IsText && run.Node is TextNode textNode)
                     {
-                        var parentStyle = textNode.Parent?.ParentElement?.ComputedStyle;
+                        var parentStyle = textNode.ParentElement?.ComputedStyle;
                         var actualFontSize = run.FontSize ?? parentStyle?.FontSize ?? 16;
 
                         var op = new DrawTextOp
@@ -565,7 +565,7 @@ public class PaintVisitor
             {
                 if (run.IsText && run.Node is TextNode textNode)
                 {
-                    var parentStyle = textNode.Parent?.ParentElement?.ComputedStyle;
+                    var parentStyle = textNode.ParentElement?.ComputedStyle;
                     var actualFontSize = run.FontSize ?? parentStyle?.FontSize ?? 16;
 
                     var op = new DrawTextOp
