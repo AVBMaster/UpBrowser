@@ -221,6 +221,7 @@ public class LayoutEngine
         }
 
         // 布局正常流元素
+        float collapsedMarginBottom = 0;
         foreach (var item in normalFlowElements)
         {
             if (item is Element childElement)
@@ -231,7 +232,10 @@ public class LayoutEngine
                 float marginTop = childStyle.MarginTop is PixelLength mt ? mt.Value : 0;
                 float marginBottom = childStyle.MarginBottom is PixelLength mb ? mb.Value : 0;
 
-                currentY += marginTop;
+                // Margin折叠：取相邻margin中的最大值
+                float actualMarginTop = Math.Max(marginTop, collapsedMarginBottom);
+                currentY += actualMarginTop;
+                collapsedMarginBottom = 0;
 
                 // 检查是否需要清除浮动
                 if (childStyle.Clear != ClearType.None)
@@ -263,7 +267,8 @@ public class LayoutEngine
                 {
                     box.Children.Add(childBox);
                     childBox.Parent = box;
-                    currentY = childBox.MarginBox.Bottom + marginBottom;
+                    currentY = childBox.BorderBox.Bottom;
+                    collapsedMarginBottom = marginBottom;
                 }
             }
             else if (item is TextNode textNode)
@@ -350,6 +355,8 @@ public class LayoutEngine
             }
         }
 
+        // 应用最后一个元素的折叠margin-bottom
+        currentY += collapsedMarginBottom;
         y = currentY;
     }
 
