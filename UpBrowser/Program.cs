@@ -125,34 +125,12 @@ class Program
 
         var cssParser = new CssParser();
         var styleComputer = new StyleComputer();
-        var stylesheet = cssParser.Parse(@"
-            body { font-family: Arial, sans-serif; display: block; }
-            h1 { display: block; margin: 0 0 20px 0; font-size: 32px; font-weight: bold; }
-            h2 { display: block; margin: 0 0 15px 0; font-size: 24px; font-weight: bold; }
-            h3 { display: block; margin: 0 0 12px 0; font-size: 20px; font-weight: bold; }
-            h4 { display: block; margin: 0 0 10px 0; font-size: 18px; font-weight: bold; }
-            h5 { display: block; margin: 0 0 8px 0; font-size: 16px; font-weight: bold; }
-            h6 { display: block; margin: 0 0 6px 0; font-size: 14px; font-weight: bold; }
-            p { display: block; margin: 0 0 10px 0; }
-            div { display: block; }
-            span { display: inline; }
-            ul { display: block; margin: 10px 0; padding-left: 20px; }
-            ol { display: block; margin: 10px 0; padding-left: 20px; }
-            li { display: list-item; margin: 5px 0; }
-            table { display: table; border-collapse: collapse; }
-            tr { display: table-row; }
-            th { display: table-cell; font-weight: bold; }
-            td { display: table-cell; }
-            button { display: inline-block; cursor: pointer; }
-            input { display: inline-block; }
-            a { display: inline; color: #0000EE; text-decoration: underline; }
-            strong { font-weight: bold; }
-            em { font-style: italic; }
-            u { text-decoration: underline; }
-            s { text-decoration: line-through; }
-            hr { display: block; margin: 20px 0; border: none; border-top: 1px solid #ccc; }
-        ");
-        styleComputer.AddStylesheet(stylesheet);
+        
+        var uaStylesheet = cssParser.Parse(GetUserAgentStyles());
+        styleComputer.AddStylesheet(uaStylesheet);
+        
+        await LoadStylesFromHtml(angleSharpDoc, cssParser, styleComputer);
+        
         styleComputer.ComputeStyles(doc);
 
         var layoutEngine = new LayoutEngine();
@@ -429,6 +407,129 @@ class Program
                 }
             }
         }
+    }
+
+    static string GetUserAgentStyles()
+    {
+        return @"
+            body { font-family: Arial, sans-serif; display: block; margin: 8px; }
+            h1 { display: block; margin: 0.67em 0; font-size: 2em; font-weight: bold; }
+            h2 { display: block; margin: 0.83em 0; font-size: 1.5em; font-weight: bold; }
+            h3 { display: block; margin: 1em 0; font-size: 1.17em; font-weight: bold; }
+            h4 { display: block; margin: 1.33em 0; font-size: 1em; font-weight: bold; }
+            h5 { display: block; margin: 1.67em 0; font-size: 0.83em; font-weight: bold; }
+            h6 { display: block; margin: 2.33em 0; font-size: 0.67em; font-weight: bold; }
+            p { display: block; margin: 1em 0; }
+            div { display: block; }
+            span { display: inline; }
+            ul { display: block; margin: 1em 0; padding-left: 40px; list-style-type: disc; }
+            ol { display: block; margin: 1em 0; padding-left: 40px; list-style-type: decimal; }
+            li { display: list-item; }
+            table { display: table; border-collapse: separate; border-spacing: 2px; }
+            thead { display: table-header-group; vertical-align: middle; }
+            tbody { display: table-row-group; vertical-align: middle; }
+            tfoot { display: table-footer-group; vertical-align: middle; }
+            tr { display: table-row; vertical-align: middle; }
+            td { display: table-cell; vertical-align: inherit; padding: 1px; }
+            th { display: table-cell; vertical-align: inherit; font-weight: bold; padding: 1px; }
+            button { display: inline-block; cursor: pointer; padding: 2px 6px; }
+            input { display: inline-block; }
+            a { display: inline; color: #0000EE; text-decoration: underline; }
+            strong { font-weight: bold; }
+            em { font-style: italic; }
+            u { text-decoration: underline; }
+            s { text-decoration: line-through; }
+            hr { display: block; margin: 0.5em auto; border: none; border-top: 1px solid #ccc; }
+            img { display: inline-block; }
+            br { display: none; }
+            blockquote { display: block; margin: 1em 40px; }
+            pre { display: block; font-family: monospace; white-space: pre; margin: 1em 0; }
+            code { font-family: monospace; }
+        ";
+    }
+
+    static async Task LoadStylesFromHtml(AngleSharp.Dom.IDocument angleSharpDoc, CssParser cssParser, StyleComputer styleComputer)
+    {
+        var baseUrl = angleSharpDoc.Url ?? "";
+        var elements = angleSharpDoc.All;
+
+        foreach (var element in elements)
+        {
+            var tagName = element.LocalName?.ToLowerInvariant();
+
+            if (tagName == "style")
+            {
+                var cssText = element.TextContent;
+                if (!string.IsNullOrEmpty(cssText))
+                {
+                    Console.WriteLine("Loading internal stylesheet...");
+                    var stylesheet = cssParser.Parse(cssText);
+                    styleComputer.AddStylesheet(stylesheet);
+                }
+            }
+            else if (tagName == "link")
+            {
+                var rel = element.GetAttribute("rel");
+                if (rel != null && rel.ToLowerInvariant().Contains("stylesheet"))
+                {
+                    var href = element.GetAttribute("href");
+                    if (!string.IsNullOrEmpty(href))
+                    {
+                        Console.WriteLine($"Loading external stylesheet: {href}");
+                        try
+                        {
+                            var externalCss = await LoadExternalResource(href, baseUrl);
+                            if (!string.IsNullOrEmpty(externalCss))
+                            {
+                                var stylesheet = cssParser.Parse(externalCss);
+                                styleComputer.AddStylesheet(stylesheet);
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            Console.WriteLine($"Failed to load stylesheet {href}: {ex.Message}");
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    static async Task<string> LoadExternalResource(string url, string baseUrl)
+    {
+        try
+        {
+            if (!Uri.TryCreate(url, UriKind.Absolute, out var uri))
+            {
+                if (Uri.TryCreate(baseUrl, UriKind.Absolute, out var baseUri))
+                {
+                    uri = new Uri(baseUri, url);
+                }
+            }
+
+            if (uri == null) return string.Empty;
+
+            if (uri.IsFile || uri.Scheme == Uri.UriSchemeFile)
+            {
+                var path = uri.LocalPath;
+                if (File.Exists(path))
+                {
+                    return await File.ReadAllTextAsync(path);
+                }
+            }
+            else if (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps)
+            {
+                using var httpClient = new HttpClient();
+                httpClient.DefaultRequestHeaders.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
+                return await httpClient.GetStringAsync(uri);
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error loading external resource: {ex.Message}");
+        }
+
+        return string.Empty;
     }
 }
 
