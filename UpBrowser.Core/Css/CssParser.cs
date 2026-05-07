@@ -25,10 +25,12 @@ public class CssParser
             else if (cssText[i] == '}') { braceDepth--; if (braceDepth == 0) bracePairs.Add((lastOpen, i)); }
         }
 
+        int lastEnd = -1;
         foreach (var (start, end) in bracePairs)
         {
-            var selectorPart = cssText[..start].Trim();
+            var selectorPart = cssText[(lastEnd + 1)..start].Trim();
             var bodyPart = cssText[(start + 1)..end].Trim();
+            lastEnd = end;
 
             if (string.IsNullOrEmpty(selectorPart)) continue;
 
