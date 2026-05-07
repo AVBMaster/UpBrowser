@@ -100,7 +100,7 @@ public class LayoutEngine
         float totalWidth = marginLeft + borderLeft + paddingLeft + contentWidth + paddingRight + borderRight + marginRight;
         float totalHeight = marginTop + borderTop + paddingTop + contentHeight + paddingBottom + borderBottom + marginBottom;
 
-        box.MarginBox = new SKRect(x + marginLeft, y + marginTop, x + marginLeft + totalWidth - marginRight, y + marginTop + totalHeight - marginBottom);
+        box.MarginBox = new SKRect(x, y, x + totalWidth, y + totalHeight);
         box.BorderBox = new SKRect(x + marginLeft + borderLeft, y + marginTop + borderTop, x + marginLeft + borderLeft + paddingLeft + contentWidth + paddingRight + borderRight, y + marginTop + borderTop + contentHeight + paddingBottom + borderBottom);
         box.PaddingBox = new SKRect(x + marginLeft + borderLeft + paddingLeft, y + marginTop + borderTop + paddingTop, x + marginLeft + borderLeft + paddingLeft + contentWidth, y + marginTop + borderTop + paddingTop + contentHeight);
         box.ContentBox = new SKRect(box.PaddingBox.Left, box.PaddingBox.Top, box.PaddingBox.Left + contentWidth, box.PaddingBox.Top + contentHeight);
@@ -982,6 +982,7 @@ public class LayoutEngine
 
     private void AdjustBoxHeightFromContent(LayoutBox box)
     {
+        float paddingBottom = box.Dimensions?.PaddingBottom ?? 0;
         float maxBottom = box.ContentBox.Top;
 
         foreach (var child in box.Children)
@@ -1017,9 +1018,9 @@ public class LayoutEngine
             float marginBottom = box.MarginBox.Bottom - box.BorderBox.Bottom;
             
             box.ContentBox = new SKRect(box.ContentBox.Left, box.ContentBox.Top, box.ContentBox.Right, maxBottom);
-            box.PaddingBox = new SKRect(box.PaddingBox.Left, box.PaddingBox.Top, box.PaddingBox.Right, maxBottom);
-            box.BorderBox = new SKRect(box.BorderBox.Left, box.BorderBox.Top, box.BorderBox.Right, maxBottom + borderBottom);
-            box.MarginBox = new SKRect(box.MarginBox.Left, box.MarginBox.Top, box.MarginBox.Right, maxBottom + borderBottom + marginBottom);
+            box.PaddingBox = new SKRect(box.PaddingBox.Left, box.PaddingBox.Top, box.PaddingBox.Right, maxBottom + paddingBottom);
+            box.BorderBox = new SKRect(box.BorderBox.Left, box.BorderBox.Top, box.BorderBox.Right, maxBottom + paddingBottom + borderBottom);
+            box.MarginBox = new SKRect(box.MarginBox.Left, box.MarginBox.Top, box.MarginBox.Right, maxBottom + paddingBottom + borderBottom + marginBottom);
         }
     }
 }
