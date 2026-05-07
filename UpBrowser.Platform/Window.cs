@@ -1,5 +1,4 @@
 using System.Runtime.InteropServices;
-using UpBrowser.Platform;
 using UpBrowser.Platform.Windows;
 
 namespace UpBrowser.Platform;
@@ -22,17 +21,10 @@ public class BrowserWindow : IDisposable
     private int _height;
     private NativeWindow.WndProc? _wndProc;
 
-    private Action<Key>? _onChromeKey;
     private Action<char>? _onChar;
     private Func<char, Key, bool>? _onKeyDownWithChar;
     private Action<float, float>? _onMouseMove;
     private Action<float, float, bool>? _onMouseClick;
-
-    public Action<Key>? OnChromeKey
-    {
-        get => _onChromeKey;
-        set => _onChromeKey = value;
-    }
 
     public Action<char>? OnChar
     {
@@ -58,41 +50,12 @@ public class BrowserWindow : IDisposable
         set => _onMouseClick = value;
     }
 
-    // 辅助方法
-    private Key ConvertWinKeyToKey(int winKey)
-    {
-        return winKey switch
-        {
-            13 => Key.Enter,
-            27 => Key.Escape,
-            37 => Key.Left,
-            38 => Key.Up,
-            39 => Key.Right,
-            40 => Key.Down,
-            36 => Key.Home,
-            35 => Key.End,
-            8 => Key.Backspace,
-            46 => Key.Delete,
-            9 => Key.Tab,
-            32 => Key.Space
-            //_ => Key.None
-        };
-    }
-
-    public void StartScrollbarDrag()
-    {
-        if (_hwnd != IntPtr.Zero)
-        {
-            NativeWindow.SetCapture(_hwnd);
-        }
-    }
-
     public Action<double>? OnMouseWheel
     {
         get => _onMouseWheel;
         set => _onMouseWheel = value;
     }
-    
+
     public Action<bool, bool>? OnScrollbarClick
     {
         get => _onScrollbarClick;
@@ -111,17 +74,6 @@ public class BrowserWindow : IDisposable
         set => _onKeyDown = value;
     }
 
-    private void TriggerFrameRender()
-    {
-        if (_onFrame != null)
-        {
-            var now = DateTime.Now;
-            var dt = (now - _lastFrameTime).TotalSeconds;
-            _lastFrameTime = now;
-            _onFrame(dt);
-        }
-    }
-
     public IntPtr Handle => _hwnd;
     public int Width => _width;
     public int Height => _height;
@@ -135,17 +87,12 @@ public class BrowserWindow : IDisposable
     [DllImport("user32.dll")]
     private static extern bool GetClientRect(IntPtr hWnd, out RECT lpRect);
 
-    [DllImport("user32.dll")]
-    private static extern bool InvalidateRect(IntPtr hWnd, IntPtr lpRect, bool bErase);
-
     public (int width, int height) GetClientSize()
     {
         if (_hwnd == IntPtr.Zero) return (0, 0);
         GetClientRect(_hwnd, out RECT rect);
         return (rect.Right - rect.Left, rect.Bottom - rect.Top);
     }
-
-    private static BrowserWindow? _instance;
 
     public static BrowserWindow Create(int width, int height, string title)
     {
@@ -178,14 +125,10 @@ public class BrowserWindow : IDisposable
             IntPtr.Zero);
 
         if (_hwnd == IntPtr.Zero)
-        {
             throw new InvalidOperationException("Failed to create window");
-        }
 
         NativeWindow.ShowWindow(_hwnd, NativeWindow.SW_SHOWNORMAL);
         NativeWindow.UpdateWindow(_hwnd);
-
-        _instance = this;
     }
 
     private IntPtr WndProc(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam)
@@ -205,49 +148,51 @@ public class BrowserWindow : IDisposable
             case NativeWindow.WM_SIZE:
                 _width = (int)(lParam.ToInt64() & 0xFFFF);
                 _height = (int)((lParam.ToInt64() >> 16) & 0xFFFF);
-                TriggerFrameRender();
-                return IntPtr.Zero;
-
-            case NativeWindow.WM_ENTERSIZEMOVE:
-            case NativeWindow.WM_EXITSIZEMOVE:
-                TriggerFrameRender();
                 return IntPtr.Zero;
 
             case NativeWindow.WM_MOUSEWHEEL:
-                // 正确提取滚轮delta：wParam高16位是滚轮值，通常120的倍数
-                // 正数表示向上滚动（滚轮远离用户）
-                int rawDelta = (int)((short)((wParam.ToInt64() >> 16) & 0xFFFF));
-                _onMouseWheel?.Invoke(rawDelta);
-                return IntPtr.Zero;
+                {
+                    int rawDelta = (int)((short)((wParam.ToInt64() >> 16) & 0xFFFF));
+                    _onMouseWheel?.Invoke(rawDelta);
+                    return IntPtr.Zero;
+                }
 
-            //case NativeWindow.WM_KEYDOWN:
-            //    int virtualKey = wParam.ToInt32();
-            //    _onKeyDown?.Invoke((Key)virtualKey);
-            //    return IntPtr.Zero;
-
+            // ========== 关键修复：WM_CHAR 处理字符输入 ==========
             case NativeWindow.WM_CHAR:
                 {
+                    char charCode = (char)(wParam.ToInt32() & 0xFFFF);
+                    // 过滤掉控制字符（除了退格、Tab等）
+                    // WM_CHAR 中 Backspace 不会出现，它走 WM_KEYDOWN
+
                     if (_onKeyDownWithChar != null)
                     {
-                        char charCode = (char)(wParam.ToInt32() & 0xFFFF);
+                        // 将 WM_CHAR 作为带字符的按键事件发送
+                        // key 传 Unknown(0) 表示这是一个字符输入
                         _onKeyDownWithChar(charCode, Key.Unknown);
+                    }
+                    else if (_onChar != null)
+                    {
+                        _onChar(charCode);
                     }
                     return IntPtr.Zero;
                 }
 
+            // ========== 关键修复：WM_KEYDOWN 处理非字符按键 ==========
             case NativeWindow.WM_KEYDOWN:
                 {
                     int virtualKey = wParam.ToInt32();
                     var key = (Key)virtualKey;
 
-                    // 先让 onKeyDownWithChar 处理（用于 Chrome UI 的键盘输入）
+                    // 记录按键用于调试
+                    // Console.WriteLine($"WM_KEYDOWN: vk={virtualKey}, key={key}");
+
                     if (_onKeyDownWithChar != null)
                     {
+                        // 对于非字符按键，传 '\0' 作为字符
                         bool handled = _onKeyDownWithChar('\0', key);
                         if (handled) return IntPtr.Zero;
                     }
 
-                    // 否则触发普通 onKeyDown
                     _onKeyDown?.Invoke(key);
                     return IntPtr.Zero;
                 }
@@ -257,58 +202,48 @@ public class BrowserWindow : IDisposable
                     int mouseX = (int)(lParam.ToInt64() & 0xFFFF);
                     int mouseY = (int)((lParam.ToInt64() >> 16) & 0xFFFF);
 
-                    // 先让 Chrome 处理点击
                     _onMouseClick?.Invoke(mouseX, mouseY, true);
 
-                    // 如果 Chrome 没处理，再处理滚动条                    
                     if (_width > 0 && _height > 0)
                     {
                         float contentOffset = 75;
                         float statusBarHeight = 20;
                         float scrollbarWidth = 12;
-                        
+
                         float scrollbarLeft = _width - scrollbarWidth;
                         float contentTop = contentOffset;
                         float contentBottom = _height - statusBarHeight;
                         float trackHeight = contentBottom - contentTop;
-                        
-                        // 垂直滚动条区域
+
                         if (mouseX >= scrollbarLeft && mouseY >= contentTop && mouseY <= contentBottom)
                         {
                             NativeWindow.SetCapture(_hwnd);
-                            
-                            // 简化处理：点击上半部分PageUp，下半部分PageDown，中间区域拖拽
+
                             float middleTop = contentTop + trackHeight * 0.2f;
                             float middleBottom = contentTop + trackHeight * 0.8f;
-                            
+
                             if (mouseY < middleTop)
-                            {
-                                _onScrollbarClick?.Invoke(true, true); // PageUp
-                            }
+                                _onScrollbarClick?.Invoke(true, true);
                             else if (mouseY > middleBottom)
-                            {
-                                _onScrollbarClick?.Invoke(true, false); // PageDown
-                            }
+                                _onScrollbarClick?.Invoke(true, false);
                             else
                             {
-                                // 点击中间区域，拖拽
                                 _isDraggingVertical = true;
                                 _dragStartY = mouseY;
                             }
                         }
-                        
-                        // 水平滚动条区域
+
                         float horizontalBarTop = contentBottom - scrollbarWidth;
                         if (mouseY >= horizontalBarTop && mouseY <= contentBottom && mouseX < scrollbarLeft)
                         {
                             NativeWindow.SetCapture(_hwnd);
                             float trackWidth = scrollbarLeft;
                             float thumbWidth = Math.Max(20, trackWidth * 0.3f);
-                            
+
                             if (mouseX < thumbWidth)
-                                _onScrollbarClick?.Invoke(false, true); // PageLeft
+                                _onScrollbarClick?.Invoke(false, true);
                             else if (mouseX > scrollbarLeft - thumbWidth)
-                                _onScrollbarClick?.Invoke(false, false); // PageRight
+                                _onScrollbarClick?.Invoke(false, false);
                             else
                             {
                                 _isDraggingHorizontal = true;
@@ -343,19 +278,11 @@ public class BrowserWindow : IDisposable
 
             case NativeWindow.WM_LBUTTONUP:
                 {
-                    int mouseX = (int)(lParam.ToInt64() & 0xFFFF);
-                    int mouseY = (int)((lParam.ToInt64() >> 16) & 0xFFFF);
-
-                    // 通知 Chrome 处理点击（使用物理坐标，ChromeRenderer 内部会转换为逻辑坐标）
-                    _onMouseClick?.Invoke(mouseX, mouseY, true);
-
                     _isDraggingVertical = false;
                     _isDraggingHorizontal = false;
                     NativeWindow.ReleaseCapture();
                     return IntPtr.Zero;
                 }
-
-
 
             case NativeWindow.WM_CLOSE:
                 _isRunning = false;
@@ -381,9 +308,7 @@ public class BrowserWindow : IDisposable
             if (NativeWindow.PeekMessageW(out msg, IntPtr.Zero, 0, 0, 1))
             {
                 if (msg.message == NativeWindow.WM_QUIT)
-                {
                     break;
-                }
 
                 NativeWindow.TranslateMessage(ref msg);
                 NativeWindow.DispatchMessageW(ref msg);
@@ -401,8 +326,7 @@ public class BrowserWindow : IDisposable
 
     public unsafe void Render(byte[] pixels, int width, int height)
     {
-        if (_hwnd == IntPtr.Zero) return;
-        if (pixels.Length == 0) return;
+        if (_hwnd == IntPtr.Zero || pixels.Length == 0) return;
 
         var hdc = NativeWindow.GetDC(_hwnd);
         var memDC = NativeWindow.CreateCompatibleDC(hdc);
@@ -417,10 +341,9 @@ public class BrowserWindow : IDisposable
 
         IntPtr bits;
         var hBitmap = NativeWindow.CreateDIBSection(hdc, ref bmi, NativeWindow.DIB_RGB_COLORS, out bits, IntPtr.Zero, 0);
-        
+
         if (hBitmap != IntPtr.Zero && bits != IntPtr.Zero)
         {
-            // Convert RGBA to BGRA and flip vertically
             byte* dst = (byte*)bits.ToPointer();
             int rowBytes = width * 4;
             for (int y = 0; y < height; y++)
@@ -431,13 +354,13 @@ public class BrowserWindow : IDisposable
                 {
                     int srcIdx = srcRow + x * 4;
                     int dstIdx = dstRow + x * 4;
-                    dst[dstIdx] = pixels[srcIdx + 2];     // B <- R
-                    dst[dstIdx + 1] = pixels[srcIdx + 1]; // G <- G
-                    dst[dstIdx + 2] = pixels[srcIdx];     // R <- B
-                    dst[dstIdx + 3] = pixels[srcIdx + 3]; // A <- A
+                    dst[dstIdx] = pixels[srcIdx + 2];
+                    dst[dstIdx + 1] = pixels[srcIdx + 1];
+                    dst[dstIdx + 2] = pixels[srcIdx];
+                    dst[dstIdx + 3] = pixels[srcIdx + 3];
                 }
             }
-            
+
             var oldBitmap = NativeWindow.SelectObject(memDC, hBitmap);
             NativeWindow.BitBlt(hdc, 0, 0, width, height, memDC, 0, 0, NativeWindow.SRCCOPY);
             NativeWindow.SelectObject(memDC, oldBitmap);

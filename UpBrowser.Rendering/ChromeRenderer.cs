@@ -20,25 +20,34 @@ public class ChromeRenderer
     private SKPaint _buttonActivePaint = null!;
     private SKTypeface? _chineseTypeface;
 
-    // 按钮状态
+    // 缓存的 paint 对象
+    private SKPaint _cachedTabActivePaint = null!;
+    private SKPaint _cachedTabInactivePaint = null!;
+    private SKPaint _cachedLockPaint = null!;
+    private SKPaint _cachedBrowserPaint = null!;
+    private SKPaint _cachedInfoPaint = null!;
+    private SKPaint _cachedClosePaint = null!;
+    private SKPaint _cachedNewTabPaint = null!;
+    private SKPaint _cachedTitlePaint = null!;
+    private SKPaint _cachedStatusPaint = null!;
+    private SKPaint _cachedSymbolPaint = null!;
+    private SKPaint _cachedCursorPaint = null!;
+
     private bool _backHovered;
     private bool _forwardHovered;
     private bool _refreshHovered;
     private bool _homeHovered;
     private bool _urlBarFocused;
 
-    // 按钮位置（用于点击检测）
     private SKRect _backButtonRect;
     private SKRect _forwardButtonRect;
     private SKRect _refreshButtonRect;
     private SKRect _homeButtonRect;
     private SKRect _urlBarRect;
 
-    // 导航历史
     private List<string> _history = new();
     private int _historyIndex = -1;
 
-    // 标签页
     private List<TabInfo> _tabs = new();
     private int _activeTabIndex = 0;
 
@@ -48,7 +57,6 @@ public class ChromeRenderer
     private bool _showCursor = true;
     private DateTime _lastCursorBlink = DateTime.Now;
 
-    // 回调
     public Action<string>? OnNavigate { get; set; }
     public Action? OnRefresh { get; set; }
     public Action? OnBack { get; set; }
@@ -65,7 +73,6 @@ public class ChromeRenderer
     private SKTypeface? GetChineseTypeface()
     {
         var fontFamilies = SKFontManager.Default.FontFamilies.ToArray();
-
         string[] chineseFonts = { "Microsoft YaHei", "Microsoft YaHei UI", "SimSun", "SimHei", "FangSong", "KaiTi", "Segoe UI" };
 
         foreach (var fontName in chineseFonts)
@@ -75,9 +82,7 @@ public class ChromeRenderer
             {
                 var tf = SKFontManager.Default.GetFontStyles(index).CreateTypeface(0);
                 if (tf != null && tf.FamilyName != null)
-                {
                     return tf;
-                }
             }
         }
 
@@ -88,60 +93,27 @@ public class ChromeRenderer
     {
         _chineseTypeface = GetChineseTypeface();
 
-        _backgroundPaint = new SKPaint
-        {
-            Color = SKColor.Parse("#E8EAED"),
-            Style = SKPaintStyle.Fill
-        };
+        _backgroundPaint = new SKPaint { Color = SKColor.Parse("#E8EAED"), Style = SKPaintStyle.Fill };
+        _borderPaint = new SKPaint { Color = SKColor.Parse("#DADCE0"), Style = SKPaintStyle.Stroke, StrokeWidth = 1 };
+        _textPaint = new SKPaint { Color = SKColors.Black, TextSize = 13, IsAntialias = true, Typeface = _chineseTypeface };
+        _urlTextPaint = new SKPaint { Color = SKColor.Parse("#3C4043"), TextSize = 14, IsAntialias = true, Typeface = _chineseTypeface };
+        _buttonPaint = new SKPaint { Color = SKColor.Parse("#E8EAED"), Style = SKPaintStyle.Fill };
+        _buttonHoverPaint = new SKPaint { Color = SKColor.Parse("#DADCE0"), Style = SKPaintStyle.Fill };
+        _buttonActivePaint = new SKPaint { Color = SKColor.Parse("#BDC1C6"), Style = SKPaintStyle.Fill };
+        _urlBarPaint = new SKPaint { Color = SKColors.White, Style = SKPaintStyle.Fill };
 
-        _borderPaint = new SKPaint
-        {
-            Color = SKColor.Parse("#DADCE0"),
-            Style = SKPaintStyle.Stroke,
-            StrokeWidth = 1
-        };
+        _cachedTabActivePaint = new SKPaint { Color = SKColors.White, Style = SKPaintStyle.Fill };
+        _cachedTabInactivePaint = new SKPaint { Color = SKColor.Parse("#DADCE0"), Style = SKPaintStyle.Fill };
+        _cachedLockPaint = new SKPaint { Color = SKColor.Parse("#34A853"), TextSize = 14, Typeface = _chineseTypeface };
+        _cachedBrowserPaint = new SKPaint { Color = SKColor.Parse("#1A73E8"), TextSize = 14, Typeface = _chineseTypeface };
+        _cachedInfoPaint = new SKPaint { Color = SKColor.Parse("#F9AB00"), TextSize = 14, Typeface = _chineseTypeface };
+        _cachedClosePaint = new SKPaint { Color = SKColor.Parse("#80868B"), TextSize = 12, Typeface = _chineseTypeface };
+        _cachedNewTabPaint = new SKPaint { Color = SKColor.Parse("#5F6368"), TextSize = 20, Typeface = _chineseTypeface };
+        _cachedTitlePaint = new SKPaint { Color = SKColor.Parse("#202124"), TextSize = 12, Typeface = _chineseTypeface };
+        _cachedStatusPaint = new SKPaint { Color = SKColor.Parse("#5F6368"), TextSize = 11, Typeface = _chineseTypeface };
+        _cachedSymbolPaint = new SKPaint { Color = SKColor.Parse("#3C4043"), TextSize = 14, Typeface = _chineseTypeface, IsAntialias = true };
+        _cachedCursorPaint = new SKPaint { Color = SKColor.Parse("#1A73E8"), Style = SKPaintStyle.Fill, StrokeWidth = 1 };
 
-        _textPaint = new SKPaint
-        {
-            Color = SKColors.Black,
-            TextSize = 13,
-            IsAntialias = true,
-            Typeface = _chineseTypeface
-        };
-
-        _urlTextPaint = new SKPaint
-        {
-            Color = SKColor.Parse("#3C4043"),
-            TextSize = 14,
-            IsAntialias = true,
-            Typeface = _chineseTypeface
-        };
-
-        _buttonPaint = new SKPaint
-        {
-            Color = SKColor.Parse("#E8EAED"),
-            Style = SKPaintStyle.Fill
-        };
-
-        _buttonHoverPaint = new SKPaint
-        {
-            Color = SKColor.Parse("#DADCE0"),
-            Style = SKPaintStyle.Fill
-        };
-
-        _buttonActivePaint = new SKPaint
-        {
-            Color = SKColor.Parse("#BDC1C6"),
-            Style = SKPaintStyle.Fill
-        };
-
-        _urlBarPaint = new SKPaint
-        {
-            Color = SKColors.White,
-            Style = SKPaintStyle.Fill
-        };
-
-        // 初始化默认标签页
         _tabs.Add(new TabInfo { Title = "New Tab", Url = "upbrowser://newtab", IsActive = true });
     }
 
@@ -149,7 +121,6 @@ public class ChromeRenderer
     {
         _currentUrl = url;
 
-        // 更新活动标签页信息
         if (_activeTabIndex >= 0 && _activeTabIndex < _tabs.Count)
         {
             _tabs[_activeTabIndex].Title = title;
@@ -163,14 +134,10 @@ public class ChromeRenderer
 
     private void RenderTabBar(SKCanvas canvas, float width, string title)
     {
-        // 背景
         canvas.DrawRect(0, 0, width, TabBarHeight, _backgroundPaint);
 
-        // 窗口控制按钮区域（右侧）
         float controlArea = 135;
-        float tabsArea = width - controlArea - 80; // 80是新建标签按钮区域
-
-        // 绘制标签页
+        float tabsArea = width - controlArea - 80;
         float tabX = 5;
         float tabY = 5;
         float tabHeight = TabBarHeight - 5;
@@ -181,65 +148,23 @@ public class ChromeRenderer
             float tabWidth = Math.Min(180, tabsArea / _tabs.Count);
             var tabRect = new SKRect(tabX, tabY, tabX + tabWidth, tabY + tabHeight);
 
-            // 活动标签页用白色，非活动用灰色
-            if (i == _activeTabIndex)
-            {
-                using var activeTabPaint = new SKPaint { Color = SKColors.White, Style = SKPaintStyle.Fill };
-                canvas.DrawRoundRect(tabRect, new SKSize(BorderRadius, BorderRadius), activeTabPaint);
-            }
-            else
-            {
-                using var inactiveTabPaint = new SKPaint { Color = SKColor.Parse("#DADCE0"), Style = SKPaintStyle.Fill };
-                canvas.DrawRoundRect(tabRect, new SKSize(BorderRadius, BorderRadius), inactiveTabPaint);
-            }
+            var tabPaint = (i == _activeTabIndex) ? _cachedTabActivePaint : _cachedTabInactivePaint;
+            canvas.DrawRoundRect(tabRect, new SKSize(BorderRadius, BorderRadius), tabPaint);
 
-            // 标签标题
             string tabTitle = tab.Title;
             if (tabTitle.Length > 12)
                 tabTitle = tabTitle[..12] + "...";
 
-            float textWidth = _textPaint.MeasureText(tabTitle);
-            float textX = tabRect.Left + 10;
-            float textY = tabRect.Top + tabHeight * 0.6f;
-
             _textPaint.Color = i == _activeTabIndex ? SKColor.Parse("#1A73E8") : SKColor.Parse("#5F6368");
-            canvas.DrawText(tabTitle, textX, textY, _textPaint);
+            canvas.DrawText(tabTitle, tabRect.Left + 10, tabRect.Top + tabHeight * 0.6f, _textPaint);
 
-            // 关闭按钮
-            float closeX = tabRect.Right - 18;
-            float closeY = tabRect.Top + tabHeight * 0.6f;
-            using var closePaint = new SKPaint
-            {
-                Color = SKColor.Parse("#80868B"),
-                TextSize = 12,
-                Typeface = _chineseTypeface
-            };
-            canvas.DrawText("×", closeX, closeY, closePaint);
+            canvas.DrawText("×", tabRect.Right - 18, tabRect.Top + tabHeight * 0.6f, _cachedClosePaint);
 
             tabX += tabWidth + 2;
         }
 
-        // 新建标签按钮
-        float newTabX = tabX + 5;
-        float newTabY = tabY + tabHeight * 0.3f;
-        using var newTabPaint = new SKPaint
-        {
-            Color = SKColor.Parse("#5F6368"),
-            TextSize = 20,
-            Typeface = _chineseTypeface
-        };
-        canvas.DrawText("+", newTabX, newTabY + 5, newTabPaint);
-
-        // 窗口标题
-        using var titlePaint = new SKPaint
-        {
-            Color = SKColor.Parse("#202124"),
-            TextSize = 12,
-            Typeface = _chineseTypeface
-        };
-        string windowTitle = "UpBrowser";
-        float titleWidth = titlePaint.MeasureText(windowTitle);
-        canvas.DrawText(windowTitle, width - controlArea + 5, TabBarHeight * 0.6f, titlePaint);
+        canvas.DrawText("+", tabX + 5, tabY + tabHeight * 0.3f + 5, _cachedNewTabPaint);
+        canvas.DrawText("UpBrowser", width - controlArea + 5, TabBarHeight * 0.6f, _cachedTitlePaint);
     }
 
     private void RenderToolbar(SKCanvas canvas, float width, string url)
@@ -247,74 +172,40 @@ public class ChromeRenderer
         float toolbarTop = TabBarHeight;
         float toolbarCenter = toolbarTop + ToolbarHeight / 2;
 
-        // 工具栏背景
         canvas.DrawRect(0, toolbarTop, width, ToolbarHeight, _backgroundPaint);
 
-        // 导航按钮
         float btnY = toolbarTop + 8;
         float btnSize = 24;
 
-        // 后退按钮
         _backButtonRect = new SKRect(10, btnY, 10 + btnSize, btnY + btnSize);
         RenderNavButton(canvas, _backButtonRect, "◀", _backHovered, CanGoBack());
 
-        // 前进按钮
         _forwardButtonRect = new SKRect(40, btnY, 40 + btnSize, btnY + btnSize);
         RenderNavButton(canvas, _forwardButtonRect, "▶", _forwardHovered, CanGoForward());
 
-        // 刷新按钮
         _refreshButtonRect = new SKRect(70, btnY, 70 + btnSize, btnY + btnSize);
         RenderNavButton(canvas, _refreshButtonRect, "⟳", _refreshHovered, true);
 
-        // 主页按钮
         _homeButtonRect = new SKRect(100, btnY, 100 + btnSize, btnY + btnSize);
         RenderNavButton(canvas, _homeButtonRect, "🏠", _homeHovered, true);
 
-        // URL 地址栏
         float urlBarLeft = 135;
         float urlBarWidth = width - urlBarLeft - 10;
         _urlBarRect = new SKRect(urlBarLeft, toolbarTop + 5, urlBarLeft + urlBarWidth, toolbarTop + ToolbarHeight - 5);
 
-        // 地址栏背景
         canvas.DrawRoundRect(_urlBarRect, new SKSize(BorderRadius, BorderRadius), _urlBarPaint);
         canvas.DrawRoundRect(_urlBarRect, new SKSize(BorderRadius, BorderRadius), _borderPaint);
 
-        // URL 图标和安全锁
         float iconX = urlBarLeft + 10;
         float iconY = toolbarCenter + 5;
 
         if (url.StartsWith("https"))
-        {
-            using var lockPaint = new SKPaint
-            {
-                Color = SKColor.Parse("#34A853"),
-                TextSize = 14,
-                Typeface = _chineseTypeface
-            };
-            canvas.DrawText("🔒", iconX, iconY, lockPaint);
-        }
+            canvas.DrawText("🔒", iconX, iconY, _cachedLockPaint);
         else if (url.StartsWith("upbrowser://"))
-        {
-            using var browserPaint = new SKPaint
-            {
-                Color = SKColor.Parse("#1A73E8"),
-                TextSize = 14,
-                Typeface = _chineseTypeface
-            };
-            canvas.DrawText("🌐", iconX, iconY, browserPaint);
-        }
+            canvas.DrawText("🌐", iconX, iconY, _cachedBrowserPaint);
         else
-        {
-            using var infoPaint = new SKPaint
-            {
-                Color = SKColor.Parse("#F9AB00"),
-                TextSize = 14,
-                Typeface = _chineseTypeface
-            };
-            canvas.DrawText("ℹ", iconX, iconY, infoPaint);
-        }
+            canvas.DrawText("ℹ", iconX, iconY, _cachedInfoPaint);
 
-        // URL 文本
         float textX = iconX + 20;
         float textY = toolbarCenter + 5;
 
@@ -325,19 +216,11 @@ public class ChromeRenderer
         _urlTextPaint.Color = _urlBarFocused ? SKColor.Parse("#1A73E8") : SKColor.Parse("#3C4043");
         canvas.DrawText(displayUrl, textX, textY, _urlTextPaint);
 
-        // 光标
         if (_urlBarFocused && _showCursor)
         {
             string textBeforeCursor = _urlBarText[..Math.Min(_cursorPosition, _urlBarText.Length)];
             float cursorX = textX + _urlTextPaint.MeasureText(textBeforeCursor);
-
-            using var cursorPaint = new SKPaint
-            {
-                Color = SKColor.Parse("#1A73E8"),
-                Style = SKPaintStyle.Fill,
-                StrokeWidth = 1
-            };
-            canvas.DrawLine(cursorX, iconY - 12, cursorX, iconY + 2, cursorPaint);
+            canvas.DrawLine(cursorX, iconY - 12, cursorX, iconY + 2, _cachedCursorPaint);
         }
     }
 
@@ -346,19 +229,12 @@ public class ChromeRenderer
         var paint = enabled ? (hovered ? _buttonHoverPaint : _buttonPaint) : _buttonPaint;
         canvas.DrawRoundRect(rect, new SKSize(BorderRadius, BorderRadius), paint);
 
-        using var symbolPaint = new SKPaint
-        {
-            Color = enabled ? SKColor.Parse("#3C4043") : SKColor.Parse("#BDC1C6"),
-            TextSize = 14,
-            Typeface = _chineseTypeface,
-            IsAntialias = true
-        };
-
-        float symWidth = symbolPaint.MeasureText(symbol);
+        _cachedSymbolPaint.Color = enabled ? SKColor.Parse("#3C4043") : SKColor.Parse("#BDC1C6");
+        float symWidth = _cachedSymbolPaint.MeasureText(symbol);
         canvas.DrawText(symbol,
             rect.Left + (rect.Width - symWidth) / 2,
             rect.Top + rect.Height * 0.7f,
-            symbolPaint);
+            _cachedSymbolPaint);
     }
 
     private void RenderStatusBar(SKCanvas canvas, float width, float height)
@@ -368,27 +244,14 @@ public class ChromeRenderer
         canvas.DrawRect(0, statusTop, width, StatusBarHeight, _backgroundPaint);
         canvas.DrawLine(0, statusTop, width, statusTop, _borderPaint);
 
-        // 状态信息
-        using var statusPaint = new SKPaint
-        {
-            Color = SKColor.Parse("#5F6368"),
-            TextSize = 11,
-            Typeface = _chineseTypeface
-        };
+        string statusText = string.IsNullOrEmpty(_currentUrl) ? "Ready" : $"Loading {_currentUrl}...";
+        canvas.DrawText(statusText, 10, statusTop + StatusBarHeight * 0.7f, _cachedStatusPaint);
 
-        string statusText = "Ready";
-        if (!string.IsNullOrEmpty(_currentUrl))
-            statusText = $"Loading {_currentUrl}...";
-
-        canvas.DrawText(statusText, 10, statusTop + StatusBarHeight * 0.7f, statusPaint);
-
-        // 安全状态
         string securityText = _currentUrl.StartsWith("https") ? "🔒 Secure" : "🌐 Not Secure";
-        float secWidth = statusPaint.MeasureText(securityText);
-        canvas.DrawText(securityText, width - secWidth - 10, statusTop + StatusBarHeight * 0.7f, statusPaint);
+        float secWidth = _cachedStatusPaint.MeasureText(securityText);
+        canvas.DrawText(securityText, width - secWidth - 10, statusTop + StatusBarHeight * 0.7f, _cachedStatusPaint);
     }
 
-    // 输入处理
     public void HandleMouseMove(float x, float y)
     {
         _backHovered = _backButtonRect.Contains(x, y);
@@ -399,9 +262,6 @@ public class ChromeRenderer
 
     public bool HandleMouseClick(float x, float y)
     {
-        float contentTop = GetContentOffset();
-
-        // 检查 URL 栏点击
         if (_urlBarRect.Contains(x, y))
         {
             _urlBarFocused = true;
@@ -410,7 +270,6 @@ public class ChromeRenderer
             return true;
         }
 
-        // 检查导航按钮点击
         if (_backButtonRect.Contains(x, y) && CanGoBack())
         {
             _urlBarFocused = false;
@@ -485,9 +344,7 @@ public class ChromeRenderer
 
             case SKKey.Delete:
                 if (_cursorPosition < _urlBarText.Length)
-                {
                     _urlBarText = _urlBarText[.._cursorPosition] + _urlBarText[(_cursorPosition + 1)..];
-                }
                 return true;
 
             default:
@@ -504,7 +361,6 @@ public class ChromeRenderer
     {
         if (string.IsNullOrWhiteSpace(url)) return;
 
-        // 自动添加 https://
         if (!url.Contains("://") && !url.StartsWith("upbrowser://"))
         {
             if (url.Contains('.') || url.Contains('/'))
@@ -515,7 +371,6 @@ public class ChromeRenderer
 
         _currentUrl = url;
 
-        // 添加到历史记录
         if (_historyIndex < _history.Count - 1)
             _history.RemoveRange(_historyIndex + 1, _history.Count - _historyIndex - 1);
 
@@ -575,24 +430,21 @@ public class ChromeRenderer
         }
     }
 
-    public void UpdateCursorBlink()
+    public bool UpdateCursorBlink()
     {
         if ((DateTime.Now - _lastCursorBlink).TotalMilliseconds > 500)
         {
             _showCursor = !_showCursor;
             _lastCursorBlink = DateTime.Now;
+            return true;
         }
+        return false;
     }
 
     public string GetCurrentUrl() => _currentUrl;
-
     public bool IsUrlBarFocused() => _urlBarFocused;
-
     public float GetContentOffset() => TabBarHeight + ToolbarHeight;
     public float GetStatusBarHeight() => StatusBarHeight;
-    public float GetToolbarBottom() => TabBarHeight + ToolbarHeight;
-    public float GetTabBarHeight() => TabBarHeight;
-    public float GetToolbarHeight() => ToolbarHeight;
 
     public void RenderScrollbars(SKCanvas canvas, float width, float height, ScrollManager scrollManager)
     {
@@ -600,7 +452,6 @@ public class ChromeRenderer
         float viewportHeight = scrollManager.ViewportHeight;
         float viewportWidth = scrollManager.ViewportWidth;
 
-        // 垂直滚动条
         if (scrollManager.CanScrollY && viewportHeight > 0)
         {
             float scrollbarLeft = width - ScrollManager.ScrollbarWidth;
@@ -608,8 +459,7 @@ public class ChromeRenderer
             float trackHeight = viewportHeight;
             float contentHeight = scrollManager.ContentHeight;
 
-            if (contentHeight <= viewportHeight)
-                return;
+            if (contentHeight <= viewportHeight) return;
 
             using var trackPaint = new SKPaint { Color = new SKColor(230, 230, 230), Style = SKPaintStyle.Fill };
             canvas.DrawRect(scrollbarLeft, trackTop, ScrollManager.ScrollbarWidth, trackHeight, trackPaint);
@@ -620,9 +470,7 @@ public class ChromeRenderer
             float maxScrollY = contentHeight - viewportHeight;
             float thumbTop = trackTop;
             if (maxScrollY > 0)
-            {
                 thumbTop += (scrollManager.ScrollY / maxScrollY) * (trackHeight - thumbHeight);
-            }
 
             var thumbRect = new SKRect(scrollbarLeft + 2, thumbTop,
                 scrollbarLeft + ScrollManager.ScrollbarWidth - 2, thumbTop + thumbHeight);
@@ -635,7 +483,6 @@ public class ChromeRenderer
             canvas.DrawRoundRect(thumbRect, 4, 4, thumbPaint);
         }
 
-        // 水平滚动条
         if (scrollManager.CanScrollX && viewportWidth > 0)
         {
             float contentBottom = height - StatusBarHeight;
@@ -644,8 +491,7 @@ public class ChromeRenderer
             float trackWidth = viewportWidth;
             float contentWidth = scrollManager.ContentWidth;
 
-            if (contentWidth <= viewportWidth)
-                return;
+            if (contentWidth <= viewportWidth) return;
 
             using var trackPaint = new SKPaint { Color = new SKColor(230, 230, 230), Style = SKPaintStyle.Fill };
             canvas.DrawRect(trackLeft, scrollbarTop, trackWidth, ScrollManager.ScrollbarWidth, trackPaint);
@@ -656,9 +502,7 @@ public class ChromeRenderer
             float maxScrollX = contentWidth - viewportWidth;
             float thumbLeft = trackLeft;
             if (maxScrollX > 0)
-            {
                 thumbLeft += (scrollManager.ScrollX / maxScrollX) * (trackWidth - thumbWidth);
-            }
 
             var thumbRect = new SKRect(thumbLeft, scrollbarTop + 2,
                 thumbLeft + thumbWidth, scrollbarTop + ScrollManager.ScrollbarWidth - 2);
@@ -682,10 +526,21 @@ public class ChromeRenderer
         _buttonHoverPaint.Dispose();
         _buttonActivePaint.Dispose();
         _urlBarPaint.Dispose();
+
+        _cachedTabActivePaint.Dispose();
+        _cachedTabInactivePaint.Dispose();
+        _cachedLockPaint.Dispose();
+        _cachedBrowserPaint.Dispose();
+        _cachedInfoPaint.Dispose();
+        _cachedClosePaint.Dispose();
+        _cachedNewTabPaint.Dispose();
+        _cachedTitlePaint.Dispose();
+        _cachedStatusPaint.Dispose();
+        _cachedSymbolPaint.Dispose();
+        _cachedCursorPaint.Dispose();
     }
 }
 
-// 键盘按键枚举（简化版）
 public enum SKKey
 {
     None,
