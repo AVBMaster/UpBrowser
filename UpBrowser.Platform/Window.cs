@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using UpBrowser.Platform;
 using UpBrowser.Platform.Windows;
 
 namespace UpBrowser.Platform;
@@ -20,6 +21,71 @@ public class BrowserWindow : IDisposable
     private int _width;
     private int _height;
     private NativeWindow.WndProc? _wndProc;
+
+    private Action<Key>? _onChromeKey;
+    private Action<char>? _onChar;
+    private Func<char, Key, bool>? _onKeyDownWithChar;
+    private Action<float, float>? _onMouseMove;
+    private Action<float, float, bool>? _onMouseClick;
+
+    public Action<Key>? OnChromeKey
+    {
+        get => _onChromeKey;
+        set => _onChromeKey = value;
+    }
+
+    public Action<char>? OnChar
+    {
+        get => _onChar;
+        set => _onChar = value;
+    }
+
+    public Func<char, Key, bool>? OnKeyDownWithChar
+    {
+        get => _onKeyDownWithChar;
+        set => _onKeyDownWithChar = value;
+    }
+
+    public Action<float, float>? OnMouseMove
+    {
+        get => _onMouseMove;
+        set => _onMouseMove = value;
+    }
+
+    public Action<float, float, bool>? OnMouseClick
+    {
+        get => _onMouseClick;
+        set => _onMouseClick = value;
+    }
+
+    // 辅助方法
+    private Key ConvertWinKeyToKey(int winKey)
+    {
+        return winKey switch
+        {
+            13 => Key.Enter,
+            27 => Key.Escape,
+            37 => Key.Left,
+            38 => Key.Up,
+            39 => Key.Right,
+            40 => Key.Down,
+            36 => Key.Home,
+            35 => Key.End,
+            8 => Key.Backspace,
+            46 => Key.Delete,
+            9 => Key.Tab,
+            32 => Key.Space
+            //_ => Key.None
+        };
+    }
+
+    public void StartScrollbarDrag()
+    {
+        if (_hwnd != IntPtr.Zero)
+        {
+            NativeWindow.SetCapture(_hwnd);
+        }
+    }
 
     public Action<double>? OnMouseWheel
     {
@@ -154,16 +220,47 @@ public class BrowserWindow : IDisposable
                 _onMouseWheel?.Invoke(rawDelta);
                 return IntPtr.Zero;
 
+            //case NativeWindow.WM_KEYDOWN:
+            //    int virtualKey = wParam.ToInt32();
+            //    _onKeyDown?.Invoke((Key)virtualKey);
+            //    return IntPtr.Zero;
+
+            case NativeWindow.WM_CHAR:
+                {
+                    if (_onKeyDownWithChar != null)
+                    {
+                        char charCode = (char)(wParam.ToInt32() & 0xFFFF);
+                        _onKeyDownWithChar(charCode, Key.Unknown);
+                    }
+                    return IntPtr.Zero;
+                }
+
             case NativeWindow.WM_KEYDOWN:
-                int virtualKey = wParam.ToInt32();
-                _onKeyDown?.Invoke((Key)virtualKey);
-                return IntPtr.Zero;
+                {
+                    int virtualKey = wParam.ToInt32();
+                    var key = (Key)virtualKey;
+
+                    // 先让 onKeyDownWithChar 处理（用于 Chrome UI 的键盘输入）
+                    if (_onKeyDownWithChar != null)
+                    {
+                        bool handled = _onKeyDownWithChar('\0', key);
+                        if (handled) return IntPtr.Zero;
+                    }
+
+                    // 否则触发普通 onKeyDown
+                    _onKeyDown?.Invoke(key);
+                    return IntPtr.Zero;
+                }
 
             case NativeWindow.WM_LBUTTONDOWN:
                 {
                     int mouseX = (int)(lParam.ToInt64() & 0xFFFF);
                     int mouseY = (int)((lParam.ToInt64() >> 16) & 0xFFFF);
-                    
+
+                    // 先让 Chrome 处理点击
+                    _onMouseClick?.Invoke(mouseX, mouseY, true);
+
+                    // 如果 Chrome 没处理，再处理滚动条                    
                     if (_width > 0 && _height > 0)
                     {
                         float contentOffset = 75;
@@ -224,16 +321,19 @@ public class BrowserWindow : IDisposable
 
             case NativeWindow.WM_MOUSEMOVE:
                 {
+                    int mouseX = (int)(lParam.ToInt64() & 0xFFFF);
+                    int mouseY = (int)((lParam.ToInt64() >> 16) & 0xFFFF);
+
+                    _onMouseMove?.Invoke(mouseX, mouseY);
+
                     if (_isDraggingVertical && _onScrollbarDrag != null)
                     {
-                        int mouseY = (int)((lParam.ToInt64() >> 16) & 0xFFFF);
                         float deltaY = mouseY - _dragStartY;
                         _dragStartY = mouseY;
                         _onScrollbarDrag(0, deltaY);
                     }
                     else if (_isDraggingHorizontal && _onScrollbarDrag != null)
                     {
-                        int mouseX = (int)(lParam.ToInt64() & 0xFFFF);
                         float deltaX = mouseX - _dragStartY;
                         _dragStartY = mouseX;
                         _onScrollbarDrag(deltaX, 0);
@@ -243,11 +343,19 @@ public class BrowserWindow : IDisposable
 
             case NativeWindow.WM_LBUTTONUP:
                 {
+                    int mouseX = (int)(lParam.ToInt64() & 0xFFFF);
+                    int mouseY = (int)((lParam.ToInt64() >> 16) & 0xFFFF);
+
+                    // 通知 Chrome 处理点击（使用物理坐标，ChromeRenderer 内部会转换为逻辑坐标）
+                    _onMouseClick?.Invoke(mouseX, mouseY, true);
+
                     _isDraggingVertical = false;
                     _isDraggingHorizontal = false;
                     NativeWindow.ReleaseCapture();
                     return IntPtr.Zero;
                 }
+
+
 
             case NativeWindow.WM_CLOSE:
                 _isRunning = false;

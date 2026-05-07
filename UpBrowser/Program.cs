@@ -33,16 +33,26 @@ class Program
     private const int LOGPIXELSX = 88;
     private const int LOGPIXELSY = 90;
 
+    // 存储当前文档和渲染状态，以便 URL 导航后重建
+    private static Document? _currentDoc;
+    private static AngleSharp.Dom.IDocument? _currentAngleSharpDoc;
+    private static PaintVisitor? _cachedPaintVisitor;
+    private static DisplayList _displayList = new();
+    private static LayoutEngine _layoutEngine = new();
+    private static CssParser _cssParser = new();
+    private static StyleComputer _styleComputer = new();
+    private static float _lastLayoutWidth;
+    private static float _lastContentHeight;
+    private static string _currentHtml = "";
+
     static float GetDpiScale()
     {
         try
         {
-            // Try modern DPI awareness first
             SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
         }
         catch
         {
-            // Fall back to old API
             SetProcessDPIAware();
         }
 
@@ -56,14 +66,9 @@ class Program
         return 1.0f;
     }
 
-    static async Task Main(string[] args)
+    static string GetDefaultHtml()
     {
-        float dpiScale = GetDpiScale();
-        Console.WriteLine($"DPI Scale: {dpiScale:F2} ({dpiScale * 100}%)");
-
-        Console.WriteLine("UpBrowser - Starting...");
-
-        var html = @"<!DOCTYPE html>
+        return @"<!DOCTYPE html>
 <html>
 <head>
     <title>UpBrowser</title>
@@ -103,9 +108,8 @@ class Program
         <p>Line 8</p>
         <p>Line 9</p>
         <p>Line 10</p>
-        <p style='color: red;' fontsize=>This is the bottom of the page!</p>
+        <p style='color: red;'>This is the bottom of the page!</p>
     </div>
-
     <style>
 h1 {
 color: red;
@@ -118,17 +122,17 @@ font-size: 16px;
 </style>
 </body>
 </html>";
+    }
 
-        var chromeRenderer = new ChromeRenderer();
-        chromeRenderer.Initialize();
-
+    static async Task<(Document doc, AngleSharp.Dom.IDocument angleSharpDoc)> LoadHtml(string html)
+    {
         var config = Configuration.Default;
         var context = BrowsingContext.New(config);
         var angleSharpDoc = await context.OpenAsync(req => req.Content(html));
 
         var doc = new Document
         {
-            Url = "https://example.com",
+            Url = "upbrowser://local",
             Title = angleSharpDoc.Title ?? "Untitled"
         };
 
@@ -136,16 +140,42 @@ font-size: 16px;
 
         var cssParser = new CssParser();
         var styleComputer = new StyleComputer();
-        
+
         var uaStylesheet = cssParser.Parse(GetUserAgentStyles());
         styleComputer.AddStylesheet(uaStylesheet);
-        
+
         await LoadStylesFromHtml(angleSharpDoc, cssParser, styleComputer);
-        
+
         styleComputer.ComputeStyles(doc);
 
-        var layoutEngine = new LayoutEngine();
-        layoutEngine.Layout(doc, 1024, 768);
+        return (doc, angleSharpDoc);
+    }
+
+    static void BuildDisplayList(Document doc, float contentOffset, float windowWidth, float windowHeight)
+    {
+        _layoutEngine.Layout(doc, windowWidth, windowHeight);
+
+        _cachedPaintVisitor = new PaintVisitor(contentOffset);
+        _cachedPaintVisitor.VisitDocument(doc);
+        _displayList = _cachedPaintVisitor.GetDisplayList();
+        _displayList.SortByZIndex();
+    }
+
+    static async Task Main(string[] args)
+    {
+        float dpiScale = GetDpiScale();
+        Console.WriteLine($"DPI Scale: {dpiScale:F2} ({dpiScale * 100}%)");
+
+        Console.WriteLine("UpBrowser - Starting...");
+
+        _currentHtml = GetDefaultHtml();
+
+        var chromeRenderer = new ChromeRenderer();
+        chromeRenderer.Initialize();
+
+        var (doc, angleSharpDoc) = await LoadHtml(_currentHtml);
+        _currentDoc = doc;
+        _currentAngleSharpDoc = angleSharpDoc;
 
         var devTool = new LayoutDevTool();
         var debugReport = devTool.GenerateReport(doc, 1024, 768);
@@ -165,7 +195,6 @@ font-size: 16px;
         int logicalWidth = 1024;
         int logicalHeight = 768;
 
-        // 根据DPI缩放调整窗口大小，让用户看到合适的大小
         int physicalWidth = (int)(logicalWidth * dpiScale);
         int physicalHeight = (int)(logicalHeight * dpiScale);
 
@@ -178,37 +207,276 @@ font-size: 16px;
         var contentOffset = chromeRenderer.GetContentOffset();
         var scrollManager = new ScrollManager();
 
-        var paintVisitor = new PaintVisitor(contentOffset);
-        paintVisitor.VisitDocument(doc);
+        // 初始构建显示列表
+        BuildDisplayList(doc, contentOffset, logicalWidth, logicalHeight);
 
-        var displayList = paintVisitor.GetDisplayList();
-        displayList.SortByZIndex();
+        _lastLayoutWidth = logicalWidth;
+        var bodyBox = doc.Body?.LayoutBox;
+        _lastContentHeight = bodyBox?.BorderBox.Height ?? 0;
 
-        PaintVisitor? cachedPaintVisitor = null;
-        float lastLayoutWidth = 0;
-        float lastContentHeight = 0;
-
-        window.OnMouseWheel = (delta) =>
+        // ========== Chrome 导航回调 ==========
+        chromeRenderer.OnNavigate = async (url) =>
         {
-            scrollManager.ScrollBy((float)delta);
-            // 不需要重建显示列表，滚动变换在渲染时应用
-        };
+            Console.WriteLine($"Navigating to: {url}");
 
-        window.OnScrollbarClick = (isVertical, isUp) =>
-        {
-            if (isVertical)
+            if (url.StartsWith("upbrowser://"))
             {
-                if (isUp)
-                    scrollManager.PageUp();
-                else
-                    scrollManager.PageDown();
+                // 内置页面
+                if (url == "upbrowser://newtab" || url == "upbrowser://local")
+                {
+                    _currentHtml = GetDefaultHtml();
+                    var (newDoc, newAngleDoc) = await LoadHtml(_currentHtml);
+                    _currentDoc = newDoc;
+                    _currentAngleSharpDoc = newAngleDoc;
+
+                    var (pw, ph) = window.GetClientSize();
+                    int ww = (int)(pw / dpiScale);
+                    int wh = (int)(ph / dpiScale);
+
+                    BuildDisplayList(newDoc, contentOffset, ww, wh);
+                    scrollManager.ScrollTo(0, 0);
+                }
+            }
+            else if (url.StartsWith("http://") || url.StartsWith("https://"))
+            {
+                // 尝试加载网页
+                try
+                {
+                    using var httpClient = new HttpClient();
+                    httpClient.DefaultRequestHeaders.Add("User-Agent",
+                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
+
+                    var webHtml = await httpClient.GetStringAsync(url);
+                    _currentHtml = webHtml;
+
+                    var (newDoc, newAngleDoc) = await LoadHtml(webHtml);
+                    _currentDoc = newDoc;
+                    _currentAngleSharpDoc = newAngleDoc;
+
+                    var (pw, ph) = window.GetClientSize();
+                    int ww = (int)(pw / dpiScale);
+                    int wh = (int)(ph / dpiScale);
+
+                    BuildDisplayList(newDoc, contentOffset, ww, wh);
+                    scrollManager.ScrollTo(0, 0);
+
+                    Console.WriteLine($"Loaded: {newAngleDoc.Title}");
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Failed to load URL: {ex.Message}");
+                    // 显示错误页面的 HTML
+                    var errorHtml = $@"<!DOCTYPE html>
+<html><head><title>Error</title></head>
+<body style='font-family: Arial; padding: 40px;'>
+    <h1 style='color: #d32f2f;'>Navigation Error</h1>
+    <p>Failed to load: {url}</p>
+    <p style='color: #666;'>Error: {ex.Message}</p>
+</body></html>";
+
+                    _currentHtml = errorHtml;
+                    var (errorDoc, errorAngleDoc) = await LoadHtml(errorHtml);
+                    _currentDoc = errorDoc;
+                    _currentAngleSharpDoc = errorAngleDoc;
+
+                    var (pw, ph) = window.GetClientSize();
+                    int ww = (int)(pw / dpiScale);
+                    int wh = (int)(ph / dpiScale);
+
+                    BuildDisplayList(errorDoc, contentOffset, ww, wh);
+                    scrollManager.ScrollTo(0, 0);
+                }
             }
             else
             {
-                if (isUp)
-                    scrollManager.PageLeft();
-                else
-                    scrollManager.PageRight();
+                // 搜索查询
+                var searchUrl = "https://www.google.com/search?q=" + Uri.EscapeDataString(url);
+                Console.WriteLine($"Searching for: {url} -> {searchUrl}");
+                // 对于搜索，目前显示搜索提示页面
+                var searchHtml = $@"<!DOCTYPE html>
+<html><head><title>Search: {url}</title></head>
+<body style='font-family: Arial; padding: 40px;'>
+    <h1 style='color: #1a73e8;'>Search</h1>
+    <p>Searching for: <strong>{url}</strong></p>
+    <p style='color: #666;'>Search functionality requires network access.</p>
+</body></html>";
+
+                _currentHtml = searchHtml;
+                var (searchDoc, searchAngleDoc) = await LoadHtml(searchHtml);
+                _currentDoc = searchDoc;
+                _currentAngleSharpDoc = searchAngleDoc;
+
+                var (pw, ph) = window.GetClientSize();
+                int ww = (int)(pw / dpiScale);
+                int wh = (int)(ph / dpiScale);
+
+                BuildDisplayList(searchDoc, contentOffset, ww, wh);
+                scrollManager.ScrollTo(0, 0);
+            }
+        };
+
+        chromeRenderer.OnRefresh = () =>
+        {
+            Console.WriteLine("Refreshing page...");
+            if (!string.IsNullOrEmpty(_currentHtml))
+            {
+                Task.Run(async () =>
+                {
+                    var (newDoc, newAngleDoc) = await LoadHtml(_currentHtml);
+                    _currentDoc = newDoc;
+                    _currentAngleSharpDoc = newAngleDoc;
+
+                    var (pw, ph) = window.GetClientSize();
+                    int ww = (int)(pw / dpiScale);
+                    int wh = (int)(ph / dpiScale);
+
+                    BuildDisplayList(newDoc, contentOffset, ww, wh);
+                });
+            }
+        };
+
+        chromeRenderer.OnHome = () =>
+        {
+            Console.WriteLine("Going home...");
+            chromeRenderer.NavigateToUrl("upbrowser://local");
+        };
+
+        // ========== 窗口事件处理 ==========
+        window.OnMouseMove = (x, y) =>
+        {
+            chromeRenderer.HandleMouseMove(x / dpiScale, y / dpiScale);
+        };
+
+        window.OnMouseClick = (x, y, isDown) =>
+        {
+            if (!isDown) return;
+
+            float logicalX = x / dpiScale;
+            float logicalY = y / dpiScale;
+
+            // 先让 Chrome 处理点击
+            bool handled = chromeRenderer.HandleMouseClick(logicalX, logicalY);
+
+            if (!handled)
+            {
+                // Chrome 没处理，检查是否是滚动条区域
+                float statusBarHeight = chromeRenderer.GetStatusBarHeight();
+                float viewportHeight = window.Height / dpiScale - contentOffset - statusBarHeight;
+
+                // 垂直滚动条检测
+                if (scrollManager.CanScrollY)
+                {
+                    float scrollbarLeft = window.Width / dpiScale - ScrollManager.ScrollbarWidth;
+                    if (logicalX >= scrollbarLeft &&
+                        logicalY >= contentOffset &&
+                        logicalY <= contentOffset + viewportHeight)
+                    {
+                        float trackHeight = viewportHeight;
+                        float thumbHeight = Math.Max(ScrollManager.ScrollbarMinThumbSize,
+                            trackHeight * viewportHeight / scrollManager.ContentHeight);
+                        float maxScrollY = scrollManager.ContentHeight - viewportHeight;
+                        float thumbTop = maxScrollY > 0 ?
+                            (scrollManager.ScrollY / maxScrollY) * (trackHeight - thumbHeight) : 0;
+
+                        if (logicalY < contentOffset + thumbTop)
+                            scrollManager.PageUp();
+                        else if (logicalY > contentOffset + thumbTop + thumbHeight)
+                            scrollManager.PageDown();
+                        else
+                        {
+                            // 开始拖拽滚动条
+                            window.StartScrollbarDrag();
+                        }
+                    }
+                }
+            }
+        };
+
+        window.OnKeyDownWithChar = (charCode, key) =>
+        {
+            // 先让 Chrome 处理（地址栏输入等）
+            var skKey = key switch
+            {
+                Key.Enter => SKKey.Enter,
+                Key.Escape => SKKey.Escape,
+                Key.Left => SKKey.Left,
+                Key.Up => SKKey.Up,
+                Key.Right => SKKey.Right,
+                Key.Down => SKKey.Down,
+                Key.Home => SKKey.Home,
+                Key.End => SKKey.End,
+                Key.Backspace => SKKey.Backspace,
+                Key.Delete => SKKey.Delete,
+                Key.Tab => SKKey.Tab,
+                Key.Space => SKKey.Space,
+                _ => SKKey.None
+            };
+
+            bool handledByChrome = chromeRenderer.HandleKeyPress(charCode, skKey);
+
+            if (handledByChrome)
+            {
+                return true;
+            }
+
+            // Chrome 没处理，检查是否在地址栏模式
+            if (chromeRenderer.IsUrlBarFocused())
+            {
+                return false;
+            }
+
+            // 不在地址栏，使用原有滚动快捷键
+            switch (key)
+            {
+                case Key.PageUp:
+                    scrollManager.PageUp();
+                    return true;
+                case Key.PageDown:
+                    scrollManager.PageDown();
+                    return true;
+                case Key.Home:
+                    scrollManager.ScrollHome();
+                    return true;
+                case Key.End:
+                    scrollManager.ScrollEnd();
+                    return true;
+                case Key.Up:
+                    scrollManager.ScrollBy(0, -40);
+                    return true;
+                case Key.Down:
+                    scrollManager.ScrollBy(0, 40);
+                    return true;
+                case Key.Left:
+                    scrollManager.ScrollBy(-40, 0);
+                    return true;
+                case Key.Right:
+                    scrollManager.ScrollBy(40, 0);
+                    return true;
+                default:
+                    return false;
+            }
+        };
+
+        window.OnKeyDown = (key) =>
+        {
+            // 快捷键处理（当 Chrome 不处理时）
+            if (!chromeRenderer.IsUrlBarFocused())
+            {
+                // Ctrl+L 聚焦地址栏
+                // Ctrl+T 新建标签页
+                // F5 刷新
+                if (key == Key.F5 || (key == Key.R))
+                {
+                    chromeRenderer.OnRefresh?.Invoke();
+                }
+            }
+        };
+
+        window.OnMouseWheel = (delta) =>
+        {
+            if (!chromeRenderer.IsUrlBarFocused())
+            {
+                scrollManager.ScrollBy((float)delta);
             }
         };
 
@@ -216,7 +484,6 @@ font-size: 16px;
         {
             if (deltaY != 0)
             {
-                // 将像素移动转换为滚动增量
                 float scrollDelta = deltaY * 3.0f;
                 scrollManager.ScrollBy(0, scrollDelta);
             }
@@ -227,105 +494,73 @@ font-size: 16px;
             }
         };
 
-        window.OnKeyDown = (key) =>
-        {
-            switch (key)
-            {
-                case Key.PageUp:
-                    scrollManager.PageUp();
-                    break;
-                case Key.PageDown:
-                    scrollManager.PageDown();
-                    break;
-                case Key.Home:
-                    scrollManager.ScrollHome();
-                    break;
-                case Key.End:
-                    scrollManager.ScrollEnd();
-                    break;
-                case Key.Up:
-                    scrollManager.ScrollBy(0, -40);
-                    break;
-                case Key.Down:
-                    scrollManager.ScrollBy(0, 40);
-                    break;
-                case Key.Left:
-                    scrollManager.ScrollBy(-40, 0);
-                    break;
-                case Key.Right:
-                    scrollManager.ScrollBy(40, 0);
-                    break;
-            }
-            // 不需要重建显示列表，滚动变换在渲染时应用
-        };
-
+        // ========== 主渲染循环 ==========
         window.Run((dt) =>
+        {
+            eventLoop.ProcessTasks();
+
+            // 更新光标闪烁
+            chromeRenderer.UpdateCursorBlink();
+
+            var (pw, ph) = window.GetClientSize();
+
+            int windowWidth = (int)(pw / dpiScale);
+            int windowHeight = (int)(ph / dpiScale);
+
+            if (windowWidth > 0 && windowHeight > 0 && _currentDoc != null)
+            {
+                bool needsLayout = false;
+
+                if (skiaRenderer.Width != windowWidth || skiaRenderer.Height != windowHeight)
                 {
-                    eventLoop.ProcessTasks();
+                    skiaRenderer.Resize(windowWidth, windowHeight);
+                    needsLayout = true;
+                }
 
-                    var (physicalWidth, physicalHeight) = window.GetClientSize();
+                if (needsLayout || windowWidth != _lastLayoutWidth)
+                {
+                    _lastLayoutWidth = windowWidth;
 
-                    // 将物理大小转换为逻辑大小
-                    int windowWidth = (int)(physicalWidth / dpiScale);
-                    int windowHeight = (int)(physicalHeight / dpiScale);
+                    BuildDisplayList(_currentDoc, contentOffset, windowWidth, windowHeight);
 
-                    if (windowWidth > 0 && windowHeight > 0)
-                    {
-                        bool needsLayout = false;
+                    var bodyBox = _currentDoc.Body?.LayoutBox;
+                    float contentWidth = bodyBox?.BorderBox.Width ?? windowWidth;
+                    float contentHeight = bodyBox?.BorderBox.Height ?? 0;
+                    float viewportHeight = windowHeight - contentOffset - chromeRenderer.GetStatusBarHeight();
 
-                        if (skiaRenderer.Width != windowWidth || skiaRenderer.Height != windowHeight)
-                        {
-                            skiaRenderer.Resize(windowWidth, windowHeight);
-                            needsLayout = true;
-                        }
+                    scrollManager.UpdateScroll(contentWidth, contentHeight, windowWidth, viewportHeight);
+                    _lastContentHeight = contentHeight;
+                }
 
-                        if (needsLayout || windowWidth != lastLayoutWidth)
-                        {
-                            lastLayoutWidth = windowWidth;
+                // 渲染流程
+                skiaRenderer.Canvas.Clear(SKColors.White);
 
-                            layoutEngine.Layout(doc, windowWidth, windowHeight);
+                // 1. Chrome UI
+                var title = _currentAngleSharpDoc?.Title ?? "UpBrowser";
+                var currentUrl = chromeRenderer.GetCurrentUrl();
+                if (string.IsNullOrEmpty(currentUrl))
+                    currentUrl = "upbrowser://local";
 
-                            var bodyBox = doc.Body?.LayoutBox;
-                            float contentWidth = bodyBox?.BorderBox.Width ?? windowWidth;
-                            float contentHeight = bodyBox?.BorderBox.Height ?? 0;
-                            float viewportHeight = windowHeight - contentOffset - chromeRenderer.GetStatusBarHeight();
+                chromeRenderer.RenderChrome(skiaRenderer.Canvas, windowWidth, windowHeight, currentUrl, title);
 
-                            scrollManager.UpdateScroll(contentWidth, contentHeight, windowWidth, viewportHeight);
+                // 2. 内容区域
+                float contentViewportHeight = windowHeight - contentOffset - chromeRenderer.GetStatusBarHeight();
+                skiaRenderer.RenderWithScroll(_displayList, contentOffset,
+                    scrollManager.ScrollX, scrollManager.ScrollY,
+                    windowWidth, contentViewportHeight);
 
-                            if (lastContentHeight != contentHeight)
-                            {
-                                lastContentHeight = contentHeight;
-                                needsLayout = true;
-                            }
+                // 3. 滚动条
+                chromeRenderer.RenderScrollbars(skiaRenderer.Canvas, windowWidth, windowHeight, scrollManager);
 
-                            cachedPaintVisitor = new PaintVisitor(contentOffset);
-                            cachedPaintVisitor.VisitDocument(doc);
-                            displayList = cachedPaintVisitor.GetDisplayList();
-                            displayList.SortByZIndex();
-                        }
-
-                        // 新的渲染流程：先绘制 Chrome，再绘制内容（带滚动变换），最后绘制滚动条
-                        skiaRenderer.Canvas.Clear(SKColors.White);
-
-                        // 1. 绘制 Chrome（不受滚动影响，使用逻辑坐标）
-                        var title = angleSharpDoc.Title ?? "UpBrowser";
-                        chromeRenderer.RenderChrome(skiaRenderer.Canvas, windowWidth, windowHeight, "upbrowser://local", title);
-
-                        // 2. 绘制内容（应用滚动变换，使用逻辑坐标）
-                        float contentViewportHeight = windowHeight - contentOffset - chromeRenderer.GetStatusBarHeight();
-                        skiaRenderer.RenderWithScroll(displayList, contentOffset, scrollManager.ScrollX, scrollManager.ScrollY, windowWidth, contentViewportHeight);
-
-                        // 3. 绘制滚动条（不受滚动影响，使用逻辑坐标）
-                        chromeRenderer.RenderScrollbars(skiaRenderer.Canvas, windowWidth, windowHeight, scrollManager);
-
-                        var pixels = skiaRenderer.GetPixelData();
-                        // 传递物理大小，因为bitmap是按DPI缩放创建的
-                        window.Render(pixels, skiaRenderer.PhysicalWidth, skiaRenderer.PhysicalHeight);
-                    }
-                });
+                var pixels = skiaRenderer.GetPixelData();
+                window.Render(pixels, skiaRenderer.PhysicalWidth, skiaRenderer.PhysicalHeight);
+            }
+        });
 
         Console.WriteLine("UpBrowser closed.");
     }
+
+    // ========== 辅助方法（保持不变） ==========
 
     static void ConvertHtmlToDom(AngleSharp.Dom.IElement source, Document target)
     {

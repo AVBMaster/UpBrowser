@@ -138,6 +138,59 @@ public class LayoutEngine
 
         AdjustBoxHeightFromContent(box);
 
+        // Shrink-to-fit for inline/inline-block elements with auto width
+        bool isAutoWidth = style.Width is AutoLength || style.Width is null;
+        if (isAutoWidth && (style.Display == DisplayType.Inline || style.Display == DisplayType.InlineBlock))
+        {
+            float contentWidthFromContent = 0;
+
+            if (box.Lines != null && box.Lines.Count > 0)
+            {
+                foreach (var line in box.Lines)
+                {
+                    float lineWidth = line.Runs.Sum(r => r.Width);
+                    if (lineWidth > contentWidthFromContent)
+                        contentWidthFromContent = lineWidth;
+                }
+            }
+
+            if (box.Children.Count > 0)
+            {
+                float childrenMaxRight = box.ContentBox.Left;
+                foreach (var child in box.Children)
+                {
+                    if (child.MarginBox.Right > childrenMaxRight)
+                        childrenMaxRight = child.MarginBox.Right;
+                }
+                float childrenWidth = childrenMaxRight - box.ContentBox.Left;
+                if (childrenWidth > contentWidthFromContent)
+                    contentWidthFromContent = childrenWidth;
+            }
+
+            if (box.LineRuns != null && box.LineRuns.Count > 0)
+            {
+                float runsWidth = box.LineRuns.Sum(r => r.Width);
+                if (runsWidth > contentWidthFromContent)
+                    contentWidthFromContent = runsWidth;
+            }
+
+            if (contentWidthFromContent > 0)
+            {
+                float newContentWidth = Math.Min(contentWidthFromContent + paddingLeft + paddingRight, availableWidth);
+                float oldRight = box.ContentBox.Right;
+                float newRight = box.ContentBox.Left + newContentWidth;
+                float diff = oldRight - newRight;
+
+                if (diff > 0)
+                {
+                    box.ContentBox = new SKRect(box.ContentBox.Left, box.ContentBox.Top, box.ContentBox.Left + newContentWidth, box.ContentBox.Bottom);
+                    box.PaddingBox = new SKRect(box.PaddingBox.Left, box.PaddingBox.Top, box.PaddingBox.Right - diff, box.PaddingBox.Bottom);
+                    box.BorderBox = new SKRect(box.BorderBox.Left, box.BorderBox.Top, box.BorderBox.Right - diff, box.BorderBox.Bottom);
+                    box.MarginBox = new SKRect(box.MarginBox.Left, box.MarginBox.Top, box.MarginBox.Right - diff, box.MarginBox.Bottom);
+                }
+            }
+        }
+
         if (style.Position == PositionType.Absolute)
         {
             LayoutAbsolute(element, box, parentBox);
