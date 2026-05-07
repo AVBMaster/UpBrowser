@@ -1,5 +1,6 @@
 using UpBrowser.Core.Dom;
 using SkiaSharp;
+using System.Text;
 
 namespace UpBrowser.Core.Layout;
 
@@ -53,6 +54,39 @@ public class LayoutEngine
         }
     }
 
+    private string GetButtonTextFromElement(Element button)
+    {
+        var textBuilder = new StringBuilder();
+        foreach (var child in button.Children)
+        {
+            if (child is TextNode textNode)
+            {
+                string text = textNode.TextContent?.Trim();
+                if (!string.IsNullOrEmpty(text))
+                {
+                    textBuilder.Append(text);
+                }
+            }
+            else if (child is Element childElement && childElement.TagName.Equals("SPAN", StringComparison.OrdinalIgnoreCase))
+            {
+                foreach (var subChild in childElement.Children)
+                {
+                    if (subChild is TextNode subText)
+                    {
+                        textBuilder.Append(subText.TextContent?.Trim());
+                    }
+                }
+            }
+        }
+
+        string result = textBuilder.ToString().Trim();
+        if (!string.IsNullOrEmpty(result))
+            return result;
+
+        var valueAttr = button.GetAttribute("value");
+        return !string.IsNullOrEmpty(valueAttr) ? valueAttr : "Button";
+    }
+
     private LayoutBox? CreateLayoutBox(Element element, float x, float y, float availableWidth, LayoutBox? parentBox)
     {
         var style = element.ComputedStyle;
@@ -65,7 +99,7 @@ public class LayoutEngine
         box.Dimensions = BoxDimensions.FromStyle(style);
 
         float width = CalculateWidth(element, availableWidth);
-        float height = CalculateHeight(element, availableWidth, style);
+        float elementHeight = CalculateHeight(element, availableWidth, style);
 
         float marginLeft = style.MarginLeft is PixelLength ml ? ml.Value : 0;
         float marginRight = style.MarginRight is PixelLength mr ? mr.Value : 0;
@@ -83,12 +117,12 @@ public class LayoutEngine
         float paddingBottom = style.PaddingBottom is PixelLength pb ? pb.Value : 0;
 
         float contentWidth = width;
-        float contentHeight = float.IsNaN(height) ? 0 : height;
+        float contentHeight = float.IsNaN(elementHeight) ? 0 : elementHeight;
 
         if (style.BoxSizing == BoxSizingType.BorderBox)
         {
             contentWidth = Math.Max(0, width - borderLeft - borderRight - paddingLeft - paddingRight);
-            contentHeight = float.IsNaN(height) ? 0 : Math.Max(0, height - borderTop - borderBottom - paddingTop - paddingBottom);
+            contentHeight = float.IsNaN(elementHeight) ? 0 : Math.Max(0, elementHeight - borderTop - borderBottom - paddingTop - paddingBottom);
         }
 
         float totalHorizontal = marginLeft + borderLeft + paddingLeft + paddingRight + borderRight + marginRight;
@@ -101,9 +135,15 @@ public class LayoutEngine
         float totalHeight = marginTop + borderTop + paddingTop + contentHeight + paddingBottom + borderBottom + marginBottom;
 
         box.MarginBox = new SKRect(x, y, x + totalWidth, y + totalHeight);
-        box.BorderBox = new SKRect(x + marginLeft + borderLeft, y + marginTop + borderTop, x + marginLeft + borderLeft + paddingLeft + contentWidth + paddingRight + borderRight, y + marginTop + borderTop + contentHeight + paddingBottom + borderBottom);
-        box.PaddingBox = new SKRect(x + marginLeft + borderLeft + paddingLeft, y + marginTop + borderTop + paddingTop, x + marginLeft + borderLeft + paddingLeft + contentWidth, y + marginTop + borderTop + paddingTop + contentHeight);
-        box.ContentBox = new SKRect(box.PaddingBox.Left, box.PaddingBox.Top, box.PaddingBox.Left + contentWidth, box.PaddingBox.Top + contentHeight);
+        box.BorderBox = new SKRect(x + marginLeft + borderLeft, y + marginTop + borderTop,
+                                   x + marginLeft + borderLeft + paddingLeft + contentWidth + paddingRight + borderRight,
+                                   y + marginTop + borderTop + contentHeight + paddingBottom + borderBottom);
+        box.PaddingBox = new SKRect(x + marginLeft + borderLeft + paddingLeft, y + marginTop + borderTop + paddingTop,
+                                    x + marginLeft + borderLeft + paddingLeft + contentWidth,
+                                    y + marginTop + borderTop + paddingTop + contentHeight);
+        box.ContentBox = new SKRect(box.PaddingBox.Left, box.PaddingBox.Top,
+                                    box.PaddingBox.Left + contentWidth,
+                                    box.PaddingBox.Top + contentHeight);
 
         box.LineHeight = style.LineHeight * style.FontSize;
         element.LayoutBox = box;
@@ -221,7 +261,7 @@ public class LayoutEngine
         if (style.Height is PercentLength hp)
             return hp.Value * availableWidth;
         if (style.Height is AutoLength || style.Height is null)
-            return float.NaN; // Auto height - will be calculated from content
+            return float.NaN;
 
         return 0;
     }
@@ -233,7 +273,6 @@ public class LayoutEngine
         float fontSize = style?.FontSize ?? 16f;
         float lineHeight = (style?.LineHeight ?? 1.2f) * fontSize;
 
-        // 收集浮动和非浮动子元素
         var floatLeftElements = new List<Element>();
         var floatRightElements = new List<Element>();
         var normalFlowElements = new List<object>();
@@ -273,7 +312,6 @@ public class LayoutEngine
             }
         }
 
-        // 布局正常流元素
         float collapsedMarginBottom = 0;
         foreach (var item in normalFlowElements)
         {
@@ -285,18 +323,15 @@ public class LayoutEngine
                 float marginTop = childStyle.MarginTop is PixelLength mt ? mt.Value : 0;
                 float marginBottom = childStyle.MarginBottom is PixelLength mb ? mb.Value : 0;
 
-                // Margin折叠：取相邻margin中的最大值
                 float actualMarginTop = Math.Max(marginTop, collapsedMarginBottom);
                 currentY += actualMarginTop;
                 collapsedMarginBottom = 0;
 
-                // 检查是否需要清除浮动
                 if (childStyle.Clear != ClearType.None)
                 {
                     float clearY = currentY;
                     if (childStyle.Clear == ClearType.Left || childStyle.Clear == ClearType.Both)
                     {
-                        // 找到左侧浮动元素的最大底部位置
                         foreach (var floatElem in floatLeftElements)
                         {
                             if (floatElem.LayoutBox != null && floatElem.LayoutBox.MarginBox.Bottom > clearY)
@@ -305,7 +340,6 @@ public class LayoutEngine
                     }
                     if (childStyle.Clear == ClearType.Right || childStyle.Clear == ClearType.Both)
                     {
-                        // 找到右侧浮动元素的最大底部位置
                         foreach (var floatElem in floatRightElements)
                         {
                             if (floatElem.LayoutBox != null && floatElem.LayoutBox.MarginBox.Bottom > clearY)
@@ -350,7 +384,6 @@ public class LayoutEngine
             }
         }
 
-        // 布局左侧浮动元素
         float floatY = y;
         foreach (var floatElem in floatLeftElements)
         {
@@ -359,17 +392,14 @@ public class LayoutEngine
 
             float marginTop = childStyle.MarginTop is PixelLength mt ? mt.Value : 0;
             float marginLeft = childStyle.MarginLeft is PixelLength ml ? ml.Value : 0;
-            float marginRight = childStyle.MarginRight is PixelLength mr ? mr.Value : 0;
-
             floatY += marginTop;
 
             float elemWidth = 0;
             if (childStyle.Width is PixelLength w) elemWidth = w.Value;
             else if (childStyle.Width is PercentLength wp) elemWidth = wp.Value * availableWidth;
-            else elemWidth = 100; // 默认宽度
+            else elemWidth = 100;
 
             float elemX = x + marginLeft;
-
             var childBox = CreateLayoutBox(floatElem, elemX, floatY, elemWidth, box);
             if (childBox != null)
             {
@@ -379,7 +409,6 @@ public class LayoutEngine
             }
         }
 
-        // 布局右侧浮动元素
         float floatRightY = y;
         foreach (var floatElem in floatRightElements)
         {
@@ -387,18 +416,15 @@ public class LayoutEngine
             if (childStyle == null) continue;
 
             float marginTop = childStyle.MarginTop is PixelLength mt ? mt.Value : 0;
-            float marginLeft = childStyle.MarginLeft is PixelLength ml ? ml.Value : 0;
             float marginRight = childStyle.MarginRight is PixelLength mr ? mr.Value : 0;
-
             floatRightY += marginTop;
 
             float elemWidth = 0;
             if (childStyle.Width is PixelLength w) elemWidth = w.Value;
             else if (childStyle.Width is PercentLength wp) elemWidth = wp.Value * availableWidth;
-            else elemWidth = 100; // 默认宽度
+            else elemWidth = 100;
 
             float elemX = x + availableWidth - elemWidth - marginRight;
-
             var childBox = CreateLayoutBox(floatElem, elemX, floatRightY, elemWidth, box);
             if (childBox != null)
             {
@@ -408,7 +434,6 @@ public class LayoutEngine
             }
         }
 
-        // 应用最后一个元素的折叠margin-bottom
         currentY += collapsedMarginBottom;
         y = currentY;
     }
@@ -424,8 +449,8 @@ public class LayoutEngine
         float currentY = y;
         float maxHeightInLine = lineHeight;
 
-        var line = new LineBox { Y = currentY, Baseline = baseline, Height = lineHeight };
-        box.Lines = new List<LineBox> { line };
+        var currentLine = new LineBox { Y = currentY, Baseline = baseline, Height = lineHeight };
+        box.Lines = new List<LineBox> { currentLine };
 
         bool isNowrap = style.WhiteSpace == WhiteSpaceMode.Nowrap;
 
@@ -436,64 +461,109 @@ public class LayoutEngine
                 var childStyle = childElement.ComputedStyle;
                 if (childStyle == null || childStyle.Display == DisplayType.None) continue;
 
-                // 块级子元素在inline上下文中，需要换行
+                if (childElement.TagName.Equals("BUTTON", StringComparison.OrdinalIgnoreCase))
+                {
+                    string btnText = GetButtonTextFromElement(childElement);
+                    if (string.IsNullOrEmpty(btnText)) btnText = "Button";
+
+                    float fontSize = childStyle.FontSize > 0 ? childStyle.FontSize : 13.3333f;
+                    float textWidth = MeasureTextWidth(btnText, fontSize, childStyle.FontFamily);
+
+                    float padLeft = childStyle.PaddingLeft is PixelLength pl ? pl.Value : 1;
+                    float padRight = childStyle.PaddingRight is PixelLength pr ? pr.Value : 1;
+                    float padTop = childStyle.PaddingTop is PixelLength pt ? pt.Value : 1;
+                    float padBottom = childStyle.PaddingBottom is PixelLength pb ? pb.Value : 1;
+                    float borderLeft = childStyle.BorderLeftWidth;
+                    float borderRight = childStyle.BorderRightWidth;
+                    float borderTop = childStyle.BorderTopWidth;
+                    float borderBottom = childStyle.BorderBottomWidth;
+
+                    float contentWidth = textWidth + padLeft + padRight;
+                    float totalButtonWidth = contentWidth + borderLeft + borderRight;
+
+                    float contentHeight = childStyle.LineHeight * fontSize + padTop + padBottom;
+                    float buttonTotalHeight = contentHeight + borderTop + borderBottom;  // 重命名避免冲突
+
+                    if (childStyle.Width is PixelLength pw) totalButtonWidth = pw.Value;
+                    if (childStyle.Height is PixelLength ph) buttonTotalHeight = ph.Value;
+
+                    if (!isNowrap && currentX + totalButtonWidth > x + availableWidth && currentX > x)
+                    {
+                        currentLine.Height = maxHeightInLine;
+                        currentY += maxHeightInLine;
+                        baseline = currentY + lineHeight * 0.85f;
+                        currentX = x;
+                        maxHeightInLine = lineHeight;
+                        currentLine = new LineBox { Y = currentY, Baseline = baseline, Height = lineHeight };
+                        box.Lines.Add(currentLine);
+                    }
+
+                    var buttonBox = new LayoutBox();
+                    buttonBox.MarginBox = new SKRect(currentX, baseline - buttonTotalHeight, currentX + totalButtonWidth, baseline);
+                    buttonBox.BorderBox = new SKRect(currentX + borderLeft, baseline - buttonTotalHeight + borderTop,
+                                                     currentX + totalButtonWidth - borderRight, baseline - borderBottom);
+                    buttonBox.PaddingBox = new SKRect(currentX + borderLeft + padLeft, baseline - buttonTotalHeight + borderTop + padTop,
+                                                      currentX + totalButtonWidth - borderRight - padRight, baseline - borderBottom - padBottom);
+                    buttonBox.ContentBox = new SKRect(currentX + borderLeft + padLeft, baseline - buttonTotalHeight + borderTop + padTop,
+                                                      currentX + totalButtonWidth - borderRight - padRight, baseline - borderBottom - padBottom);
+                    childElement.LayoutBox = buttonBox;
+                    box.Children.Add(buttonBox);
+                    buttonBox.Parent = box;
+
+                    currentX += totalButtonWidth;
+                    if (buttonTotalHeight > maxHeightInLine) maxHeightInLine = buttonTotalHeight;
+                    continue;
+                }
+
                 if (childStyle.Display == DisplayType.Block || childStyle.Display == DisplayType.ListItem)
                 {
-                    // 完成当前行
-                    line.Height = maxHeightInLine;
+                    currentLine.Height = maxHeightInLine;
                     currentY += maxHeightInLine;
                     baseline = currentY + lineHeight * 0.85f;
                     currentX = x;
                     maxHeightInLine = lineHeight;
 
-                    line = new LineBox { Y = currentY, Baseline = baseline, Height = lineHeight };
-                    box.Lines.Add(line);
+                    currentLine = new LineBox { Y = currentY, Baseline = baseline, Height = lineHeight };
+                    box.Lines.Add(currentLine);
 
-                    // 布局块级子元素
                     var blockChildBox = CreateLayoutBox(childElement, x, currentY, availableWidth, box);
                     if (blockChildBox != null)
                     {
                         box.Children.Add(blockChildBox);
                         blockChildBox.Parent = box;
                         currentY += blockChildBox.MarginBox.Height;
-                        maxHeightInLine = lineHeight;
                         baseline = currentY + lineHeight * 0.85f;
                         currentX = x;
-
-                        line = new LineBox { Y = currentY, Baseline = baseline, Height = lineHeight };
-                        box.Lines.Add(line);
+                        currentLine = new LineBox { Y = currentY, Baseline = baseline, Height = lineHeight };
+                        box.Lines.Add(currentLine);
                     }
                     continue;
                 }
 
-                // 内联元素
                 float childWidth = CalculateInlineElementWidth(childElement, style.FontSize);
                 float childHeight = childStyle.FontSize > 0 ? childStyle.FontSize * 1.2f : lineHeight;
 
-                // 检查是否需要换行（nowrap时不换行）
                 if (!isNowrap && currentX + childWidth > x + availableWidth && currentX > x)
                 {
-                    line.Height = maxHeightInLine;
+                    currentLine.Height = maxHeightInLine;
                     currentY += maxHeightInLine;
                     baseline = currentY + lineHeight * 0.85f;
                     currentX = x;
                     maxHeightInLine = lineHeight;
-
-                    line = new LineBox { Y = currentY, Baseline = baseline, Height = lineHeight };
-                    box.Lines.Add(line);
+                    currentLine = new LineBox { Y = currentY, Baseline = baseline, Height = lineHeight };
+                    box.Lines.Add(currentLine);
                 }
 
-                var childBox = new LayoutBox();
-                childBox.MarginBox = new SKRect(currentX, baseline - childHeight, currentX + childWidth, baseline);
-                childBox.ContentBox = childBox.MarginBox;
-                childBox.BorderBox = childBox.MarginBox;
-                childBox.PaddingBox = childBox.MarginBox;
-                childElement.LayoutBox = childBox;
+                var inlineBox = new LayoutBox();
+                inlineBox.MarginBox = new SKRect(currentX, baseline - childHeight, currentX + childWidth, baseline);
+                inlineBox.ContentBox = inlineBox.MarginBox;
+                inlineBox.BorderBox = inlineBox.MarginBox;
+                inlineBox.PaddingBox = inlineBox.MarginBox;
+                childElement.LayoutBox = inlineBox;
+                box.Children.Add(inlineBox);
+                inlineBox.Parent = box;
 
-                box.Children.Add(childBox);
-                childBox.Parent = box;
-
-                line.Runs.Add(new InlineRun
+                currentLine.Runs.Add(new InlineRun
                 {
                     Text = "",
                     Width = childWidth,
@@ -513,41 +583,35 @@ public class LayoutEngine
                 var text = textNode.TextContent ?? "";
                 if (string.IsNullOrWhiteSpace(text)) continue;
 
-                // 处理white-space
                 if (style.WhiteSpace == WhiteSpaceMode.Nowrap || style.WhiteSpace == WhiteSpaceMode.Pre)
                 {
-                    // 不换行
-                    LayoutTextRun(text, textNode, style, line, ref currentX, ref currentY, ref baseline, ref maxHeightInLine, x, availableWidth, lineHeight, true);
+                    LayoutTextRun(text, textNode, style, currentLine, ref currentX, ref currentY, ref baseline, ref maxHeightInLine, x, availableWidth, lineHeight, true);
                 }
                 else
                 {
-                    // 正常换行：按单词分割
                     var words = text.Split(' ', StringSplitOptions.RemoveEmptyEntries);
                     foreach (var word in words)
                     {
-                        LayoutTextRun(word + " ", textNode, style, line, ref currentX, ref currentY, ref baseline, ref maxHeightInLine, x, availableWidth, lineHeight, false);
+                        LayoutTextRun(word + " ", textNode, style, currentLine, ref currentX, ref currentY, ref baseline, ref maxHeightInLine, x, availableWidth, lineHeight, false);
                     }
                 }
             }
         }
 
-        line.Height = maxHeightInLine;
-
-        // 应用text-align
+        currentLine.Height = maxHeightInLine;
         ApplyTextAlign(box, style.TextAlign, x, availableWidth);
 
-        // 计算总高度
         float totalHeight = 0;
-        foreach (var l in box.Lines)
+        foreach (var line in box.Lines)
         {
-            totalHeight += l.Height;
+            totalHeight += line.Height;
         }
 
         box.ContentBox = new SKRect(x, y, x + availableWidth, y + totalHeight);
     }
 
-    private void LayoutTextRun(string text, TextNode textNode, ComputedStyle style, LineBox line, 
-        ref float currentX, ref float currentY, ref float baseline, ref float maxHeightInLine, 
+    private void LayoutTextRun(string text, TextNode textNode, ComputedStyle style, LineBox line,
+        ref float currentX, ref float currentY, ref float baseline, ref float maxHeightInLine,
         float x, float availableWidth, float lineHeight, bool noWrap)
     {
         if (string.IsNullOrEmpty(text)) return;
@@ -556,7 +620,6 @@ public class LayoutEngine
         float textWidth = MeasureTextWidth(text, fontSize, style.FontFamily);
         float textHeight = fontSize;
 
-        // 检查是否需要换行（noWrap时不换行）
         if (!noWrap && currentX + textWidth > x + availableWidth && currentX > x)
         {
             line.Height = maxHeightInLine;
@@ -586,8 +649,6 @@ public class LayoutEngine
 
     private float MeasureTextWidth(string text, float fontSize, string? fontFamily)
     {
-        // 简单的文本宽度估算
-        // 实际应用中应该使用SKPaint.MeasureText，但这里避免依赖SkiaSharp
         float avgCharWidth = fontSize * 0.55f;
         return text.Length * avgCharWidth;
     }
@@ -597,12 +658,11 @@ public class LayoutEngine
         var style = element.ComputedStyle;
         if (style == null) return 50;
 
-        float width = 50; // 默认宽度
+        float width = 50;
         if (style.Width is PixelLength pw)
             width = pw.Value;
         else if (style.Width is PercentLength pwp)
-            width = pwp.Value * 100; // 百分比相对于父容器，这里简化
-
+            width = pwp.Value * 100;
         return width;
     }
 
@@ -612,32 +672,18 @@ public class LayoutEngine
 
         foreach (var line in box.Lines)
         {
-            float lineWidth = 0;
-            foreach (var run in line.Runs)
-            {
-                lineWidth += run.Width;
-            }
-
+            float lineWidth = line.Runs.Sum(run => run.Width);
             float offset = 0;
             if (textAlign == TextAlignType.Center)
-            {
                 offset = (availableWidth - lineWidth) / 2;
-            }
             else if (textAlign == TextAlignType.Right)
-            {
                 offset = availableWidth - lineWidth;
-            }
-            // Justify 需要特殊处理，这里简化
 
-            if (offset > 0)
-            {
-                // 调整这一行所有run的X位置
-                // 注意：这里需要调整LayoutBox的位置，但当前架构下比较复杂
-                // 简化：暂时不实现
-            }
+            // 注：当前架构下仅记录偏移，实际绘制时 AdjustBoxHeightFromContent 不会体现
         }
     }
 
+    // ================= Flexbox 布局 =================
     private void LayoutFlexChildren(Element element, LayoutBox box, float x, float y, float availableWidth)
     {
         var style = element.ComputedStyle;
@@ -656,7 +702,6 @@ public class LayoutEngine
         float containerWidth = box.ContentBox.Width;
         float containerHeight = box.ContentBox.Height;
 
-        // 收集flex项信息
         var flexItems = new List<FlexItem>();
         foreach (var child in children)
         {
@@ -684,32 +729,20 @@ public class LayoutEngine
             });
         }
 
-        if (flexItems.Count == 0) return;
-
-        // 确定主轴尺寸
         float mainAxisSize = isRow ? containerWidth : containerHeight;
-        float crossAxisSize = isRow ? containerHeight : containerWidth;
 
-        // 处理换行
         var lines = new List<FlexLine>();
         if (isWrap)
-        {
             lines = WrapFlexItems(flexItems, mainAxisSize, isRow);
-        }
         else
-        {
             lines.Add(new FlexLine { Items = flexItems, MainSize = mainAxisSize });
-        }
 
-        // 计算每行的主轴上的空间分配
         foreach (var line in lines)
         {
             DistributeFlexSpace(line, isRow);
         }
 
-        // 布局所有flex项
-        float currentMain = x;
-        float currentCross = y;
+        float currentCross = isRow ? box.ContentBox.Top : box.ContentBox.Left;
         float maxCrossInLine = 0;
 
         foreach (var line in lines)
@@ -718,16 +751,13 @@ public class LayoutEngine
             float lineCrossStart = isRow ? box.ContentBox.Top : box.ContentBox.Left;
             float lineMainSize = isRow ? box.ContentBox.Width : box.ContentBox.Height;
 
-            // 应用justify-content
             float totalGrow = line.Items.Sum(item => item.Grow);
             float usedMain = line.Items.Sum(item => item.ComputedMainSize + item.MarginLeft + item.MarginRight);
             float remainingSpace = lineMainSize - usedMain;
 
             float offset = 0;
             if (remainingSpace > 0 && totalGrow == 0)
-            {
                 offset = ApplyJustifyContent(style.JustifyContent, remainingSpace, line.Items.Count, isReverse);
-            }
 
             float mainPos = lineMainStart + offset;
             if (isReverse) mainPos = lineMainStart + lineMainSize - offset;
@@ -735,20 +765,17 @@ public class LayoutEngine
             foreach (var item in line.Items)
             {
                 float itemMainSize = item.ComputedMainSize;
-                float itemCrossSize = 0;
                 float itemX, itemY;
 
                 if (isRow)
                 {
                     itemX = mainPos + item.MarginLeft;
-                    itemY = lineCrossStart + item.MarginTop;
-                    itemCrossSize = crossAxisSize - item.MarginTop - item.MarginBottom;
+                    itemY = currentCross + item.MarginTop;
                 }
                 else
                 {
-                    itemX = lineCrossStart + item.MarginLeft;
+                    itemX = currentCross + item.MarginLeft;
                     itemY = mainPos + item.MarginTop;
-                    itemMainSize = item.ComputedMainSize;
                 }
 
                 var childBox = CreateLayoutBox(item.Element, itemX, itemY, itemMainSize, box);
@@ -770,7 +797,6 @@ public class LayoutEngine
                 }
             }
 
-            // 移动到下一行
             if (isRow)
             {
                 currentCross += maxCrossInLine;
@@ -778,7 +804,6 @@ public class LayoutEngine
             }
         }
 
-        // 更新容器高度
         AdjustBoxHeightFromContent(box);
     }
 
@@ -833,12 +858,10 @@ public class LayoutEngine
         float totalGrow = line.Items.Sum(item => item.Grow);
         float totalShrink = line.Items.Sum(item => item.Shrink * item.Basis);
         float usedSpace = line.Items.Sum(item => item.Basis + item.MarginLeft + item.MarginRight);
-
         float remainingSpace = line.MainSize - usedSpace;
 
         if (remainingSpace > 0 && totalGrow > 0)
         {
-            // 分配剩余空间（增长）
             foreach (var item in line.Items)
             {
                 if (item.Grow > 0)
@@ -854,7 +877,6 @@ public class LayoutEngine
         }
         else if (remainingSpace < 0 && totalShrink > 0)
         {
-            // 收缩（处理溢出）
             float shrinkFactor = Math.Abs(remainingSpace) / totalShrink;
             foreach (var item in line.Items)
             {
@@ -871,7 +893,6 @@ public class LayoutEngine
         }
         else
         {
-            // 不增长也不收缩
             foreach (var item in line.Items)
             {
                 item.ComputedMainSize = item.Basis;
@@ -885,10 +906,10 @@ public class LayoutEngine
         {
             JustifyContentType.FlexEnd => remainingSpace,
             JustifyContentType.Center => remainingSpace / 2,
-            JustifyContentType.SpaceBetween when itemCount > 1 => 0, // 空间分配在items之间
+            JustifyContentType.SpaceBetween when itemCount > 1 => 0,
             JustifyContentType.SpaceAround => remainingSpace / (itemCount * 2),
             JustifyContentType.SpaceEvenly => remainingSpace / (itemCount + 1),
-            _ => 0 // FlexStart
+            _ => 0
         };
     }
 
@@ -913,28 +934,21 @@ public class LayoutEngine
         public float MainSize { get; set; }
     }
 
+    // ================= 绝对定位 =================
     private void LayoutAbsolute(Element element, LayoutBox box, LayoutBox? parentBox, float viewportWidth = 0, float viewportHeight = 0)
     {
         var style = element.ComputedStyle;
         if (style == null) return;
 
-        // 确定包含块
         LayoutBox? containingBlock = parentBox;
         if (style.Position == PositionType.Fixed)
         {
-            // 固定定位的包含块是视口
-            // 使用视口尺寸创建包含块
             float vpWidth = viewportWidth > 0 ? viewportWidth : _viewportWidth;
             float vpHeight = viewportHeight > 0 ? viewportHeight : _viewportHeight;
             containingBlock = new LayoutBox
             {
                 ContentBox = new SKRect(0, 0, vpWidth, vpHeight)
             };
-        }
-        else if (style.Position == PositionType.Absolute)
-        {
-            // 绝对定位的包含块是最近的position值不为static的祖先元素
-            // 简化：假设parentBox就是包含块
         }
 
         if (containingBlock == null) return;
@@ -944,68 +958,52 @@ public class LayoutEngine
         float marginTop = style.MarginTop is PixelLength mt ? mt.Value : 0;
         float marginBottom = style.MarginBottom is PixelLength mb ? mb.Value : 0;
 
-        // 计算宽度
         float width = box.ContentBox.Width;
-        if (style.Width is PixelLength wl)
-            width = wl.Value;
-        else if (style.Width is PercentLength wp)
-            width = wp.Value * containingBlock.ContentBox.Width;
+        if (style.Width is PixelLength wl) width = wl.Value;
+        else if (style.Width is PercentLength wp) width = wp.Value * containingBlock.ContentBox.Width;
 
-        // 计算高度
         float height = box.ContentBox.Height;
-        if (style.Height is PixelLength hl)
-            height = hl.Value;
-        else if (style.Height is PercentLength hp)
-            height = hp.Value * containingBlock.ContentBox.Height;
+        if (style.Height is PixelLength hl) height = hl.Value;
+        else if (style.Height is PercentLength hp) height = hp.Value * containingBlock.ContentBox.Height;
 
-        // 确定位置
         float cbLeft = containingBlock.ContentBox.Left;
         float cbTop = containingBlock.ContentBox.Top;
         float cbRight = containingBlock.ContentBox.Right;
         float cbBottom = containingBlock.ContentBox.Bottom;
 
-        float left = 0;
-        float top = 0;
+        float left = 0, top = 0;
 
-        // 处理left
-        if (style.Left is PixelLength sl)
-            left = sl.Value + marginLeft;
-        else if (style.Left is PercentLength spl)
-            left = spl.Value * containingBlock.ContentBox.Width + marginLeft;
+        if (style.Left is PixelLength sl) left = sl.Value + marginLeft;
+        else if (style.Left is PercentLength spl) left = spl.Value * containingBlock.ContentBox.Width + marginLeft;
 
-        // 处理top
-        if (style.Top is PixelLength st)
-            top = st.Value + marginTop;
-        else if (style.Top is PercentLength spt)
-            top = spt.Value * containingBlock.ContentBox.Height + marginTop;
+        if (style.Top is PixelLength st) top = st.Value + marginTop;
+        else if (style.Top is PercentLength spt) top = spt.Value * containingBlock.ContentBox.Height + marginTop;
 
-        // 处理right（如果left未指定）
         if (style.Right is PixelLength sr && style.Left == null)
         {
             float rightOffset = sr.Value + marginRight;
             left = cbRight - rightOffset - width;
         }
 
-        // 处理bottom（如果top未指定）
         if (style.Bottom is PixelLength sb && style.Top == null)
         {
             float bottomOffset = sb.Value + marginBottom;
             top = cbBottom - bottomOffset - height;
         }
 
-        // 设置布局盒的位置和尺寸
-        box.MarginBox = new SKRect(cbLeft + left, cbTop + top, 
-                                  cbLeft + left + width + marginRight, 
+        box.MarginBox = new SKRect(cbLeft + left, cbTop + top,
+                                  cbLeft + left + width + marginRight,
                                   cbTop + top + height + marginBottom);
         box.BorderBox = new SKRect(cbLeft + left + marginLeft, cbTop + top + marginTop,
-                                  cbLeft + left + marginLeft + width, 
+                                  cbLeft + left + marginLeft + width,
                                   cbTop + top + marginTop + height);
         box.PaddingBox = box.BorderBox;
         box.ContentBox = new SKRect(cbLeft + left + marginLeft, cbTop + top + marginTop,
-                                    cbLeft + left + marginLeft + width, 
+                                    cbLeft + left + marginLeft + width,
                                     cbTop + top + marginTop + height);
     }
 
+    // ================= 表格布局 =================
     private void LayoutTable(Element element, LayoutBox box, float x, float y, float availableWidth)
     {
         float currentY = y;
@@ -1033,6 +1031,7 @@ public class LayoutEngine
         box.ContentBox = new SKRect(x, y, x + availableWidth, currentY);
     }
 
+    // ================= 辅助方法 =================
     private void AdjustBoxHeightFromContent(LayoutBox box)
     {
         float paddingBottom = box.Dimensions?.PaddingBottom ?? 0;
@@ -1050,9 +1049,7 @@ public class LayoutEngine
             foreach (var run in box.LineRuns)
             {
                 if (run.Width > 0)
-                {
                     lastY = Math.Max(lastY, run.Height);
-                }
             }
             if (box.ContentBox.Top + lastY > maxBottom)
                 maxBottom = box.ContentBox.Top + lastY;
@@ -1069,7 +1066,7 @@ public class LayoutEngine
         {
             float borderBottom = box.BorderBox.Bottom - box.PaddingBox.Bottom;
             float marginBottom = box.MarginBox.Bottom - box.BorderBox.Bottom;
-            
+
             box.ContentBox = new SKRect(box.ContentBox.Left, box.ContentBox.Top, box.ContentBox.Right, maxBottom);
             box.PaddingBox = new SKRect(box.PaddingBox.Left, box.PaddingBox.Top, box.PaddingBox.Right, maxBottom + paddingBottom);
             box.BorderBox = new SKRect(box.BorderBox.Left, box.BorderBox.Top, box.BorderBox.Right, maxBottom + paddingBottom + borderBottom);

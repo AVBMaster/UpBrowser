@@ -35,32 +35,51 @@ public class StyleComputer
     {
         var style = new ComputedStyle();
 
-        if (parentStyle != null && InheritedProperties.Any(p => true))
+        if (parentStyle != null)
         {
             InheritProperties(style, parentStyle);
         }
 
         ApplyUserAgentStyles(style, element.TagName);
 
+        // 收集所有匹配的规则并按特异性排序
+        var matchingRules = new List<(CssRule rule, int specificitySum)>();
+
         foreach (var stylesheet in _stylesheets)
         {
             foreach (var rule in stylesheet.Rules)
             {
-                var selector = CssSelector.Parse(rule.Selector);
-                var isImportant = rule.IsImportant;
-                var parent = element.ParentElement;
-
-                if (selector.Matches(element, parent))
+                try
                 {
-                    foreach (var prop in rule.Properties)
+                    var selector = CssSelector.Parse(rule.Selector);
+                    if (selector.Matches(element, element.ParentElement))
                     {
-                        var priority = isImportant ? PropertyPriority.Important : PropertyPriority.Normal;
-                        ApplyStylePropertyWithPriority(style, prop.Key, prop.Value, priority, parentStyle);
+                        int specificity = (selector.Specificity.a * 1000) +
+                                          (selector.Specificity.b * 100) +
+                                          (selector.Specificity.c * 10) +
+                                          selector.Specificity.d;
+                        matchingRules.Add((rule, specificity));
                     }
+                }
+                catch (Exception ex)
+                {
+                    // 解析失败时跳过
+                    Console.WriteLine($"Failed to parse selector '{rule.Selector}': {ex.Message}");
                 }
             }
         }
 
+        // 按特异性排序（高的后应用，使其覆盖低的）
+        matchingRules = matchingRules.OrderBy(r => r.specificitySum).ToList();
+        foreach (var (rule, _) in matchingRules)
+        {
+            foreach (var prop in rule.Properties)
+            {
+                ApplyStyleProperty(style, prop.Key, prop.Value, parentStyle);
+            }
+        }
+
+        // 应用内联样式（最高优先级）
         var inlineStyleAttr = element.GetAttribute("style");
         if (!string.IsNullOrEmpty(inlineStyleAttr))
         {
@@ -68,7 +87,7 @@ public class StyleComputer
             var inlineProps = parser.ParseInlineStyle(inlineStyleAttr);
             foreach (var prop in inlineProps)
             {
-                ApplyStylePropertyWithPriority(style, prop.Key, prop.Value, PropertyPriority.Inline, parentStyle);
+                ApplyStyleProperty(style, prop.Key, prop.Value, parentStyle);
             }
         }
 
@@ -101,12 +120,16 @@ public class StyleComputer
         ElementStyleRegistry.ApplyUserAgentStyle(style, tagName);
     }
 
-    private void ApplyStylePropertyWithPriority(ComputedStyle style, string name, string value, PropertyPriority priority, ComputedStyle? parentStyle = null)
+    private void ApplyStyleProperty(ComputedStyle style, string name, string value, ComputedStyle? parentStyle = null)
     {
-        switch (name)
+        switch (name.ToLowerInvariant())
         {
             case "width": style.Width = Length.Parse(value); break;
             case "height": style.Height = Length.Parse(value); break;
+            case "min-width": style.MinWidth = Length.Parse(value); break;
+            case "min-height": style.MinHeight = Length.Parse(value); break;
+            case "max-width": style.MaxWidth = Length.Parse(value); break;
+            case "max-height": style.MaxHeight = Length.Parse(value); break;
             case "display": style.Display = ParseDisplay(value); break;
             case "position": style.Position = ParsePosition(value); break;
             case "float": style.Float = ParseFloat(value); break;
@@ -133,7 +156,7 @@ public class StyleComputer
             case "background-image": style.BackgroundImage = value == "none" ? null : ParseUrl(value); break;
             case "background-repeat": style.BackgroundRepeat = ParseBackgroundRepeat(value); break;
             case "background-position": ParseBackgroundPosition(value, style); break;
-            case "font-family": style.FontFamily = value.Trim('"'); break;
+            case "font-family": style.FontFamily = value.Trim('"', '\''); break;
             case "font-size": style.FontSize = ParseFontSize(value, parentStyle); break;
             case "font-weight": style.FontWeight = ParseFontWeight(value); break;
             case "font-style": style.FontStyle = value.ToLowerInvariant() == "italic" ? FontStyleType.Italic : FontStyleType.Normal; break;
@@ -144,7 +167,7 @@ public class StyleComputer
             case "line-height": style.LineHeight = ParseLineHeight(value); break;
             case "white-space": style.WhiteSpace = ParseWhiteSpace(value); break;
             case "visibility": style.Visibility = value.ToLowerInvariant() == "hidden" ? VisibilityType.Hidden : VisibilityType.Visible; break;
-            case "overflow": 
+            case "overflow":
                 var overflow = ParseOverflow(value);
                 style.Overflow = overflow;
                 style.OverflowX = overflow;
@@ -176,10 +199,6 @@ public class StyleComputer
             case "justify-content": style.JustifyContent = ParseJustifyContent(value); break;
             case "align-items": style.AlignItems = ParseAlignItems(value); break;
             case "align-self": style.AlignSelf = ParseAlignSelf(value); break;
-            case "min-width": style.MinWidth = Length.Parse(value); break;
-            case "max-width": style.MaxWidth = Length.Parse(value); break;
-            case "min-height": style.MinHeight = Length.Parse(value); break;
-            case "max-height": style.MaxHeight = Length.Parse(value); break;
             case "top": style.Top = Length.Parse(value); break;
             case "bottom": style.Bottom = Length.Parse(value); break;
             case "left": style.Left = Length.Parse(value); break;
@@ -188,6 +207,13 @@ public class StyleComputer
             case "list-style-position": style.ListStylePosition = value.Contains("inside") ? ListStylePosition.Inside : ListStylePosition.Outside; break;
             case "list-style-image": style.ListStyleImage = value == "none" ? null : ParseUrl(value); break;
             case "list-style": ParseListStyle(value, style); break;
+            case "cursor": style.Cursor = value; break;
+            case "gap":
+                if (value.EndsWith("px") && float.TryParse(value[..^2], out var gapPx))
+                {
+                    // Gap 在 flex 布局中使用
+                }
+                break;
         }
     }
 
@@ -242,7 +268,7 @@ public class StyleComputer
     private float ParseFontSize(string value, ComputedStyle? parentStyle = null)
     {
         float parentFontSize = parentStyle?.FontSize ?? 16;
-        
+
         if (value.EndsWith("px") && float.TryParse(value[..^2], out var px)) return px;
         if (value.EndsWith("rem") && float.TryParse(value[..^2], out var rem)) return rem * 16;
         if (value.EndsWith("em") && float.TryParse(value[..^2], out var em)) return em * parentFontSize;
@@ -448,18 +474,30 @@ public class StyleComputer
         {
             if (part == "solid" || part == "dashed" || part == "dotted" || part == "double" || part == "none")
             {
-                style.BorderTopStyle = style.BorderRightStyle = style.BorderBottomStyle = style.BorderLeftStyle = ParseBorderStyleValue(part);
+                var bs = ParseBorderStyleValue(part);
+                style.BorderTopStyle = bs;
+                style.BorderRightStyle = bs;
+                style.BorderBottomStyle = bs;
+                style.BorderLeftStyle = bs;
             }
             else if (part.EndsWith("px"))
             {
                 var width = ParseSize(part);
                 if (width.HasValue)
-                    style.BorderTopWidth = style.BorderRightWidth = style.BorderBottomWidth = style.BorderLeftWidth = width.Value;
+                {
+                    style.BorderTopWidth = width.Value;
+                    style.BorderRightWidth = width.Value;
+                    style.BorderBottomWidth = width.Value;
+                    style.BorderLeftWidth = width.Value;
+                }
             }
             else
             {
                 var color = ParseColor(part);
-                style.BorderTopColor = style.BorderRightColor = style.BorderBottomColor = style.BorderLeftColor = color;
+                style.BorderTopColor = color;
+                style.BorderRightColor = color;
+                style.BorderBottomColor = color;
+                style.BorderLeftColor = color;
             }
         }
     }
@@ -564,7 +602,7 @@ public class StyleComputer
             else if (part == "italic" || part == "oblique") style.FontStyle = FontStyleType.Italic;
             else if (part == "bold" || part == "bolder") style.FontWeight = FontWeight.Bold;
             else if (part == "normal") { style.FontWeight = FontWeight.Normal; style.FontStyle = FontStyleType.Normal; }
-            else style.FontFamily = part.Trim('"');
+            else style.FontFamily = part.Trim('"', '\'');
         }
     }
 
@@ -704,8 +742,6 @@ public class StyleComputer
         ApplyUserAgentStyles(style, tagName);
         return style;
     }
-
-    private enum PropertyPriority { Normal, Important, Inline }
 }
 
 public static class KnownColors

@@ -256,4 +256,10 @@ public static class NativeWindow
 
     public const uint DIB_RGB_COLORS = 0;
     public const uint SRCCOPY = 0x00CC0020;
+
+    [DllImport("user32.dll")]
+    public static extern bool InvalidateRect(IntPtr hWnd, IntPtr lpRect, bool bErase);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
 }

@@ -65,60 +65,35 @@ class Program
 
     static string GetDefaultHtml()
     {
-        return @"<!DOCTYPE html>
-<html>
-<head>
+        return @"<html><head>
     <title>UpBrowser</title>
 </head>
-<body style='background: #f5f5f5; margin: 0; padding: 20px; font-family: Arial, sans-serif;'>
-    <h1 style='color: #333; font-size: 32px; margin: 0 0 20px 0;'>Hello World</h1>
-    <p style='color: #666; font-size: 16px; line-height: 1.5;'>This is a test paragraph with some text content.</p>
-    <div style='background: #ffeb3b; padding: 20px; border: 2px solid #f44336; margin: 20px 0; border-radius: 8px;'>
-        <h2 style='color: #333; margin: 0 0 10px 0;'>Box Model Test</h2>
-        <p style='color: #555;'>This div has margin, border, padding, and content.</p>
+<body style=""background: #f5f5f5; margin: 0; padding: 20px; font-family: Arial, sans-serif;"">
+    <h1 style=""color: #333; font-size: 32px; margin: 0 0 20px 0;"">Hello World</h1>
+    <p style=""color: #666; font-size: 16px; line-height: 1.5;"">This is a test paragraph with some text content.</p>
+    <div style=""background: #ffeb3b; padding: 20px; border: 2px solid #f44336; margin: 20px 0; border-radius: 8px;"">
+        <h2 style=""color: #333; margin: 0 0 10px 0;"">Box Model Test</h2>
+        <p style=""color: #555;"">This div has margin, border, padding, and content.</p>
     </div>
-    <ul style='color: #333;'>
+    <ul style=""color: #333;"">
         <li>List item 1</li>
         <li>List item 2</li>
         <li>List item 3</li>
     </ul>
-    <button style='background: #2196F3; color: white; padding: 10px 20px; border: none; border-radius: 4px; font-size: 14px;'>Click Me</button>
-    <div style='margin-top: 20px; padding: 15px; background: white; border: 1px solid #ddd;'>
-        <span style='color: red;'>Red text</span> and <span style='color: blue;'>blue text</span> in same line.
+    <button style=""background: #2196F3; color: white; padding: 10px 20px; border: none; border-radius: 4px; font-size: 14px;"">Click Me</button>
+    <div style=""margin-top: 20px; padding: 15px; background: white; border: 1px solid #ddd;"">
+        <span style=""color: red;"">Red text</span> and <span style=""color: blue;"">blue text</span> in same line.
     </div>
-    <div style='display: flex; gap: 10px; margin-top: 20px;'>
-        <div style='background: #e3f2fd; padding: 15px; flex: 1;'>Flex Item 1</div>
-        <div style='background: #f3e5f5; padding: 15px; flex: 1;'>Flex Item 2</div>
-        <div style='background: #e8f5e9; padding: 15px; flex: 1;'>Flex Item 3</div>
+    <div style=""display: flex; gap: 10px; margin-top: 20px;"">
+        <div style=""background: #e3f2fd; padding: 15px; flex: 1;"">Flex Item 1</div>
+        <div style=""background: #f3e5f5; padding: 15px; flex: 1;"">Flex Item 2</div>
+        <div style=""background: #e8f5e9; padding: 15px; flex: 1;"">Flex Item 3</div>
     </div>
-    <div style='position: relative; height: 100px; margin-top: 20px; background: #fff3e0;'>
-        <div style='position: absolute; top: 10px; right: 10px; background: #ff5722; color: white; padding: 5px 10px;'>Absolute Position</div>
+    <div style=""position: relative; height: 100px; margin-top: 20px; background: #fff3e0;"">
+        <div style=""position: absolute; top: 10px; right: 10px; background: #ff5722; color: white; padding: 5px 10px;"">Absolute Position</div>
     </div>
-    <div style='margin-top: 30px;'>
-        <p>More content below - Testing scroll functionality</p>
-        <p>Line 2</p>
-        <p>Line 3</p>
-        <p>Line 4</p>
-        <p>Line 5</p>
-        <p>Line 6</p>
-        <p>Line 7</p>
-        <p>Line 8</p>
-        <p>Line 9</p>
-        <p>Line 10</p>
-        <p style='color: red;'>This is the bottom of the page!</p>
-    </div>
-    <style>
-h1 {
-color: red;
-text-align: center;
-}
-p {
-color: green;
-font-size: 16px;
-}
-</style>
-</body>
-</html>";
+
+</body></html>";
     }
 
     static async Task<(Document doc, AngleSharp.Dom.IDocument angleSharpDoc)> LoadHtml(string html)
@@ -427,6 +402,12 @@ font-size: 16px;
             // 滚动快捷键
             switch (key)
             {
+                case Key.Tab:
+                    chromeRenderer.NextTab();
+                    return true;
+                case Key.F5:
+                    chromeRenderer.OnRefresh?.Invoke();
+                    return true;
                 case Key.PageUp:
                     scrollManager.PageUp();
                     return true;
@@ -463,6 +444,12 @@ font-size: 16px;
                 {
                     chromeRenderer.OnRefresh?.Invoke();
                 }
+            }
+            // Ctrl+T 由系统处理，这里添加 Ctrl+Tab 切换标签
+            else if (key == Key.Tab)
+            {
+                // Ctrl+Tab 切换到下一个标签
+                chromeRenderer.NextTab();
             }
         };
 
@@ -688,51 +675,20 @@ font-size: 16px;
 
     static async Task LoadStylesFromHtml(AngleSharp.Dom.IDocument angleSharpDoc, CssParser cssParser, StyleComputer styleComputer)
     {
-        var baseUrl = angleSharpDoc.Url ?? "";
         var elements = angleSharpDoc.All;
+        var styleElements = elements.Where(e => e.LocalName?.ToLowerInvariant() == "style");
 
-        foreach (var element in elements)
+        foreach (var styleElement in styleElements)
         {
-            var tagName = element.LocalName?.ToLowerInvariant();
-
-            if (tagName == "style")
+            var cssText = styleElement.TextContent;
+            if (!string.IsNullOrEmpty(cssText))
             {
-                var cssText = element.TextContent;
-                if (!string.IsNullOrEmpty(cssText))
-                {
-                    Console.WriteLine("Loading internal stylesheet...");
-                    var stylesheet = cssParser.Parse(cssText);
-                    styleComputer.AddStylesheet(stylesheet);
-                }
-            }
-            else if (tagName == "link")
-            {
-                var rel = element.GetAttribute("rel");
-                if (rel != null && rel.ToLowerInvariant().Contains("stylesheet"))
-                {
-                    var href = element.GetAttribute("href");
-                    if (!string.IsNullOrEmpty(href))
-                    {
-                        Console.WriteLine($"Loading external stylesheet: {href}");
-                        try
-                        {
-                            var externalCss = await LoadExternalResource(href, baseUrl);
-                            if (!string.IsNullOrEmpty(externalCss))
-                            {
-                                var stylesheet = cssParser.Parse(externalCss);
-                                styleComputer.AddStylesheet(stylesheet);
-                            }
-                        }
-                        catch (Exception ex)
-                        {
-                            Console.WriteLine($"Failed to load stylesheet {href}: {ex.Message}");
-                        }
-                    }
-                }
+                Console.WriteLine($"Loading style element: {cssText.Length} chars");
+                var stylesheet = cssParser.Parse(cssText);
+                styleComputer.AddStylesheet(stylesheet);
             }
         }
     }
-
     static async Task<string> LoadExternalResource(string url, string baseUrl)
     {
         try

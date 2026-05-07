@@ -210,8 +210,23 @@ public class PaintVisitor
 
     private void DrawElementBackground(Element element, LayoutBox box, ComputedStyle style, SKRect borderRect)
     {
-        if (!style.BackgroundColor.HasValue || style.BackgroundColor.Value.Alpha == 0)
+        // 确保按钮有背景色
+        SKColor bgColor;
+        if (style.BackgroundColor.HasValue && style.BackgroundColor.Value.Alpha > 0)
+        {
+            bgColor = style.BackgroundColor.Value;
+        }
+        else if (element.TagName.Equals("BUTTON", StringComparison.OrdinalIgnoreCase))
+        {
+            // 按钮默认背景色
+            bgColor = SKColor.Parse("#1A73E8");
+        }
+        else
+        {
             return;
+        }
+
+        if (bgColor.Alpha == 0) return;
 
         var bgRect = new SKRect(borderRect.Left + style.BorderLeftWidth, borderRect.Top + style.BorderTopWidth,
                                 borderRect.Right - style.BorderRightWidth, borderRect.Bottom - style.BorderBottomWidth);
@@ -221,16 +236,11 @@ public class PaintVisitor
         var op = new DrawRectOp
         {
             Rect = bgRect,
-            FillColor = style.BackgroundColor.Value,
+            FillColor = bgColor,
             BorderRadius = style.BorderTopLeftRadius > 0 ? style.BorderTopLeftRadius : 0,
             Bounds = borderRect
         };
         _displayList.Add(op);
-
-        if (!string.IsNullOrEmpty(style.BackgroundImage))
-        {
-            DrawBackgroundImage(element, style, bgRect);
-        }
     }
 
     private async void DrawBackgroundImage(Element element, ComputedStyle style, SKRect rect)
@@ -409,6 +419,44 @@ public class PaintVisitor
 
     private void DrawElementContent(Element element, LayoutBox box, ComputedStyle style)
     {
+        // 处理按钮文本
+        if (element.TagName.Equals("BUTTON", StringComparison.OrdinalIgnoreCase))
+        {
+            string buttonText = GetButtonText(element);
+            if (!string.IsNullOrEmpty(buttonText))
+            {
+                var cb = box.ContentBox;
+                if (cb.Width <= 0 || cb.Height <= 0)
+                    cb = box.BorderBox;   // 后备
+
+                float fontSize = style.FontSize > 0 ? style.FontSize : 13.3333f;
+                float lineHeight = style.LineHeight * fontSize;
+
+                // 基线 = 内容框顶部 + (内容高度 - 行高)/2 + 行高 * 0.8（垂直居中效果）
+                float baselineY = cb.Top + (cb.Height - lineHeight) / 2 + lineHeight * 0.8f;
+                float textX = cb.Left + (cb.Width - MeasureTextWidth(buttonText, fontSize, style.FontFamily)) / 2;
+
+                SKColor textColor = style.Color;
+                if (textColor == SKColors.Black || textColor.Alpha == 0)
+                    textColor = SKColors.Black;   // 按钮默认黑色文字
+
+                var textOp = new DrawTextOp
+                {
+                    Text = buttonText,
+                    X = textX,
+                    Y = baselineY,
+                    Color = textColor,
+                    FontSize = fontSize,
+                    FontFamily = style.FontFamily ?? "Arial",
+                    FontWeight = style.FontWeight,
+                    TextAlign = TextAlignType.Left,   // 已经手动居中
+                    Bounds = new SKRect(cb.Left, cb.Top, cb.Right, cb.Bottom)
+                };
+                _displayList.Add(textOp);
+            }
+            return;
+        }
+
         if (element.TagName.Equals("IMG", StringComparison.OrdinalIgnoreCase))
         {
             DrawImageElement(element, style, box);
@@ -436,6 +484,67 @@ public class PaintVisitor
                 DrawTextNode(textNode, box, style);
             }
         }
+    }
+
+    private string GetButtonText(Element button)
+    {
+        // 优先从子文本节点获取
+        var textBuilder = new System.Text.StringBuilder();
+        foreach (var child in button.Children)
+        {
+            if (child is TextNode textNode)
+            {
+                string text = textNode.TextContent?.Trim();
+                if (!string.IsNullOrEmpty(text))
+                {
+                    textBuilder.Append(text);
+                }
+            }
+            else if (child is Element childElement && childElement.TagName.Equals("SPAN", StringComparison.OrdinalIgnoreCase))
+            {
+                // 递归获取 span 内的文本
+                foreach (var subChild in childElement.Children)
+                {
+                    if (subChild is TextNode subText)
+                    {
+                        textBuilder.Append(subText.TextContent?.Trim());
+                    }
+                }
+            }
+        }
+
+        string result = textBuilder.ToString().Trim();
+        if (!string.IsNullOrEmpty(result))
+        {
+            Console.WriteLine($"Button text from children: '{result}'");
+            return result;
+        }
+
+        // 尝试从 value 属性获取
+        var valueAttr = button.GetAttribute("value");
+        if (!string.IsNullOrEmpty(valueAttr))
+        {
+            Console.WriteLine($"Button text from value attribute: '{valueAttr}'");
+            return valueAttr;
+        }
+
+        // 尝试从 innerText 属性获取（如果有）
+        var innerText = button.GetAttribute("innerText");
+        if (!string.IsNullOrEmpty(innerText))
+        {
+            return innerText;
+        }
+
+        Console.WriteLine($"Button has no text! TagName={button.TagName}, Children count={button.Children.Count}");
+        return "Button";
+    }
+
+    private float MeasureTextWidth(string text, float fontSize, string? fontFamily)
+    {
+        if (string.IsNullOrEmpty(text)) return 0;
+        // 估算文本宽度
+        float avgCharWidth = fontSize * 0.55f;
+        return text.Length * avgCharWidth;
     }
 
     private void DrawTextNode(TextNode textNode, LayoutBox box, ComputedStyle parentStyle)

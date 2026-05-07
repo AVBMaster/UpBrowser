@@ -3,7 +3,7 @@ function Get-AllFilesRecursively {
     param(
         [string]$Path = ".",
         [string[]]$ExcludeDirs = @("bin", "obj", ".git", ".vs"),
-        [string[]]$ExcludeFiles = @(".gitattributes", ".gitignore", "license.txt","getfile.ps1")
+        [string[]]$ExcludeFiles = @(".gitattributes", ".gitignore", "license.txt","getfile.ps1","path.txt","file.txt")
     )
     
     # 获取当前目录下的所有项目（文件和目录），排除指定目录

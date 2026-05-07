@@ -7,9 +7,8 @@ public static class FormElements
 {
     public static void Apply(ComputedStyle style, string tagName)
     {
-        switch (tagName)
+        switch (tagName.ToLowerInvariant())
         {
-            // 输入元素
             case "input":
                 style.Display = DisplayType.InlineBlock;
                 style.BorderTopWidth = 1;
@@ -20,18 +19,21 @@ public static class FormElements
                 style.BorderRightStyle = BorderStyle.Solid;
                 style.BorderBottomStyle = BorderStyle.Solid;
                 style.BorderLeftStyle = BorderStyle.Solid;
-                style.BorderTopColor = SKColors.Gray;
-                style.BorderRightColor = SKColors.Gray;
-                style.BorderBottomColor = SKColors.Gray;
-                style.BorderLeftColor = SKColors.Gray;
-                style.PaddingTop = new PixelLength(2);
-                style.PaddingBottom = new PixelLength(2);
-                style.PaddingLeft = new PixelLength(4);
-                style.PaddingRight = new PixelLength(4);
+                style.BorderTopColor = SKColor.Parse("#DADCE0");
+                style.BorderRightColor = SKColor.Parse("#DADCE0");
+                style.BorderBottomColor = SKColor.Parse("#DADCE0");
+                style.BorderLeftColor = SKColor.Parse("#DADCE0");
+                style.PaddingTop = new PixelLength(6);
+                style.PaddingBottom = new PixelLength(6);
+                style.PaddingLeft = new PixelLength(8);
+                style.PaddingRight = new PixelLength(8);
                 style.BackgroundColor = SKColors.White;
-                style.Height = new PixelLength(24);
                 style.FontSize = 14;
                 style.Cursor = "text";
+                style.BorderTopLeftRadius = 4;
+                style.BorderTopRightRadius = 4;
+                style.BorderBottomLeftRadius = 4;
+                style.BorderBottomRightRadius = 4;
                 break;
 
             case "textarea":
@@ -44,14 +46,14 @@ public static class FormElements
                 style.BorderRightStyle = BorderStyle.Solid;
                 style.BorderBottomStyle = BorderStyle.Solid;
                 style.BorderLeftStyle = BorderStyle.Solid;
-                style.BorderTopColor = SKColors.Gray;
-                style.BorderRightColor = SKColors.Gray;
-                style.BorderBottomColor = SKColors.Gray;
-                style.BorderLeftColor = SKColors.Gray;
-                style.PaddingTop = new PixelLength(4);
-                style.PaddingBottom = new PixelLength(4);
-                style.PaddingLeft = new PixelLength(4);
-                style.PaddingRight = new PixelLength(4);
+                style.BorderTopColor = SKColor.Parse("#DADCE0");
+                style.BorderRightColor = SKColor.Parse("#DADCE0");
+                style.BorderBottomColor = SKColor.Parse("#DADCE0");
+                style.BorderLeftColor = SKColor.Parse("#DADCE0");
+                style.PaddingTop = new PixelLength(6);
+                style.PaddingBottom = new PixelLength(6);
+                style.PaddingLeft = new PixelLength(8);
+                style.PaddingRight = new PixelLength(8);
                 style.BackgroundColor = SKColors.White;
                 style.FontSize = 14;
                 style.FontFamily = "monospace";
@@ -59,6 +61,10 @@ public static class FormElements
                 style.Width = new PixelLength(200);
                 style.Height = new PixelLength(100);
                 style.Cursor = "text";
+                style.BorderTopLeftRadius = 4;
+                style.BorderTopRightRadius = 4;
+                style.BorderBottomLeftRadius = 4;
+                style.BorderBottomRightRadius = 4;
                 break;
 
             case "select":
@@ -71,26 +77,27 @@ public static class FormElements
                 style.BorderRightStyle = BorderStyle.Solid;
                 style.BorderBottomStyle = BorderStyle.Solid;
                 style.BorderLeftStyle = BorderStyle.Solid;
-                style.BorderTopColor = SKColors.Gray;
-                style.BorderRightColor = SKColors.Gray;
-                style.BorderBottomColor = SKColors.Gray;
-                style.BorderLeftColor = SKColors.Gray;
-                style.PaddingTop = new PixelLength(2);
-                style.PaddingBottom = new PixelLength(2);
-                style.PaddingLeft = new PixelLength(4);
-                style.PaddingRight = new PixelLength(4);
+                style.BorderTopColor = SKColor.Parse("#DADCE0");
+                style.BorderRightColor = SKColor.Parse("#DADCE0");
+                style.BorderBottomColor = SKColor.Parse("#DADCE0");
+                style.BorderLeftColor = SKColor.Parse("#DADCE0");
+                style.PaddingTop = new PixelLength(6);
+                style.PaddingBottom = new PixelLength(6);
+                style.PaddingLeft = new PixelLength(8);
+                style.PaddingRight = new PixelLength(8);
                 style.BackgroundColor = SKColors.White;
-                style.Height = new PixelLength(24);
                 style.FontSize = 14;
                 style.Cursor = "pointer";
+                style.BorderTopLeftRadius = 4;
+                style.BorderTopRightRadius = 4;
+                style.BorderBottomLeftRadius = 4;
+                style.BorderBottomRightRadius = 4;
                 break;
 
-            // 按钮
+            // ===== 按钮：严格按照浏览器默认标准 =====
             case "button":
-            case "input[type=button]":
-            case "input[type=submit]":
-            case "input[type=reset]":
                 style.Display = DisplayType.InlineBlock;
+                // 2px outset 风格边框（多数浏览器使用 outset，但这里用 solid + 颜色模拟）
                 style.BorderTopWidth = 2;
                 style.BorderRightWidth = 2;
                 style.BorderBottomWidth = 2;
@@ -99,21 +106,29 @@ public static class FormElements
                 style.BorderRightStyle = BorderStyle.Solid;
                 style.BorderBottomStyle = BorderStyle.Solid;
                 style.BorderLeftStyle = BorderStyle.Solid;
-                style.BorderTopColor = SKColors.Gray;
-                style.BorderRightColor = SKColors.DarkGray;
-                style.BorderBottomColor = SKColors.DarkGray;
-                style.BorderLeftColor = SKColors.Gray;
-                style.PaddingTop = new PixelLength(4);
-                style.PaddingBottom = new PixelLength(4);
-                style.PaddingLeft = new PixelLength(12);
-                style.PaddingRight = new PixelLength(12);
-                style.BackgroundColor = SKColor.Parse("#E0E0E0");
-                style.Height = new PixelLength(24);
-                style.FontSize = 14;
+                style.BorderTopColor = SKColor.Parse("#767676");
+                style.BorderRightColor = SKColor.Parse("#767676");
+                style.BorderBottomColor = SKColor.Parse("#767676");
+                style.BorderLeftColor = SKColor.Parse("#767676");
+                // 内边距：1px 垂直，6px 水平
+                style.PaddingTop = new PixelLength(1);
+                style.PaddingBottom = new PixelLength(1);
+                style.PaddingLeft = new PixelLength(6);
+                style.PaddingRight = new PixelLength(6);
+                // 背景色：系统按钮面颜色
+                style.BackgroundColor = SKColor.Parse("#EFEFEF");
+                // 文字样式：约 13.33px，正常粗细，黑色
+                style.Color = SKColors.Black;
+                style.FontSize = 13.3333f;
+                style.FontWeight = FontWeight.Normal;
+                style.TextAlign = TextAlignType.Center;
                 style.Cursor = "pointer";
+                // 不设置最小宽度，让按钮自适应内容
+                style.MinWidth = null;
+                // 防止文字换行
+                style.WhiteSpace = WhiteSpaceMode.Nowrap;
                 break;
 
-            // 表单容器
             case "fieldset":
                 style.Display = DisplayType.Block;
                 style.MarginTop = new PixelLength(16);
@@ -130,10 +145,10 @@ public static class FormElements
                 style.BorderRightStyle = BorderStyle.Solid;
                 style.BorderBottomStyle = BorderStyle.Solid;
                 style.BorderLeftStyle = BorderStyle.Solid;
-                style.BorderTopColor = SKColors.Gray;
-                style.BorderRightColor = SKColors.Gray;
-                style.BorderBottomColor = SKColors.Gray;
-                style.BorderLeftColor = SKColors.Gray;
+                style.BorderTopColor = SKColor.Parse("#DADCE0");
+                style.BorderRightColor = SKColor.Parse("#DADCE0");
+                style.BorderBottomColor = SKColor.Parse("#DADCE0");
+                style.BorderLeftColor = SKColor.Parse("#DADCE0");
                 break;
 
             case "legend":
@@ -143,13 +158,11 @@ public static class FormElements
                 style.PaddingRight = new PixelLength(4);
                 break;
 
-            // 标签
             case "label":
                 style.Display = DisplayType.InlineBlock;
                 style.Cursor = "pointer";
                 break;
 
-            // 输出和计量
             case "output":
                 style.Display = DisplayType.InlineBlock;
                 style.FontFamily = "monospace";
@@ -168,10 +181,10 @@ public static class FormElements
                 style.BorderRightStyle = BorderStyle.Solid;
                 style.BorderBottomStyle = BorderStyle.Solid;
                 style.BorderLeftStyle = BorderStyle.Solid;
-                style.BorderTopColor = SKColors.Gray;
-                style.BorderRightColor = SKColors.Gray;
-                style.BorderBottomColor = SKColors.Gray;
-                style.BorderLeftColor = SKColors.Gray;
+                style.BorderTopColor = SKColor.Parse("#DADCE0");
+                style.BorderRightColor = SKColor.Parse("#DADCE0");
+                style.BorderBottomColor = SKColor.Parse("#DADCE0");
+                style.BorderLeftColor = SKColor.Parse("#DADCE0");
                 style.BorderTopLeftRadius = 8;
                 style.BorderTopRightRadius = 8;
                 style.BorderBottomLeftRadius = 8;
@@ -191,24 +204,22 @@ public static class FormElements
                 style.BorderRightStyle = BorderStyle.Solid;
                 style.BorderBottomStyle = BorderStyle.Solid;
                 style.BorderLeftStyle = BorderStyle.Solid;
-                style.BorderTopColor = SKColors.Gray;
-                style.BorderRightColor = SKColors.Gray;
-                style.BorderBottomColor = SKColors.Gray;
-                style.BorderLeftColor = SKColors.Gray;
+                style.BorderTopColor = SKColor.Parse("#DADCE0");
+                style.BorderRightColor = SKColor.Parse("#DADCE0");
+                style.BorderBottomColor = SKColor.Parse("#DADCE0");
+                style.BorderLeftColor = SKColor.Parse("#DADCE0");
                 style.BorderTopLeftRadius = 8;
                 style.BorderTopRightRadius = 8;
                 style.BorderBottomLeftRadius = 8;
                 style.BorderBottomRightRadius = 8;
                 break;
 
-            // 数据列表
             case "datalist":
                 style.Display = DisplayType.Block;
                 style.MarginTop = new PixelLength(8);
                 style.MarginBottom = new PixelLength(8);
                 break;
 
-            // 选项组
             case "optgroup":
                 style.Display = DisplayType.Block;
                 style.FontWeight = FontWeight.Bold;
@@ -222,7 +233,6 @@ public static class FormElements
                 style.PaddingRight = new PixelLength(8);
                 break;
 
-            // 其他表单元素
             case "form":
                 style.Display = DisplayType.Block;
                 style.MarginTop = new PixelLength(16);
@@ -235,13 +245,12 @@ public static class FormElements
                 style.BorderRightWidth = 1;
                 style.BorderBottomWidth = 1;
                 style.BorderLeftWidth = 1;
-                style.BorderTopColor = SKColors.Gray;
-                style.BorderRightColor = SKColors.Gray;
-                style.BorderBottomColor = SKColors.Gray;
-                style.BorderLeftColor = SKColors.Gray;
+                style.BorderTopColor = SKColor.Parse("#DADCE0");
+                style.BorderRightColor = SKColor.Parse("#DADCE0");
+                style.BorderBottomColor = SKColor.Parse("#DADCE0");
+                style.BorderLeftColor = SKColor.Parse("#DADCE0");
                 break;
 
-            // 特殊输入类型
             case "input[type=checkbox]":
             case "input[type=radio]":
                 style.Display = DisplayType.InlineBlock;

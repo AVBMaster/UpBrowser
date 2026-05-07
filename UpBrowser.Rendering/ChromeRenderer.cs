@@ -18,6 +18,8 @@ public class ChromeRenderer
     private SKPaint _urlTextPaint = null!;
     private SKPaint _buttonHoverPaint = null!;
     private SKPaint _buttonActivePaint = null!;
+    private SKPaint _tabCloseHoverPaint = null!;
+    private SKPaint _tabCloseActivePaint = null!;
     private SKTypeface? _chineseTypeface;
 
     // 缓存的 paint 对象
@@ -26,7 +28,6 @@ public class ChromeRenderer
     private SKPaint _cachedLockPaint = null!;
     private SKPaint _cachedBrowserPaint = null!;
     private SKPaint _cachedInfoPaint = null!;
-    private SKPaint _cachedClosePaint = null!;
     private SKPaint _cachedNewTabPaint = null!;
     private SKPaint _cachedTitlePaint = null!;
     private SKPaint _cachedStatusPaint = null!;
@@ -45,11 +46,18 @@ public class ChromeRenderer
     private SKRect _homeButtonRect;
     private SKRect _urlBarRect;
 
-    private List<string> _history = new();
-    private int _historyIndex = -1;
-
+    // 标签页相关
     private List<TabInfo> _tabs = new();
     private int _activeTabIndex = 0;
+    private List<SKRect> _tabRects = new();       // 每个标签页的矩形区域
+    private List<SKRect> _tabCloseRects = new();   // 每个标签页关闭按钮的矩形区域
+    private SKRect _newTabButtonRect;              // 新建标签按钮区域
+    private int _hoveredTabIndex = -1;             // 鼠标悬停的标签索引
+    private int _hoveredCloseIndex = -1;           // 鼠标悬停的关闭按钮索引
+    private bool _newTabHovered;                   // 新建标签按钮悬停
+
+    private List<string> _history = new();
+    private int _historyIndex = -1;
 
     private string _currentUrl = "";
     private string _urlBarText = "";
@@ -62,11 +70,12 @@ public class ChromeRenderer
     public Action? OnBack { get; set; }
     public Action? OnForward { get; set; }
     public Action? OnHome { get; set; }
+    public Action? OnTabChanged { get; set; }      // 标签切换回调
 
     public class TabInfo
     {
         public string Title { get; set; } = "New Tab";
-        public string Url { get; set; } = "";
+        public string Url { get; set; } = "upbrowser://newtab";
         public bool IsActive { get; set; }
     }
 
@@ -85,7 +94,6 @@ public class ChromeRenderer
                     return tf;
             }
         }
-
         return null;
     }
 
@@ -98,24 +106,28 @@ public class ChromeRenderer
         _textPaint = new SKPaint { Color = SKColors.Black, TextSize = 13, IsAntialias = true, Typeface = _chineseTypeface };
         _urlTextPaint = new SKPaint { Color = SKColor.Parse("#3C4043"), TextSize = 14, IsAntialias = true, Typeface = _chineseTypeface };
         _buttonPaint = new SKPaint { Color = SKColor.Parse("#E8EAED"), Style = SKPaintStyle.Fill };
-        _buttonHoverPaint = new SKPaint { Color = SKColor.Parse("#DADCE0"), Style = SKPaintStyle.Fill };
-        _buttonActivePaint = new SKPaint { Color = SKColor.Parse("#BDC1C6"), Style = SKPaintStyle.Fill };
+        _buttonHoverPaint = new SKPaint { Color = SKColor.Parse("#DADCE0"), Style = SKPaintStyle.Fill, IsAntialias = true };
+        _buttonActivePaint = new SKPaint { Color = SKColor.Parse("#BDC1C6"), Style = SKPaintStyle.Fill, IsAntialias = true };
         _urlBarPaint = new SKPaint { Color = SKColors.White, Style = SKPaintStyle.Fill };
+        _tabCloseHoverPaint = new SKPaint { Color = SKColor.Parse("#DADCE0"), Style = SKPaintStyle.Fill, IsAntialias = true };
+        _tabCloseActivePaint = new SKPaint { Color = SKColor.Parse("#BDC1C6"), Style = SKPaintStyle.Fill, IsAntialias = true };
 
         _cachedTabActivePaint = new SKPaint { Color = SKColors.White, Style = SKPaintStyle.Fill };
         _cachedTabInactivePaint = new SKPaint { Color = SKColor.Parse("#DADCE0"), Style = SKPaintStyle.Fill };
         _cachedLockPaint = new SKPaint { Color = SKColor.Parse("#34A853"), TextSize = 14, Typeface = _chineseTypeface };
         _cachedBrowserPaint = new SKPaint { Color = SKColor.Parse("#1A73E8"), TextSize = 14, Typeface = _chineseTypeface };
         _cachedInfoPaint = new SKPaint { Color = SKColor.Parse("#F9AB00"), TextSize = 14, Typeface = _chineseTypeface };
-        _cachedClosePaint = new SKPaint { Color = SKColor.Parse("#80868B"), TextSize = 12, Typeface = _chineseTypeface };
-        _cachedNewTabPaint = new SKPaint { Color = SKColor.Parse("#5F6368"), TextSize = 20, Typeface = _chineseTypeface };
+        _cachedNewTabPaint = new SKPaint { Color = SKColor.Parse("#5F6368"), TextSize = 22, Typeface = _chineseTypeface, IsAntialias = true };
         _cachedTitlePaint = new SKPaint { Color = SKColor.Parse("#202124"), TextSize = 12, Typeface = _chineseTypeface };
         _cachedStatusPaint = new SKPaint { Color = SKColor.Parse("#5F6368"), TextSize = 11, Typeface = _chineseTypeface };
         _cachedSymbolPaint = new SKPaint { Color = SKColor.Parse("#3C4043"), TextSize = 14, Typeface = _chineseTypeface, IsAntialias = true };
         _cachedCursorPaint = new SKPaint { Color = SKColor.Parse("#1A73E8"), Style = SKPaintStyle.Fill, StrokeWidth = 1 };
 
+        // 默认打开一个新标签页
         _tabs.Add(new TabInfo { Title = "New Tab", Url = "upbrowser://newtab", IsActive = true });
     }
+
+    // ==================== 渲染方法 ====================
 
     public void RenderChrome(SKCanvas canvas, float width, float height, string url, string title)
     {
@@ -134,37 +146,142 @@ public class ChromeRenderer
 
     private void RenderTabBar(SKCanvas canvas, float width, string title)
     {
+        // 背景
         canvas.DrawRect(0, 0, width, TabBarHeight, _backgroundPaint);
 
+        // 清除上次的 tab 矩形记录
+        _tabRects.Clear();
+        _tabCloseRects.Clear();
+
+        float newTabButtonWidth = 36;
         float controlArea = 135;
-        float tabsArea = width - controlArea - 80;
+        float tabsArea = width - controlArea - newTabButtonWidth - 5;
+
         float tabX = 5;
         float tabY = 5;
         float tabHeight = TabBarHeight - 5;
+        float maxTabWidth = 180;
 
-        for (int i = 0; i < _tabs.Count && tabX < tabsArea; i++)
+        // 计算每个标签页的宽度
+        int tabCount = _tabs.Count;
+        float tabWidth = maxTabWidth;
+        if (tabCount > 0 && tabX + tabCount * tabWidth > tabsArea)
         {
-            var tab = _tabs[i];
-            float tabWidth = Math.Min(180, tabsArea / _tabs.Count);
-            var tabRect = new SKRect(tabX, tabY, tabX + tabWidth, tabY + tabHeight);
-
-            var tabPaint = (i == _activeTabIndex) ? _cachedTabActivePaint : _cachedTabInactivePaint;
-            canvas.DrawRoundRect(tabRect, new SKSize(BorderRadius, BorderRadius), tabPaint);
-
-            string tabTitle = tab.Title;
-            if (tabTitle.Length > 12)
-                tabTitle = tabTitle[..12] + "...";
-
-            _textPaint.Color = i == _activeTabIndex ? SKColor.Parse("#1A73E8") : SKColor.Parse("#5F6368");
-            canvas.DrawText(tabTitle, tabRect.Left + 10, tabRect.Top + tabHeight * 0.6f, _textPaint);
-
-            canvas.DrawText("×", tabRect.Right - 18, tabRect.Top + tabHeight * 0.6f, _cachedClosePaint);
-
-            tabX += tabWidth + 2;
+            tabWidth = Math.Max(80, (tabsArea - tabX) / tabCount);
         }
 
-        canvas.DrawText("+", tabX + 5, tabY + tabHeight * 0.3f + 5, _cachedNewTabPaint);
-        canvas.DrawText("UpBrowser", width - controlArea + 5, TabBarHeight * 0.6f, _cachedTitlePaint);
+        for (int i = 0; i < _tabs.Count; i++)
+        {
+            if (tabX + tabWidth > tabsArea)
+                tabWidth = tabsArea - tabX;
+            if (tabWidth < 40) break;
+
+            var tab = _tabs[i];
+            var tabRect = new SKRect(tabX, tabY, tabX + tabWidth, tabY + tabHeight);
+            _tabRects.Add(tabRect);
+
+            // 活动标签页稍微高一点
+            float actualTabY = (i == _activeTabIndex) ? tabY - 1 : tabY;
+            float actualTabHeight = (i == _activeTabIndex) ? tabHeight + 1 : tabHeight;
+
+            var drawRect = new SKRect(tabX, actualTabY, tabX + tabWidth, actualTabY + actualTabHeight);
+
+            // 标签背景
+            SKPaint tabBgPaint;
+            if (i == _activeTabIndex)
+            {
+                tabBgPaint = _cachedTabActivePaint;
+            }
+            else if (i == _hoveredTabIndex && i != _activeTabIndex)
+            {
+                tabBgPaint = _buttonHoverPaint;
+            }
+            else
+            {
+                tabBgPaint = _cachedTabInactivePaint;
+            }
+
+            canvas.DrawRoundRect(drawRect, new SKSize(BorderRadius, BorderRadius), tabBgPaint);
+
+            // 标签底部不显示圆角（与工具栏连接）
+            if (i == _activeTabIndex)
+            {
+                canvas.DrawRect(drawRect.Left, drawRect.Bottom - BorderRadius, drawRect.Width, BorderRadius, _cachedTabActivePaint);
+            }
+
+            // 标签标题
+            string tabTitle = tab.Title;
+            float closeButtonWidth = 20;
+            float textMaxWidth = tabWidth - 25 - closeButtonWidth;
+
+            _textPaint.TextSize = 12;
+            _textPaint.Color = (i == _activeTabIndex) ? SKColor.Parse("#1A73E8") : SKColor.Parse("#5F6368");
+
+            // 截断过长标题
+            while (tabTitle.Length > 0 && _textPaint.MeasureText(tabTitle + "…") > textMaxWidth)
+            {
+                tabTitle = tabTitle[..^1];
+            }
+            if (tabTitle.Length < tab.Title.Length)
+                tabTitle += "…";
+
+            float textX = tabRect.Left + 10;
+            float textY = tabRect.Top + tabHeight * 0.65f;
+            canvas.DrawText(tabTitle, textX, textY, _textPaint);
+
+            // 关闭按钮
+            float closeBtnSize = 14;
+            float closeX = tabRect.Right - closeBtnSize - 6;
+            float closeY = tabRect.Top + (tabHeight - closeBtnSize) / 2;
+            var closeRect = new SKRect(closeX, closeY, closeX + closeBtnSize, closeY + closeBtnSize);
+            _tabCloseRects.Add(closeRect);
+
+            // 关闭按钮背景
+            if (i == _hoveredCloseIndex)
+            {
+                canvas.DrawRoundRect(closeRect, new SKSize(2, 2), _tabCloseActivePaint);
+            }
+
+            // 关闭按钮 X
+            using var closePaint = new SKPaint
+            {
+                Color = (i == _hoveredCloseIndex) ? SKColor.Parse("#202124") : SKColor.Parse("#80868B"),
+                TextSize = 11,
+                Typeface = _chineseTypeface,
+                IsAntialias = true
+            };
+            float cx = closeRect.Left + closeBtnSize / 2;
+            float cy = closeRect.Top + closeBtnSize * 0.7f;
+            string closeSymbol = "✕";
+            float symWidth = closePaint.MeasureText(closeSymbol);
+            canvas.DrawText(closeSymbol, cx - symWidth / 2, cy, closePaint);
+
+            tabX += tabWidth + 3;
+        }
+
+        // 新建标签按钮
+        float newTabX = tabX + 2;
+        float newTabY = tabY + 4;
+        float newTabSize = tabHeight - 8;
+        _newTabButtonRect = new SKRect(newTabX, newTabY, newTabX + newTabSize, newTabY + newTabSize);
+
+        var newTabBgPaint = _newTabHovered ? _buttonHoverPaint : _buttonPaint;
+        canvas.DrawRoundRect(_newTabButtonRect, new SKSize(BorderRadius, BorderRadius), newTabBgPaint);
+
+        _cachedNewTabPaint.Color = _newTabHovered ? SKColor.Parse("#202124") : SKColor.Parse("#5F6368");
+        string plusSymbol = "+";
+        float plusWidth = _cachedNewTabPaint.MeasureText(plusSymbol);
+        canvas.DrawText(plusSymbol,
+            _newTabButtonRect.Left + (_newTabButtonRect.Width - plusWidth) / 2,
+            _newTabButtonRect.Top + _newTabButtonRect.Height * 0.7f,
+            _cachedNewTabPaint);
+
+        // 窗口标题
+        _cachedTitlePaint.TextSize = 12;
+        _cachedTitlePaint.Color = SKColor.Parse("#202124");
+        string windowTitle = "UpBrowser";
+        float titleWidth = _cachedTitlePaint.MeasureText(windowTitle);
+        canvas.DrawText(windowTitle, width - controlArea + 5, TabBarHeight * 0.65f, _cachedTitlePaint);
     }
 
     private void RenderToolbar(SKCanvas canvas, float width, string url)
@@ -244,13 +361,17 @@ public class ChromeRenderer
         canvas.DrawRect(0, statusTop, width, StatusBarHeight, _backgroundPaint);
         canvas.DrawLine(0, statusTop, width, statusTop, _borderPaint);
 
-        string statusText = string.IsNullOrEmpty(_currentUrl) ? "Ready" : $"Loading {_currentUrl}...";
+        string statusText = string.IsNullOrEmpty(_currentUrl) ? "Ready" : _currentUrl;
+        if (statusText.Length > 80)
+            statusText = statusText[..80] + "...";
         canvas.DrawText(statusText, 10, statusTop + StatusBarHeight * 0.7f, _cachedStatusPaint);
 
-        string securityText = _currentUrl.StartsWith("https") ? "🔒 Secure" : "🌐 Not Secure";
-        float secWidth = _cachedStatusPaint.MeasureText(securityText);
-        canvas.DrawText(securityText, width - secWidth - 10, statusTop + StatusBarHeight * 0.7f, _cachedStatusPaint);
+        string tabCount = $"Tab {_activeTabIndex + 1}/{_tabs.Count}";
+        float tcWidth = _cachedStatusPaint.MeasureText(tabCount);
+        canvas.DrawText(tabCount, width - tcWidth - 10, statusTop + StatusBarHeight * 0.7f, _cachedStatusPaint);
     }
+
+    // ==================== 输入处理方法 ====================
 
     public void HandleMouseMove(float x, float y)
     {
@@ -258,10 +379,64 @@ public class ChromeRenderer
         _forwardHovered = _forwardButtonRect.Contains(x, y);
         _refreshHovered = _refreshButtonRect.Contains(x, y);
         _homeHovered = _homeButtonRect.Contains(x, y);
+        _newTabHovered = _newTabButtonRect.Contains(x, y);
+
+        // 检测标签页悬停
+        _hoveredTabIndex = -1;
+        _hoveredCloseIndex = -1;
+
+        for (int i = 0; i < _tabRects.Count; i++)
+        {
+            if (_tabRects[i].Contains(x, y))
+            {
+                _hoveredTabIndex = i;
+                break;
+            }
+        }
+
+        for (int i = 0; i < _tabCloseRects.Count; i++)
+        {
+            if (_tabCloseRects[i].Contains(x, y))
+            {
+                _hoveredCloseIndex = i;
+                break;
+            }
+        }
     }
 
     public bool HandleMouseClick(float x, float y)
     {
+        // 检查新建标签按钮
+        if (_newTabButtonRect.Contains(x, y))
+        {
+            AddTab();
+            return true;
+        }
+
+        // 检查标签关闭按钮
+        for (int i = 0; i < _tabCloseRects.Count; i++)
+        {
+            if (_tabCloseRects[i].Contains(x, y))
+            {
+                CloseTab(i);
+                return true;
+            }
+        }
+
+        // 检查标签切换
+        for (int i = 0; i < _tabRects.Count; i++)
+        {
+            if (_tabRects[i].Contains(x, y))
+            {
+                if (i != _activeTabIndex)
+                {
+                    SwitchToTab(i);
+                }
+                return true;
+            }
+        }
+
+        // 检查 URL 栏点击
         if (_urlBarRect.Contains(x, y))
         {
             _urlBarFocused = true;
@@ -270,6 +445,7 @@ public class ChromeRenderer
             return true;
         }
 
+        // 检查导航按钮点击
         if (_backButtonRect.Contains(x, y) && CanGoBack())
         {
             _urlBarFocused = false;
@@ -357,6 +533,8 @@ public class ChromeRenderer
         }
     }
 
+    // ==================== 导航方法 ====================
+
     public void NavigateToUrl(string url)
     {
         if (string.IsNullOrWhiteSpace(url)) return;
@@ -370,12 +548,20 @@ public class ChromeRenderer
         }
 
         _currentUrl = url;
+        _urlBarText = "";
 
         if (_historyIndex < _history.Count - 1)
             _history.RemoveRange(_historyIndex + 1, _history.Count - _historyIndex - 1);
 
         _history.Add(url);
         _historyIndex = _history.Count - 1;
+
+        // 更新当前标签页信息
+        if (_activeTabIndex >= 0 && _activeTabIndex < _tabs.Count)
+        {
+            _tabs[_activeTabIndex].Url = url;
+            _tabs[_activeTabIndex].Title = url;
+        }
 
         OnNavigate?.Invoke(url);
     }
@@ -403,32 +589,80 @@ public class ChromeRenderer
     public bool CanGoBack() => _historyIndex > 0;
     public bool CanGoForward() => _historyIndex < _history.Count - 1;
 
+    // ==================== 标签页管理 ====================
+
     public void AddTab(string url = "upbrowser://newtab")
     {
         _tabs.Add(new TabInfo { Title = "New Tab", Url = url });
         _activeTabIndex = _tabs.Count - 1;
+        _urlBarFocused = false;
+        OnTabChanged?.Invoke();
+
+        // 导航到新标签 URL
+        NavigateToUrl(url);
     }
 
     public void CloseTab(int index)
     {
-        if (_tabs.Count <= 1) return;
-        if (index >= 0 && index < _tabs.Count)
+        if (_tabs.Count <= 1)
         {
-            _tabs.RemoveAt(index);
+            // 最后一个标签页不关闭，而是导航到新标签页
+            _tabs[0] = new TabInfo { Title = "New Tab", Url = "upbrowser://newtab" };
+            _activeTabIndex = 0;
+            NavigateToUrl("upbrowser://newtab");
+            return;
+        }
+
+        if (index < 0 || index >= _tabs.Count) return;
+
+        _tabs.RemoveAt(index);
+
+        if (index == _activeTabIndex)
+        {
+            // 关闭的是当前标签
             if (_activeTabIndex >= _tabs.Count)
                 _activeTabIndex = _tabs.Count - 1;
+
+            _currentUrl = _tabs[_activeTabIndex].Url;
+            OnTabChanged?.Invoke();
+            NavigateToUrl(_currentUrl);
+        }
+        else if (index < _activeTabIndex)
+        {
+            _activeTabIndex--;
         }
     }
 
     public void SwitchToTab(int index)
     {
-        if (index >= 0 && index < _tabs.Count)
-        {
-            _activeTabIndex = index;
-            var tab = _tabs[index];
-            NavigateToUrl(tab.Url);
-        }
+        if (index < 0 || index >= _tabs.Count || index == _activeTabIndex) return;
+
+        _tabs[_activeTabIndex].IsActive = false;
+        _activeTabIndex = index;
+        _tabs[_activeTabIndex].IsActive = true;
+
+        _urlBarFocused = false;
+        _currentUrl = _tabs[_activeTabIndex].Url;
+
+        OnTabChanged?.Invoke();
+        NavigateToUrl(_currentUrl);
     }
+
+    public void NextTab()
+    {
+        if (_tabs.Count <= 1) return;
+        int next = (_activeTabIndex + 1) % _tabs.Count;
+        SwitchToTab(next);
+    }
+
+    public void PreviousTab()
+    {
+        if (_tabs.Count <= 1) return;
+        int prev = (_activeTabIndex - 1 + _tabs.Count) % _tabs.Count;
+        SwitchToTab(prev);
+    }
+
+    // ==================== 工具方法 ====================
 
     public bool UpdateCursorBlink()
     {
@@ -443,8 +677,13 @@ public class ChromeRenderer
 
     public string GetCurrentUrl() => _currentUrl;
     public bool IsUrlBarFocused() => _urlBarFocused;
+    public int TabCount => _tabs.Count;
+    public int ActiveTabIndex => _activeTabIndex;
+
     public float GetContentOffset() => TabBarHeight + ToolbarHeight;
     public float GetStatusBarHeight() => StatusBarHeight;
+    public float GetTabBarHeight() => TabBarHeight;
+    public float GetToolbarHeight() => ToolbarHeight;
 
     public void RenderScrollbars(SKCanvas canvas, float width, float height, ScrollManager scrollManager)
     {
@@ -526,13 +765,14 @@ public class ChromeRenderer
         _buttonHoverPaint.Dispose();
         _buttonActivePaint.Dispose();
         _urlBarPaint.Dispose();
+        _tabCloseHoverPaint?.Dispose();
+        _tabCloseActivePaint?.Dispose();
 
         _cachedTabActivePaint.Dispose();
         _cachedTabInactivePaint.Dispose();
         _cachedLockPaint.Dispose();
         _cachedBrowserPaint.Dispose();
         _cachedInfoPaint.Dispose();
-        _cachedClosePaint.Dispose();
         _cachedNewTabPaint.Dispose();
         _cachedTitlePaint.Dispose();
         _cachedStatusPaint.Dispose();

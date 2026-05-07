@@ -25,6 +25,7 @@ public class BrowserWindow : IDisposable
     private Func<char, Key, bool>? _onKeyDownWithChar;
     private Action<float, float>? _onMouseMove;
     private Action<float, float, bool>? _onMouseClick;
+    private Action<float>? _onDpiChanged;
 
     public Action<char>? OnChar
     {
@@ -72,6 +73,12 @@ public class BrowserWindow : IDisposable
     {
         get => _onKeyDown;
         set => _onKeyDown = value;
+    }
+
+    public Action<float>? OnDpiChanged
+    {
+        get => _onDpiChanged;
+        set => _onDpiChanged = value;
     }
 
     public IntPtr Handle => _hwnd;
@@ -148,7 +155,38 @@ public class BrowserWindow : IDisposable
             case NativeWindow.WM_SIZE:
                 _width = (int)(lParam.ToInt64() & 0xFFFF);
                 _height = (int)((lParam.ToInt64() >> 16) & 0xFFFF);
+
+                // 立即触发重绘，避免黑色区域
+                NativeWindow.InvalidateRect(_hwnd, IntPtr.Zero, true);
+                NativeWindow.UpdateWindow(_hwnd);
+
+                // 触发帧回调以重新渲染
+                if (_onFrame != null && _width > 0 && _height > 0)
+                {
+                    var now = DateTime.Now;
+                    _lastFrameTime = now;
+                    _onFrame(0.016);
+                }
                 return IntPtr.Zero;
+
+            case 0x02E0: // WM_DPICHANGED
+                {
+                    uint dpi = (uint)(wParam.ToInt64() & 0xFFFF);
+                    float newDpiScale = dpi / 96.0f;
+                    _onDpiChanged?.Invoke(newDpiScale);
+
+                    // 调整窗口大小以适应新 DPI
+                    unsafe
+                    {
+                        RECT* suggestedRect = (RECT*)lParam;
+                        NativeWindow.SetWindowPos(_hwnd, IntPtr.Zero,
+                            suggestedRect->Left, suggestedRect->Top,
+                            suggestedRect->Right - suggestedRect->Left,
+                            suggestedRect->Bottom - suggestedRect->Top,
+                            0x0040);
+                    }
+                    return IntPtr.Zero;
+                }
 
             case NativeWindow.WM_MOUSEWHEEL:
                 {
@@ -157,17 +195,12 @@ public class BrowserWindow : IDisposable
                     return IntPtr.Zero;
                 }
 
-            // ========== 关键修复：WM_CHAR 处理字符输入 ==========
             case NativeWindow.WM_CHAR:
                 {
                     char charCode = (char)(wParam.ToInt32() & 0xFFFF);
-                    // 过滤掉控制字符（除了退格、Tab等）
-                    // WM_CHAR 中 Backspace 不会出现，它走 WM_KEYDOWN
 
                     if (_onKeyDownWithChar != null)
                     {
-                        // 将 WM_CHAR 作为带字符的按键事件发送
-                        // key 传 Unknown(0) 表示这是一个字符输入
                         _onKeyDownWithChar(charCode, Key.Unknown);
                     }
                     else if (_onChar != null)
@@ -177,18 +210,13 @@ public class BrowserWindow : IDisposable
                     return IntPtr.Zero;
                 }
 
-            // ========== 关键修复：WM_KEYDOWN 处理非字符按键 ==========
             case NativeWindow.WM_KEYDOWN:
                 {
                     int virtualKey = wParam.ToInt32();
                     var key = (Key)virtualKey;
 
-                    // 记录按键用于调试
-                    // Console.WriteLine($"WM_KEYDOWN: vk={virtualKey}, key={key}");
-
                     if (_onKeyDownWithChar != null)
                     {
-                        // 对于非字符按键，传 '\0' 作为字符
                         bool handled = _onKeyDownWithChar('\0', key);
                         if (handled) return IntPtr.Zero;
                     }

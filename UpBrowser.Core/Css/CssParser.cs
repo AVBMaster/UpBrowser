@@ -49,7 +49,16 @@ public class CssParser
             }
         }
 
-        stylesheet.Rules.Sort((a, b) => a.Specificity.CompareTo(b.Specificity));
+        stylesheet.Rules.Sort((a, b) =>
+        {
+            int cmp = a.Specificity.a.CompareTo(b.Specificity.a);
+            if (cmp != 0) return cmp;
+            cmp = a.Specificity.b.CompareTo(b.Specificity.b);
+            if (cmp != 0) return cmp;
+            cmp = a.Specificity.c.CompareTo(b.Specificity.c);
+            if (cmp != 0) return cmp;
+            return a.Specificity.d.CompareTo(b.Specificity.d);
+        });
         return stylesheet;
     }
 
@@ -228,6 +237,8 @@ public class CssSelector
     public CssSelector? Parent { get; set; }
     public CombinatorType Combinator { get; set; }
 
+    public (int a, int b, int c, int d) Specificity { get; set; }
+
     public static CssSelector Parse(string selector)
     {
         selector = selector.Trim();
@@ -273,7 +284,52 @@ public class CssSelector
             prev = sel;
         }
 
+        // Calculate specificity for the entire selector chain
+        if (root != null)
+        {
+            CalculateChainSpecificity(root);
+        }
+
         return root ?? new CssSelector { Type = SelectorType.Universal };
+    }
+
+    private static void CalculateChainSpecificity(CssSelector selector)
+    {
+        var (a, b, c, d) = CalculateSimpleSpecificity(selector);
+        selector.Specificity = (a, b, c, d);
+
+        if (selector.Parent != null)
+        {
+            CalculateChainSpecificity(selector.Parent);
+            var parentSpec = selector.Parent.Specificity;
+            selector.Specificity = (a + parentSpec.a, b + parentSpec.b, c + parentSpec.c, d + parentSpec.d);
+        }
+    }
+
+    private static (int a, int b, int c, int d) CalculateSimpleSpecificity(CssSelector selector)
+    {
+        int a = 0, b = 0, c = 0, d = 0;
+
+        if (!string.IsNullOrEmpty(selector.Id))
+            a++;
+
+        b += selector.Classes.Count;
+
+        if (!string.IsNullOrEmpty(selector.AttributeName))
+            b++;
+
+        if (selector.PseudoClass.HasValue)
+            c++;
+
+        if (selector.PseudoElement.HasValue)
+            d++;
+
+        if (selector.Type == SelectorType.Tag && !string.IsNullOrEmpty(selector.TagName))
+            d++;
+        else if (selector.Type == SelectorType.Universal)
+            d++;
+
+        return (a, b, c, d);
     }
 
     private static CssSelector ParseSimpleSelector(string selector)
@@ -321,17 +377,32 @@ public class CssSelector
             {
                 s.AttributeName = inner[..eqIdx];
                 s.AttributeValue = inner[(eqIdx + 1)..].Trim('"', '\'');
-                s.AttributeMatch = inner[eqIdx - 1] switch
+                int opIdx = eqIdx - 1;
+                if (opIdx >= 0)
                 {
-                    '~' => AttributeMatchType.WhitespaceSeparated,
-                    '^' => AttributeMatchType.StartsWith,
-                    '$' => AttributeMatchType.EndsWith,
-                    '*' => AttributeMatchType.Contains,
-                    '|' => AttributeMatchType.DashSeparator,
-                    _ => AttributeMatchType.Exact
-                };
+                    char op = inner[opIdx];
+                    s.AttributeMatch = op switch
+                    {
+                        '~' => AttributeMatchType.WhitespaceSeparated,
+                        '^' => AttributeMatchType.StartsWith,
+                        '$' => AttributeMatchType.EndsWith,
+                        '*' => AttributeMatchType.Contains,
+                        '|' => AttributeMatchType.DashSeparator,
+                        _ => AttributeMatchType.Exact
+                    };
+                    if (op == '~' || op == '^' || op == '$' || op == '*' || op == '|')
+                        s.AttributeName = inner[..opIdx];
+                }
+                else
+                {
+                    s.AttributeMatch = AttributeMatchType.Exact;
+                }
             }
-            else s.AttributeName = inner;
+            else
+            {
+                s.AttributeName = inner;
+                s.AttributeMatch = AttributeMatchType.Exact;
+            }
         }
         else
         {
@@ -348,10 +419,18 @@ public class CssSelector
                     s.AttributeValue = inner[(eqIdx + 1)..].Trim('"', '\'');
                     s.AttributeMatch = AttributeMatchType.Exact;
                 }
+                else
+                {
+                    s.AttributeName = inner;
+                }
             }
-            else s.TagName = selector.ToLowerInvariant();
+            else
+            {
+                s.TagName = selector.ToLowerInvariant();
+            }
         }
 
+        // Parse remaining parts (classes, ids, pseudo)
         while (i < selector.Length)
         {
             char c = selector[i];
@@ -391,6 +470,7 @@ public class CssSelector
 
         if (Parent == null) return true;
 
+        // For descendant combinator (space), check any ancestor
         var ancestor = parent;
         while (ancestor != null)
         {
@@ -399,7 +479,8 @@ public class CssSelector
             ancestor = ancestor.ParentElement;
         }
 
-        return Combinator == CombinatorType.Child ? false : CheckOtherCombinators(element);
+        // Check other combinators
+        return CheckOtherCombinators(element);
     }
 
     private bool CheckOtherCombinators(Element element)
@@ -428,33 +509,33 @@ public class CssSelector
             SelectorType.Tag => selector.TagName == null || element.TagName.Equals(selector.TagName, StringComparison.OrdinalIgnoreCase),
             SelectorType.Id => element.Id == selector.Id,
             SelectorType.Class => selector.Classes.All(c => element.HasClass(c)),
-            SelectorType.Attribute => MatchAttribute(element),
-            SelectorType.PseudoClass => MatchesPseudoClass(element),
+            SelectorType.Attribute => MatchAttribute(selector, element),
+            SelectorType.PseudoClass => MatchesPseudoClass(selector, element),
             _ => true
         };
     }
 
-    private bool MatchAttribute(Element element)
+    private bool MatchAttribute(CssSelector selector, Element element)
     {
-        if (AttributeName == null) return true;
-        var attrValue = element.GetAttribute(AttributeName);
+        if (selector.AttributeName == null) return true;
+        var attrValue = element.GetAttribute(selector.AttributeName);
         if (attrValue == null) return false;
 
-        return AttributeMatch switch
+        return selector.AttributeMatch switch
         {
-            AttributeMatchType.Exact => attrValue == AttributeValue,
-            AttributeMatchType.WhitespaceSeparated => (AttributeValue == null) || attrValue.Split(' ').Contains(AttributeValue),
-            AttributeMatchType.StartsWith => attrValue.StartsWith(AttributeValue ?? ""),
-            AttributeMatchType.EndsWith => attrValue.EndsWith(AttributeValue ?? ""),
-            AttributeMatchType.Contains => attrValue.Contains(AttributeValue ?? ""),
-            AttributeMatchType.DashSeparator => attrValue == AttributeValue || attrValue.StartsWith((AttributeValue ?? "") + "-"),
+            AttributeMatchType.Exact => attrValue == selector.AttributeValue,
+            AttributeMatchType.WhitespaceSeparated => (selector.AttributeValue == null) || attrValue.Split(' ').Contains(selector.AttributeValue),
+            AttributeMatchType.StartsWith => attrValue.StartsWith(selector.AttributeValue ?? ""),
+            AttributeMatchType.EndsWith => attrValue.EndsWith(selector.AttributeValue ?? ""),
+            AttributeMatchType.Contains => attrValue.Contains(selector.AttributeValue ?? ""),
+            AttributeMatchType.DashSeparator => attrValue == selector.AttributeValue || attrValue.StartsWith((selector.AttributeValue ?? "") + "-"),
             _ => true
         };
     }
 
-    private bool MatchesPseudoClass(Element element)
+    private bool MatchesPseudoClass(CssSelector selector, Element element)
     {
-        return PseudoClass switch
+        return selector.PseudoClass switch
         {
             PseudoClassType.FirstChild => element.ParentElement?.Children.OfType<Element>().FirstOrDefault() == element,
             PseudoClassType.LastChild => element.ParentElement?.Children.OfType<Element>().LastOrDefault() == element,
