@@ -103,8 +103,19 @@ class Program
         <p>Line 8</p>
         <p>Line 9</p>
         <p>Line 10</p>
-        <p style='color: red;'>This is the bottom of the page!</p>
+        <p style='color: red;' fontsize=>This is the bottom of the page!</p>
     </div>
+
+    <style>
+h1 {
+color: red;
+text-align: center;
+}
+p {
+color: green;
+font-size: 16px;
+}
+</style>
 </body>
 </html>";
 

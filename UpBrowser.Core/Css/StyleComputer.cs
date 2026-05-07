@@ -55,7 +55,7 @@ public class StyleComputer
                     foreach (var prop in rule.Properties)
                     {
                         var priority = isImportant ? PropertyPriority.Important : PropertyPriority.Normal;
-                        ApplyStylePropertyWithPriority(style, prop.Key, prop.Value, priority);
+                        ApplyStylePropertyWithPriority(style, prop.Key, prop.Value, priority, parentStyle);
                     }
                 }
             }
@@ -68,7 +68,7 @@ public class StyleComputer
             var inlineProps = parser.ParseInlineStyle(inlineStyleAttr);
             foreach (var prop in inlineProps)
             {
-                ApplyStylePropertyWithPriority(style, prop.Key, prop.Value, PropertyPriority.Inline);
+                ApplyStylePropertyWithPriority(style, prop.Key, prop.Value, PropertyPriority.Inline, parentStyle);
             }
         }
 
@@ -101,7 +101,7 @@ public class StyleComputer
         ElementStyleRegistry.ApplyUserAgentStyle(style, tagName);
     }
 
-    private void ApplyStylePropertyWithPriority(ComputedStyle style, string name, string value, PropertyPriority priority)
+    private void ApplyStylePropertyWithPriority(ComputedStyle style, string name, string value, PropertyPriority priority, ComputedStyle? parentStyle = null)
     {
         switch (name)
         {
@@ -134,7 +134,7 @@ public class StyleComputer
             case "background-repeat": style.BackgroundRepeat = ParseBackgroundRepeat(value); break;
             case "background-position": ParseBackgroundPosition(value, style); break;
             case "font-family": style.FontFamily = value.Trim('"'); break;
-            case "font-size": style.FontSize = ParseFontSize(value); break;
+            case "font-size": style.FontSize = ParseFontSize(value, parentStyle); break;
             case "font-weight": style.FontWeight = ParseFontWeight(value); break;
             case "font-style": style.FontStyle = value.ToLowerInvariant() == "italic" ? FontStyleType.Italic : FontStyleType.Normal; break;
             case "font": ParseFontShorthand(value, style); break;
@@ -239,12 +239,14 @@ public class StyleComputer
         _ => ClearType.None
     };
 
-    private float ParseFontSize(string value)
+    private float ParseFontSize(string value, ComputedStyle? parentStyle = null)
     {
+        float parentFontSize = parentStyle?.FontSize ?? 16;
+        
         if (value.EndsWith("px") && float.TryParse(value[..^2], out var px)) return px;
-        if (value.EndsWith("em") && float.TryParse(value[..^2], out var em)) return em * 16;
         if (value.EndsWith("rem") && float.TryParse(value[..^2], out var rem)) return rem * 16;
-        if (value.EndsWith("%") && float.TryParse(value[..^2], out var pct)) return pct / 100f * 16;
+        if (value.EndsWith("em") && float.TryParse(value[..^2], out var em)) return em * parentFontSize;
+        if (value.EndsWith("%") && float.TryParse(value[..^2], out var pct)) return pct / 100f * parentFontSize;
         return value.ToLowerInvariant() switch
         {
             "xx-small" => 10,

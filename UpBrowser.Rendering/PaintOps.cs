@@ -112,12 +112,18 @@ public class DrawTextOp : PaintOp
         if (string.IsNullOrEmpty(Text)) return;
 
         using var typeface = GetTypeface();
-        using var font = new SKFont(typeface, FontSize);
+        using var font = new SKFont(typeface, FontSize)
+        {
+            Edging = SKFontEdging.Antialias,
+            Subpixel = true,
+            Hinting = SKFontHinting.Normal
+        };
         using var paint = new SKPaint
         {
             Color = Color,
             Style = SKPaintStyle.Fill,
-            IsAntialias = true
+            IsAntialias = true,
+            LcdRenderText = true
         };
 
         float x = X;
