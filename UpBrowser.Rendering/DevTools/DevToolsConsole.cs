@@ -1,6 +1,7 @@
 using SkiaSharp;
 using UpBrowser.Core.JavaScript;
 using UpBrowser.Platform;
+using System.Text;
 
 namespace UpBrowser.Rendering.DevTools;
 
@@ -11,6 +12,8 @@ public class DevToolsConsole
     private int _historyIndex = -1;
     private string _inputText = "";
     private int _cursorPos;
+    private int _selectionStart = -1;
+    private int _selectionEnd = -1;
     private bool _showCursor = true;
     private DateTime _lastBlink = DateTime.Now;
     private JavaScriptEngine? _jsEngine;
@@ -27,6 +30,11 @@ public class DevToolsConsole
     private bool _thumbDragging;
     private float _thumbDragStartY;
     private float _thumbDragStartOffset;
+
+    public Action<char>? OnImeChar { get; set; }
+    public Action? OnInputChanged { get; set; }
+
+    public float InputFieldY => _renderY + _renderH - InputHeight;
 
     public DevToolsConsole()
     {
@@ -102,6 +110,60 @@ public class DevToolsConsole
 
     public void HandleThumbDragEnd() { _thumbDragging = false; }
 
+    public bool HandleClick(float x, float y)
+    {
+        float inputY = _renderY + _renderH - InputHeight;
+        if (y >= inputY && y <= inputY + InputHeight)
+        {
+            float textStartX = _renderX + PaddingX + _font.MeasureText("> ");
+            float clickX = x - textStartX;
+            _selectionStart = -1;
+            _selectionEnd = -1;
+
+            float currentX = 0;
+            for (int i = 0; i <= _inputText.Length; i++)
+            {
+                float charWidth = i < _inputText.Length ? _font.MeasureText(_inputText[i].ToString()) : _font.MeasureText(" ");
+                if (currentX + charWidth / 2 >= clickX)
+                {
+                    _cursorPos = i;
+                    break;
+                }
+                currentX += charWidth;
+            }
+            OnInputChanged?.Invoke();
+            return true;
+        }
+        return false;
+    }
+
+    public void HandleImeChar(char c)
+    {
+        if (_selectionStart >= 0 && _selectionEnd > _selectionStart)
+        {
+            int selStart = Math.Min(_selectionStart, _selectionEnd);
+            int selEnd = Math.Max(_selectionStart, _selectionEnd);
+            _inputText = _inputText[..selStart] + _inputText[selEnd..];
+            _cursorPos = selStart;
+            _selectionStart = -1;
+            _selectionEnd = -1;
+        }
+        _inputText = _inputText[.._cursorPos] + c + _inputText[_cursorPos..];
+        _cursorPos++;
+        OnInputChanged?.Invoke();
+    }
+
+    public string GetSelectedText()
+    {
+        if (_selectionStart >= 0 && _selectionEnd > _selectionStart)
+        {
+            int start = Math.Min(_selectionStart, _selectionEnd);
+            int end = Math.Max(_selectionStart, _selectionEnd);
+            return _inputText[start..end];
+        }
+        return "";
+    }
+
     public void Render(SKCanvas canvas, float x, float y, float width, float height)
     {
         _renderX = x; _renderY = y; _renderW = width; _renderH = height;
@@ -150,6 +212,17 @@ public class DevToolsConsole
 
         canvas.Save();
         canvas.ClipRect(new SKRect(x + PaddingX + pw, inputY, x + PaddingX + pw + textAreaW, inputY + InputHeight));
+
+        if (_selectionStart >= 0 && _selectionEnd > _selectionStart)
+        {
+            int selStart = Math.Min(_selectionStart, _selectionEnd);
+            int selEnd = Math.Max(_selectionStart, _selectionEnd);
+            float selStartX = _font.MeasureText(displayText[..Math.Min(selStart, displayText.Length)]);
+            float selEndX = _font.MeasureText(displayText[..Math.Min(selEnd, displayText.Length)]);
+            using var selBg = new SKPaint { Color = SKColor.Parse("#264F78"), Style = SKPaintStyle.Fill };
+            canvas.DrawRect(x + PaddingX + pw + textOffsetX + selStartX, inputY + 2, selEndX - selStartX, InputHeight - 4, selBg);
+        }
+
         canvas.DrawText(displayText, x + PaddingX + pw + textOffsetX, inputY + InputHeight * 0.7f, _font);
         canvas.Restore();
 
@@ -176,6 +249,8 @@ public class DevToolsConsole
 
     public bool HandleKeyPress(char keyChar, Key key)
     {
+        bool ctrlPressed = false;
+
         switch (key)
         {
             case Key.Enter:
@@ -183,32 +258,73 @@ public class DevToolsConsole
                 return true;
 
             case Key.Backspace:
-                if (_cursorPos > 0)
+                if (_selectionStart >= 0 && _selectionEnd > _selectionStart)
+                {
+                    int selStart = Math.Min(_selectionStart, _selectionEnd);
+                    int selEnd = Math.Max(_selectionStart, _selectionEnd);
+                    _inputText = _inputText[..selStart] + _inputText[selEnd..];
+                    _cursorPos = selStart;
+                    _selectionStart = -1;
+                    _selectionEnd = -1;
+                    OnInputChanged?.Invoke();
+                }
+                else if (_cursorPos > 0)
                 {
                     _inputText = _inputText[..(_cursorPos - 1)] + _inputText[_cursorPos..];
                     _cursorPos--;
+                    OnInputChanged?.Invoke();
                 }
                 return true;
 
             case Key.Delete:
-                if (_cursorPos < _inputText.Length)
+                if (_selectionStart >= 0 && _selectionEnd > _selectionStart)
+                {
+                    int selStart = Math.Min(_selectionStart, _selectionEnd);
+                    int selEnd = Math.Max(_selectionStart, _selectionEnd);
+                    _inputText = _inputText[..selStart] + _inputText[selEnd..];
+                    _cursorPos = selStart;
+                    _selectionStart = -1;
+                    _selectionEnd = -1;
+                    OnInputChanged?.Invoke();
+                }
+                else if (_cursorPos < _inputText.Length)
                     _inputText = _inputText[.._cursorPos] + _inputText[(_cursorPos + 1)..];
                 return true;
 
             case Key.Left:
-                if (_cursorPos > 0) _cursorPos--;
+                if (ctrlPressed)
+                {
+                    while (_cursorPos > 0 && !char.IsWhiteSpace(_inputText[_cursorPos - 1])) _cursorPos--;
+                }
+                else if (_cursorPos > 0) _cursorPos--;
+                _selectionStart = -1;
+                _selectionEnd = -1;
+                OnInputChanged?.Invoke();
                 return true;
 
             case Key.Right:
-                if (_cursorPos < _inputText.Length) _cursorPos++;
+                if (ctrlPressed)
+                {
+                    while (_cursorPos < _inputText.Length && !char.IsWhiteSpace(_inputText[_cursorPos])) _cursorPos++;
+                }
+                else if (_cursorPos < _inputText.Length) _cursorPos++;
+                _selectionStart = -1;
+                _selectionEnd = -1;
+                OnInputChanged?.Invoke();
                 return true;
 
             case Key.Home:
                 _cursorPos = 0;
+                _selectionStart = -1;
+                _selectionEnd = -1;
+                OnInputChanged?.Invoke();
                 return true;
 
             case Key.End:
                 _cursorPos = _inputText.Length;
+                _selectionStart = -1;
+                _selectionEnd = -1;
+                OnInputChanged?.Invoke();
                 return true;
 
             case Key.Up:
@@ -218,6 +334,9 @@ public class DevToolsConsole
                     else if (_historyIndex > 0) _historyIndex--;
                     _inputText = _commandHistory[_historyIndex];
                     _cursorPos = _inputText.Length;
+                    _selectionStart = -1;
+                    _selectionEnd = -1;
+                    OnInputChanged?.Invoke();
                 }
                 return true;
 
@@ -235,14 +354,27 @@ public class DevToolsConsole
                         _inputText = "";
                     }
                     _cursorPos = _inputText.Length;
+                    _selectionStart = -1;
+                    _selectionEnd = -1;
+                    OnInputChanged?.Invoke();
                 }
                 return true;
 
             default:
                 if (!char.IsControl(keyChar))
                 {
+                    if (_selectionStart >= 0 && _selectionEnd > _selectionStart)
+                    {
+                        int selStart = Math.Min(_selectionStart, _selectionEnd);
+                        int selEnd = Math.Max(_selectionStart, _selectionEnd);
+                        _inputText = _inputText[..selStart] + _inputText[selEnd..];
+                        _cursorPos = selStart;
+                        _selectionStart = -1;
+                        _selectionEnd = -1;
+                    }
                     _inputText = _inputText[.._cursorPos] + keyChar + _inputText[_cursorPos..];
                     _cursorPos++;
+                    OnInputChanged?.Invoke();
                 }
                 return true;
         }
@@ -258,8 +390,10 @@ public class DevToolsConsole
             _commandHistory.Add(cmd);
         }
         _historyIndex = -1;
+        _selectionStart = -1;
+        _selectionEnd = -1;
 
-        if (string.IsNullOrEmpty(cmd)) { _inputText = ""; _cursorPos = 0; _scrollOffset = float.MaxValue; return; }
+        if (string.IsNullOrEmpty(cmd)) { _inputText = ""; _cursorPos = 0; _scrollOffset = float.MaxValue; OnInputChanged?.Invoke(); return; }
 
         if (cmd == "clear" || cmd == "cls")
         {
@@ -267,6 +401,7 @@ public class DevToolsConsole
             _inputText = "";
             _cursorPos = 0;
             _scrollOffset = float.MaxValue;
+            OnInputChanged?.Invoke();
             return;
         }
 
@@ -288,6 +423,7 @@ public class DevToolsConsole
 
         _inputText = ""; _cursorPos = 0;
         _scrollOffset = float.MaxValue;
+        OnInputChanged?.Invoke();
     }
 
     private void DrawColored(SKCanvas canvas, string text, float x, ref float y, float maxW)

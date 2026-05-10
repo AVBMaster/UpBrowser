@@ -12,6 +12,46 @@ using System.Text;
 
 namespace UpBrowser;
 
+internal static class ClipboardHelper
+{
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern bool OpenClipboard(IntPtr hWndNewOwner);
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern bool CloseClipboard();
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern bool SetClipboardData(uint uFormat, IntPtr data);
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern IntPtr GetClipboardData(uint uFormat);
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern bool EmptyClipboard();
+    private const uint CF_UNICODETEXT = 13;
+
+    public static void SetText(string text)
+    {
+        if (!OpenClipboard(IntPtr.Zero)) return;
+        try
+        {
+            EmptyClipboard();
+            IntPtr hMem = System.Runtime.InteropServices.Marshal.StringToHGlobalUni(text);
+            SetClipboardData(CF_UNICODETEXT, hMem);
+        }
+        finally { CloseClipboard(); }
+    }
+
+    public static string? GetText()
+    {
+        if (!OpenClipboard(IntPtr.Zero)) return null;
+        try
+        {
+            IntPtr hData = GetClipboardData(CF_UNICODETEXT);
+            return hData != IntPtr.Zero
+                ? System.Runtime.InteropServices.Marshal.PtrToStringUni(hData)
+                : null;
+        }
+        finally { CloseClipboard(); }
+    }
+}
+
 public class BrowserApp : IDisposable
 {
     private readonly IWindow _window;
@@ -57,6 +97,8 @@ public class BrowserApp : IDisposable
     // IME support: track focused input element
     private UpBrowser.Core.Dom.Element? _focusedElement;
     private StringBuilder _imeCommittedText = new();
+    private bool _devToolsFocused;
+    private const float ScrollbarDragThreshold = 5;
 
     public BrowserApp(int logicalWidth, int logicalHeight)
     {
@@ -88,6 +130,7 @@ var winWindow = PlatformFactory.CreateWindowsWindow(physicalWidth, physicalHeigh
         _input.OnDevToolsKey = () =>
         {
             _devTools.Toggle();
+            _devToolsFocused = _devTools.Visible;
             _input.NeedsRedraw = true;
         };
 
@@ -105,10 +148,14 @@ var winWindow = PlatformFactory.CreateWindowsWindow(physicalWidth, physicalHeigh
         {
             _input.NeedsRedraw = true;
         };
-        _input.OnDevToolsInput = (c, key) => _devTools.HandleKeyPress(c, key);
+        _input.OnDevToolsInput = (c, key) => DevToolsHandleInput(c, key);
         _input.OnDevToolsClick = (x, y, isDown) => HandleDevToolsClick(x, y, isDown);
         _input.OnDevToolsWheel = (delta, mx, my) => _devTools.HandleWheel(delta, mx, my);
         _input.OnImeChar = HandleImeChar;
+        _input.OnCopy = PerformCopy;
+        _input.OnPaste = PerformPaste;
+        _input.OnCut = PerformCut;
+        _input.OnSelectAll = PerformSelectAll;
 
         _jsEngine.ShowDialog = ShowDialog;
         _input.OnDialogClick = (x, y) =>
@@ -455,7 +502,10 @@ var winWindow = PlatformFactory.CreateWindowsWindow(physicalWidth, physicalHeigh
         _eventLoop.ProcessTasks();
         _jsEngine.TickTimers();
 
-        _input.UpdatePageThumbDrag();
+        if (_input.IsMouseDown())
+        {
+            _input.UpdatePageThumbDrag();
+        }
 
         float currentDevToolsHeight = _devTools.Visible ? _devTools.PanelHeight : 0;
         bool devToolsChanged = _devTools.Visible != _lastDevToolsVisible ||
@@ -589,8 +639,19 @@ var winWindow = PlatformFactory.CreateWindowsWindow(physicalWidth, physicalHeigh
     private bool HandleDevToolsClick(float x, float y, bool isDown)
     {
         if (_devTools.HandleDragStart(x, y))
+        {
+            _devToolsFocused = true;
             return true;
-        return _devTools.HandleClick(x, y);
+        }
+        bool handled = _devTools.HandleClick(x, y);
+        if (handled)
+        {
+            _devToolsFocused = true;
+            _focusedElement = null;
+            PositionImeCaret();
+            _input.NeedsRedraw = true;
+        }
+        return handled;
     }
 
     private void HandleDomClick(float x, float y)
@@ -618,9 +679,29 @@ var winWindow = PlatformFactory.CreateWindowsWindow(physicalWidth, physicalHeigh
         }
     }
 
+    private bool DevToolsHandleInput(char c, Key key)
+    {
+        if (key == Key.Unknown && c == 1) return false;
+        if (key == Key.Unknown && c == 3) return false;
+        if (key == Key.Unknown && c == 22) return false;
+        if (key == Key.Unknown && c == 24) return false;
+        if (key == Key.Unknown && c == 26) return false;
+
+        return _devTools.HandleKeyPress(c, key);
+    }
+
     private void HandleImeChar(char charCode)
     {
         if (charCode == '\0') return;
+
+        if (_devTools.IsInputField(_input.GetMousePosition().x, _input.GetMousePosition().y))
+        {
+            if (_devTools.HandleImeChar(charCode))
+            {
+                _input.NeedsRedraw = true;
+                return;
+            }
+        }
 
         if (_focusedElement != null && _focusedElement.IsFormElement)
         {
@@ -637,13 +718,28 @@ var winWindow = PlatformFactory.CreateWindowsWindow(physicalWidth, physicalHeigh
 
     private void PositionImeCaret()
     {
+        var winWindow = _window as WindowsWindow;
+        if (winWindow?.ImeHandler == null) return;
+
+        if (_devTools.Visible && _devToolsFocused)
+        {
+            var (pw, ph) = _window.GetClientSize();
+            int ww = (int)(pw / _dpiScale);
+            int wh = (int)(ph / _dpiScale);
+            var caretPos = _devTools.GetCaretScreenPosition(ww, wh);
+            if (caretPos.HasValue)
+            {
+                winWindow.ImeHandler.SetCaretPosition(
+                    new SKPoint(caretPos.Value.X * _dpiScale, caretPos.Value.Y * _dpiScale),
+                    18 * _dpiScale);
+                return;
+            }
+        }
+
         if (_focusedElement == null || _currentLoad == null) return;
 
         var box = _focusedElement.LayoutBox;
         if (box == null) return;
-
-        var winWindow = _window as WindowsWindow;
-        if (winWindow?.ImeHandler == null) return;
 
         float caretScreenX = box.BorderBox.Left * _dpiScale;
         float caretScreenY = (box.BorderBox.Top - _scroll.ScrollY) * _dpiScale;
@@ -652,6 +748,48 @@ var winWindow = PlatformFactory.CreateWindowsWindow(physicalWidth, physicalHeigh
         winWindow.ImeHandler.SetCaretPosition(
             new SKPoint(caretScreenX, caretScreenY),
             lineHeight);
+    }
+
+    private void PerformCopy()
+    {
+        var (mx, my) = _input.GetMousePosition();
+        if (_devTools.Visible && _devTools.IsInputField(mx, my))
+        {
+            string sel = _devTools.GetActiveTabSelectedText();
+            if (!string.IsNullOrEmpty(sel))
+                ClipboardHelper.SetText(sel);
+        }
+        else if (_chrome.IsUrlBarFocused())
+        {
+            string url = _chrome.GetCurrentUrl() ?? "";
+            if (!string.IsNullOrEmpty(url))
+                ClipboardHelper.SetText(url);
+        }
+    }
+
+    private void PerformPaste()
+    {
+        string? text = ClipboardHelper.GetText();
+        if (string.IsNullOrEmpty(text)) return;
+
+        foreach (char c in text)
+            HandleImeChar(c);
+    }
+
+    private void PerformCut()
+    {
+        PerformCopy();
+        if (_devTools.Visible && _devTools.IsInputField(_input.GetMousePosition().x, _input.GetMousePosition().y))
+            HandleImeChar('\b');
+    }
+
+    private void PerformSelectAll()
+    {
+    }
+
+    public void InjectImeChar(char c)
+    {
+        HandleImeChar(c);
     }
 
     private static UpBrowser.Core.Dom.Element? HitTest(UpBrowser.Core.Dom.Document doc, float x, float y)

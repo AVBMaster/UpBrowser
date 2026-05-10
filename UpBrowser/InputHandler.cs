@@ -27,6 +27,10 @@ public class InputHandler
     public Func<double, float, float, bool>? OnDevToolsWheel { get; set; }
     public Func<float, float, bool>? OnDialogClick { get; set; }
     public Action<char>? OnImeChar { get; set; }
+    public Action? OnCopy { get; set; }
+    public Action? OnPaste { get; set; }
+    public Action? OnCut { get; set; }
+    public Action? OnSelectAll { get; set; }
 
     public InputHandler(ChromeRenderer chrome, ScrollManager scroll, IWindow window, float dpiScale)
     {
@@ -81,12 +85,12 @@ public class InputHandler
             NeedsRedraw = true;
 
             if (!handled)
-            {
-                if (!HandleScrollbarClick(logicalX, logicalY) && !TryStartPageThumbDrag(logicalX, logicalY))
                 {
-                    OnDomClick?.Invoke(logicalX, logicalY);
+                    if (!HandleScrollbarClick(logicalX, logicalY))
+                    {
+                        OnDomClick?.Invoke(logicalX, logicalY);
+                    }
                 }
-            }
         }
         else
         {
@@ -95,6 +99,7 @@ public class InputHandler
         }
     }
 
+    // Handles scrollbar clicks: thumb drag or track click (page up/down)
     private bool HandleScrollbarClick(float logicalX, float logicalY)
     {
         float statusBarHeight = _chrome.GetStatusBarHeight();
@@ -115,36 +120,9 @@ public class InputHandler
         float thumbTop = maxScrollY > 0
             ? (_scroll.ScrollY / maxScrollY) * (trackHeight - thumbHeight)
             : 0;
-
-        if (logicalY < _contentOffset + thumbTop)
-            _scroll.PageUp();
-        else if (logicalY > _contentOffset + thumbTop + thumbHeight)
-            _scroll.PageDown();
-        return true;
-    }
-
-    private bool TryStartPageThumbDrag(float logicalX, float logicalY)
-    {
-        float statusBarHeight = _chrome.GetStatusBarHeight();
-        float viewportHeight = _window.Height / _dpiScale - _contentOffset - statusBarHeight;
-
-        if (!_scroll.CanScrollY) return false;
-
-        float scrollbarLeft = _window.Width / _dpiScale - ScrollManager.ScrollbarWidth;
-        if (logicalX < scrollbarLeft ||
-            logicalY < _contentOffset ||
-            logicalY > _contentOffset + viewportHeight)
-            return false;
-
-        float trackHeight = viewportHeight;
-        float thumbHeight = Math.Max(ScrollManager.ScrollbarMinThumbSize,
-            trackHeight * viewportHeight / _scroll.ContentHeight);
-        float maxScrollY = _scroll.ContentHeight - viewportHeight;
-        float thumbTop = maxScrollY > 0
-            ? (_scroll.ScrollY / maxScrollY) * (trackHeight - thumbHeight)
-            : 0;
-
         float thumbEnd = thumbTop + thumbHeight;
+
+        // Check if clicking ON the thumb to start dragging
         if (logicalY >= _contentOffset + thumbTop && logicalY <= _contentOffset + thumbEnd)
         {
             _pageThumbDragging = true;
@@ -152,7 +130,13 @@ public class InputHandler
             _pageThumbDragStartScroll = _scroll.ScrollY;
             return true;
         }
-        return false;
+
+        // Otherwise page up/down on track click
+        if (logicalY < _contentOffset + thumbTop)
+            _scroll.PageUp();
+        else
+            _scroll.PageDown();
+        return true;
     }
 
     public void UpdatePageThumbDrag()
@@ -186,6 +170,12 @@ public class InputHandler
 
         if (key == Key.Unknown && charCode != '\0')
         {
+            if (charCode == 1) { OnSelectAll?.Invoke(); NeedsRedraw = true; return true; }
+            if (charCode == 3) { OnCopy?.Invoke(); NeedsRedraw = true; return true; }
+            if (charCode == 22) { OnPaste?.Invoke(); NeedsRedraw = true; return true; }
+            if (charCode == 24) { OnCut?.Invoke(); NeedsRedraw = true; return true; }
+            if (charCode == 26) { return true; }
+
             _chrome.HandleKeyPress(charCode, SKKey.None);
             NeedsRedraw = true;
             return true;

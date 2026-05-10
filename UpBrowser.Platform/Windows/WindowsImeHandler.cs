@@ -9,6 +9,7 @@ public class WindowsImeHandler : IImeHandler
 {
     private readonly IntPtr _hwnd;
     private readonly ImeCompositionState _compositionState = new();
+    private readonly CandidateWindowState _candidateState = new();
     private SKPoint _caretPosition;
     private float _lineHeight;
     private bool _compositionActive;
@@ -22,6 +23,12 @@ public class WindowsImeHandler : IImeHandler
     {
         ReadCurrentComposition();
         return _compositionState;
+    }
+
+    public CandidateWindowState GetCandidateState()
+    {
+        ReadCandidateWindow();
+        return _candidateState;
     }
 
     public void SetCaretPosition(SKPoint screenPosition, float lineHeight)
@@ -62,6 +69,29 @@ public class WindowsImeHandler : IImeHandler
             {
                 Marshal.FreeHGlobal(ptr);
             }
+
+            var candForm = new Imm32Interop.CANDIDATEFORM
+            {
+                dwIndex = 0,
+                dwStyle = Imm32Interop.CFS_FORCE_POSITION,
+                ptCurrentPos = new Imm32Interop.POINT
+                {
+                    X = (int)screenPosition.X,
+                    Y = (int)(screenPosition.Y + lineHeight * 2)
+                }
+            };
+
+            int candSize = Marshal.SizeOf(candForm);
+            IntPtr candPtr = Marshal.AllocHGlobal(candSize);
+            try
+            {
+                Marshal.StructureToPtr(candForm, candPtr, false);
+                Imm32Interop.ImmSetCandidateWindow(hIMC, candPtr);
+            }
+            finally
+            {
+                Marshal.FreeHGlobal(candPtr);
+            }
         }
         finally
         {
@@ -72,6 +102,7 @@ public class WindowsImeHandler : IImeHandler
     public void Reset()
     {
         _compositionState.Reset();
+        _candidateState.Reset();
         _compositionActive = false;
 
         IntPtr hIMC = Imm32Interop.ImmGetContext(_hwnd);
@@ -79,7 +110,7 @@ public class WindowsImeHandler : IImeHandler
         {
             try
             {
-                Imm32Interop.ImmNotifyIME(hIMC, Imm32Interop.NI_COMPOSITIONSTR, 0, 0);
+                Imm32Interop.ImmNotifyIME(hIMC, Imm32Interop.NI_COMPOSITIONSTR, 0, Imm32Interop.CPS_CANCEL);
             }
             finally
             {
@@ -94,6 +125,95 @@ public class WindowsImeHandler : IImeHandler
     }
 
     public bool IsComposing => _compositionActive;
+
+    public bool IsImeEnabled
+    {
+        get
+        {
+            IntPtr hIMC = Imm32Interop.ImmGetContext(_hwnd);
+            if (hIMC == IntPtr.Zero) return false;
+            try
+            {
+                return Imm32Interop.ImmGetOpenStatus(hIMC);
+            }
+            finally
+            {
+                Imm32Interop.ImmReleaseContext(_hwnd, hIMC);
+            }
+        }
+        set
+        {
+            IntPtr hIMC = Imm32Interop.ImmGetContext(_hwnd);
+            if (hIMC == IntPtr.Zero) return;
+            try
+            {
+                Imm32Interop.ImmSetOpenStatus(hIMC, value);
+            }
+            finally
+            {
+                Imm32Interop.ImmReleaseContext(_hwnd, hIMC);
+            }
+        }
+    }
+
+    public (int conversionMode, int sentenceMode) GetConversionMode()
+    {
+        IntPtr hIMC = Imm32Interop.ImmGetContext(_hwnd);
+        if (hIMC == IntPtr.Zero) return (0, 0);
+        try
+        {
+            Imm32Interop.ImmGetConversionStatus(hIMC, out int conversion, out int sentence);
+            return (conversion, sentence);
+        }
+        finally
+        {
+            Imm32Interop.ImmReleaseContext(_hwnd, hIMC);
+        }
+    }
+
+    public void SetConversionMode(int conversionMode, int sentenceMode)
+    {
+        IntPtr hIMC = Imm32Interop.ImmGetContext(_hwnd);
+        if (hIMC == IntPtr.Zero) return;
+        try
+        {
+            Imm32Interop.ImmSetConversionStatus(hIMC, conversionMode, sentenceMode);
+        }
+        finally
+        {
+            Imm32Interop.ImmReleaseContext(_hwnd, hIMC);
+        }
+    }
+
+    public void EnableNativeMode(bool enable)
+    {
+        var (conversion, sentence) = GetConversionMode();
+        if (enable)
+            conversion |= Imm32Interop.IME_CMODE_NATIVE;
+        else
+            conversion &= ~Imm32Interop.IME_CMODE_NATIVE;
+        SetConversionMode(conversion, sentence);
+    }
+
+    public void EnableFullShape(bool enable)
+    {
+        var (conversion, sentence) = GetConversionMode();
+        if (enable)
+            conversion |= Imm32Interop.IME_CMODE_FULLSHAPE;
+        else
+            conversion &= ~Imm32Interop.IME_CMODE_FULLSHAPE;
+        SetConversionMode(conversion, sentence);
+    }
+
+    public IntPtr GetInputContext()
+    {
+        return Imm32Interop.ImmGetContext(_hwnd);
+    }
+
+    public void AssociateInputContext(IntPtr hIMC)
+    {
+        Imm32Interop.ImmAssociateContext(_hwnd, hIMC);
+    }
 
     private void ReadCurrentComposition()
     {
@@ -125,6 +245,84 @@ public class WindowsImeHandler : IImeHandler
                 byte[] buf = new byte[4];
                 Imm32Interop.ImmGetCompositionString(hIMC, Imm32Interop.GCS_CURSORPOS, buf, 4);
                 _compositionState.CursorPosition = BitConverter.ToInt32(buf, 0);
+            }
+
+            int resultLen = Imm32Interop.ImmGetCompositionString(hIMC, Imm32Interop.GCS_RESULTSTR, null, 0);
+            if (resultLen > 0)
+            {
+                byte[] resultBuf = new byte[resultLen];
+                int resultRead = Imm32Interop.ImmGetCompositionString(hIMC, Imm32Interop.GCS_RESULTSTR, resultBuf, resultLen);
+                if (resultRead > 0)
+                {
+                    _compositionState.CommittedText = Encoding.Unicode.GetString(resultBuf, 0, resultRead);
+                }
+            }
+            else
+            {
+                _compositionState.CommittedText = string.Empty;
+            }
+
+            int readingLen = Imm32Interop.ImmGetCompositionString(hIMC, Imm32Interop.GCS_READINGSTRING, null, 0);
+            if (readingLen > 0)
+            {
+                byte[] readingBuf = new byte[readingLen];
+                int readingRead = Imm32Interop.ImmGetCompositionString(hIMC, Imm32Interop.GCS_READINGSTRING, readingBuf, readingLen);
+                if (readingRead > 0)
+                {
+                    _compositionState.ReadingString = Encoding.Unicode.GetString(readingBuf, 0, readingRead);
+                }
+            }
+        }
+        finally
+        {
+            Imm32Interop.ImmReleaseContext(_hwnd, hIMC);
+        }
+    }
+
+    private void ReadCandidateWindow()
+    {
+        IntPtr hIMC = Imm32Interop.ImmGetContext(_hwnd);
+        if (hIMC == IntPtr.Zero) return;
+
+        try
+        {
+            int candidateCount = Imm32Interop.ImmGetCandidateCount(hIMC);
+            if (candidateCount > 0)
+            {
+                int listSize = candidateCount * 32 + 20;
+                IntPtr listPtr = Marshal.AllocHGlobal(listSize);
+                try
+                {
+                    int read = Imm32Interop.ImmGetCandidateList(hIMC, 0, listPtr, listSize);
+                    if (read > 0)
+                    {
+                        var list = Marshal.PtrToStructure<Imm32Interop.CANDIDATELIST>(listPtr);
+                        _candidateState.Candidates.Clear();
+                        _candidateState.SelectedIndex = (int)list.dwSelection;
+                        _candidateState.PageSize = (int)list.dwPageSize;
+
+                        for (int i = 0; i < list.dwCount && i < 9; i++)
+                        {
+                            int offset = 20 + i * 32;
+                            if (offset + 32 <= read)
+                            {
+                                string cand = Marshal.PtrToStringUni(listPtr + offset);
+                                if (!string.IsNullOrEmpty(cand))
+                                {
+                                    _candidateState.Candidates.Add(cand);
+                                }
+                            }
+                        }
+                    }
+                }
+                finally
+                {
+                    Marshal.FreeHGlobal(listPtr);
+                }
+            }
+            else
+            {
+                _candidateState.Reset();
             }
         }
         finally

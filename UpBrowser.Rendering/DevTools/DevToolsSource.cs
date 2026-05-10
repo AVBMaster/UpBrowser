@@ -19,10 +19,19 @@ public class DevToolsSource
     private bool _editing;
     private int _editLine;
     private int _editCol;
+    private int _selectionStart = -1;
+    private int _selectionEnd = -1;
     private bool _showCursor = true;
     private DateTime _lastBlink = DateTime.Now;
 
     public Action<string>? OnHtmlChanged;
+    public Action<char>? OnImeChar;
+    public Action? OnInputChanged;
+
+    public bool IsEditing => _editing;
+    public int EditLine => _editLine;
+    public int EditCol => _editCol;
+    public float ScrollOffset => _scrollOffset;
 
     public void SetHtml(string html) { _html = html ?? ""; _lines = _html.Split('\n'); _editing = false; }
 
@@ -78,30 +87,67 @@ public class DevToolsSource
         {
             _editing = true;
             _editLine = clickedLine;
+            _selectionStart = -1;
+            _selectionEnd = -1;
 
             float textStartX = _renderX + 50;
             float clickX = x - textStartX;
             string line = _lines[clickedLine];
             _editCol = 0;
             float currentX = 0;
+            using var testPaint = FontHelper.CreateMonoPaint(12);
             for (int i = 0; i < line.Length; i++)
             {
-                float charWidth = 8;
-                if (_renderW > 50)
-                {
-                    using var testPaint = FontHelper.CreateMonoPaint(12);
-                    charWidth = testPaint.MeasureText(line[i].ToString());
-                }
+                float charWidth = testPaint.MeasureText(line[i].ToString());
                 if (currentX + charWidth / 2 >= clickX)
                     break;
                 _editCol = i + 1;
                 currentX += charWidth;
             }
 
+            OnInputChanged?.Invoke();
             return true;
         }
         _editing = false;
         return false;
+    }
+
+    public void HandleImeChar(char c)
+    {
+        if (!_editing) return;
+        if (_editLine < 0 || _editLine >= _lines.Length) return;
+
+        if (_selectionStart >= 0 && _selectionEnd > _selectionStart)
+        {
+            int selStart = Math.Min(_selectionStart, _selectionEnd);
+            int selEnd = Math.Max(_selectionStart, _selectionEnd);
+            string line = _lines[_editLine];
+            _lines[_editLine] = line[..selStart] + line[selEnd..];
+            _editCol = selStart;
+            _selectionStart = -1;
+            _selectionEnd = -1;
+        }
+
+        InsertAtCursor(c.ToString());
+    }
+
+    public string GetSelectedText()
+    {
+        if (!_editing || _editLine < 0 || _editLine >= _lines.Length) return "";
+        if (_selectionStart < 0 || _selectionEnd <= _selectionStart) return "";
+        int start = Math.Min(_selectionStart, _selectionEnd);
+        int end = Math.Max(_selectionStart, _selectionEnd);
+        return _lines[_editLine][start..end];
+    }
+
+    private void InsertAtCursor(string text)
+    {
+        string line = _lines[_editLine];
+        _lines[_editLine] = line[..Math.Min(_editCol, line.Length)] + text + line[Math.Min(_editCol, line.Length)..];
+        _editCol += text.Length;
+        _html = string.Join('\n', _lines);
+        OnHtmlChanged?.Invoke(_html);
+        OnInputChanged?.Invoke();
     }
 
     public bool HandleKeyPress(char keyChar, Key key)
@@ -113,89 +159,113 @@ public class DevToolsSource
         {
             case Key.Enter:
                 {
-                    string currentLine = _lines[_editLine];
-                    string before = currentLine[..Math.Min(_editCol, currentLine.Length)];
-                    string after = currentLine[Math.Min(_editCol, currentLine.Length)..];
+                    string line = _lines[_editLine];
+                    string before = line[..Math.Min(_editCol, line.Length)];
+                    string after = line[Math.Min(_editCol, line.Length)..];
                     _lines[_editLine] = before;
                     var newLines = _lines.ToList();
                     newLines.Insert(_editLine + 1, after);
                     _lines = newLines.ToArray();
                     _editLine++;
                     _editCol = 0;
+                    _selectionStart = -1; _selectionEnd = -1;
                     _html = string.Join('\n', _lines);
                     OnHtmlChanged?.Invoke(_html);
                     return true;
                 }
 
             case Key.Backspace:
-                if (_editCol > 0)
                 {
-                    string line = _lines[_editLine];
-                    _lines[_editLine] = line[..(_editCol - 1)] + line[_editCol..];
-                    _editCol--;
+                    if (_selectionStart >= 0 && _selectionEnd > _selectionStart)
+                    {
+                        int selStart = Math.Min(_selectionStart, _selectionEnd);
+                        int selEnd = Math.Max(_selectionStart, _selectionEnd);
+                        string line = _lines[_editLine];
+                        _lines[_editLine] = line[..selStart] + line[selEnd..];
+                        _editCol = selStart;
+                        _selectionStart = -1; _selectionEnd = -1;
+                    }
+                    else if (_editCol > 0)
+                    {
+                        string line = _lines[_editLine];
+                        _lines[_editLine] = line[..(_editCol - 1)] + line[_editCol..];
+                        _editCol--;
+                    }
+                    else if (_editLine > 0)
+                    {
+                        string currentLine = _lines[_editLine];
+                        _editCol = _lines[_editLine - 1].Length;
+                        _lines[_editLine - 1] += currentLine;
+                        var list = _lines.ToList();
+                        list.RemoveAt(_editLine);
+                        _lines = list.ToArray();
+                        _editLine--;
+                    }
                     _html = string.Join('\n', _lines);
                     OnHtmlChanged?.Invoke(_html);
+                    return true;
                 }
-                else if (_editLine > 0)
-                {
-                    string currentLine = _lines[_editLine];
-                    _editCol = _lines[_editLine - 1].Length;
-                    _lines[_editLine - 1] += currentLine;
-                    var list = _lines.ToList();
-                    list.RemoveAt(_editLine);
-                    _lines = list.ToArray();
-                    _editLine--;
-                    _html = string.Join('\n', _lines);
-                    OnHtmlChanged?.Invoke(_html);
-                }
-                return true;
 
             case Key.Delete:
                 {
-                    string line = _lines[_editLine];
-                    if (_editCol < line.Length)
+                    if (_selectionStart >= 0 && _selectionEnd > _selectionStart)
                     {
-                        _lines[_editLine] = line[.._editCol] + line[(_editCol + 1)..];
-                        _html = string.Join('\n', _lines);
-                        OnHtmlChanged?.Invoke(_html);
+                        int selStart = Math.Min(_selectionStart, _selectionEnd);
+                        int selEnd = Math.Max(_selectionStart, _selectionEnd);
+                        string line = _lines[_editLine];
+                        _lines[_editLine] = line[..selStart] + line[selEnd..];
+                        _editCol = selStart;
+                        _selectionStart = -1; _selectionEnd = -1;
                     }
-                    else if (_editLine < _lines.Length - 1)
+                    else
                     {
-                        string nextLine = _lines[_editLine + 1];
-                        _lines[_editLine] += nextLine;
-                        var list = _lines.ToList();
-                        list.RemoveAt(_editLine + 1);
-                        _lines = list.ToArray();
-                        _html = string.Join('\n', _lines);
-                        OnHtmlChanged?.Invoke(_html);
+                        string line = _lines[_editLine];
+                        if (_editCol < line.Length)
+                            _lines[_editLine] = line[.._editCol] + line[(_editCol + 1)..];
+                        else if (_editLine < _lines.Length - 1)
+                        {
+                            string nextLine = _lines[_editLine + 1];
+                            _lines[_editLine] += nextLine;
+                            var list = _lines.ToList();
+                            list.RemoveAt(_editLine + 1);
+                            _lines = list.ToArray();
+                        }
                     }
+                    _html = string.Join('\n', _lines);
+                    OnHtmlChanged?.Invoke(_html);
                     return true;
                 }
 
             case Key.Left:
                 if (_editCol > 0) _editCol--;
                 else if (_editLine > 0) { _editLine--; _editCol = _lines[_editLine].Length; }
+                _selectionStart = -1; _selectionEnd = -1;
                 return true;
 
             case Key.Right:
                 if (_editCol < _lines[_editLine].Length) _editCol++;
                 else if (_editLine < _lines.Length - 1) { _editLine++; _editCol = 0; }
+                _selectionStart = -1; _selectionEnd = -1;
                 return true;
 
             case Key.Up:
                 if (_editLine > 0) { _editLine--; _editCol = Math.Min(_editCol, _lines[_editLine].Length); }
+                _selectionStart = -1; _selectionEnd = -1;
                 return true;
 
             case Key.Down:
                 if (_editLine < _lines.Length - 1) { _editLine++; _editCol = Math.Min(_editCol, _lines[_editLine].Length); }
+                _selectionStart = -1; _selectionEnd = -1;
                 return true;
 
             case Key.Home:
                 _editCol = 0;
+                _selectionStart = -1; _selectionEnd = -1;
                 return true;
 
             case Key.End:
                 _editCol = _lines[_editLine].Length;
+                _selectionStart = -1; _selectionEnd = -1;
                 return true;
 
             case Key.Tab:
@@ -203,6 +273,7 @@ public class DevToolsSource
                     string line = _lines[_editLine];
                     _lines[_editLine] = line[..Math.Min(_editCol, line.Length)] + "    " + line[Math.Min(_editCol, line.Length)..];
                     _editCol += 4;
+                    _selectionStart = -1; _selectionEnd = -1;
                     _html = string.Join('\n', _lines);
                     OnHtmlChanged?.Invoke(_html);
                     return true;
@@ -211,8 +282,17 @@ public class DevToolsSource
             default:
                 if (!char.IsControl(keyChar))
                 {
-                    string line = _lines[_editLine];
-                    _lines[_editLine] = line[..Math.Min(_editCol, line.Length)] + keyChar + line[Math.Min(_editCol, line.Length)..];
+                    if (_selectionStart >= 0 && _selectionEnd > _selectionStart)
+                    {
+                        int selStart = Math.Min(_selectionStart, _selectionEnd);
+                        int selEnd = Math.Max(_selectionStart, _selectionEnd);
+                        string line = _lines[_editLine];
+                        _lines[_editLine] = line[..selStart] + line[selEnd..];
+                        _editCol = selStart;
+                        _selectionStart = -1; _selectionEnd = -1;
+                    }
+                    string curLine = _lines[_editLine];
+                    _lines[_editLine] = curLine[..Math.Min(_editCol, curLine.Length)] + keyChar + curLine[Math.Min(_editCol, curLine.Length)..];
                     _editCol++;
                     _html = string.Join('\n', _lines);
                     OnHtmlChanged?.Invoke(_html);

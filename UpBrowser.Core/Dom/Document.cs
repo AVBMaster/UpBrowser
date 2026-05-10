@@ -142,10 +142,23 @@ public abstract class Element : Node
     public string? StyleAttr => GetAttribute("style");
     public string? Alt => GetAttribute("alt");
     public string? Type => GetAttribute("type");
-    public string? Value => GetAttribute("value");
+    private string? _value;
+    public string? Value
+    {
+        get => _value ??= GetAttribute("value");
+        set
+        {
+            _value = value;
+            Attributes["value"] = value ?? "";
+        }
+    }
     public string? Name => GetAttribute("name");
     public string? InputType => GetAttribute("type");
     public bool IsFormElement => TagName is "INPUT" or "TEXTAREA" or "SELECT" or "BUTTON";
+
+    public int SelectionStart { get; set; }
+    public int SelectionEnd { get; set; }
+    public bool IsFocused { get; set; }
 }
 
 public class TextNode : Node

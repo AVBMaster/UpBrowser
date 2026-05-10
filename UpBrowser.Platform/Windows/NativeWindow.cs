@@ -74,6 +74,8 @@ public static class NativeWindow
     public const uint WM_IME_CHAR = 0x0286;
 
     public const uint WM_CAPTURECHANGED = 0x0215;
+    public const uint WM_INPUTLANGCHANGEREQUEST = 0x0050;
+    public const uint WM_INPUTLANGCHANGE = 0x0051;
 
     public const int CW_USEDEFAULT = -1;
 
@@ -268,4 +270,7 @@ public static class NativeWindow
 
     [DllImport("user32.dll", SetLastError = true)]
     public static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
+
+    [DllImport("user32.dll")]
+    public static extern bool ClientToScreen(IntPtr hWnd, ref POINT lpPoint);
 }

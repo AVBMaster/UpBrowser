@@ -6,6 +6,7 @@ public class ImeCompositionState
 {
     public string CompositionText { get; set; } = string.Empty;
     public string CommittedText { get; set; } = string.Empty;
+    public string ReadingString { get; set; } = string.Empty;
     public int CursorPosition { get; set; }
     public int SelectionStart { get; set; }
     public int SelectionLength { get; set; }
@@ -16,6 +17,7 @@ public class ImeCompositionState
     {
         CompositionText = string.Empty;
         CommittedText = string.Empty;
+        ReadingString = string.Empty;
         CursorPosition = 0;
         SelectionStart = 0;
         SelectionLength = 0;
@@ -41,6 +43,15 @@ public class CandidateWindowState
 public interface IImeHandler : IDisposable
 {
     ImeCompositionState GetCompositionState();
+    CandidateWindowState GetCandidateState();
     void SetCaretPosition(SKPoint screenPosition, float lineHeight);
     void Reset();
+    bool IsImeEnabled { get; set; }
+    bool IsComposing { get; }
+    (int conversionMode, int sentenceMode) GetConversionMode();
+    void SetConversionMode(int conversionMode, int sentenceMode);
+    void EnableNativeMode(bool enable);
+    void EnableFullShape(bool enable);
+    IntPtr GetInputContext();
+    void AssociateInputContext(IntPtr hIMC);
 }

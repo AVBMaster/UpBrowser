@@ -108,10 +108,16 @@ public class DevToolsPanel
         }
         if (thumbHit) { _thumbDragTab = _activeTab; return true; }
 
-        if (_activeTab == 2)
+        switch (_activeTab)
         {
-            _source.HandleClick(x, y);
-            OnChanged?.Invoke();
+            case 0:
+                _console.HandleClick(x, y);
+                OnChanged?.Invoke();
+                break;
+            case 2:
+                _source.HandleClick(x, y);
+                OnChanged?.Invoke();
+                break;
         }
 
         return true;
@@ -182,6 +188,58 @@ public class DevToolsPanel
             return _console.HandleKeyPress(keyChar, key);
 
         return false;
+    }
+
+    public bool HandleImeChar(char c)
+    {
+        if (!_visible) return false;
+        switch (_activeTab)
+        {
+            case 0:
+                _console.HandleImeChar(c);
+                OnChanged?.Invoke();
+                return true;
+            case 2:
+                _source.HandleImeChar(c);
+                OnChanged?.Invoke();
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    public string GetActiveTabSelectedText()
+    {
+        return _activeTab switch
+        {
+            0 => _console.GetSelectedText(),
+            2 => _source.GetSelectedText(),
+            _ => ""
+        };
+    }
+
+    public bool IsInputField(float x, float y)
+    {
+        if (!_visible) return false;
+        if (_activeTab == 0)
+        {
+            float inputY = _console.InputFieldY;
+            return y >= inputY && y <= inputY + 24;
+        }
+        return _activeTab == 2;
+    }
+
+    public SKPoint? GetCaretScreenPosition(float windowWidth, float windowHeight)
+    {
+        if (!_visible) return null;
+
+        if (_activeTab == 2 && _source.IsEditing)
+        {
+            float py = _panelTop + _tabBarHeight;
+            float sourceLineY = (_source.EditLine * 18) - _source.ScrollOffset + py;
+            return new SKPoint(50 + _source.EditCol * 8, sourceLineY);
+        }
+        return null;
     }
 
     public void Render(SKCanvas canvas, float windowWidth, float windowHeight, float contentTop)

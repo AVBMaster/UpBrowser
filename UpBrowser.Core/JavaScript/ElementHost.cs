@@ -64,6 +64,24 @@ public class ElementHost
 
     public StyleHost style => _styleHost ??= new StyleHost(_element);
 
+    public string? value
+    {
+        get => _element.Value;
+        set => _element.Value = value;
+    }
+
+    public int selectionStart
+    {
+        get => _element.SelectionStart;
+        set => _element.SelectionStart = value;
+    }
+
+    public int selectionEnd
+    {
+        get => _element.SelectionEnd;
+        set => _element.SelectionEnd = value;
+    }
+
     public ElementHost? parentElement
     {
         get
