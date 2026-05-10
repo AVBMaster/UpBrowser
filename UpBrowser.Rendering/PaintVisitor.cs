@@ -719,17 +719,13 @@ public class PaintVisitor
         string result = textBuilder.ToString().Trim();
         if (!string.IsNullOrEmpty(result))
         {
-            Console.WriteLine($"Button text from children: '{result}'");
             return result;
         }
 
         // 尝试从 value 属性获取
         var valueAttr = button.GetAttribute("value");
         if (!string.IsNullOrEmpty(valueAttr))
-        {
-            Console.WriteLine($"Button text from value attribute: '{valueAttr}'");
             return valueAttr;
-        }
 
         // 尝试从 innerText 属性获取（如果有）
         var innerText = button.GetAttribute("innerText");
@@ -738,7 +734,6 @@ public class PaintVisitor
             return innerText;
         }
 
-        Console.WriteLine($"Button has no text! TagName={button.TagName}, Children count={button.Children.Count}");
         return "Button";
     }
 

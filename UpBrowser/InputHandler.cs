@@ -13,6 +13,8 @@ public class InputHandler
 
     public bool NeedsRedraw { get; set; } = true;
 
+    public Action<float, float>? OnDomClick { get; set; }
+
     public InputHandler(ChromeRenderer chrome, ScrollManager scroll, IWindow window, float dpiScale)
     {
         _chrome = chrome;
@@ -49,22 +51,25 @@ public class InputHandler
 
         if (!handled)
         {
-            HandleScrollbarClick(logicalX, logicalY);
+            if (!HandleScrollbarClick(logicalX, logicalY))
+            {
+                OnDomClick?.Invoke(logicalX, logicalY);
+            }
         }
     }
 
-    private void HandleScrollbarClick(float logicalX, float logicalY)
+    private bool HandleScrollbarClick(float logicalX, float logicalY)
     {
         float statusBarHeight = _chrome.GetStatusBarHeight();
         float viewportHeight = _window.Height / _dpiScale - _contentOffset - statusBarHeight;
 
-        if (!_scroll.CanScrollY) return;
+        if (!_scroll.CanScrollY) return false;
 
         float scrollbarLeft = _window.Width / _dpiScale - ScrollManager.ScrollbarWidth;
         if (logicalX < scrollbarLeft ||
             logicalY < _contentOffset ||
             logicalY > _contentOffset + viewportHeight)
-            return;
+            return false;
 
         float trackHeight = viewportHeight;
         float thumbHeight = Math.Max(ScrollManager.ScrollbarMinThumbSize,
@@ -78,6 +83,7 @@ public class InputHandler
             _scroll.PageUp();
         else if (logicalY > _contentOffset + thumbTop + thumbHeight)
             _scroll.PageDown();
+        return true;
     }
 
     private bool OnKeyDownWithChar(char charCode, Key key)

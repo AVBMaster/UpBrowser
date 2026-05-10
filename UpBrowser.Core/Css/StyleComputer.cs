@@ -91,6 +91,15 @@ public class StyleComputer
             }
         }
 
+        // 合并 JS 动态修改的样式（element.Style 字典，由 StyleHost 写入）
+        foreach (var kv in element.Style)
+        {
+            if (!string.IsNullOrEmpty(kv.Key) && !string.IsNullOrEmpty(kv.Value))
+            {
+                ApplyStyleProperty(style, kv.Key, kv.Value, parentStyle);
+            }
+        }
+
         element.ComputedStyle = style;
 
         foreach (var child in element.Children)

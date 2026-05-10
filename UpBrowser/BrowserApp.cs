@@ -2,6 +2,7 @@ using UpBrowser.Platform;
 using UpBrowser.Rendering;
 using UpBrowser.Core.Dom;
 using UpBrowser.Core.Layout;
+using UpBrowser.Core.Css;
 using UpBrowser.Core.JavaScript;
 using UpBrowser.Core.EventLoop;
 using SkiaSharp;
@@ -51,6 +52,7 @@ public class BrowserApp : IDisposable
         _jsEngine = new JavaScriptEngine();
         _eventLoop = new EventLoop();
         _input = new InputHandler(_chrome, _scroll, _window, _dpiScale);
+        _input.OnDomClick = HandleDomClick;
 
         _contentOffset = _chrome.GetContentOffset();
 
@@ -63,11 +65,6 @@ public class BrowserApp : IDisposable
 
         _skiaRenderer.Initialize(1024, 768, enableDirtyRegions: true);
         _skiaRenderer.DpiScale = _dpiScale;
-
-        _jsEngine.Execute(@"
-            console.log('UpBrowser JavaScript engine initialized!');
-            document.title = 'UpBrowser - Running';
-        ");
 
         _eventLoop.Start();
 
@@ -155,8 +152,49 @@ public class BrowserApp : IDisposable
         int ww = (int)(pw / _dpiScale);
         int wh = (int)(ph / _dpiScale);
 
+        _jsEngine.LoadDocument(_currentLoad.Document);
+
+        RunPageScripts();
+
         BuildDisplayList(ww, wh);
         _scroll.ScrollTo(0, 0);
+    }
+
+    private void RunPageScripts()
+    {
+        if (_currentLoad == null) return;
+
+        var angleDoc = _currentLoad.AngleSharpDoc;
+        var scriptElements = angleDoc.All.Where(e =>
+            e.LocalName?.ToLowerInvariant() == "script");
+
+        foreach (var scriptEl in scriptElements)
+        {
+            var src = scriptEl.GetAttribute("src");
+            if (!string.IsNullOrEmpty(src))
+            {
+                Task.Run(async () =>
+                    {
+                        try
+                        {
+                            using var client = new HttpClient();
+                            var code = await client.GetStringAsync(src);
+                            _jsEngine.Execute(code);
+                        }
+                        catch (Exception ex)
+                        {
+                            Console.WriteLine($"[JS] Failed to load script '{src}': {ex.Message}");
+                        }
+                    });
+                continue;
+            }
+
+            var code = scriptEl.TextContent;
+            if (!string.IsNullOrWhiteSpace(code))
+            {
+                _jsEngine.Execute(code);
+            }
+        }
     }
 
     private async Task NavigateToHttp(string url)
@@ -213,6 +251,7 @@ public class BrowserApp : IDisposable
     private void RenderFrame(double dt)
     {
         _eventLoop.ProcessTasks();
+        _jsEngine.TickTimers();
 
         bool cursorChanged = _chrome.UpdateCursorBlink();
 
@@ -226,7 +265,7 @@ public class BrowserApp : IDisposable
         bool chromeNeedsRedraw = cursorChanged && _chrome.IsUrlBarFocused();
         bool needsRedraw = _input.NeedsRedraw;
 
-        if (!sizeChanged && !scrollChanged && !chromeNeedsRedraw && !needsRedraw)
+        if (!sizeChanged && !scrollChanged && !chromeNeedsRedraw && !needsRedraw && !_jsEngine.NeedsReLayout)
             return;
 
         var now = DateTime.Now;
@@ -244,9 +283,16 @@ public class BrowserApp : IDisposable
             _lastWindowHeight = windowHeight;
         }
 
-        if (sizeChanged || windowWidth != _lastLayoutWidth)
+        if (sizeChanged || windowWidth != _lastLayoutWidth || _jsEngine.NeedsReLayout)
         {
             _lastLayoutWidth = windowWidth;
+
+            if (_jsEngine.NeedsReLayout)
+            {
+                var styleComputer = new StyleComputer();
+                styleComputer.ComputeStyles(_currentLoad.Document);
+                _jsEngine.ClearDirty();
+            }
 
             BuildDisplayList(windowWidth, windowHeight);
 
@@ -281,6 +327,48 @@ public class BrowserApp : IDisposable
         _window.Render(pixels, _skiaRenderer.PhysicalWidth, _skiaRenderer.PhysicalHeight);
 
         _input.NeedsRedraw = false;
+    }
+
+    private void HandleDomClick(float x, float y)
+    {
+        if (_currentLoad == null) return;
+
+        float adjustedY = y - _contentOffset + _scroll.ScrollY;
+        var element = HitTest(_currentLoad.Document, x, adjustedY);
+        if (element != null)
+        {
+            _jsEngine.DispatchEvent(element, "click");
+        }
+    }
+
+    private static UpBrowser.Core.Dom.Element? HitTest(UpBrowser.Core.Dom.Document doc, float x, float y)
+    {
+        UpBrowser.Core.Dom.Element? result = null;
+        float lastZ = float.MinValue;
+
+        HitTestElement(doc.DocumentElement, x, y, ref result, ref lastZ);
+        if (result == null) HitTestElement(doc.Body, x, y, ref result, ref lastZ);
+        return result;
+    }
+
+    private static void HitTestElement(UpBrowser.Core.Dom.Element? element, float x, float y,
+        ref UpBrowser.Core.Dom.Element? result, ref float lastZ)
+    {
+        if (element == null) return;
+
+        var box = element.LayoutBox;
+        if (box != null && box.BorderBox.Contains(x, y))
+        {
+            float z = element.ComputedStyle?.ZIndex ?? 0;
+            if (result == null || z >= lastZ)
+            {
+                result = element;
+                lastZ = z;
+            }
+        }
+
+        foreach (var child in element.Children.OfType<UpBrowser.Core.Dom.Element>())
+            HitTestElement(child, x, y, ref result, ref lastZ);
     }
 
     public void Dispose()

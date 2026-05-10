@@ -165,7 +165,7 @@ public class DocumentManager
     <title>UpBrowser</title>
 </head>
 <body style=""background: #f5f5f5; margin: 0; padding: 20px; font-family: Arial, sans-serif;"">
-    <h1 style=""color: #333; font-size: 32px; margin: 0 0 20px 0;"">Hello World</h1>
+    <h1 id=""title"" style=""color: #333; font-size: 32px; margin: 0 0 20px 0;"">Hello World</h1>
     <p style=""color: #666; font-size: 16px; line-height: 1.5;"">This is a test paragraph with some text content.</p>
     <div style=""background: #ffeb3b; padding: 20px; border: 2px solid #f44336; margin: 20px 0; border-radius: 8px;"">
         <h2 style=""color: #333; margin: 0 0 10px 0;"">Box Model Test</h2>
@@ -176,8 +176,8 @@ public class DocumentManager
         <li>List item 2</li>
         <li>List item 3</li>
     </ul>
-    <button style=""background: #2196F3; color: white; padding: 10px 20px; border: none; border-radius: 4px; font-size: 14px;"">Click Me</button>
-    <div style=""margin-top: 20px; padding: 15px; background: white; border: 1px solid #ddd;"">
+    <button id=""mybtn"" style=""background: #2196F3; color: white; padding: 10px 20px; border: none; border-radius: 4px; font-size: 14px;"">Click Me</button>
+    <div id=""output"" style=""margin-top: 20px; padding: 15px; background: white; border: 1px solid #ddd;"">
         <span style=""color: red;"">Red text</span> and <span style=""color: blue;"">blue text</span> in same line.
     </div>
     <div style=""display: flex; gap: 10px; margin-top: 20px;"">
@@ -188,6 +188,21 @@ public class DocumentManager
     <div style=""position: relative; height: 100px; margin-top: 20px; background: #fff3e0;"">
         <div style=""position: absolute; top: 10px; right: 10px; background: #ff5722; color: white; padding: 5px 10px;"">Absolute Position</div>
     </div>
+    <script>
+        console.log('JS bridge active!');
+        var title = document.getElementById('title');
+        if (title) console.log('Title text:', title.textContent);
+        var btn = document.getElementById('mybtn');
+        if (btn) {
+            btn.addEventListener('click', function() {
+                var out = document.getElementById('output');
+                if (out) {
+                    out.innerHTML = '<b style=""color: green;"">Button clicked via JS!</b>';
+                    out.style.background = '#e8f5e9';
+                }
+            });
+        }
+    </script>
 </body></html>";
     }
 
