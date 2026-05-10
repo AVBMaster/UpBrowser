@@ -94,10 +94,10 @@ public static class FormElements
                 style.BorderBottomRightRadius = 4;
                 break;
 
-            // ===== 按钮：严格按照浏览器默认标准 =====
             case "button":
                 style.Display = DisplayType.InlineBlock;
-                // 2px outset 风格边框（多数浏览器使用 outset，但这里用 solid + 颜色模拟）
+
+                // 边框
                 style.BorderTopWidth = 2;
                 style.BorderRightWidth = 2;
                 style.BorderBottomWidth = 2;
@@ -110,25 +110,32 @@ public static class FormElements
                 style.BorderRightColor = SKColor.Parse("#767676");
                 style.BorderBottomColor = SKColor.Parse("#767676");
                 style.BorderLeftColor = SKColor.Parse("#767676");
-                // 内边距：1px 垂直，6px 水平
-                style.PaddingTop = new PixelLength(1);
-                style.PaddingBottom = new PixelLength(1);
-                style.PaddingLeft = new PixelLength(6);
-                style.PaddingRight = new PixelLength(6);
-                // 背景色：系统按钮面颜色
+
+                // 内边距 - 确保是 PixelLength 类型
+                style.PaddingTop = new PixelLength(4);
+                style.PaddingBottom = new PixelLength(4);
+                style.PaddingLeft = new PixelLength(10);
+                style.PaddingRight = new PixelLength(10);
+
+                // 背景色
                 style.BackgroundColor = SKColor.Parse("#EFEFEF");
-                // 文字样式：约 13.33px，正常粗细，黑色
-                style.Color = SKColors.Black;
+
+                // 文字样式
+                style.Color = SKColor.Parse("#000000");
                 style.FontSize = 13.3333f;
                 style.FontWeight = FontWeight.Normal;
+                style.FontFamily = "Arial, sans-serif";
                 style.TextAlign = TextAlignType.Center;
-                style.Cursor = "pointer";
-                // 不设置最小宽度，让按钮自适应内容
-                style.MinWidth = null;
-                // 防止文字换行
-                style.WhiteSpace = WhiteSpaceMode.Nowrap;
-                break;
+                style.LineHeight = 1.2f;
 
+                // 其他
+                style.Cursor = "pointer";
+                style.WhiteSpace = WhiteSpaceMode.Nowrap;
+                style.BorderTopLeftRadius = 2;
+                style.BorderTopRightRadius = 2;
+                style.BorderBottomLeftRadius = 2;
+                style.BorderBottomRightRadius = 2;
+                break;
             case "fieldset":
                 style.Display = DisplayType.Block;
                 style.MarginTop = new PixelLength(16);

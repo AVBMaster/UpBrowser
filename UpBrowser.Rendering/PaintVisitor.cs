@@ -210,16 +210,14 @@ public class PaintVisitor
 
     private void DrawElementBackground(Element element, LayoutBox box, ComputedStyle style, SKRect borderRect)
     {
-        // 确保按钮有背景色
+        // 跳过按钮的背景绘制，因为按钮在 DrawElementContent 中单独处理
+        if (element.TagName.Equals("BUTTON", StringComparison.OrdinalIgnoreCase))
+            return;
+
         SKColor bgColor;
         if (style.BackgroundColor.HasValue && style.BackgroundColor.Value.Alpha > 0)
         {
             bgColor = style.BackgroundColor.Value;
-        }
-        else if (element.TagName.Equals("BUTTON", StringComparison.OrdinalIgnoreCase))
-        {
-            // 按钮默认背景色
-            bgColor = SKColor.Parse("#1A73E8");
         }
         else
         {
@@ -242,7 +240,6 @@ public class PaintVisitor
         };
         _displayList.Add(op);
     }
-
     private async void DrawBackgroundImage(Element element, ComputedStyle style, SKRect rect)
     {
         var url = style.BackgroundImage;
@@ -338,6 +335,10 @@ public class PaintVisitor
             style.BorderBottomWidth <= 0 && style.BorderLeftWidth <= 0)
             return;
 
+        // 跳过按钮的边框绘制，因为按钮在 DrawElementContent 中单独处理
+        if (element.TagName.Equals("BUTTON", StringComparison.OrdinalIgnoreCase))
+            return;
+
         float tl = style.BorderTopLeftRadius;
         float tr = style.BorderTopRightRadius;
         float br = style.BorderBottomRightRadius;
@@ -419,41 +420,150 @@ public class PaintVisitor
 
     private void DrawElementContent(Element element, LayoutBox box, ComputedStyle style)
     {
-        // 处理按钮文本
         if (element.TagName.Equals("BUTTON", StringComparison.OrdinalIgnoreCase))
         {
             string buttonText = GetButtonText(element);
             if (!string.IsNullOrEmpty(buttonText))
             {
-                var cb = box.ContentBox;
-                if (cb.Width <= 0 || cb.Height <= 0)
-                    cb = box.BorderBox;   // 后备
+                var borderBox = box.BorderBox;
+                float btnFontSize = style.FontSize > 0 ? style.FontSize : 13.3333f;
+                float btnLineHeightValue = style.LineHeight > 0 ? style.LineHeight : 1.2f;
 
-                float fontSize = style.FontSize > 0 ? style.FontSize : 13.3333f;
-                float lineHeight = style.LineHeight * fontSize;
+                // 边框宽度
+                float borderTopWidth = style.BorderTopWidth > 0 ? style.BorderTopWidth : 2;
+                float borderBottomWidth = style.BorderBottomWidth > 0 ? style.BorderBottomWidth : 2;
+                float borderLeftWidth = style.BorderLeftWidth > 0 ? style.BorderLeftWidth : 2;
+                float borderRightWidth = style.BorderRightWidth > 0 ? style.BorderRightWidth : 2;
 
-                // 基线 = 内容框顶部 + (内容高度 - 行高)/2 + 行高 * 0.8（垂直居中效果）
-                float baselineY = cb.Top + (cb.Height - lineHeight) / 2 + lineHeight * 0.8f;
-                float textX = cb.Left + (cb.Width - MeasureTextWidth(buttonText, fontSize, style.FontFamily)) / 2;
+                // 安全获取内边距值
+                float padTop = GetPixelLengthFromStyle(style.PaddingTop, 4);
+                float padBottom = GetPixelLengthFromStyle(style.PaddingBottom, 4);
+                float padLeft = GetPixelLengthFromStyle(style.PaddingLeft, 10);
+                float padRight = GetPixelLengthFromStyle(style.PaddingRight, 10);
 
-                SKColor textColor = style.Color;
-                if (textColor == SKColors.Black || textColor.Alpha == 0)
-                    textColor = SKColors.Black;   // 按钮默认黑色文字
+                // 应用滚动偏移
+                var bgRect = new SKRect(
+                    borderBox.Left + TotalOffsetX,
+                    borderBox.Top + TotalOffsetY,
+                    borderBox.Right + TotalOffsetX,
+                    borderBox.Bottom + TotalOffsetY
+                );
+
+                // 背景颜色（ButtonFace）
+                SKColor btnBgColor;
+                if (style.BackgroundColor.HasValue && style.BackgroundColor.Value.Alpha > 0)
+                    btnBgColor = style.BackgroundColor.Value;
+                else
+                    btnBgColor = SKColor.Parse("#EFEFEF");
+
+                // 边框颜色（ButtonBorder）
+                SKColor btnBorderColor;
+                if (style.BorderTopColor.Alpha > 0)
+                    btnBorderColor = style.BorderTopColor;
+                else
+                    btnBorderColor = SKColor.Parse("#767676");
+
+                // 圆角
+                float borderRadius = Math.Max(style.BorderTopLeftRadius,
+                    Math.Max(style.BorderTopRightRadius,
+                    Math.Max(style.BorderBottomLeftRadius, style.BorderBottomRightRadius)));
+                if (borderRadius <= 0) borderRadius = 2;
+
+                // 绘制背景和边框
+                if (borderRadius > 0)
+                {
+                    var path = CreateRoundedRectPath(bgRect, borderRadius);
+
+                    // 背景
+                    var bgOp = new DrawPathOp
+                    {
+                        Path = path,
+                        FillPaint = new SKPaint
+                        {
+                            Color = btnBgColor,
+                            Style = SKPaintStyle.Fill,
+                            IsAntialias = true
+                        },
+                        Bounds = bgRect
+                    };
+                    _displayList.Add(bgOp);
+
+                    // 边框
+                    var borderOp = new DrawPathOp
+                    {
+                        Path = path,
+                        StrokePaint = new SKPaint
+                        {
+                            Color = btnBorderColor,
+                            Style = SKPaintStyle.Stroke,
+                            StrokeWidth = borderTopWidth,
+                            IsAntialias = true
+                        },
+                        Bounds = bgRect
+                    };
+                    _displayList.Add(borderOp);
+                }
+                else
+                {
+                    var bgOp = new DrawRectOp
+                    {
+                        Rect = bgRect,
+                        FillColor = btnBgColor,
+                        Bounds = bgRect
+                    };
+                    _displayList.Add(bgOp);
+
+                    var borderOp = new DrawRectOp
+                    {
+                        Rect = bgRect,
+                        BorderTopWidth = borderTopWidth,
+                        BorderBottomWidth = borderBottomWidth,
+                        BorderLeftWidth = borderLeftWidth,
+                        BorderRightWidth = borderRightWidth,
+                        BorderTopColor = btnBorderColor,
+                        BorderBottomColor = btnBorderColor,
+                        BorderLeftColor = btnBorderColor,
+                        BorderRightColor = btnBorderColor,
+                        Bounds = bgRect
+                    };
+                    _displayList.Add(borderOp);
+                }
+
+                // 绘制文本 - 在内容区域内居中
+                float textWidth = MeasureTextWidth(buttonText, btnFontSize, style.FontFamily);
+
+                // 内容区域坐标（padding box内部）
+                float contentLeft = bgRect.Left + borderLeftWidth + padLeft;
+                float contentTop = bgRect.Top + borderTopWidth + padTop;
+                float contentRight = bgRect.Right - borderRightWidth - padRight;
+                float contentBottom = bgRect.Bottom - borderBottomWidth - padBottom;
+                float contentWidthAvailable = contentRight - contentLeft;
+                float contentHeightAvailable = contentBottom - contentTop;
+
+                // 文本水平居中
+                float textX = contentLeft + Math.Max(0, (contentWidthAvailable - textWidth) / 2);
+
+                // 文本垂直居中
+                float textHeight = btnFontSize;
+                float textY = contentTop + Math.Max(0, (contentHeightAvailable - textHeight) / 2) + btnFontSize * 0.8f;
+
+                SKColor textColor = style.Color.Alpha > 0 ? style.Color : SKColors.Black;
 
                 var textOp = new DrawTextOp
                 {
                     Text = buttonText,
                     X = textX,
-                    Y = baselineY,
+                    Y = textY,
                     Color = textColor,
-                    FontSize = fontSize,
-                    FontFamily = style.FontFamily ?? "Arial",
+                    FontSize = btnFontSize,
+                    FontFamily = style.FontFamily ?? "Arial, sans-serif",
                     FontWeight = style.FontWeight,
-                    TextAlign = TextAlignType.Left,   // 已经手动居中
-                    Bounds = new SKRect(cb.Left, cb.Top, cb.Right, cb.Bottom)
+                    TextAlign = TextAlignType.Left,
+                    Bounds = bgRect
                 };
                 _displayList.Add(textOp);
             }
+
             return;
         }
 
@@ -618,6 +728,40 @@ public class PaintVisitor
             _displayList.Add(op);
         });
     }
+
+    /// <summary>
+    /// 安全地从 ComputedStyle 的 Length 属性获取像素值
+    /// </summary>
+    private float GetPixelLengthFromStyle(Length length, float defaultValue)
+    {
+        if (length is PixelLength pixelLength)
+            return pixelLength.Value;
+
+        return defaultValue;
+    }
+
+    private SKPath CreateRoundedRectPath(SKRect rect, float radius)
+    {
+        var path = new SKPath();
+        float x = rect.Left;
+        float y = rect.Top;
+        float w = rect.Width;
+        float h = rect.Height;
+
+        path.MoveTo(x + radius, y);
+        path.LineTo(x + w - radius, y);
+        path.QuadTo(x + w, y, x + w, y + radius);
+        path.LineTo(x + w, y + h - radius);
+        path.QuadTo(x + w, y + h, x + w - radius, y + h);
+        path.LineTo(x + radius, y + h);
+        path.QuadTo(x, y + h, x, y + h - radius);
+        path.LineTo(x, y + radius);
+        path.QuadTo(x, y, x + radius, y);
+        path.Close();
+
+        return path;
+    }
+
 
     private void DrawInlineRuns(LayoutBox box)
     {

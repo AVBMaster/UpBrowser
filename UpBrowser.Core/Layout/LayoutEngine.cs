@@ -461,33 +461,53 @@ public class LayoutEngine
                 var childStyle = childElement.ComputedStyle;
                 if (childStyle == null || childStyle.Display == DisplayType.None) continue;
 
+                // UpBrowser.Core\Layout\LayoutEngine.cs
+                // 在 LayoutInlineChildren 方法中替换按钮处理部分：
+
                 if (childElement.TagName.Equals("BUTTON", StringComparison.OrdinalIgnoreCase))
                 {
                     string btnText = GetButtonTextFromElement(childElement);
                     if (string.IsNullOrEmpty(btnText)) btnText = "Button";
 
-                    float fontSize = childStyle.FontSize > 0 ? childStyle.FontSize : 13.3333f;
-                    float textWidth = MeasureTextWidth(btnText, fontSize, childStyle.FontFamily);
+                    float btnFontSize = childStyle.FontSize > 0 ? childStyle.FontSize : 13.3333f;
+                    float btnLineHeightValue = childStyle.LineHeight > 0 ? childStyle.LineHeight : 1.2f;
 
-                    float padLeft = childStyle.PaddingLeft is PixelLength pl ? pl.Value : 1;
-                    float padRight = childStyle.PaddingRight is PixelLength pr ? pr.Value : 1;
-                    float padTop = childStyle.PaddingTop is PixelLength pt ? pt.Value : 1;
-                    float padBottom = childStyle.PaddingBottom is PixelLength pb ? pb.Value : 1;
-                    float borderLeft = childStyle.BorderLeftWidth;
-                    float borderRight = childStyle.BorderRightWidth;
-                    float borderTop = childStyle.BorderTopWidth;
-                    float borderBottom = childStyle.BorderBottomWidth;
+                    // 测量文本宽度
+                    float textWidth = MeasureTextWidth(btnText, btnFontSize, childStyle.FontFamily);
 
+                    // 正确获取 padding 值（处理 PixelLength 类型）
+                    float padTop = GetPixelLength(childStyle.PaddingTop, 4);
+                    float padBottom = GetPixelLength(childStyle.PaddingBottom, 4);
+                    float padLeft = GetPixelLength(childStyle.PaddingLeft, 10);
+                    float padRight = GetPixelLength(childStyle.PaddingRight, 10);
+
+                    // 正确获取 border 值
+                    float borderTop = childStyle.BorderTopWidth > 0 ? childStyle.BorderTopWidth : 2;
+                    float borderBottom = childStyle.BorderBottomWidth > 0 ? childStyle.BorderBottomWidth : 2;
+                    float borderLeft = childStyle.BorderLeftWidth > 0 ? childStyle.BorderLeftWidth : 2;
+                    float borderRight = childStyle.BorderRightWidth > 0 ? childStyle.BorderRightWidth : 2;
+
+                    // 计算内容尺寸
                     float contentWidth = textWidth + padLeft + padRight;
+                    // 内容高度 = 文字行高 + 上下内边距
+                    float contentHeight = (btnFontSize * btnLineHeightValue) + padTop + padBottom;
+
+                    // 总尺寸（包含边框）
                     float totalButtonWidth = contentWidth + borderLeft + borderRight;
+                    float totalButtonHeight = contentHeight + borderTop + borderBottom;
 
-                    float contentHeight = childStyle.LineHeight * fontSize + padTop + padBottom;
-                    float buttonTotalHeight = contentHeight + borderTop + borderBottom;  // 重命名避免冲突
+                    // 应用自定义尺寸
+                    if (childStyle.Width is PixelLength pw && pw.Value > 0)
+                        totalButtonWidth = Math.Max(totalButtonWidth, pw.Value);
+                    if (childStyle.Height is PixelLength ph && ph.Value > 0)
+                        totalButtonHeight = Math.Max(totalButtonHeight, ph.Value);
 
-                    if (childStyle.Width is PixelLength pw) totalButtonWidth = pw.Value;
-                    if (childStyle.Height is PixelLength ph) buttonTotalHeight = ph.Value;
+                    // 确保最小值（防止按钮太小）
+                    totalButtonWidth = Math.Max(totalButtonWidth, 75);
+                    totalButtonHeight = Math.Max(totalButtonHeight, 28);
 
-                    if (!isNowrap && currentX + totalButtonWidth > x + availableWidth && currentX > x)
+                    // 换行处理
+                    if (!isNowrap && currentX + totalButtonWidth > x + availableWidth - 10 && currentX > x)
                     {
                         currentLine.Height = maxHeightInLine;
                         currentY += maxHeightInLine;
@@ -498,20 +518,37 @@ public class LayoutEngine
                         box.Lines.Add(currentLine);
                     }
 
+                    // 按钮底部对齐基线
+                    float btnTop = baseline - totalButtonHeight;
+                    float btnBottom = baseline;
+
+                    // 创建布局盒模型
                     var buttonBox = new LayoutBox();
-                    buttonBox.MarginBox = new SKRect(currentX, baseline - buttonTotalHeight, currentX + totalButtonWidth, baseline);
-                    buttonBox.BorderBox = new SKRect(currentX + borderLeft, baseline - buttonTotalHeight + borderTop,
-                                                     currentX + totalButtonWidth - borderRight, baseline - borderBottom);
-                    buttonBox.PaddingBox = new SKRect(currentX + borderLeft + padLeft, baseline - buttonTotalHeight + borderTop + padTop,
-                                                      currentX + totalButtonWidth - borderRight - padRight, baseline - borderBottom - padBottom);
-                    buttonBox.ContentBox = new SKRect(currentX + borderLeft + padLeft, baseline - buttonTotalHeight + borderTop + padTop,
-                                                      currentX + totalButtonWidth - borderRight - padRight, baseline - borderBottom - padBottom);
+                    buttonBox.MarginBox = new SKRect(currentX, btnTop, currentX + totalButtonWidth, btnBottom);
+                    buttonBox.BorderBox = new SKRect(currentX, btnTop, currentX + totalButtonWidth, btnBottom);
+                    buttonBox.PaddingBox = new SKRect(
+                        currentX + borderLeft,
+                        btnTop + borderTop,
+                        currentX + totalButtonWidth - borderRight,
+                        btnBottom - borderBottom
+                    );
+                    buttonBox.ContentBox = new SKRect(
+                        currentX + borderLeft + padLeft,
+                        btnTop + borderTop + padTop,
+                        currentX + totalButtonWidth - borderRight - padRight,
+                        btnBottom - borderBottom - padBottom
+                    );
+
+                    buttonBox.LineHeight = btnLineHeightValue * btnFontSize;
                     childElement.LayoutBox = buttonBox;
                     box.Children.Add(buttonBox);
                     buttonBox.Parent = box;
 
-                    currentX += totalButtonWidth;
-                    if (buttonTotalHeight > maxHeightInLine) maxHeightInLine = buttonTotalHeight;
+                    // 更新位置，按钮之间有间距
+                    currentX += totalButtonWidth + 5;
+                    if (totalButtonHeight > maxHeightInLine)
+                        maxHeightInLine = totalButtonHeight;
+
                     continue;
                 }
 
@@ -607,9 +644,16 @@ public class LayoutEngine
             totalHeight += line.Height;
         }
 
-        box.ContentBox = new SKRect(x, y, x + availableWidth, y + totalHeight);
-    }
+        float newContentBottom = y + totalHeight;
+        float pdBottom = style.PaddingBottom is PixelLength pb ? pb.Value : 0;
+        float bdBottom = style.BorderBottomWidth;
+        float mgBottom = style.MarginBottom is PixelLength mb ? mb.Value : 0;
 
+        box.ContentBox = new SKRect(x, y, x + availableWidth, newContentBottom);
+        box.PaddingBox = new SKRect(box.PaddingBox.Left, box.PaddingBox.Top, box.PaddingBox.Right, newContentBottom + pdBottom);
+        box.BorderBox = new SKRect(box.BorderBox.Left, box.BorderBox.Top, box.BorderBox.Right, newContentBottom + pdBottom + bdBottom);
+        box.MarginBox = new SKRect(box.MarginBox.Left, box.MarginBox.Top, box.MarginBox.Right, newContentBottom + pdBottom + bdBottom + mgBottom);
+    }
     private void LayoutTextRun(string text, TextNode textNode, ComputedStyle style, LineBox line,
         ref float currentX, ref float currentY, ref float baseline, ref float maxHeightInLine,
         float x, float availableWidth, float lineHeight, bool noWrap)
@@ -851,6 +895,18 @@ public class LayoutEngine
         }
 
         return lines;
+    }
+
+    /// <summary>
+    /// 安全地从 Length 对象获取像素值
+    /// </summary>
+    private float GetPixelLength(Length length, float defaultValue)
+    {
+        if (length is PixelLength pixelLength)
+            return pixelLength.Value;
+
+        // 对于 AutoLength 或其他类型，返回默认值
+        return defaultValue;
     }
 
     private void DistributeFlexSpace(FlexLine line, bool isRow)
