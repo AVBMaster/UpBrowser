@@ -1,9 +1,8 @@
 using System.Runtime.InteropServices;
-using UpBrowser.Platform.Windows;
 
-namespace UpBrowser.Platform;
+namespace UpBrowser.Platform.Windows;
 
-public class BrowserWindow : IDisposable
+public class WindowsWindow : IWindow
 {
     private IntPtr _hwnd;
     private bool _disposed;
@@ -81,9 +80,16 @@ public class BrowserWindow : IDisposable
         set => _onDpiChanged = value;
     }
 
-    public IntPtr Handle => _hwnd;
     public int Width => _width;
     public int Height => _height;
+    public IntPtr Handle => _hwnd;
+
+    public WindowsWindow(int width, int height, string title)
+    {
+        _width = width;
+        _height = height;
+        Initialize(width, height, title);
+    }
 
     [StructLayout(LayoutKind.Sequential)]
     public struct RECT
@@ -99,15 +105,6 @@ public class BrowserWindow : IDisposable
         if (_hwnd == IntPtr.Zero) return (0, 0);
         GetClientRect(_hwnd, out RECT rect);
         return (rect.Right - rect.Left, rect.Bottom - rect.Top);
-    }
-
-    public static BrowserWindow Create(int width, int height, string title)
-    {
-        var instance = new BrowserWindow();
-        instance._width = width;
-        instance._height = height;
-        instance.Initialize(width, height, title);
-        return instance;
     }
 
     private unsafe void Initialize(int width, int height, string title)
@@ -156,11 +153,9 @@ public class BrowserWindow : IDisposable
                 _width = (int)(lParam.ToInt64() & 0xFFFF);
                 _height = (int)((lParam.ToInt64() >> 16) & 0xFFFF);
 
-                // 立即触发重绘，避免黑色区域
                 NativeWindow.InvalidateRect(_hwnd, IntPtr.Zero, true);
                 NativeWindow.UpdateWindow(_hwnd);
 
-                // 触发帧回调以重新渲染
                 if (_onFrame != null && _width > 0 && _height > 0)
                 {
                     var now = DateTime.Now;
@@ -169,13 +164,12 @@ public class BrowserWindow : IDisposable
                 }
                 return IntPtr.Zero;
 
-            case 0x02E0: // WM_DPICHANGED
+            case 0x02E0:
                 {
                     uint dpi = (uint)(wParam.ToInt64() & 0xFFFF);
                     float newDpiScale = dpi / 96.0f;
                     _onDpiChanged?.Invoke(newDpiScale);
 
-                    // 调整窗口大小以适应新 DPI
                     unsafe
                     {
                         RECT* suggestedRect = (RECT*)lParam;

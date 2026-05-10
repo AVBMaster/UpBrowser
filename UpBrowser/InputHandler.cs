@@ -1,0 +1,192 @@
+using UpBrowser.Platform;
+using UpBrowser.Rendering;
+
+namespace UpBrowser;
+
+public class InputHandler
+{
+    private readonly ChromeRenderer _chrome;
+    private readonly ScrollManager _scroll;
+    private readonly IWindow _window;
+    private readonly float _dpiScale;
+    private readonly float _contentOffset;
+
+    public bool NeedsRedraw { get; set; } = true;
+
+    public InputHandler(ChromeRenderer chrome, ScrollManager scroll, IWindow window, float dpiScale)
+    {
+        _chrome = chrome;
+        _scroll = scroll;
+        _window = window;
+        _dpiScale = dpiScale;
+        _contentOffset = chrome.GetContentOffset();
+    }
+
+    public void WireEvents()
+    {
+        _window.OnMouseMove = OnMouseMove;
+        _window.OnMouseClick = OnMouseClick;
+        _window.OnKeyDownWithChar = OnKeyDownWithChar;
+        _window.OnKeyDown = OnKeyDown;
+        _window.OnMouseWheel = OnMouseWheel;
+        _window.OnScrollbarDrag = OnScrollbarDrag;
+    }
+
+    private void OnMouseMove(float x, float y)
+    {
+        _chrome.HandleMouseMove(x / _dpiScale, y / _dpiScale);
+    }
+
+    private void OnMouseClick(float x, float y, bool isDown)
+    {
+        if (!isDown) return;
+
+        float logicalX = x / _dpiScale;
+        float logicalY = y / _dpiScale;
+
+        bool handled = _chrome.HandleMouseClick(logicalX, logicalY);
+        NeedsRedraw = true;
+
+        if (!handled)
+        {
+            HandleScrollbarClick(logicalX, logicalY);
+        }
+    }
+
+    private void HandleScrollbarClick(float logicalX, float logicalY)
+    {
+        float statusBarHeight = _chrome.GetStatusBarHeight();
+        float viewportHeight = _window.Height / _dpiScale - _contentOffset - statusBarHeight;
+
+        if (!_scroll.CanScrollY) return;
+
+        float scrollbarLeft = _window.Width / _dpiScale - ScrollManager.ScrollbarWidth;
+        if (logicalX < scrollbarLeft ||
+            logicalY < _contentOffset ||
+            logicalY > _contentOffset + viewportHeight)
+            return;
+
+        float trackHeight = viewportHeight;
+        float thumbHeight = Math.Max(ScrollManager.ScrollbarMinThumbSize,
+            trackHeight * viewportHeight / _scroll.ContentHeight);
+        float maxScrollY = _scroll.ContentHeight - viewportHeight;
+        float thumbTop = maxScrollY > 0
+            ? (_scroll.ScrollY / maxScrollY) * (trackHeight - thumbHeight)
+            : 0;
+
+        if (logicalY < _contentOffset + thumbTop)
+            _scroll.PageUp();
+        else if (logicalY > _contentOffset + thumbTop + thumbHeight)
+            _scroll.PageDown();
+    }
+
+    private bool OnKeyDownWithChar(char charCode, Key key)
+    {
+        if (key == Key.Unknown && charCode != '\0')
+        {
+            _chrome.HandleKeyPress(charCode, SKKey.None);
+            NeedsRedraw = true;
+            return true;
+        }
+
+        SKKey chromeKey = key switch
+        {
+            Key.Enter => SKKey.Enter,
+            Key.Escape => SKKey.Escape,
+            Key.Left => SKKey.Left,
+            Key.Up => SKKey.Up,
+            Key.Right => SKKey.Right,
+            Key.Down => SKKey.Down,
+            Key.Home => SKKey.Home,
+            Key.End => SKKey.End,
+            Key.Backspace => SKKey.Backspace,
+            Key.Delete => SKKey.Delete,
+            Key.Tab => SKKey.Tab,
+            Key.Space => SKKey.Space,
+            _ => SKKey.None
+        };
+
+        bool handledByChrome = _chrome.HandleKeyPress(charCode, chromeKey);
+        NeedsRedraw = true;
+
+        if (handledByChrome)
+            return true;
+
+        if (_chrome.IsUrlBarFocused())
+            return false;
+
+        switch (key)
+        {
+            case Key.Tab:
+                _chrome.NextTab();
+                return true;
+            case Key.F5:
+                _chrome.OnRefresh?.Invoke();
+                return true;
+            case Key.PageUp:
+                _scroll.PageUp();
+                return true;
+            case Key.PageDown:
+                _scroll.PageDown();
+                return true;
+            case Key.Home:
+                _scroll.ScrollHome();
+                return true;
+            case Key.End:
+                _scroll.ScrollEnd();
+                return true;
+            case Key.Up:
+                _scroll.ScrollBy(0, -40);
+                return true;
+            case Key.Down:
+                _scroll.ScrollBy(0, 40);
+                return true;
+            case Key.Left:
+                _scroll.ScrollBy(-40, 0);
+                return true;
+            case Key.Right:
+                _scroll.ScrollBy(40, 0);
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    private void OnKeyDown(Key key)
+    {
+        if (!_chrome.IsUrlBarFocused())
+        {
+            if (key == Key.F5)
+            {
+                _chrome.OnRefresh?.Invoke();
+            }
+        }
+        else if (key == Key.Tab)
+        {
+            _chrome.NextTab();
+        }
+    }
+
+    private void OnMouseWheel(double delta)
+    {
+        if (!_chrome.IsUrlBarFocused())
+        {
+            _scroll.ScrollBy((float)delta);
+            NeedsRedraw = true;
+        }
+    }
+
+    private void OnScrollbarDrag(float deltaX, float deltaY)
+    {
+        if (deltaY != 0)
+        {
+            _scroll.ScrollBy(0, deltaY * 3.0f);
+            NeedsRedraw = true;
+        }
+        if (deltaX != 0)
+        {
+            _scroll.ScrollBy(deltaX * 3.0f, 0);
+            NeedsRedraw = true;
+        }
+    }
+}

@@ -1,6 +1,3 @@
-using System.Runtime.InteropServices;
-using UpBrowser.Platform.Windows;
-
 namespace UpBrowser.Platform;
 
 public class InputManager
@@ -15,77 +12,24 @@ public class InputManager
     public IReadOnlyList<MouseMoveEvent> MouseMoveEvents => _mouseMoveEvents;
     public IReadOnlyList<ScrollEvent> ScrollEvents => _scrollEvents;
 
-    private int _lastMouseX;
-    private int _lastMouseY;
-    private bool _trackingMouse;
-
-    public InputManager()
+    public void HandleKeyEvent(Key key, KeyState state)
     {
+        _keyEvents.Add(new KeyEvent(key, state));
     }
 
-    public bool ProcessMessage(NativeWindow.MSG msg)
+    public void HandleMouseButtonEvent(MouseButton button, ButtonState state)
     {
-        bool handled = false;
+        _mouseButtonEvents.Add(new MouseButtonEvent(button, state));
+    }
 
-        switch (msg.message)
-        {
-            case NativeWindow.WM_KEYDOWN:
-                var virtualKey = msg.wParam.ToInt32();
-                _keyEvents.Add(new KeyEvent((Key)virtualKey, KeyState.Down));
-                handled = true;
-                break;
+    public void HandleMouseMove(double x, double y)
+    {
+        _mouseMoveEvents.Add(new MouseMoveEvent(x, y));
+    }
 
-            case NativeWindow.WM_KEYUP:
-                var virtualKeyUp = msg.wParam.ToInt32();
-                _keyEvents.Add(new KeyEvent((Key)virtualKeyUp, KeyState.Up));
-                handled = true;
-                break;
-
-            case NativeWindow.WM_CHAR:
-                handled = true;
-                break;
-
-            case NativeWindow.WM_MOUSEMOVE:
-                int x = (msg.lParam.ToInt32() & 0xFFFF);
-                int y = ((msg.lParam.ToInt32() >> 16) & 0xFFFF);
-                _mouseMoveEvents.Add(new MouseMoveEvent(x, y));
-                _lastMouseX = x;
-                _lastMouseY = y;
-                if (!_trackingMouse)
-                {
-                    _trackingMouse = true;
-                }
-                handled = true;
-                break;
-
-            case NativeWindow.WM_LBUTTONDOWN:
-                _mouseButtonEvents.Add(new MouseButtonEvent(MouseButton.Left, ButtonState.Down));
-                handled = true;
-                break;
-
-            case NativeWindow.WM_LBUTTONUP:
-                _mouseButtonEvents.Add(new MouseButtonEvent(MouseButton.Left, ButtonState.Up));
-                handled = true;
-                break;
-
-            case NativeWindow.WM_RBUTTONDOWN:
-                _mouseButtonEvents.Add(new MouseButtonEvent(MouseButton.Right, ButtonState.Down));
-                handled = true;
-                break;
-
-            case NativeWindow.WM_RBUTTONUP:
-                _mouseButtonEvents.Add(new MouseButtonEvent(MouseButton.Right, ButtonState.Up));
-                handled = true;
-                break;
-
-            case NativeWindow.WM_MOUSEWHEEL:
-                int wheelDelta = (int)(msg.wParam.ToInt64() >> 16);
-                _scrollEvents.Add(new ScrollEvent(0, wheelDelta / 120.0));
-                handled = true;
-                break;
-        }
-
-        return handled;
+    public void HandleScroll(double offsetX, double offsetY)
+    {
+        _scrollEvents.Add(new ScrollEvent(offsetX, offsetY));
     }
 
     public void ProcessEvents()
