@@ -26,69 +26,115 @@ public class DrawRectOp : PaintOp
 
     public override void Execute(SKCanvas canvas)
     {
-        if (FillColor.Alpha > 0)
+        bool hasBorder = BorderTopWidth > 0 || BorderRightWidth > 0 ||
+                         BorderBottomWidth > 0 || BorderLeftWidth > 0;
+        bool hasFill = FillColor.Alpha > 0;
+
+        if (BorderRadius > 0 && (hasFill || hasBorder))
+        {
+            ExecuteWithRoundRect(canvas, hasFill, hasBorder);
+        }
+        else
+        {
+            ExecuteWithFlatRect(canvas, hasFill, hasBorder);
+        }
+    }
+
+    private void ExecuteWithRoundRect(SKCanvas canvas, bool hasFill, bool hasBorder)
+    {
+        using var borderPath = new SKPath();
+        borderPath.AddRoundRect(Rect, BorderRadius, BorderRadius);
+
+        if (hasBorder)
+        {
+            var borderWidth = Math.Max(BorderTopWidth, Math.Max(BorderBottomWidth,
+                Math.Max(BorderLeftWidth, BorderRightWidth)));
+
+            using var borderPaint = new SKPaint
+            {
+                Style = SKPaintStyle.Stroke,
+                StrokeWidth = borderWidth,
+                IsAntialias = true
+            };
+
+            float inset = borderWidth / 2;
+            var innerRect = new SKRect(
+                Rect.Left + inset,
+                Rect.Top + inset,
+                Rect.Right - inset,
+                Rect.Bottom - inset);
+            using var strokePath = new SKPath();
+            strokePath.AddRoundRect(innerRect, Math.Max(0, BorderRadius - inset), Math.Max(0, BorderRadius - inset));
+            borderPaint.Color = BorderTopColor;
+            canvas.DrawPath(strokePath, borderPaint);
+        }
+
+        if (hasFill)
+        {
+            using var fillPaint = new SKPaint
+            {
+                Color = FillColor,
+                Style = SKPaintStyle.Fill,
+                IsAntialias = true
+            };
+            canvas.DrawPath(borderPath, fillPaint);
+        }
+    }
+
+    private void ExecuteWithFlatRect(SKCanvas canvas, bool hasFill, bool hasBorder)
+    {
+        if (hasFill)
         {
             using var paint = new SKPaint
             {
                 Color = FillColor,
                 Style = SKPaintStyle.Fill,
-                IsAntialias = BorderRadius > 0
+                IsAntialias = true
             };
+            canvas.DrawRect(Rect, paint);
+        }
 
-            if (BorderRadius > 0)
+        if (hasBorder)
+        {
+            if (BorderTopWidth > 0)
             {
-                var path = new SKPath();
-                path.AddRoundRect(Rect, BorderRadius, BorderRadius);
-                canvas.DrawPath(path, paint);
+                using var paint = new SKPaint
+                {
+                    Color = BorderTopColor,
+                    Style = SKPaintStyle.Fill
+                };
+                canvas.DrawRect(Rect.Left, Rect.Top, Rect.Width, BorderTopWidth, paint);
             }
-            else
+
+            if (BorderBottomWidth > 0)
             {
-                canvas.DrawRect(Rect, paint);
+                using var paint = new SKPaint
+                {
+                    Color = BorderBottomColor,
+                    Style = SKPaintStyle.Fill
+                };
+                canvas.DrawRect(Rect.Left, Rect.Bottom - BorderBottomWidth, Rect.Width, BorderBottomWidth, paint);
             }
-        }
 
-        if (BorderTopWidth > 0)
-        {
-            using var paint = new SKPaint
+            if (BorderLeftWidth > 0)
             {
-                Color = BorderTopColor,
-                Style = SKPaintStyle.Fill,
-                StrokeWidth = BorderTopWidth
-            };
-            canvas.DrawRect(Rect.Left, Rect.Top, Rect.Width, BorderTopWidth, paint);
-        }
+                using var paint = new SKPaint
+                {
+                    Color = BorderLeftColor,
+                    Style = SKPaintStyle.Fill
+                };
+                canvas.DrawRect(Rect.Left, Rect.Top, BorderLeftWidth, Rect.Height, paint);
+            }
 
-        if (BorderBottomWidth > 0)
-        {
-            using var paint = new SKPaint
+            if (BorderRightWidth > 0)
             {
-                Color = BorderBottomColor,
-                Style = SKPaintStyle.Fill,
-                StrokeWidth = BorderBottomWidth
-            };
-            canvas.DrawRect(Rect.Left, Rect.Bottom - BorderBottomWidth, Rect.Width, BorderBottomWidth, paint);
-        }
-
-        if (BorderLeftWidth > 0)
-        {
-            using var paint = new SKPaint
-            {
-                Color = BorderLeftColor,
-                Style = SKPaintStyle.Fill,
-                StrokeWidth = BorderLeftWidth
-            };
-            canvas.DrawRect(Rect.Left, Rect.Top, BorderLeftWidth, Rect.Height, paint);
-        }
-
-        if (BorderRightWidth > 0)
-        {
-            using var paint = new SKPaint
-            {
-                Color = BorderRightColor,
-                Style = SKPaintStyle.Fill,
-                StrokeWidth = BorderRightWidth
-            };
-            canvas.DrawRect(Rect.Right - BorderRightWidth, Rect.Top, BorderRightWidth, Rect.Height, paint);
+                using var paint = new SKPaint
+                {
+                    Color = BorderRightColor,
+                    Style = SKPaintStyle.Fill
+                };
+                canvas.DrawRect(Rect.Right - BorderRightWidth, Rect.Top, BorderRightWidth, Rect.Height, paint);
+            }
         }
     }
 }

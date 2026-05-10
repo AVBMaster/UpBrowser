@@ -44,7 +44,7 @@ public class BrowserApp : IDisposable
         int physicalHeight = (int)(logicalHeight * _dpiScale);
 
         _window = PlatformFactory.CreateWindow(physicalWidth, physicalHeight, "UpBrowser");
-        _docManager = DocumentManager.Instance;
+        _docManager = new DocumentManager();
         _chrome = new ChromeRenderer();
         _scroll = new ScrollManager();
         _skiaRenderer = new SkiaRenderer();
@@ -110,7 +110,7 @@ public class BrowserApp : IDisposable
             {
                 if (url == "upbrowser://newtab" || url == "upbrowser://local")
                 {
-                    _currentHtml = DocumentManager.DefaultHtml;
+        _currentHtml = DocumentManager.DefaultHtml;
                     await NavigateToHtml(_currentHtml);
                     _scroll.ScrollTo(0, 0);
                 }

@@ -6,50 +6,15 @@ namespace UpBrowser.Core.Dom;
 
 public class DocumentManager
 {
-    private readonly CssParser _cssParser = new();
-    private readonly StyleComputer _styleComputer = new();
+    private static readonly Stylesheet _uaStylesheet;
+    private static readonly string _defaultHtml;
 
     static DocumentManager()
     {
-        var uaCssParser = new CssParser();
-        var uaStylesheet = uaCssParser.Parse(GetUserAgentStylesStatic());
-        Instance = new DocumentManager();
-        Instance._styleComputer.AddStylesheet(uaStylesheet);
+        var parser = new CssParser();
+        _uaStylesheet = parser.Parse(GetUserAgentStylesStatic());
+        _defaultHtml = BuildDefaultHtml();
     }
-
-    public static DocumentManager Instance { get; }
-
-    public static string DefaultHtml => @"<html><head>
-    <title>UpBrowser</title>
-</head>
-<body style=""background: #f5f5f5; margin: 0; padding: 20px; font-family: Arial, sans-serif;"">
-    <h1 style=""color: #333; font-size: 32px; margin: 0 0 20px 0;"">Hello World</h1>
-    <p style=""color: #666; font-size: 16px; line-height: 1.5;"">This is a test paragraph with some text content.</p>
-    <div style=""background: #ffeb3b; padding: 20px; border: 2px solid #f44336; margin: 20px 0; border-radius: 8px;"">
-        <h2 style=""color: #333; margin: 0 0 10px 0;"">Box Model Test</h2>
-        <p style=""color: #555;"">This div has margin, border, padding, and content.</p>
-    </div>
-    <ul style=""color: #333;"">
-        <li>List item 1</li>
-        <li>List item 2</li>
-        <li>List item 3</li>
-    </ul>
-    <button style=""background: #2196F3; color: white; padding: 10px 20px; border: none; border-radius: 4px; font-size: 14px;"">Click Me</button>
-    <div style=""margin-top: 20px; padding: 15px; background: white; border: 1px solid #ddd;"">
-        <span style=""color: red;"">Red text</span> and <span style=""color: blue;"">blue text</span> in same line.
-    </div>
-    <div style=""display: flex; gap: 10px; margin-top: 20px;"">
-        <div style=""background: #e3f2fd; padding: 15px; flex: 1;"">Flex Item 1</div>
-        <div style=""background: #f3e5f5; padding: 15px; flex: 1;"">Flex Item 2</div>
-        <div style=""background: #e8f5e9; padding: 15px; flex: 1;"">Flex Item 3</div>
-    </div>
-    <div style=""position: relative; height: 100px; margin-top: 20px; background: #fff3e0;"">
-        <div style=""position: absolute; top: 10px; right: 10px; background: #ff5722; color: white; padding: 5px 10px;"">Absolute Position</div>
-    </div>
-
-</body></html>";
-
-    public DocumentLoadResult? CurrentResult { get; private set; }
 
     public async Task<DocumentLoadResult> LoadHtmlAsync(string html)
     {
@@ -64,15 +29,20 @@ public class DocumentManager
         };
 
         ConvertHtmlToDom(angleSharpDoc.DocumentElement!, doc);
-        await LoadStylesFromHtml(angleSharpDoc);
-        _styleComputer.ComputeStyles(doc);
 
-        var result = new DocumentLoadResult(doc, angleSharpDoc);
-        CurrentResult = result;
-        return result;
+        var cssParser = new CssParser();
+        var styleComputer = new StyleComputer();
+        styleComputer.AddStylesheet(_uaStylesheet);
+
+        await LoadStylesFromHtml(angleSharpDoc, cssParser, styleComputer);
+        styleComputer.ComputeStyles(doc);
+
+        return new DocumentLoadResult(doc, angleSharpDoc);
     }
 
-    private async Task LoadStylesFromHtml(AngleSharp.Dom.IDocument angleSharpDoc)
+    public static string DefaultHtml => _defaultHtml;
+
+    private static async Task LoadStylesFromHtml(AngleSharp.Dom.IDocument angleSharpDoc, CssParser cssParser, StyleComputer styleComputer)
     {
         var elements = angleSharpDoc.All;
         var styleElements = elements.Where(e => e.LocalName?.ToLowerInvariant() == "style");
@@ -82,13 +52,13 @@ public class DocumentManager
             var cssText = styleElement.TextContent;
             if (!string.IsNullOrEmpty(cssText))
             {
-                var stylesheet = _cssParser.Parse(cssText);
-                _styleComputer.AddStylesheet(stylesheet);
+                var stylesheet = cssParser.Parse(cssText);
+                styleComputer.AddStylesheet(stylesheet);
             }
         }
     }
 
-    private void ConvertHtmlToDom(AngleSharp.Dom.IElement source, Document target)
+    private static void ConvertHtmlToDom(AngleSharp.Dom.IElement source, Document target)
     {
         foreach (var child in source.ChildNodes)
         {
@@ -138,7 +108,7 @@ public class DocumentManager
         }
     }
 
-    private void ConvertElementChildren(AngleSharp.Dom.INode source, Element target)
+    private static void ConvertElementChildren(AngleSharp.Dom.INode source, Element target)
     {
         foreach (var child in source.ChildNodes)
         {
@@ -187,6 +157,38 @@ public class DocumentManager
             }
         }
         return sb.ToString();
+    }
+
+    private static string BuildDefaultHtml()
+    {
+        return @"<html><head>
+    <title>UpBrowser</title>
+</head>
+<body style=""background: #f5f5f5; margin: 0; padding: 20px; font-family: Arial, sans-serif;"">
+    <h1 style=""color: #333; font-size: 32px; margin: 0 0 20px 0;"">Hello World</h1>
+    <p style=""color: #666; font-size: 16px; line-height: 1.5;"">This is a test paragraph with some text content.</p>
+    <div style=""background: #ffeb3b; padding: 20px; border: 2px solid #f44336; margin: 20px 0; border-radius: 8px;"">
+        <h2 style=""color: #333; margin: 0 0 10px 0;"">Box Model Test</h2>
+        <p style=""color: #555;"">This div has margin, border, padding, and content.</p>
+    </div>
+    <ul style=""color: #333;"">
+        <li>List item 1</li>
+        <li>List item 2</li>
+        <li>List item 3</li>
+    </ul>
+    <button style=""background: #2196F3; color: white; padding: 10px 20px; border: none; border-radius: 4px; font-size: 14px;"">Click Me</button>
+    <div style=""margin-top: 20px; padding: 15px; background: white; border: 1px solid #ddd;"">
+        <span style=""color: red;"">Red text</span> and <span style=""color: blue;"">blue text</span> in same line.
+    </div>
+    <div style=""display: flex; gap: 10px; margin-top: 20px;"">
+        <div style=""background: #e3f2fd; padding: 15px; flex: 1;"">Flex Item 1</div>
+        <div style=""background: #f3e5f5; padding: 15px; flex: 1;"">Flex Item 2</div>
+        <div style=""background: #e8f5e9; padding: 15px; flex: 1;"">Flex Item 3</div>
+    </div>
+    <div style=""position: relative; height: 100px; margin-top: 20px; background: #fff3e0;"">
+        <div style=""position: absolute; top: 10px; right: 10px; background: #ff5722; color: white; padding: 5px 10px;"">Absolute Position</div>
+    </div>
+</body></html>";
     }
 
     private static string GetUserAgentStylesStatic()

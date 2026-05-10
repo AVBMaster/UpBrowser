@@ -146,6 +146,11 @@ public class ComputedStyle
     public VisibilityType Visibility { get; set; } = VisibilityType.Visible;
     public int? ZIndex { get; set; }
     public string? Cursor { get; set; } = "auto";
+    public float Opacity { get; set; } = 1.0f;
+    public BoxShadowValue? BoxShadow { get; set; }
+    public BackgroundSizeType BackgroundSize { get; set; } = BackgroundSizeType.Auto;
+    public Length? BackgroundSizeWidth { get; set; }
+    public Length? BackgroundSizeHeight { get; set; }
 
     public FlexDirectionType FlexDirection { get; set; } = FlexDirectionType.Row;
     public FlexWrapType FlexWrap { get; set; } = FlexWrapType.NoWrap;
@@ -205,6 +210,9 @@ public enum BackgroundAttachment { Scroll, Fixed }
 public enum BoxSizingType { ContentBox, BorderBox }
 public enum ListStyleType { Disc, Circle, Square, Decimal, LowerRoman, UpperRoman, None }
 public enum ListStylePosition { Inside, Outside }
+
+public enum BackgroundSizeType { Auto, Cover, Contain, Length }
+public record BoxShadowValue(SKColor Color, float OffsetX, float OffsetY, float BlurRadius, float Spread);
 
 public class BoxDimensions
 {
@@ -291,6 +299,7 @@ public class LineBox
     public float Width { get; set; }
     public float Height { get; set; }
     public float Baseline { get; set; }
+    public float TextAlignOffsetX { get; set; }
     public List<InlineRun> Runs { get; } = new();
 }
 

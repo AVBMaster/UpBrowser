@@ -101,9 +101,6 @@ public class PaintVisitor
         DrawElementBackground(element, layoutBox, style, offsetBorderBox);
         DrawElementBorder(element, layoutBox, style, offsetBorderBox);
 
-        DrawElementBackground(element, layoutBox, style, offsetBorderBox);
-        DrawElementBorder(element, layoutBox, style, offsetBorderBox);
-
         if (element.TagName.Equals("HR", StringComparison.OrdinalIgnoreCase))
         {
             float y = layoutBox.ContentBox.Top + TotalOffsetY + layoutBox.ContentBox.Height / 2;
@@ -123,6 +120,20 @@ public class PaintVisitor
             _displayList.Add(lineOp);
         }
 
+        bool hasOverflowHidden = style.Overflow == OverflowType.Hidden || style.OverflowX == OverflowType.Hidden || style.OverflowY == OverflowType.Hidden;
+        if (hasOverflowHidden)
+        {
+            var clipRect = new SKRect(
+                layoutBox.PaddingBox.Left,
+                layoutBox.PaddingBox.Top + TotalOffsetY,
+                layoutBox.PaddingBox.Right,
+                layoutBox.PaddingBox.Bottom + TotalOffsetY);
+            if (clipRect.Width > 0 && clipRect.Height > 0)
+            {
+                _displayList.Add(new PushClipOp { ClipRect = clipRect });
+            }
+        }
+
         DrawElementContent(element, layoutBox, style);
 
         if (style.Display == DisplayType.ListItem)
@@ -140,6 +151,11 @@ public class PaintVisitor
                     VisitElement(childElement);
                 }
             }
+        }
+
+        if (hasOverflowHidden)
+        {
+            _displayList.Add(new PopClipOp());
         }
     }
 
@@ -210,7 +226,6 @@ public class PaintVisitor
 
     private void DrawElementBackground(Element element, LayoutBox box, ComputedStyle style, SKRect borderRect)
     {
-        // 跳过按钮的背景绘制，因为按钮在 DrawElementContent 中单独处理
         if (element.TagName.Equals("BUTTON", StringComparison.OrdinalIgnoreCase))
             return;
 
@@ -231,14 +246,52 @@ public class PaintVisitor
 
         if (bgRect.Width <= 0 || bgRect.Height <= 0) return;
 
+        if (style.Opacity < 1.0f)
+        {
+            bgColor = bgColor.WithAlpha((byte)(bgColor.Alpha * style.Opacity));
+        }
+
+        DrawBoxShadow(borderRect, style);
+
         var op = new DrawRectOp
         {
             Rect = bgRect,
             FillColor = bgColor,
-            BorderRadius = style.BorderTopLeftRadius > 0 ? style.BorderTopLeftRadius : 0,
+            BorderRadius = Math.Max(style.BorderTopLeftRadius, Math.Max(style.BorderTopRightRadius, Math.Max(style.BorderBottomLeftRadius, style.BorderBottomRightRadius))),
             Bounds = borderRect
         };
         _displayList.Add(op);
+    }
+
+    private void DrawBoxShadow(SKRect rect, ComputedStyle style)
+    {
+        if (style.BoxShadow == null) return;
+
+        var shadow = style.BoxShadow;
+        using var path = new SKPath();
+        float radius = Math.Max(style.BorderTopLeftRadius, Math.Max(style.BorderTopRightRadius,
+            Math.Max(style.BorderBottomLeftRadius, style.BorderBottomRightRadius)));
+
+        if (radius > 0)
+            path.AddRoundRect(rect, radius, radius);
+        else
+            path.AddRect(rect);
+
+        var shadowOp = new DrawShadowOp
+        {
+            Path = path,
+            Color = shadow.Color,
+            BlurRadius = Math.Max(1, shadow.BlurRadius),
+            OffsetX = shadow.OffsetX,
+            OffsetY = shadow.OffsetY,
+            ZIndex = -1,
+            Bounds = new SKRect(
+                rect.Left + shadow.OffsetX - shadow.BlurRadius,
+                rect.Top + shadow.OffsetY - shadow.BlurRadius,
+                rect.Right + shadow.OffsetX + shadow.BlurRadius,
+                rect.Bottom + shadow.OffsetY + shadow.BlurRadius)
+        };
+        _displayList.Add(shadowOp);
     }
     private async void DrawBackgroundImage(Element element, ComputedStyle style, SKRect rect)
     {
@@ -247,6 +300,49 @@ public class PaintVisitor
 
         var image = await _imageCache.GetImageAsync(url);
         if (image == null) return;
+
+        float imgW = image.Width;
+        float imgH = image.Height;
+        float tileWidth = imgW;
+        float tileHeight = imgH;
+
+        if (style.BackgroundSize == BackgroundSizeType.Cover)
+        {
+            float srcRatio = imgW / imgH;
+            float destRatio = rect.Width / rect.Height;
+            if (srcRatio > destRatio)
+            {
+                tileHeight = rect.Height;
+                tileWidth = tileHeight * srcRatio;
+            }
+            else
+            {
+                tileWidth = rect.Width;
+                tileHeight = tileWidth / srcRatio;
+            }
+        }
+        else if (style.BackgroundSize == BackgroundSizeType.Contain)
+        {
+            float srcRatio = imgW / imgH;
+            float destRatio = rect.Width / rect.Height;
+            if (srcRatio > destRatio)
+            {
+                tileWidth = rect.Width;
+                tileHeight = tileWidth / srcRatio;
+            }
+            else
+            {
+                tileHeight = rect.Height;
+                tileWidth = tileHeight * srcRatio;
+            }
+        }
+        else if (style.BackgroundSize == BackgroundSizeType.Length)
+        {
+            if (style.BackgroundSizeWidth != null)
+                tileWidth = style.BackgroundSizeWidth.ToPixels(rect.Width, 16, rect.Width, rect.Height);
+            if (style.BackgroundSizeHeight != null)
+                tileHeight = style.BackgroundSizeHeight.ToPixels(rect.Height, 16, rect.Width, rect.Height);
+        }
 
         float posX = 0, posY = 0;
         if (style.BackgroundPositionX != null)
@@ -263,11 +359,11 @@ public class PaintVisitor
         if (style.BackgroundRepeat == BackgroundRepeat.NoRepeat)
         {
             var destRect = new SKRect(rect.Left + posX, rect.Top + posY, 
-                rect.Left + posX + image.Width, rect.Top + posY + image.Height);
+                rect.Left + posX + tileWidth, rect.Top + posY + tileHeight);
             var op = new DrawImageOp
             {
                 Image = image,
-                SourceRect = new SKRect(0, 0, image.Width, image.Height),
+                SourceRect = new SKRect(0, 0, imgW, imgH),
                 DestRect = destRect,
                 Fit = ImageFit.None,
                 Bounds = rect
@@ -275,9 +371,6 @@ public class PaintVisitor
             _displayList.Add(op);
             return;
         }
-
-        float tileWidth = image.Width;
-        float tileHeight = image.Height;
         bool repeatX = style.BackgroundRepeat == BackgroundRepeat.Repeat || style.BackgroundRepeat == BackgroundRepeat.RepeatX;
         bool repeatY = style.BackgroundRepeat == BackgroundRepeat.Repeat || style.BackgroundRepeat == BackgroundRepeat.RepeatY;
 
@@ -665,12 +758,16 @@ public class PaintVisitor
         var contentBox = box.ContentBox;
         float y = contentBox.Top + (parentStyle?.FontSize ?? 16);
 
+        var textColor = parentStyle?.Color ?? SKColors.Black;
+        if (parentStyle != null && parentStyle.Opacity < 1.0f)
+            textColor = textColor.WithAlpha((byte)(textColor.Alpha * parentStyle.Opacity));
+
         var op = new DrawTextOp
         {
             Text = text,
             X = contentBox.Left,
             Y = y,
-            Color = parentStyle?.Color ?? SKColors.Black,
+            Color = textColor,
             FontSize = parentStyle?.FontSize ?? 16,
             FontFamily = parentStyle?.FontFamily ?? "Arial",
             FontWeight = parentStyle?.FontWeight ?? FontWeight.Normal,
@@ -780,6 +877,7 @@ public class PaintVisitor
             {
                 float lineY = line.Y + TotalOffsetY;
                 float baseline = line.Baseline + TotalOffsetY;
+                float lineOffsetX = line.TextAlignOffsetX;
                 
                 foreach (var run in line.Runs)
                 {
@@ -791,14 +889,14 @@ public class PaintVisitor
                         var op = new DrawTextOp
                         {
                             Text = run.Text,
-                            X = currentX,
+                            X = currentX + lineOffsetX,
                             Y = baseline,
                             Color = run.Color ?? parentStyle?.Color ?? SKColors.Black,
                             FontSize = actualFontSize,
                             FontFamily = run.FontFamily ?? parentStyle?.FontFamily ?? "Arial",
                             Underline = parentStyle?.TextDecoration == TextDecorationType.Underline,
                             LineThrough = parentStyle?.TextDecoration == TextDecorationType.LineThrough,
-                            Bounds = new SKRect(currentX, lineY, currentX + run.Width, lineY + line.Height)
+                            Bounds = new SKRect(currentX + lineOffsetX, lineY, currentX + run.Width + lineOffsetX, lineY + line.Height)
                         };
                         _displayList.Add(op);
                     }

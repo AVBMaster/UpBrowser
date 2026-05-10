@@ -190,6 +190,9 @@ public class StyleComputer
                 ParseBorderRadius(value, style);
                 break;
             case "box-sizing": style.BoxSizing = value.Contains("border") ? BoxSizingType.BorderBox : BoxSizingType.ContentBox; break;
+            case "opacity": if (float.TryParse(value, out var o)) style.Opacity = Math.Clamp(o, 0, 1); break;
+            case "box-shadow": style.BoxShadow = ParseBoxShadow(value); break;
+            case "background-size": ParseBackgroundSize(value, style); break;
             case "flex-direction": style.FlexDirection = ParseFlexDirection(value); break;
             case "flex-wrap": style.FlexWrap = ParseFlexWrap(value); break;
             case "flex-grow": if (float.TryParse(value, out var g)) style.FlexGrow = g; break;
@@ -741,6 +744,87 @@ public class StyleComputer
         var style = new ComputedStyle();
         ApplyUserAgentStyles(style, tagName);
         return style;
+    }
+
+    private static BoxShadowValue? ParseBoxShadow(string value)
+    {
+        if (string.IsNullOrEmpty(value) || value == "none") return null;
+
+        var parts = value.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length < 2) return null;
+
+        if (parts[0] == "inset") return null;
+
+        float offsetX = float.TryParse(parts[0].TrimEnd('p', 'x'), out var ox) ? ox : 0;
+        float offsetY = float.TryParse(parts[1].TrimEnd('p', 'x'), out var oy) ? oy : 0;
+        float blurRadius = 0;
+        float spread = 0;
+        int index = 2;
+
+        if (index < parts.Length && parts[index].Contains("px") && float.TryParse(parts[index].TrimEnd('p', 'x'), out var br))
+        { blurRadius = br; index++; }
+
+        if (index < parts.Length && parts[index].Contains("px") && float.TryParse(parts[index].TrimEnd('p', 'x'), out var sp))
+        { spread = sp; index++; }
+
+        if (index < parts.Length)
+        {
+            var colorStr = string.Join(" ", parts.Skip(index));
+            var color = ParseColorStatic(colorStr);
+            return new BoxShadowValue(color, offsetX, offsetY, blurRadius, spread);
+        }
+
+        return new BoxShadowValue(new SKColor(0, 0, 0, 80), offsetX, offsetY, blurRadius, spread);
+    }
+
+    private static void ParseBackgroundSize(string value, ComputedStyle style)
+    {
+        if (value == "cover") { style.BackgroundSize = BackgroundSizeType.Cover; return; }
+        if (value == "contain") { style.BackgroundSize = BackgroundSizeType.Contain; return; }
+        if (value == "auto") { style.BackgroundSize = BackgroundSizeType.Auto; return; }
+
+        var parts = value.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length > 0 && parts[0] != "auto")
+            style.BackgroundSizeWidth = Length.Parse(parts[0]);
+        if (parts.Length > 1 && parts[1] != "auto")
+            style.BackgroundSizeHeight = Length.Parse(parts[1]);
+        style.BackgroundSize = BackgroundSizeType.Length;
+    }
+
+    private static SKColor ParseColorStatic(string value)
+    {
+        if (string.IsNullOrEmpty(value) || value == "transparent" || value == "inherit")
+            return SKColors.Transparent;
+
+        var lower = value.ToLowerInvariant().Trim();
+        if (lower.StartsWith("#"))
+            return SKColor.Parse(lower);
+        if (lower.StartsWith("rgba("))
+        {
+            var match = Regex.Match(value, @"rgba\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*([\d.]+)\s*\)", RegexOptions.IgnoreCase);
+            if (match.Success)
+            {
+                byte r = byte.Parse(match.Groups[1].Value);
+                byte g = byte.Parse(match.Groups[2].Value);
+                byte b = byte.Parse(match.Groups[3].Value);
+                byte a = (byte)(float.Parse(match.Groups[4].Value) * 255);
+                return new SKColor(r, g, b, a);
+            }
+        }
+        if (lower.StartsWith("rgb("))
+        {
+            var match = Regex.Match(value, @"rgb\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)", RegexOptions.IgnoreCase);
+            if (match.Success)
+            {
+                byte r = byte.Parse(match.Groups[1].Value);
+                byte g = byte.Parse(match.Groups[2].Value);
+                byte b = byte.Parse(match.Groups[3].Value);
+                return new SKColor(r, g, b);
+            }
+        }
+        if (KnownColors.Get(lower) is SKColor known)
+            return known;
+        return SKColors.Transparent;
     }
 }
 

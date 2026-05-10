@@ -99,10 +99,13 @@ public class LayoutEngine
         box.Dimensions = BoxDimensions.FromStyle(style);
 
         float width = CalculateWidth(element, availableWidth);
-        float elementHeight = CalculateHeight(element, availableWidth, style);
+        float parentHeight = parentBox?.ContentBox.Height ?? _viewportHeight;
+        float elementHeight = CalculateHeight(element, availableWidth, parentHeight, style);
 
-        float marginLeft = style.MarginLeft is PixelLength ml ? ml.Value : 0;
-        float marginRight = style.MarginRight is PixelLength mr ? mr.Value : 0;
+        bool isAutoMarginLeft = style.MarginLeft is AutoLength;
+        bool isAutoMarginRight = style.MarginRight is AutoLength;
+        float marginLeft = isAutoMarginLeft ? 0 : style.MarginLeft is PixelLength ml ? ml.Value : 0;
+        float marginRight = isAutoMarginRight ? 0 : style.MarginRight is PixelLength mr ? mr.Value : 0;
         float marginTop = style.MarginTop is PixelLength mt ? mt.Value : 0;
         float marginBottom = style.MarginBottom is PixelLength mb ? mb.Value : 0;
 
@@ -129,6 +132,40 @@ public class LayoutEngine
         if (parentBox == null && contentWidth + totalHorizontal > availableWidth)
         {
             contentWidth = Math.Max(0, availableWidth - totalHorizontal);
+        }
+
+        // Auto-margin horizontal centering for block-level elements
+        bool isBlockLevel = style.Display != DisplayType.Inline && style.Display != DisplayType.InlineFlex &&
+                            style.Display != DisplayType.InlineBlock && style.Position != PositionType.Absolute;
+        if (isBlockLevel && (isAutoMarginLeft || isAutoMarginRight))
+        {
+            float fixedHorizontal = borderLeft + paddingLeft + contentWidth + paddingRight + borderRight;
+            float usedHorizontal = fixedHorizontal;
+            if (!isAutoMarginLeft) usedHorizontal += marginLeft;
+            if (!isAutoMarginRight) usedHorizontal += marginRight;
+            float remaining = availableWidth - usedHorizontal;
+
+            if (remaining > 0)
+            {
+                if (isAutoMarginLeft && isAutoMarginRight)
+                {
+                    marginLeft = remaining / 2;
+                    marginRight = remaining / 2;
+                }
+                else if (isAutoMarginLeft)
+                {
+                    marginLeft = remaining;
+                }
+                else
+                {
+                    marginRight = remaining;
+                }
+            }
+            else
+            {
+                if (isAutoMarginLeft) marginLeft = 0;
+                if (isAutoMarginRight) marginRight = 0;
+            }
         }
 
         float totalWidth = marginLeft + borderLeft + paddingLeft + contentWidth + paddingRight + borderRight + marginRight;
@@ -254,12 +291,12 @@ public class LayoutEngine
         return availableWidth;
     }
 
-    private float CalculateHeight(Element element, float availableWidth, ComputedStyle style)
+    private float CalculateHeight(Element element, float availableWidth, float parentHeight, ComputedStyle style)
     {
         if (style.Height is PixelLength h)
             return h.Value;
         if (style.Height is PercentLength hp)
-            return hp.Value * availableWidth;
+            return hp.Value * (parentHeight > 0 ? parentHeight : _viewportHeight);
         if (style.Height is AutoLength || style.Height is null)
             return float.NaN;
 
@@ -757,7 +794,7 @@ public class LayoutEngine
             else if (textAlign == TextAlignType.Right)
                 offset = availableWidth - lineWidth;
 
-            // 注：当前架构下仅记录偏移，实际绘制时 AdjustBoxHeightFromContent 不会体现
+            line.TextAlignOffsetX = offset;
         }
     }
 
