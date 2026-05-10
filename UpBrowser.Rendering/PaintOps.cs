@@ -8,6 +8,7 @@ public abstract class PaintOp
     public SKRect Bounds { get; set; }
     public int ZIndex { get; set; }
     public abstract void Execute(SKCanvas canvas);
+    public virtual void Reset() { Bounds = default; ZIndex = 0; }
 }
 
 public class DrawRectOp : PaintOp
@@ -23,6 +24,16 @@ public class DrawRectOp : PaintOp
     public SKColor BorderBottomColor { get; set; }
     public SKColor BorderLeftColor { get; set; }
     public float BorderRadius { get; set; }
+
+    public override void Reset()
+    {
+        base.Reset();
+        Rect = default;
+        FillColor = default;
+        BorderTopWidth = BorderRightWidth = BorderBottomWidth = BorderLeftWidth = 0;
+        BorderTopColor = BorderRightColor = BorderBottomColor = BorderLeftColor = default;
+        BorderRadius = 0;
+    }
 
     public override void Execute(SKCanvas canvas)
     {
@@ -153,6 +164,20 @@ public class DrawTextOp : PaintOp
     public bool Underline { get; set; }
     public bool LineThrough { get; set; }
 
+    public override void Reset()
+    {
+        base.Reset();
+        Text = string.Empty;
+        X = Y = 0;
+        Color = default;
+        FontSize = 16;
+        FontFamily = "Arial";
+        FontWeight = FontWeight.Normal;
+        TextAlign = TextAlignType.Start;
+        MaxWidth = null;
+        Underline = LineThrough = false;
+    }
+
     public override void Execute(SKCanvas canvas)
     {
         if (string.IsNullOrEmpty(Text)) return;
@@ -263,7 +288,6 @@ public class DrawTextOp : PaintOp
         {
             try
             {
-                // Try to use the cached typeface
                 return _cachedChineseTypeface;
             }
             catch (ObjectDisposedException)
@@ -387,6 +411,14 @@ public class DrawImageOp : PaintOp
     public SKRect DestRect { get; set; }
     public ImageFit Fit { get; set; } = ImageFit.Fill;
 
+    public override void Reset()
+    {
+        base.Reset();
+        Image = null;
+        SourceRect = DestRect = default;
+        Fit = ImageFit.Fill;
+    }
+
     public override void Execute(SKCanvas canvas)
     {
         if (Image == null) return;
@@ -449,6 +481,14 @@ public class DrawLineOp : PaintOp
     public float StrokeWidth { get; set; } = 1;
     public SKColor Color { get; set; }
 
+    public override void Reset()
+    {
+        base.Reset();
+        X1 = Y1 = X2 = Y2 = 0;
+        StrokeWidth = 1;
+        Color = default;
+    }
+
     public override void Execute(SKCanvas canvas)
     {
         using var paint = new SKPaint
@@ -468,6 +508,16 @@ public class DrawPathOp : PaintOp
     public SKPaint? FillPaint { get; set; }
     public SKPaint? StrokePaint { get; set; }
 
+    public override void Reset()
+    {
+        base.Reset();
+        Path = new();
+        FillPaint?.Dispose();
+        FillPaint = null;
+        StrokePaint?.Dispose();
+        StrokePaint = null;
+    }
+
     public override void Execute(SKCanvas canvas)
     {
         if (FillPaint != null)
@@ -483,6 +533,14 @@ public class PushClipOp : PaintOp
     public SKPath? ClipPath { get; set; }
     public bool AntiAlias { get; set; } = true;
 
+    public override void Reset()
+    {
+        base.Reset();
+        ClipRect = default;
+        ClipPath = null;
+        AntiAlias = true;
+    }
+
     public override void Execute(SKCanvas canvas)
     {
         canvas.Save();
@@ -495,6 +553,7 @@ public class PushClipOp : PaintOp
 
 public class PopClipOp : PaintOp
 {
+    public override void Reset() { base.Reset(); }
     public override void Execute(SKCanvas canvas)
     {
         canvas.Restore();
@@ -505,6 +564,12 @@ public class PushTransformOp : PaintOp
 {
     public SKMatrix Matrix { get; set; } = SKMatrix.Identity;
 
+    public override void Reset()
+    {
+        base.Reset();
+        Matrix = SKMatrix.Identity;
+    }
+
     public override void Execute(SKCanvas canvas)
     {
         canvas.Save();
@@ -514,6 +579,7 @@ public class PushTransformOp : PaintOp
 
 public class PopTransformOp : PaintOp
 {
+    public override void Reset() { base.Reset(); }
     public override void Execute(SKCanvas canvas)
     {
         canvas.Restore();
@@ -527,6 +593,14 @@ public class DrawShadowOp : PaintOp
     public float BlurRadius { get; set; }
     public float OffsetX { get; set; }
     public float OffsetY { get; set; }
+
+    public override void Reset()
+    {
+        base.Reset();
+        Path = new();
+        Color = default;
+        BlurRadius = OffsetX = OffsetY = 0;
+    }
 
     public override void Execute(SKCanvas canvas)
     {
@@ -546,10 +620,157 @@ public class DrawShadowOp : PaintOp
 
 public enum ImageFit { Fill, Contain, Cover, None }
 
+/// <summary>
+/// Object pool for PaintOp instances to reduce GC pressure.
+/// </summary>
+public static class PaintOpPool
+{
+    private const int MaxPoolSize = 2000;
+    private static readonly Stack<DrawRectOp> _rectOps = new();
+    private static readonly Stack<DrawTextOp> _textOps = new();
+    private static readonly Stack<DrawImageOp> _imageOps = new();
+    private static readonly Stack<DrawLineOp> _lineOps = new();
+    private static readonly Stack<DrawPathOp> _pathOps = new();
+    private static readonly Stack<PushClipOp> _clipOps = new();
+    private static readonly Stack<PopClipOp> _popClipOps = new();
+    private static readonly Stack<PushTransformOp> _transformOps = new();
+    private static readonly Stack<PopTransformOp> _popTransformOps = new();
+    private static readonly Stack<DrawShadowOp> _shadowOps = new();
+
+    public static DrawRectOp GetDrawRectOp() => _rectOps.Count > 0 ? _rectOps.Pop() : new DrawRectOp();
+    public static DrawTextOp GetDrawTextOp() => _textOps.Count > 0 ? _textOps.Pop() : new DrawTextOp();
+    public static DrawImageOp GetDrawImageOp() => _imageOps.Count > 0 ? _imageOps.Pop() : new DrawImageOp();
+    public static DrawLineOp GetDrawLineOp() => _lineOps.Count > 0 ? _lineOps.Pop() : new DrawLineOp();
+    public static DrawPathOp GetDrawPathOp() => _pathOps.Count > 0 ? _pathOps.Pop() : new DrawPathOp();
+    public static PushClipOp GetPushClipOp() => _clipOps.Count > 0 ? _clipOps.Pop() : new PushClipOp();
+    public static PopClipOp GetPopClipOp() => _popClipOps.Count > 0 ? _popClipOps.Pop() : new PopClipOp();
+    public static PushTransformOp GetPushTransformOp() => _transformOps.Count > 0 ? _transformOps.Pop() : new PushTransformOp();
+    public static PopTransformOp GetPopTransformOp() => _popTransformOps.Count > 0 ? _popTransformOps.Pop() : new PopTransformOp();
+    public static DrawShadowOp GetDrawShadowOp() => _shadowOps.Count > 0 ? _shadowOps.Pop() : new DrawShadowOp();
+
+    public static void Return(DrawRectOp op) { op.Reset(); if (_rectOps.Count < MaxPoolSize) _rectOps.Push(op); }
+    public static void Return(DrawTextOp op) { op.Reset(); if (_textOps.Count < MaxPoolSize) _textOps.Push(op); }
+    public static void Return(DrawImageOp op) { op.Reset(); if (_imageOps.Count < MaxPoolSize) _imageOps.Push(op); }
+    public static void Return(DrawLineOp op) { op.Reset(); if (_lineOps.Count < MaxPoolSize) _lineOps.Push(op); }
+    public static void Return(DrawPathOp op) { op.Reset(); if (_pathOps.Count < MaxPoolSize) _pathOps.Push(op); }
+    public static void Return(PushClipOp op) { op.Reset(); if (_clipOps.Count < MaxPoolSize) _clipOps.Push(op); }
+    public static void Return(PopClipOp op) { op.Reset(); if (_popClipOps.Count < MaxPoolSize) _popClipOps.Push(op); }
+    public static void Return(PushTransformOp op) { op.Reset(); if (_transformOps.Count < MaxPoolSize) _transformOps.Push(op); }
+    public static void Return(PopTransformOp op) { op.Reset(); if (_popTransformOps.Count < MaxPoolSize) _popTransformOps.Push(op); }
+    public static void Return(DrawShadowOp op) { op.Reset(); if (_shadowOps.Count < MaxPoolSize) _shadowOps.Push(op); }
+
+    public static void ReturnOp(PaintOp op)
+    {
+        switch (op)
+        {
+            case DrawRectOp o: Return(o); break;
+            case DrawTextOp o: Return(o); break;
+            case DrawImageOp o: Return(o); break;
+            case DrawLineOp o: Return(o); break;
+            case DrawPathOp o: Return(o); break;
+            case PushClipOp o: Return(o); break;
+            case PopClipOp o: Return(o); break;
+            case PushTransformOp o: Return(o); break;
+            case PopTransformOp o: Return(o); break;
+            case DrawShadowOp o: Return(o); break;
+        }
+    }
+
+    public static void Clear()
+    {
+        _rectOps.Clear();
+        _textOps.Clear();
+        _imageOps.Clear();
+        _lineOps.Clear();
+        _pathOps.Clear();
+        _clipOps.Clear();
+        _popClipOps.Clear();
+        _transformOps.Clear();
+        _popTransformOps.Clear();
+        _shadowOps.Clear();
+    }
+}
+
+/// <summary>
+/// Spatial grid index for fast region-based paint op lookups.
+/// </summary>
+public class SpatialGrid
+{
+    private readonly float _cellSize;
+    private readonly Dictionary<(int, int), List<PaintOp>> _grid = new();
+    private int _opCount;
+
+    public SpatialGrid(float cellSize = 100)
+    {
+        _cellSize = cellSize;
+    }
+
+    public void Build(IReadOnlyList<PaintOp> ops)
+    {
+        _grid.Clear();
+        _opCount = ops.Count;
+
+        foreach (var op in ops)
+        {
+            var cells = GetCellsForRect(op.Bounds);
+            foreach (var cell in cells)
+            {
+                if (!_grid.TryGetValue(cell, out var list))
+                {
+                    list = new List<PaintOp>();
+                    _grid[cell] = list;
+                }
+                list.Add(op);
+            }
+        }
+    }
+
+    public IEnumerable<PaintOp> GetOpsInRect(SKRect rect)
+    {
+        if (_opCount == 0) yield break;
+
+        var seen = new HashSet<PaintOp>();
+        var cells = GetCellsForRect(rect);
+        foreach (var cell in cells)
+        {
+            if (_grid.TryGetValue(cell, out var ops))
+            {
+                foreach (var op in ops)
+                {
+                    if (seen.Add(op) && op.Bounds.IntersectsWith(rect))
+                        yield return op;
+                }
+            }
+        }
+    }
+
+    public void Clear()
+    {
+        _grid.Clear();
+        _opCount = 0;
+    }
+
+    private List<(int, int)> GetCellsForRect(SKRect rect)
+    {
+        var cells = new List<(int, int)>(4);
+        int minX = (int)(rect.Left / _cellSize);
+        int maxX = (int)(rect.Right / _cellSize);
+        int minY = (int)(rect.Top / _cellSize);
+        int maxY = (int)(rect.Bottom / _cellSize);
+        for (int y = minY; y <= maxY; y++)
+            for (int x = minX; x <= maxX; x++)
+                cells.Add((x, y));
+        return cells;
+    }
+}
+
 public class DisplayList
 {
     private List<PaintOp> _ops = new();
     private bool _isSorted;
+    private SpatialGrid? _spatialGrid;
+
+    public SpatialGrid? SpatialGrid => _spatialGrid;
 
     public void Add(PaintOp op) => _ops.Add(op);
 
@@ -557,8 +778,13 @@ public class DisplayList
 
     public void Clear()
     {
+        for (int i = 0; i < _ops.Count; i++)
+        {
+            PaintOpPool.ReturnOp(_ops[i]);
+        }
         _ops.Clear();
         _isSorted = false;
+        _spatialGrid?.Clear();
     }
 
     public void SortByZIndex()
@@ -570,16 +796,35 @@ public class DisplayList
 
     public void Execute(SKCanvas canvas)
     {
-        foreach (var op in _ops)
+        for (int i = 0; i < _ops.Count; i++)
         {
-            op.Execute(canvas);
+            _ops[i].Execute(canvas);
         }
     }
 
     public IEnumerable<PaintOp> GetOpsInRect(SKRect rect)
     {
-        return _ops.Where(op => op.Bounds.IntersectsWith(rect));
+        if (_spatialGrid != null && _ops.Count > 100)
+        {
+            foreach (var op in _spatialGrid.GetOpsInRect(rect))
+                yield return op;
+            yield break;
+        }
+        for (int i = 0; i < _ops.Count; i++)
+        {
+            if (_ops[i].Bounds.IntersectsWith(rect))
+                yield return _ops[i];
+        }
+    }
+
+    public void BuildSpatialGrid()
+    {
+        if (_ops.Count <= 100) return;
+        _spatialGrid ??= new SpatialGrid();
+        _spatialGrid.Build(_ops);
     }
 
     public int Count => _ops.Count;
+
+    public PaintOp? this[int index] => index >= 0 && index < _ops.Count ? _ops[index] : null;
 }

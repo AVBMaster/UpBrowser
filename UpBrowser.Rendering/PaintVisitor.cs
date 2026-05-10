@@ -85,16 +85,14 @@ public class PaintVisitor
             float x1 = layoutBox.ContentBox.Left;
             float x2 = layoutBox.ContentBox.Right;
 
-            var lineOp = new DrawLineOp
-            {
-                X1 = x1,
-                Y1 = y,
-                X2 = x2,
-                Y2 = y,
-                Color = style.BorderTopColor,
-                StrokeWidth = style.BorderTopWidth,
-                Bounds = new SKRect(x1, y - 1, x2, y + 1)
-            };
+            var lineOp = PaintOpPool.GetDrawLineOp();
+            lineOp.X1 = x1;
+            lineOp.Y1 = y;
+            lineOp.X2 = x2;
+            lineOp.Y2 = y;
+            lineOp.Color = style.BorderTopColor;
+            lineOp.StrokeWidth = style.BorderTopWidth;
+            lineOp.Bounds = new SKRect(x1, y - 1, x2, y + 1);
             _displayList.Add(lineOp);
         }
 
@@ -108,7 +106,9 @@ public class PaintVisitor
                 layoutBox.PaddingBox.Bottom + TotalOffsetY);
             if (clipRect.Width > 0 && clipRect.Height > 0)
             {
-                _displayList.Add(new PushClipOp { ClipRect = clipRect });
+                var clipOp = PaintOpPool.GetPushClipOp();
+                clipOp.ClipRect = clipRect;
+                _displayList.Add(clipOp);
             }
         }
 
@@ -119,7 +119,6 @@ public class PaintVisitor
             DrawListMarker(element, layoutBox, style);
         }
 
-        // 遍历所有子元素进行渲染
         foreach (var child in element.Children)
         {
             if (child is Element childElement)
@@ -133,7 +132,7 @@ public class PaintVisitor
 
         if (hasOverflowHidden)
         {
-            _displayList.Add(new PopClipOp());
+            _displayList.Add(PaintOpPool.GetPopClipOp());
         }
     }
 
@@ -172,16 +171,14 @@ public class PaintVisitor
             _ => "\u2022"
         };
 
-        var op = new DrawTextOp
-        {
-            Text = markerText,
-            X = markerX,
-            Y = markerY + TotalOffsetY,
-            Color = style.Color,
-            FontSize = style.FontSize,
-            FontFamily = style.FontFamily ?? "Arial",
-            Bounds = new SKRect(markerX, markerY, markerX + 20, markerY + style.FontSize)
-        };
+        var op = PaintOpPool.GetDrawTextOp();
+        op.Text = markerText;
+        op.X = markerX;
+        op.Y = markerY + TotalOffsetY;
+        op.Color = style.Color;
+        op.FontSize = style.FontSize;
+        op.FontFamily = style.FontFamily ?? "Arial";
+        op.Bounds = new SKRect(markerX, markerY, markerX + 20, markerY + style.FontSize);
         _displayList.Add(op);
     }
 
@@ -231,13 +228,11 @@ public class PaintVisitor
 
         DrawBoxShadow(borderRect, style);
 
-        var op = new DrawRectOp
-        {
-            Rect = bgRect,
-            FillColor = bgColor,
-            BorderRadius = Math.Max(style.BorderTopLeftRadius, Math.Max(style.BorderTopRightRadius, Math.Max(style.BorderBottomLeftRadius, style.BorderBottomRightRadius))),
-            Bounds = borderRect
-        };
+        var op = PaintOpPool.GetDrawRectOp();
+        op.Rect = bgRect;
+        op.FillColor = bgColor;
+        op.BorderRadius = Math.Max(style.BorderTopLeftRadius, Math.Max(style.BorderTopRightRadius, Math.Max(style.BorderBottomLeftRadius, style.BorderBottomRightRadius)));
+        op.Bounds = borderRect;
         _displayList.Add(op);
     }
 
@@ -255,20 +250,18 @@ public class PaintVisitor
         else
             path.AddRect(rect);
 
-        var shadowOp = new DrawShadowOp
-        {
-            Path = path,
-            Color = shadow.Color,
-            BlurRadius = Math.Max(1, shadow.BlurRadius),
-            OffsetX = shadow.OffsetX,
-            OffsetY = shadow.OffsetY,
-            ZIndex = -1,
-            Bounds = new SKRect(
-                rect.Left + shadow.OffsetX - shadow.BlurRadius,
-                rect.Top + shadow.OffsetY - shadow.BlurRadius,
-                rect.Right + shadow.OffsetX + shadow.BlurRadius,
-                rect.Bottom + shadow.OffsetY + shadow.BlurRadius)
-        };
+        var shadowOp = PaintOpPool.GetDrawShadowOp();
+        shadowOp.Path = path;
+        shadowOp.Color = shadow.Color;
+        shadowOp.BlurRadius = Math.Max(1, shadow.BlurRadius);
+        shadowOp.OffsetX = shadow.OffsetX;
+        shadowOp.OffsetY = shadow.OffsetY;
+        shadowOp.ZIndex = -1;
+        shadowOp.Bounds = new SKRect(
+            rect.Left + shadow.OffsetX - shadow.BlurRadius,
+            rect.Top + shadow.OffsetY - shadow.BlurRadius,
+            rect.Right + shadow.OffsetX + shadow.BlurRadius,
+            rect.Bottom + shadow.OffsetY + shadow.BlurRadius);
         _displayList.Add(shadowOp);
     }
     private async void DrawBackgroundImage(Element element, ComputedStyle style, SKRect rect)
@@ -338,14 +331,12 @@ public class PaintVisitor
         {
             var destRect = new SKRect(rect.Left + posX, rect.Top + posY, 
                 rect.Left + posX + tileWidth, rect.Top + posY + tileHeight);
-            var op = new DrawImageOp
-            {
-                Image = image,
-                SourceRect = new SKRect(0, 0, imgW, imgH),
-                DestRect = destRect,
-                Fit = ImageFit.None,
-                Bounds = rect
-            };
+            var op = PaintOpPool.GetDrawImageOp();
+            op.Image = image;
+            op.SourceRect = new SKRect(0, 0, imgW, imgH);
+            op.DestRect = destRect;
+            op.Fit = ImageFit.None;
+            op.Bounds = rect;
             _displayList.Add(op);
             return;
         }
@@ -386,14 +377,12 @@ public class PaintVisitor
                     float srcRight = srcLeft + (clipRect.Width / tileWidth * image.Width);
                     float srcBottom = srcTop + (clipRect.Height / tileHeight * image.Height);
 
-                    var op = new DrawImageOp
-                    {
-                        Image = image,
-                        SourceRect = new SKRect(srcLeft, srcTop, srcRight, srcBottom),
-                        DestRect = clipRect,
-                        Fit = ImageFit.None,
-                        Bounds = rect
-                    };
+                    var op = PaintOpPool.GetDrawImageOp();
+                    op.Image = image;
+                    op.SourceRect = new SKRect(srcLeft, srcTop, srcRight, srcBottom);
+                    op.DestRect = clipRect;
+                    op.Fit = ImageFit.None;
+                    op.Bounds = rect;
                     _displayList.Add(op);
                 }
             }
@@ -406,7 +395,6 @@ public class PaintVisitor
             style.BorderBottomWidth <= 0 && style.BorderLeftWidth <= 0)
             return;
 
-        // 跳过按钮的边框绘制，因为按钮在 DrawElementContent 中单独处理
         if (element.TagName.Equals("BUTTON", StringComparison.OrdinalIgnoreCase))
             return;
 
@@ -421,19 +409,17 @@ public class PaintVisitor
             return;
         }
 
-        var op = new DrawRectOp
-        {
-            Rect = borderRect,
-            BorderTopWidth = style.BorderTopWidth,
-            BorderRightWidth = style.BorderRightWidth,
-            BorderBottomWidth = style.BorderBottomWidth,
-            BorderLeftWidth = style.BorderLeftWidth,
-            BorderTopColor = style.BorderTopColor,
-            BorderRightColor = style.BorderRightColor,
-            BorderBottomColor = style.BorderBottomColor,
-            BorderLeftColor = style.BorderLeftColor,
-            Bounds = borderRect
-        };
+        var op = PaintOpPool.GetDrawRectOp();
+        op.Rect = borderRect;
+        op.BorderTopWidth = style.BorderTopWidth;
+        op.BorderRightWidth = style.BorderRightWidth;
+        op.BorderBottomWidth = style.BorderBottomWidth;
+        op.BorderLeftWidth = style.BorderLeftWidth;
+        op.BorderTopColor = style.BorderTopColor;
+        op.BorderRightColor = style.BorderRightColor;
+        op.BorderBottomColor = style.BorderBottomColor;
+        op.BorderLeftColor = style.BorderLeftColor;
+        op.Bounds = borderRect;
         _displayList.Add(op);
     }
 
@@ -459,12 +445,10 @@ public class PaintVisitor
 
         if (style.BackgroundColor.HasValue && style.BackgroundColor.Value.Alpha > 0)
         {
-            var bgOp = new DrawPathOp
-            {
-                Path = borderPath,
-                FillPaint = new SKPaint { Color = style.BackgroundColor.Value, Style = SKPaintStyle.Fill },
-                Bounds = rect
-            };
+            var bgOp = PaintOpPool.GetDrawPathOp();
+            bgOp.Path = borderPath;
+            bgOp.FillPaint = new SKPaint { Color = style.BackgroundColor.Value, Style = SKPaintStyle.Fill };
+            bgOp.Bounds = rect;
             _displayList.Add(bgOp);
         }
 
@@ -473,18 +457,16 @@ public class PaintVisitor
 
         if (borderWidth > 0)
         {
-            var strokeOp = new DrawPathOp
+            var strokeOp = PaintOpPool.GetDrawPathOp();
+            strokeOp.Path = borderPath;
+            strokeOp.StrokePaint = new SKPaint
             {
-                Path = borderPath,
-                StrokePaint = new SKPaint
-                {
-                    Color = borderColor,
-                    Style = SKPaintStyle.Stroke,
-                    StrokeWidth = borderWidth,
-                    IsAntialias = true
-                },
-                Bounds = rect
+                Color = borderColor,
+                Style = SKPaintStyle.Stroke,
+                StrokeWidth = borderWidth,
+                IsAntialias = true
             };
+            strokeOp.Bounds = rect;
             _displayList.Add(strokeOp);
         }
     }
@@ -500,19 +482,16 @@ public class PaintVisitor
                 float btnFontSize = style.FontSize > 0 ? style.FontSize : 13.3333f;
                 float btnLineHeightValue = style.LineHeight > 0 ? style.LineHeight : 1.2f;
 
-                // 边框宽度
                 float borderTopWidth = style.BorderTopWidth > 0 ? style.BorderTopWidth : 2;
                 float borderBottomWidth = style.BorderBottomWidth > 0 ? style.BorderBottomWidth : 2;
                 float borderLeftWidth = style.BorderLeftWidth > 0 ? style.BorderLeftWidth : 2;
                 float borderRightWidth = style.BorderRightWidth > 0 ? style.BorderRightWidth : 2;
 
-                // 安全获取内边距值
                 float padTop = GetPixelLengthFromStyle(style.PaddingTop, 4);
                 float padBottom = GetPixelLengthFromStyle(style.PaddingBottom, 4);
                 float padLeft = GetPixelLengthFromStyle(style.PaddingLeft, 10);
                 float padRight = GetPixelLengthFromStyle(style.PaddingRight, 10);
 
-                // 应用滚动偏移
                 var bgRect = new SKRect(
                     borderBox.Left + TotalOffsetX,
                     borderBox.Top + TotalOffsetY,
@@ -520,90 +499,74 @@ public class PaintVisitor
                     borderBox.Bottom + TotalOffsetY
                 );
 
-                // 背景颜色（ButtonFace）
                 SKColor btnBgColor;
                 if (style.BackgroundColor.HasValue && style.BackgroundColor.Value.Alpha > 0)
                     btnBgColor = style.BackgroundColor.Value;
                 else
                     btnBgColor = SKColor.Parse("#EFEFEF");
 
-                // 边框颜色（ButtonBorder）
                 SKColor btnBorderColor;
                 if (style.BorderTopColor.Alpha > 0)
                     btnBorderColor = style.BorderTopColor;
                 else
                     btnBorderColor = SKColor.Parse("#767676");
 
-                // 圆角
                 float borderRadius = Math.Max(style.BorderTopLeftRadius,
                     Math.Max(style.BorderTopRightRadius,
                     Math.Max(style.BorderBottomLeftRadius, style.BorderBottomRightRadius)));
                 if (borderRadius <= 0) borderRadius = 2;
 
-                // 绘制背景和边框
                 if (borderRadius > 0)
                 {
                     var path = CreateRoundedRectPath(bgRect, borderRadius);
 
-                    // 背景
-                    var bgOp = new DrawPathOp
+                    var bgOp = PaintOpPool.GetDrawPathOp();
+                    bgOp.Path = path;
+                    bgOp.FillPaint = new SKPaint
                     {
-                        Path = path,
-                        FillPaint = new SKPaint
-                        {
-                            Color = btnBgColor,
-                            Style = SKPaintStyle.Fill,
-                            IsAntialias = true
-                        },
-                        Bounds = bgRect
+                        Color = btnBgColor,
+                        Style = SKPaintStyle.Fill,
+                        IsAntialias = true
                     };
+                    bgOp.Bounds = bgRect;
                     _displayList.Add(bgOp);
 
-                    // 边框
-                    var borderOp = new DrawPathOp
+                    var borderOp = PaintOpPool.GetDrawPathOp();
+                    borderOp.Path = path;
+                    borderOp.StrokePaint = new SKPaint
                     {
-                        Path = path,
-                        StrokePaint = new SKPaint
-                        {
-                            Color = btnBorderColor,
-                            Style = SKPaintStyle.Stroke,
-                            StrokeWidth = borderTopWidth,
-                            IsAntialias = true
-                        },
-                        Bounds = bgRect
+                        Color = btnBorderColor,
+                        Style = SKPaintStyle.Stroke,
+                        StrokeWidth = borderTopWidth,
+                        IsAntialias = true
                     };
+                    borderOp.Bounds = bgRect;
                     _displayList.Add(borderOp);
                 }
                 else
                 {
-                    var bgOp = new DrawRectOp
-                    {
-                        Rect = bgRect,
-                        FillColor = btnBgColor,
-                        Bounds = bgRect
-                    };
+                    var bgOp = PaintOpPool.GetDrawRectOp();
+                    bgOp.Rect = bgRect;
+                    bgOp.FillColor = btnBgColor;
+                    bgOp.Bounds = bgRect;
                     _displayList.Add(bgOp);
 
-                    var borderOp = new DrawRectOp
-                    {
-                        Rect = bgRect,
-                        BorderTopWidth = borderTopWidth,
-                        BorderBottomWidth = borderBottomWidth,
-                        BorderLeftWidth = borderLeftWidth,
-                        BorderRightWidth = borderRightWidth,
-                        BorderTopColor = btnBorderColor,
-                        BorderBottomColor = btnBorderColor,
-                        BorderLeftColor = btnBorderColor,
-                        BorderRightColor = btnBorderColor,
-                        Bounds = bgRect
-                    };
+                    var borderOp = PaintOpPool.GetDrawRectOp();
+                    borderOp.Rect = bgRect;
+                    borderOp.BorderTopWidth = borderTopWidth;
+                    borderOp.BorderBottomWidth = borderBottomWidth;
+                    borderOp.BorderLeftWidth = borderLeftWidth;
+                    borderOp.BorderRightWidth = borderRightWidth;
+                    borderOp.BorderTopColor = btnBorderColor;
+                    borderOp.BorderBottomColor = btnBorderColor;
+                    borderOp.BorderLeftColor = btnBorderColor;
+                    borderOp.BorderRightColor = btnBorderColor;
+                    borderOp.Bounds = bgRect;
                     _displayList.Add(borderOp);
                 }
 
-                // 绘制文本 - 在内容区域内居中
                 float textWidth = MeasureTextWidth(buttonText, btnFontSize, style.FontFamily);
 
-                // 内容区域坐标（padding box内部）
                 float contentLeft = bgRect.Left + borderLeftWidth + padLeft;
                 float contentTop = bgRect.Top + borderTopWidth + padTop;
                 float contentRight = bgRect.Right - borderRightWidth - padRight;
@@ -611,27 +574,23 @@ public class PaintVisitor
                 float contentWidthAvailable = contentRight - contentLeft;
                 float contentHeightAvailable = contentBottom - contentTop;
 
-                // 文本水平居中
                 float textX = contentLeft + Math.Max(0, (contentWidthAvailable - textWidth) / 2);
 
-                // 文本垂直居中
                 float textHeight = btnFontSize;
                 float textY = contentTop + Math.Max(0, (contentHeightAvailable - textHeight) / 2) + btnFontSize * 0.8f;
 
                 SKColor textColor = style.Color.Alpha > 0 ? style.Color : SKColors.Black;
 
-                var textOp = new DrawTextOp
-                {
-                    Text = buttonText,
-                    X = textX,
-                    Y = textY,
-                    Color = textColor,
-                    FontSize = btnFontSize,
-                    FontFamily = style.FontFamily ?? "Arial, sans-serif",
-                    FontWeight = style.FontWeight,
-                    TextAlign = TextAlignType.Left,
-                    Bounds = bgRect
-                };
+                var textOp = PaintOpPool.GetDrawTextOp();
+                textOp.Text = buttonText;
+                textOp.X = textX;
+                textOp.Y = textY;
+                textOp.Color = textColor;
+                textOp.FontSize = btnFontSize;
+                textOp.FontFamily = style.FontFamily ?? "Arial, sans-serif";
+                textOp.FontWeight = style.FontWeight;
+                textOp.TextAlign = TextAlignType.Left;
+                textOp.Bounds = bgRect;
                 _displayList.Add(textOp);
             }
 
@@ -644,20 +603,17 @@ public class PaintVisitor
             return;
         }
 
-        // 如果有 line runs，先绘制它们
         if (box.LineRuns != null && box.LineRuns.Count > 0)
         {
             DrawInlineRuns(box);
             return;
         }
-        // 如果有 line boxes，也绘制它们
         if (box.Lines != null && box.Lines.Count > 0)
         {
             DrawInlineRuns(box);
             return;
         }
 
-        // 否则，绘制子元素的内联内容
         foreach (var child in element.Children)
         {
             if (child is TextNode textNode)
@@ -669,7 +625,6 @@ public class PaintVisitor
 
     private string GetButtonText(Element button)
     {
-        // 优先从子文本节点获取
         var textBuilder = new System.Text.StringBuilder();
         foreach (var child in button.Children)
         {
@@ -683,7 +638,6 @@ public class PaintVisitor
             }
             else if (child is Element childElement && childElement.TagName.Equals("SPAN", StringComparison.OrdinalIgnoreCase))
             {
-                // 递归获取 span 内的文本
                 foreach (var subChild in childElement.Children)
                 {
                     if (subChild is TextNode subText)
@@ -700,12 +654,10 @@ public class PaintVisitor
             return result;
         }
 
-        // 尝试从 value 属性获取
         var valueAttr = button.GetAttribute("value");
         if (!string.IsNullOrEmpty(valueAttr))
             return valueAttr;
 
-        // 尝试从 innerText 属性获取（如果有）
         var innerText = button.GetAttribute("innerText");
         if (!string.IsNullOrEmpty(innerText))
         {
@@ -718,7 +670,6 @@ public class PaintVisitor
     private float MeasureTextWidth(string text, float fontSize, string? fontFamily)
     {
         if (string.IsNullOrEmpty(text)) return 0;
-        // 估算文本宽度
         float avgCharWidth = fontSize * 0.55f;
         return text.Length * avgCharWidth;
     }
@@ -735,20 +686,18 @@ public class PaintVisitor
         if (parentStyle != null && parentStyle.Opacity < 1.0f)
             textColor = textColor.WithAlpha((byte)(textColor.Alpha * parentStyle.Opacity));
 
-        var op = new DrawTextOp
-        {
-            Text = text,
-            X = contentBox.Left,
-            Y = y,
-            Color = textColor,
-            FontSize = parentStyle?.FontSize ?? 16,
-            FontFamily = parentStyle?.FontFamily ?? "Arial",
-            FontWeight = parentStyle?.FontWeight ?? FontWeight.Normal,
-            TextAlign = parentStyle?.TextAlign ?? TextAlignType.Start,
-            Underline = parentStyle?.TextDecoration == TextDecorationType.Underline,
-            LineThrough = parentStyle?.TextDecoration == TextDecorationType.LineThrough,
-            Bounds = new SKRect(contentBox.Left, contentBox.Top, contentBox.Right, contentBox.Bottom)
-        };
+        var op = PaintOpPool.GetDrawTextOp();
+        op.Text = text;
+        op.X = contentBox.Left;
+        op.Y = y;
+        op.Color = textColor;
+        op.FontSize = parentStyle?.FontSize ?? 16;
+        op.FontFamily = parentStyle?.FontFamily ?? "Arial";
+        op.FontWeight = parentStyle?.FontWeight ?? FontWeight.Normal;
+        op.TextAlign = parentStyle?.TextAlign ?? TextAlignType.Start;
+        op.Underline = parentStyle?.TextDecoration == TextDecorationType.Underline;
+        op.LineThrough = parentStyle?.TextDecoration == TextDecorationType.LineThrough;
+        op.Bounds = new SKRect(contentBox.Left, contentBox.Top, contentBox.Right, contentBox.Bottom);
         _displayList.Add(op);
     }
 
@@ -786,22 +735,17 @@ public class PaintVisitor
             var rect = new SKRect(box.ContentBox.Left, box.ContentBox.Top,
                                   box.ContentBox.Right, box.ContentBox.Bottom);
 
-            var op = new DrawImageOp
-            {
-                Image = image,
-                SourceRect = new SKRect(0, 0, image.Width, image.Height),
-                DestRect = rect,
-                Fit = ImageFit.Fill,
-                ZIndex = element.ComputedStyle?.ZIndex ?? 0,
-                Bounds = rect
-            };
+            var op = PaintOpPool.GetDrawImageOp();
+            op.Image = image;
+            op.SourceRect = new SKRect(0, 0, image.Width, image.Height);
+            op.DestRect = rect;
+            op.Fit = ImageFit.Fill;
+            op.ZIndex = element.ComputedStyle?.ZIndex ?? 0;
+            op.Bounds = rect;
             _displayList.Add(op);
         });
     }
 
-    /// <summary>
-    /// 安全地从 ComputedStyle 的 Length 属性获取像素值
-    /// </summary>
     private float GetPixelLengthFromStyle(Length length, float defaultValue)
     {
         if (length is PixelLength pixelLength)
@@ -859,18 +803,16 @@ public class PaintVisitor
                         var parentStyle = textNode.ParentElement?.ComputedStyle;
                         var actualFontSize = run.FontSize ?? parentStyle?.FontSize ?? 16;
 
-                        var op = new DrawTextOp
-                        {
-                            Text = run.Text,
-                            X = currentX + lineOffsetX,
-                            Y = baseline,
-                            Color = run.Color ?? parentStyle?.Color ?? SKColors.Black,
-                            FontSize = actualFontSize,
-                            FontFamily = run.FontFamily ?? parentStyle?.FontFamily ?? "Arial",
-                            Underline = parentStyle?.TextDecoration == TextDecorationType.Underline,
-                            LineThrough = parentStyle?.TextDecoration == TextDecorationType.LineThrough,
-                            Bounds = new SKRect(currentX + lineOffsetX, lineY, currentX + run.Width + lineOffsetX, lineY + line.Height)
-                        };
+                        var op = PaintOpPool.GetDrawTextOp();
+                        op.Text = run.Text;
+                        op.X = currentX + lineOffsetX;
+                        op.Y = baseline;
+                        op.Color = run.Color ?? parentStyle?.Color ?? SKColors.Black;
+                        op.FontSize = actualFontSize;
+                        op.FontFamily = run.FontFamily ?? parentStyle?.FontFamily ?? "Arial";
+                        op.Underline = parentStyle?.TextDecoration == TextDecorationType.Underline;
+                        op.LineThrough = parentStyle?.TextDecoration == TextDecorationType.LineThrough;
+                        op.Bounds = new SKRect(currentX + lineOffsetX, lineY, currentX + run.Width + lineOffsetX, lineY + line.Height);
                         _displayList.Add(op);
                     }
                     currentX += run.Width;
@@ -892,18 +834,16 @@ public class PaintVisitor
                     var parentStyle = textNode.ParentElement?.ComputedStyle;
                     var actualFontSize = run.FontSize ?? parentStyle?.FontSize ?? 16;
 
-                    var op = new DrawTextOp
-                    {
-                        Text = run.Text,
-                        X = x,
-                        Y = baseline,
-                        Color = run.Color ?? parentStyle?.Color ?? SKColors.Black,
-                        FontSize = actualFontSize,
-                        FontFamily = run.FontFamily ?? parentStyle?.FontFamily ?? "Arial",
-                        Underline = parentStyle?.TextDecoration == TextDecorationType.Underline,
-                        LineThrough = parentStyle?.TextDecoration == TextDecorationType.LineThrough,
-                        Bounds = new SKRect(x, boxTop, x + run.Width, boxTop + run.Height)
-                    };
+                    var op = PaintOpPool.GetDrawTextOp();
+                    op.Text = run.Text;
+                    op.X = x;
+                    op.Y = baseline;
+                    op.Color = run.Color ?? parentStyle?.Color ?? SKColors.Black;
+                    op.FontSize = actualFontSize;
+                    op.FontFamily = run.FontFamily ?? parentStyle?.FontFamily ?? "Arial";
+                    op.Underline = parentStyle?.TextDecoration == TextDecorationType.Underline;
+                    op.LineThrough = parentStyle?.TextDecoration == TextDecorationType.LineThrough;
+                    op.Bounds = new SKRect(x, boxTop, x + run.Width, boxTop + run.Height);
                     _displayList.Add(op);
                 }
                 x += run.Width;

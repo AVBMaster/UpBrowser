@@ -192,6 +192,18 @@ var winWindow = PlatformFactory.CreateWindowsWindow(physicalWidth, physicalHeigh
         _skiaRenderer.Initialize(1024, 768, enableDirtyRegions: true);
         _skiaRenderer.DpiScale = _dpiScale;
 
+        // Attempt DirectX 11 GPU acceleration
+        if (_skiaRenderer.TryEnableGpu())
+        {
+            Console.WriteLine("GPU acceleration enabled (DirectX 11)");
+            _skiaRenderer.Initialize(1024, 768, enableDirtyRegions: false);
+            _skiaRenderer.DpiScale = _dpiScale;
+        }
+        else
+        {
+            Console.WriteLine("GPU acceleration unavailable, using CPU rendering");
+        }
+
         _eventLoop.Start();
 
         _input.WireEvents();
@@ -495,6 +507,10 @@ var winWindow = PlatformFactory.CreateWindowsWindow(physicalWidth, physicalHeigh
         _cachedPaintVisitor.VisitDocument(_currentLoad.Document);
         _displayList = _cachedPaintVisitor.GetDisplayList();
         _displayList.SortByZIndex();
+        _displayList.BuildSpatialGrid();
+
+        // Invalidate the cached SKPicture so SkiaRenderer re-records on next frame
+        _skiaRenderer.InvalidatePageCache();
     }
 
     private void RenderFrame(double dt)

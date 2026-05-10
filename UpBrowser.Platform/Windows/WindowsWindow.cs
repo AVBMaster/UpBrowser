@@ -26,6 +26,9 @@ public class WindowsWindow : IWindow
     private Action<float, float, bool>? _onMouseClick;
     private Action<float>? _onDpiChanged;
 
+    // Cached memory DC for DIB rendering (reused across frames)
+    private IntPtr _dibMemDC;
+
     public Action<char>? OnChar
     {
         get => _onChar;
@@ -337,51 +340,46 @@ public class WindowsWindow : IWindow
         return false;
     }
 
+    /// <summary>
+    /// Render BGRA pixel data to the window. Pixels are BGRA8888 (matches GDI DIB format).
+    /// Uses a cached memory DC and bulk MemoryCopy instead of per-pixel loops.
+    /// </summary>
     public unsafe void Render(byte[] pixels, int width, int height)
     {
-        if (_hwnd == IntPtr.Zero || pixels.Length == 0) return;
+        if (_hwnd == IntPtr.Zero || pixels.Length == 0 || width <= 0 || height <= 0) return;
 
-        var hdc = NativeWindow.GetDC(_hwnd);
-        var memDC = NativeWindow.CreateCompatibleDC(hdc);
-
+        // Create a DIBSection with top-down orientation (negative height = no row-flip needed)
         var bmi = new NativeWindow.BITMAPINFO();
         bmi.bmiHeader.biSize = (uint)sizeof(NativeWindow.BITMAPINFOHEADER);
         bmi.bmiHeader.biWidth = width;
-        bmi.bmiHeader.biHeight = height;
+        bmi.bmiHeader.biHeight = -height;
         bmi.bmiHeader.biPlanes = 1;
         bmi.bmiHeader.biBitCount = 32;
         bmi.bmiHeader.biCompression = 0;
 
+        if (_dibMemDC == IntPtr.Zero)
+            _dibMemDC = NativeWindow.CreateCompatibleDC(IntPtr.Zero);
+
         IntPtr bits;
-        var hBitmap = NativeWindow.CreateDIBSection(hdc, ref bmi, NativeWindow.DIB_RGB_COLORS, out bits, IntPtr.Zero, 0);
+        var hBitmap = NativeWindow.CreateDIBSection(_dibMemDC, ref bmi,
+            NativeWindow.DIB_RGB_COLORS, out bits, IntPtr.Zero, 0);
 
         if (hBitmap != IntPtr.Zero && bits != IntPtr.Zero)
         {
-            byte* dst = (byte*)bits.ToPointer();
-            int rowBytes = width * 4;
-            for (int y = 0; y < height; y++)
+            int totalBytes = width * height * 4;
+
+            fixed (byte* src = pixels)
             {
-                int srcRow = (height - 1 - y) * rowBytes;
-                int dstRow = y * rowBytes;
-                for (int x = 0; x < width; x++)
-                {
-                    int srcIdx = srcRow + x * 4;
-                    int dstIdx = dstRow + x * 4;
-                    dst[dstIdx] = pixels[srcIdx + 2];
-                    dst[dstIdx + 1] = pixels[srcIdx + 1];
-                    dst[dstIdx + 2] = pixels[srcIdx];
-                    dst[dstIdx + 3] = pixels[srcIdx + 3];
-                }
+                Buffer.MemoryCopy(src, (void*)bits, totalBytes, totalBytes);
             }
 
-            var oldBitmap = NativeWindow.SelectObject(memDC, hBitmap);
-            NativeWindow.BitBlt(hdc, 0, 0, width, height, memDC, 0, 0, NativeWindow.SRCCOPY);
-            NativeWindow.SelectObject(memDC, oldBitmap);
+            var oldBitmap = NativeWindow.SelectObject(_dibMemDC, hBitmap);
+            var hdc = NativeWindow.GetDC(_hwnd);
+            NativeWindow.BitBlt(hdc, 0, 0, width, height, _dibMemDC, 0, 0, NativeWindow.SRCCOPY);
+            NativeWindow.ReleaseDC(_hwnd, hdc);
+            NativeWindow.SelectObject(_dibMemDC, oldBitmap);
             NativeWindow.DeleteObject(hBitmap);
         }
-
-        NativeWindow.DeleteDC(memDC);
-        NativeWindow.ReleaseDC(_hwnd, hdc);
     }
 
     public void Close()
@@ -397,6 +395,13 @@ public class WindowsWindow : IWindow
     public void Dispose()
     {
         if (_disposed) return;
+
+        if (_dibMemDC != IntPtr.Zero)
+        {
+            NativeWindow.DeleteDC(_dibMemDC);
+            _dibMemDC = IntPtr.Zero;
+        }
+
         Close();
         _disposed = true;
         GC.SuppressFinalize(this);
