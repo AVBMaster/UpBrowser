@@ -8,7 +8,7 @@ namespace UpBrowser.Rendering;
 public class PaintVisitor
 {
     private readonly DisplayList _displayList = new();
-    private SKTypeface? _defaultTypeface;
+    private SKTypeface _defaultTypeface = SKTypeface.Default;
     private Dictionary<string, SKTypeface> _typefaceCache = new();
     private ImageCache _imageCache = new();
     private float _contentOffsetY;
@@ -16,35 +16,13 @@ public class PaintVisitor
     public PaintVisitor(float contentOffsetY = 0)
     {
         _contentOffsetY = contentOffsetY;
-        _defaultTypeface = GetChineseTypeface();
+        _defaultTypeface = FontHelper.GetChineseTypeface();
     }
 
     private float TotalOffsetY => _contentOffsetY;
     private float TotalOffsetX => 0;
 
     public DisplayList GetDisplayList() => _displayList;
-
-    private SKTypeface? GetChineseTypeface()
-    {
-        var fontFamilies = SKFontManager.Default.FontFamilies.ToArray();
-
-        string[] chineseFonts = { "Microsoft YaHei", "Microsoft YaHei UI", "SimSun", "SimHei", "FangSong", "KaiTi" };
-
-        foreach (var fontName in chineseFonts)
-        {
-            var index = Array.IndexOf(fontFamilies, fontName);
-            if (index >= 0)
-            {
-                var tf = SKFontManager.Default.GetFontStyles(index).CreateTypeface(0);
-                if (tf != null && tf.FamilyName != null)
-                {
-                    return tf;
-                }
-            }
-        }
-
-        return SKTypeface.FromFamilyName("Segoe UI", SKFontStyleWeight.Normal, SKFontStyleWidth.Normal, SKFontStyleSlant.Upright);
-    }
 
     private SKTypeface GetTypeface(string family, FontWeight weight)
     {
@@ -60,9 +38,9 @@ public class PaintVisitor
             }
             else
                 typeface = _defaultTypeface;
-            _typefaceCache[key] = typeface;
+            _typefaceCache[key] = typeface ?? _defaultTypeface ?? SKTypeface.Default;
         }
-        return typeface;
+        return typeface ?? _defaultTypeface ?? SKTypeface.Default;
     }
 
     public void VisitDocument(Document document)
@@ -697,7 +675,7 @@ public class PaintVisitor
         {
             if (child is TextNode textNode)
             {
-                string text = textNode.TextContent?.Trim();
+                string text = textNode.TextContent?.Trim() ?? "";
                 if (!string.IsNullOrEmpty(text))
                 {
                     textBuilder.Append(text);

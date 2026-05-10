@@ -1,4 +1,6 @@
 using System.Runtime.InteropServices;
+using System.Text;
+using UpBrowser.Native.Windows;
 
 namespace UpBrowser.Platform.Windows;
 
@@ -9,18 +11,16 @@ public class WindowsWindow : IWindow
     private bool _isRunning;
     private Action<double>? _onFrame;
     private Action<double>? _onMouseWheel;
-    private Action<bool, bool>? _onScrollbarClick;
-    private Action<float, float>? _onScrollbarDrag;
-    private bool _isDraggingVertical;
-    private bool _isDraggingHorizontal;
-    private float _dragStartY;
     private Action<Key>? _onKeyDown;
     private DateTime _lastFrameTime;
     private int _width;
     private int _height;
     private NativeWindow.WndProc? _wndProc;
 
+    private WindowsImeHandler? _imeHandler;
+
     private Action<char>? _onChar;
+    private Action<char>? _onImeChar;
     private Func<char, Key, bool>? _onKeyDownWithChar;
     private Action<float, float>? _onMouseMove;
     private Action<float, float, bool>? _onMouseClick;
@@ -30,6 +30,12 @@ public class WindowsWindow : IWindow
     {
         get => _onChar;
         set => _onChar = value;
+    }
+
+    public Action<char>? OnImeChar
+    {
+        get => _onImeChar;
+        set => _onImeChar = value;
     }
 
     public Func<char, Key, bool>? OnKeyDownWithChar
@@ -56,18 +62,6 @@ public class WindowsWindow : IWindow
         set => _onMouseWheel = value;
     }
 
-    public Action<bool, bool>? OnScrollbarClick
-    {
-        get => _onScrollbarClick;
-        set => _onScrollbarClick = value;
-    }
-
-    public Action<float, float>? OnScrollbarDrag
-    {
-        get => _onScrollbarDrag;
-        set => _onScrollbarDrag = value;
-    }
-
     public Action<Key>? OnKeyDown
     {
         get => _onKeyDown;
@@ -83,6 +77,8 @@ public class WindowsWindow : IWindow
     public int Width => _width;
     public int Height => _height;
     public IntPtr Handle => _hwnd;
+
+    public IImeHandler? ImeHandler => _imeHandler;
 
     public WindowsWindow(int width, int height, string title)
     {
@@ -131,6 +127,8 @@ public class WindowsWindow : IWindow
         if (_hwnd == IntPtr.Zero)
             throw new InvalidOperationException("Failed to create window");
 
+        _imeHandler = new WindowsImeHandler(_hwnd);
+
         NativeWindow.ShowWindow(_hwnd, NativeWindow.SW_SHOWNORMAL);
         NativeWindow.UpdateWindow(_hwnd);
     }
@@ -150,19 +148,21 @@ public class WindowsWindow : IWindow
                 return IntPtr.Zero;
 
             case NativeWindow.WM_SIZE:
-                _width = (int)(lParam.ToInt64() & 0xFFFF);
-                _height = (int)((lParam.ToInt64() >> 16) & 0xFFFF);
-
-                NativeWindow.InvalidateRect(_hwnd, IntPtr.Zero, true);
-                NativeWindow.UpdateWindow(_hwnd);
-
-                if (_onFrame != null && _width > 0 && _height > 0)
                 {
-                    var now = DateTime.Now;
-                    _lastFrameTime = now;
-                    _onFrame(0.016);
+                    _width = (int)(lParam.ToInt64() & 0xFFFF);
+                    _height = (int)((lParam.ToInt64() >> 16) & 0xFFFF);
+
+                    NativeWindow.InvalidateRect(_hwnd, IntPtr.Zero, true);
+                    NativeWindow.UpdateWindow(_hwnd);
+
+                    if (_onFrame != null && _width > 0 && _height > 0)
+                    {
+                        var now = DateTime.Now;
+                        _lastFrameTime = now;
+                        _onFrame(0.016);
+                    }
+                    return IntPtr.Zero;
                 }
-                return IntPtr.Zero;
 
             case 0x02E0:
                 {
@@ -188,6 +188,40 @@ public class WindowsWindow : IWindow
                     _onMouseWheel?.Invoke(rawDelta);
                     return IntPtr.Zero;
                 }
+
+            case NativeWindow.WM_IME_STARTCOMPOSITION:
+                {
+                    _imeHandler?.GetCompositionState();
+                    return IntPtr.Zero;
+                }
+
+            case NativeWindow.WM_IME_COMPOSITION:
+                {
+                    if (_imeHandler != null)
+                    {
+                        var state = _imeHandler.GetCompositionState();
+                        if (!state.IsComposing)
+                        {
+                            if (!string.IsNullOrEmpty(state.CommittedText))
+                            {
+                                foreach (char c in state.CommittedText)
+                                {
+                                    _onImeChar?.Invoke(c);
+                                }
+                            }
+                        }
+                    }
+                    return IntPtr.Zero;
+                }
+
+            case NativeWindow.WM_IME_ENDCOMPOSITION:
+                {
+                    _imeHandler?.Reset();
+                    return IntPtr.Zero;
+                }
+
+            case NativeWindow.WM_IME_NOTIFY:
+                return IntPtr.Zero;
 
             case NativeWindow.WM_CHAR:
                 {
@@ -225,54 +259,6 @@ public class WindowsWindow : IWindow
                     int mouseY = (int)((lParam.ToInt64() >> 16) & 0xFFFF);
 
                     _onMouseClick?.Invoke(mouseX, mouseY, true);
-
-                    if (_width > 0 && _height > 0)
-                    {
-                        float contentOffset = 75;
-                        float statusBarHeight = 20;
-                        float scrollbarWidth = 12;
-
-                        float scrollbarLeft = _width - scrollbarWidth;
-                        float contentTop = contentOffset;
-                        float contentBottom = _height - statusBarHeight;
-                        float trackHeight = contentBottom - contentTop;
-
-                        if (mouseX >= scrollbarLeft && mouseY >= contentTop && mouseY <= contentBottom)
-                        {
-                            NativeWindow.SetCapture(_hwnd);
-
-                            float middleTop = contentTop + trackHeight * 0.2f;
-                            float middleBottom = contentTop + trackHeight * 0.8f;
-
-                            if (mouseY < middleTop)
-                                _onScrollbarClick?.Invoke(true, true);
-                            else if (mouseY > middleBottom)
-                                _onScrollbarClick?.Invoke(true, false);
-                            else
-                            {
-                                _isDraggingVertical = true;
-                                _dragStartY = mouseY;
-                            }
-                        }
-
-                        float horizontalBarTop = contentBottom - scrollbarWidth;
-                        if (mouseY >= horizontalBarTop && mouseY <= contentBottom && mouseX < scrollbarLeft)
-                        {
-                            NativeWindow.SetCapture(_hwnd);
-                            float trackWidth = scrollbarLeft;
-                            float thumbWidth = Math.Max(20, trackWidth * 0.3f);
-
-                            if (mouseX < thumbWidth)
-                                _onScrollbarClick?.Invoke(false, true);
-                            else if (mouseX > scrollbarLeft - thumbWidth)
-                                _onScrollbarClick?.Invoke(false, false);
-                            else
-                            {
-                                _isDraggingHorizontal = true;
-                                _dragStartY = mouseX;
-                            }
-                        }
-                    }
                     return IntPtr.Zero;
                 }
 
@@ -282,27 +268,15 @@ public class WindowsWindow : IWindow
                     int mouseY = (int)((lParam.ToInt64() >> 16) & 0xFFFF);
 
                     _onMouseMove?.Invoke(mouseX, mouseY);
-
-                    if (_isDraggingVertical && _onScrollbarDrag != null)
-                    {
-                        float deltaY = mouseY - _dragStartY;
-                        _dragStartY = mouseY;
-                        _onScrollbarDrag(0, deltaY);
-                    }
-                    else if (_isDraggingHorizontal && _onScrollbarDrag != null)
-                    {
-                        float deltaX = mouseX - _dragStartY;
-                        _dragStartY = mouseX;
-                        _onScrollbarDrag(deltaX, 0);
-                    }
                     return IntPtr.Zero;
                 }
 
             case NativeWindow.WM_LBUTTONUP:
                 {
-                    _isDraggingVertical = false;
-                    _isDraggingHorizontal = false;
-                    NativeWindow.ReleaseCapture();
+                    int mouseX = (int)(lParam.ToInt64() & 0xFFFF);
+                    int mouseY = (int)((lParam.ToInt64() >> 16) & 0xFFFF);
+
+                    _onMouseClick?.Invoke(mouseX, mouseY, false);
                     return IntPtr.Zero;
                 }
 
@@ -344,6 +318,23 @@ public class WindowsWindow : IWindow
                 _onFrame(dt);
             }
         }
+    }
+
+    public bool PumpPendingMessage()
+    {
+        NativeWindow.MSG msg;
+        if (NativeWindow.PeekMessageW(out msg, IntPtr.Zero, 0, 0, 1))
+        {
+            if (msg.message == NativeWindow.WM_QUIT)
+            {
+                _isRunning = false;
+                return false;
+            }
+            NativeWindow.TranslateMessage(ref msg);
+            NativeWindow.DispatchMessageW(ref msg);
+            return true;
+        }
+        return false;
     }
 
     public unsafe void Render(byte[] pixels, int width, int height)

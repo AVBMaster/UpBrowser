@@ -1,0 +1,393 @@
+using SkiaSharp;
+using UpBrowser.Platform;
+
+namespace UpBrowser.Rendering.DevTools;
+
+public class DevToolsSource
+{
+    private string _html = "";
+    private float _scrollOffset;
+    private float _contentHeight;
+    private string[] _lines = Array.Empty<string>();
+    private float _viewHeight;
+    private float _renderX, _renderY, _renderW, _renderH;
+
+    private bool _thumbDragging;
+    private float _thumbDragStartY;
+    private float _thumbDragStartOffset;
+
+    private bool _editing;
+    private int _editLine;
+    private int _editCol;
+    private bool _showCursor = true;
+    private DateTime _lastBlink = DateTime.Now;
+
+    public Action<string>? OnHtmlChanged;
+
+    public void SetHtml(string html) { _html = html ?? ""; _lines = _html.Split('\n'); _editing = false; }
+
+    public bool HandleWheel(double delta)
+    {
+        float maxScroll = Math.Max(0, _contentHeight - _viewHeight + 18);
+        _scrollOffset -= (float)delta * 3;
+        _scrollOffset = Math.Max(0, Math.Min(_scrollOffset, maxScroll));
+        return true;
+    }
+
+    public void SetScrollOffset(float offset)
+    {
+        float maxScroll = Math.Max(0, _contentHeight - _viewHeight + 18);
+        _scrollOffset = Math.Max(0, Math.Min(offset, maxScroll));
+    }
+
+    public bool HandleThumbDragStart(float y)
+    {
+        if (_contentHeight <= _viewHeight) return false;
+        float sh = _viewHeight * _viewHeight / Math.Max(1, _contentHeight);
+        float maxScroll = Math.Max(0, _contentHeight - _viewHeight);
+        if (maxScroll <= 0) return false;
+        float sy = _renderY + (_scrollOffset / maxScroll) * (_viewHeight - sh);
+        if (y >= sy && y <= sy + sh)
+        {
+            _thumbDragging = true;
+            _thumbDragStartY = y;
+            _thumbDragStartOffset = _scrollOffset;
+            return true;
+        }
+        return false;
+    }
+
+    public bool HandleThumbDrag(float y)
+    {
+        if (!_thumbDragging) return false;
+        float sh = _viewHeight * _viewHeight / Math.Max(1, _contentHeight);
+        float maxScroll = Math.Max(0, _contentHeight - _viewHeight);
+        if (maxScroll <= 0) return false;
+        float delta = (y - _thumbDragStartY) / Math.Max(1, _viewHeight - sh) * maxScroll;
+        _scrollOffset = Math.Max(0, Math.Min(maxScroll, _thumbDragStartOffset + delta));
+        return true;
+    }
+
+    public void HandleThumbDragEnd() { _thumbDragging = false; }
+
+    public bool HandleClick(float x, float y)
+    {
+        float localY = y - _renderY;
+        int clickedLine = (int)((localY + _scrollOffset) / 18);
+        if (clickedLine >= 0 && clickedLine < _lines.Length)
+        {
+            _editing = true;
+            _editLine = clickedLine;
+
+            float textStartX = _renderX + 50;
+            float clickX = x - textStartX;
+            string line = _lines[clickedLine];
+            _editCol = 0;
+            float currentX = 0;
+            for (int i = 0; i < line.Length; i++)
+            {
+                float charWidth = 8;
+                if (_renderW > 50)
+                {
+                    using var testPaint = FontHelper.CreateMonoPaint(12);
+                    charWidth = testPaint.MeasureText(line[i].ToString());
+                }
+                if (currentX + charWidth / 2 >= clickX)
+                    break;
+                _editCol = i + 1;
+                currentX += charWidth;
+            }
+
+            return true;
+        }
+        _editing = false;
+        return false;
+    }
+
+    public bool HandleKeyPress(char keyChar, Key key)
+    {
+        if (!_editing) return false;
+        if (_editLine < 0 || _editLine >= _lines.Length) return false;
+
+        switch (key)
+        {
+            case Key.Enter:
+                {
+                    string currentLine = _lines[_editLine];
+                    string before = currentLine[..Math.Min(_editCol, currentLine.Length)];
+                    string after = currentLine[Math.Min(_editCol, currentLine.Length)..];
+                    _lines[_editLine] = before;
+                    var newLines = _lines.ToList();
+                    newLines.Insert(_editLine + 1, after);
+                    _lines = newLines.ToArray();
+                    _editLine++;
+                    _editCol = 0;
+                    _html = string.Join('\n', _lines);
+                    OnHtmlChanged?.Invoke(_html);
+                    return true;
+                }
+
+            case Key.Backspace:
+                if (_editCol > 0)
+                {
+                    string line = _lines[_editLine];
+                    _lines[_editLine] = line[..(_editCol - 1)] + line[_editCol..];
+                    _editCol--;
+                    _html = string.Join('\n', _lines);
+                    OnHtmlChanged?.Invoke(_html);
+                }
+                else if (_editLine > 0)
+                {
+                    string currentLine = _lines[_editLine];
+                    _editCol = _lines[_editLine - 1].Length;
+                    _lines[_editLine - 1] += currentLine;
+                    var list = _lines.ToList();
+                    list.RemoveAt(_editLine);
+                    _lines = list.ToArray();
+                    _editLine--;
+                    _html = string.Join('\n', _lines);
+                    OnHtmlChanged?.Invoke(_html);
+                }
+                return true;
+
+            case Key.Delete:
+                {
+                    string line = _lines[_editLine];
+                    if (_editCol < line.Length)
+                    {
+                        _lines[_editLine] = line[.._editCol] + line[(_editCol + 1)..];
+                        _html = string.Join('\n', _lines);
+                        OnHtmlChanged?.Invoke(_html);
+                    }
+                    else if (_editLine < _lines.Length - 1)
+                    {
+                        string nextLine = _lines[_editLine + 1];
+                        _lines[_editLine] += nextLine;
+                        var list = _lines.ToList();
+                        list.RemoveAt(_editLine + 1);
+                        _lines = list.ToArray();
+                        _html = string.Join('\n', _lines);
+                        OnHtmlChanged?.Invoke(_html);
+                    }
+                    return true;
+                }
+
+            case Key.Left:
+                if (_editCol > 0) _editCol--;
+                else if (_editLine > 0) { _editLine--; _editCol = _lines[_editLine].Length; }
+                return true;
+
+            case Key.Right:
+                if (_editCol < _lines[_editLine].Length) _editCol++;
+                else if (_editLine < _lines.Length - 1) { _editLine++; _editCol = 0; }
+                return true;
+
+            case Key.Up:
+                if (_editLine > 0) { _editLine--; _editCol = Math.Min(_editCol, _lines[_editLine].Length); }
+                return true;
+
+            case Key.Down:
+                if (_editLine < _lines.Length - 1) { _editLine++; _editCol = Math.Min(_editCol, _lines[_editLine].Length); }
+                return true;
+
+            case Key.Home:
+                _editCol = 0;
+                return true;
+
+            case Key.End:
+                _editCol = _lines[_editLine].Length;
+                return true;
+
+            case Key.Tab:
+                {
+                    string line = _lines[_editLine];
+                    _lines[_editLine] = line[..Math.Min(_editCol, line.Length)] + "    " + line[Math.Min(_editCol, line.Length)..];
+                    _editCol += 4;
+                    _html = string.Join('\n', _lines);
+                    OnHtmlChanged?.Invoke(_html);
+                    return true;
+                }
+
+            default:
+                if (!char.IsControl(keyChar))
+                {
+                    string line = _lines[_editLine];
+                    _lines[_editLine] = line[..Math.Min(_editCol, line.Length)] + keyChar + line[Math.Min(_editCol, line.Length)..];
+                    _editCol++;
+                    _html = string.Join('\n', _lines);
+                    OnHtmlChanged?.Invoke(_html);
+                }
+                return true;
+        }
+    }
+
+    public bool TickCursorBlink()
+    {
+        if (!_editing) return false;
+        if ((DateTime.Now - _lastBlink).TotalMilliseconds > 500)
+        {
+            _showCursor = !_showCursor;
+            _lastBlink = DateTime.Now;
+            return true;
+        }
+        return false;
+    }
+
+    public void Render(SKCanvas canvas, float x, float y, float width, float height)
+    {
+        _renderX = x; _renderY = y; _renderW = width; _renderH = height;
+        _viewHeight = height;
+
+        using var bg = new SKPaint { Color = SKColor.Parse("#1E1E1E"), Style = SKPaintStyle.Fill };
+        canvas.DrawRect(x, y, width, height, bg);
+
+        using var font = FontHelper.CreateMonoPaint(12);
+        using var lineNumPaint = FontHelper.CreateMonoPaint(12);
+        using var tagPaint = FontHelper.CreateMonoPaint(12);
+        using var attrPaint = FontHelper.CreateMonoPaint(12);
+        using var strPaint = FontHelper.CreateMonoPaint(12);
+        using var commentPaint = FontHelper.CreateMonoPaint(12);
+        using var defPaint = FontHelper.CreateMonoPaint(12);
+
+        float lh = 18;
+        float lnW = 50;
+        _contentHeight = _lines.Length * lh;
+        float maxScroll = Math.Max(0, _contentHeight - _viewHeight + lh);
+        _scrollOffset = Math.Max(0, Math.Min(_scrollOffset, maxScroll));
+
+        canvas.Save();
+        canvas.ClipRect(new SKRect(x, y, x + width, y + height));
+
+        float drawY = y + lh - _scrollOffset;
+        for (int i = 0; i < _lines.Length; i++)
+        {
+            float lineDrawY = drawY;
+            if (lineDrawY < y - lh || lineDrawY > y + height) { drawY += lh; continue; }
+
+            if (_editing && i == _editLine)
+            {
+                using var hl = new SKPaint { Color = SKColor.Parse("#2A2D2E"), Style = SKPaintStyle.Fill };
+                canvas.DrawRect(x + lnW, lineDrawY - lh + 4, width - lnW, lh, hl);
+            }
+
+            lineNumPaint.Color = SKColor.Parse("#858585");
+            string ln = (i + 1).ToString().PadLeft(4);
+            canvas.DrawText(ln, x + 4, lineDrawY, lineNumPaint);
+
+            float tx = x + lnW;
+            HighlightLine(canvas, _lines[i], tx, lineDrawY, width - lnW - 8, font, tagPaint, attrPaint, strPaint, commentPaint, defPaint);
+
+            if (_editing && i == _editLine && _showCursor)
+            {
+                float cursorX = tx + font.MeasureText(_lines[i][..Math.Min(_editCol, _lines[i].Length)]);
+                using var cp = new SKPaint { Color = SKColors.White, Style = SKPaintStyle.Fill, StrokeWidth = 1 };
+                canvas.DrawLine(cursorX, lineDrawY - lh + 4, cursorX, lineDrawY + 2, cp);
+            }
+
+            drawY += lh;
+        }
+
+        canvas.Restore();
+
+        if (_contentHeight > _viewHeight)
+        {
+            float sh = _viewHeight * _viewHeight / _contentHeight;
+            float maxScrollBar = Math.Max(0, _contentHeight - _viewHeight);
+            float sy = y + (maxScrollBar > 0 ? (_scrollOffset / maxScrollBar) * (_viewHeight - sh) : 0);
+            using var sp = new SKPaint { Color = new SKColor(80, 80, 80), Style = SKPaintStyle.Fill };
+            canvas.DrawRoundRect(x + width - 6, sy, 4, sh, 2, 2, sp);
+        }
+    }
+
+    private void HighlightLine(SKCanvas canvas, string line, float x, float y, float maxW,
+        SKPaint font, SKPaint tag, SKPaint attr, SKPaint str, SKPaint comment, SKPaint def)
+    {
+        if (string.IsNullOrEmpty(line)) return;
+
+        float cx = x;
+        int i = 0;
+        while (i < line.Length && cx < x + maxW)
+        {
+            if (i + 3 < line.Length && line[i] == '<' && line[i + 1] == '!' && line[i + 2] == '-' && line[i + 3] == '-')
+            {
+                int end = line.IndexOf("-->", i + 4);
+                if (end < 0) end = line.Length - 1; else end += 3;
+                string c = line[i..(Math.Min(end + 1, line.Length))];
+                comment.Color = SKColor.Parse("#6A9955");
+                canvas.DrawText(c, cx, y, comment);
+                cx += font.MeasureText(c);
+                i = end + 1;
+                continue;
+            }
+
+            if (line[i] == '<')
+            {
+                int end = line.IndexOf('>', i + 1);
+                if (end < 0) end = line.Length - 1;
+
+                int ne = end;
+                for (int j = i + 1; j < line.Length; j++)
+                {
+                    if (char.IsWhiteSpace(line[j]) || line[j] == '>') { ne = j; break; }
+                }
+                string tn = line[i..(Math.Min(ne + 1, line.Length))];
+                tag.Color = SKColor.Parse("#569CD6");
+                canvas.DrawText(tn, cx, y, tag);
+                cx += font.MeasureText(tn);
+                i = ne;
+
+                while (i < end)
+                {
+                    while (i < end && char.IsWhiteSpace(line[i])) i++;
+                    if (i >= end) break;
+
+                    int ae = i;
+                    while (ae < end && line[ae] != '=' && !char.IsWhiteSpace(line[ae])) ae++;
+                    if (ae > i)
+                    {
+                        attr.Color = SKColor.Parse("#CE9178");
+                        canvas.DrawText(line[i..ae], cx, y, attr);
+                        cx += font.MeasureText(line[i..ae]);
+                        i = ae;
+                    }
+
+                    if (i < end && line[i] == '=')
+                    {
+                        def.Color = SKColor.Parse("#D4D4D4");
+                        canvas.DrawText("=", cx, y, def);
+                        cx += font.MeasureText("=");
+                        i++;
+                        if (i < end && (line[i] == '"' || line[i] == '\''))
+                        {
+                            char q = line[i];
+                            int ve = line.IndexOf(q, i + 1);
+                            if (ve < 0 || ve > end) ve = end;
+                            string v = line[i..(Math.Min(ve + 1, line.Length))];
+                            str.Color = SKColor.Parse("#CE9178");
+                            canvas.DrawText(v, cx, y, str);
+                            cx += font.MeasureText(v);
+                            i = ve + 1;
+                        }
+                    }
+                }
+
+                if (end < line.Length && line[end] == '>' && ne < end)
+                {
+                    tag.Color = SKColor.Parse("#569CD6");
+                    canvas.DrawText(">", cx, y, tag);
+                    cx += font.MeasureText(">");
+                }
+                i = end + 1;
+            }
+            else
+            {
+                int nt = line.IndexOf('<', i + 1);
+                if (nt < 0) nt = line.Length;
+                def.Color = SKColor.Parse("#D4D4D4");
+                canvas.DrawText(line[i..nt], cx, y, def);
+                cx += font.MeasureText(line[i..nt]);
+                i = nt;
+            }
+        }
+    }
+}

@@ -22,6 +22,15 @@ public static class PlatformFactory
         throw new PlatformNotSupportedException($"Unsupported platform: {RuntimeInformation.OSDescription}");
     }
 
+    public static Windows.WindowsWindow? CreateWindowsWindow(int width, int height, string title)
+    {
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        {
+            return new Windows.WindowsWindow(width, height, title);
+        }
+        return null;
+    }
+
     public static float GetDpiScale()
     {
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))

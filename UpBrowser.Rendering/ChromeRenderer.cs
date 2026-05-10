@@ -79,27 +79,9 @@ public class ChromeRenderer
         public bool IsActive { get; set; }
     }
 
-    private SKTypeface? GetChineseTypeface()
-    {
-        var fontFamilies = SKFontManager.Default.FontFamilies.ToArray();
-        string[] chineseFonts = { "Microsoft YaHei", "Microsoft YaHei UI", "SimSun", "SimHei", "FangSong", "KaiTi", "Segoe UI" };
-
-        foreach (var fontName in chineseFonts)
-        {
-            var index = Array.IndexOf(fontFamilies, fontName);
-            if (index >= 0)
-            {
-                var tf = SKFontManager.Default.GetFontStyles(index).CreateTypeface(0);
-                if (tf != null && tf.FamilyName != null)
-                    return tf;
-            }
-        }
-        return null;
-    }
-
     public void Initialize()
     {
-        _chineseTypeface = GetChineseTypeface();
+        _chineseTypeface = FontHelper.GetChineseTypeface();
 
         _backgroundPaint = new SKPaint { Color = SKColor.Parse("#E8EAED"), Style = SKPaintStyle.Fill };
         _borderPaint = new SKPaint { Color = SKColor.Parse("#DADCE0"), Style = SKPaintStyle.Stroke, StrokeWidth = 1 };

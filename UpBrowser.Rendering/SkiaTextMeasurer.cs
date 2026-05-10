@@ -11,7 +11,7 @@ public class SkiaTextMeasurer : ITextMeasurer
 
     public SkiaTextMeasurer()
     {
-        _defaultTypeface = GetChineseTypeface();
+        _defaultTypeface = FontHelper.GetChineseTypeface() ?? SKTypeface.Default;
     }
 
     public float MeasureText(string text, string fontFamily, float fontSize, FontWeight weight = FontWeight.Normal)
@@ -77,24 +77,5 @@ public class SkiaTextMeasurer : ITextMeasurer
 
         _typefaceCache[key] = typeface;
         return typeface;
-    }
-
-    private SKTypeface GetChineseTypeface()
-    {
-        var fontFamilies = SKFontManager.Default.FontFamilies.ToArray();
-        string[] chineseFonts = { "Microsoft YaHei", "Microsoft YaHei UI", "SimSun", "SimHei", "FangSong", "KaiTi" };
-
-        foreach (var fontName in chineseFonts)
-        {
-            var index = Array.IndexOf(fontFamilies, fontName);
-            if (index >= 0)
-            {
-                var tf = SKFontManager.Default.GetFontStyles(index).CreateTypeface(0);
-                if (tf != null)
-                    return tf;
-            }
-        }
-
-        return SKTypeface.FromFamilyName("Segoe UI") ?? SKTypeface.Default;
     }
 }

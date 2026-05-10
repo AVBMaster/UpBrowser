@@ -1,11 +1,14 @@
 using UpBrowser.Platform;
+using UpBrowser.Platform.Windows;
 using UpBrowser.Rendering;
+using UpBrowser.Rendering.DevTools;
 using UpBrowser.Core.Dom;
 using UpBrowser.Core.Layout;
 using UpBrowser.Core.Css;
 using UpBrowser.Core.JavaScript;
 using UpBrowser.Core.EventLoop;
 using SkiaSharp;
+using System.Text;
 
 namespace UpBrowser;
 
@@ -35,6 +38,25 @@ public class BrowserApp : IDisposable
     private int _lastWindowHeight;
     private float _lastScrollX;
     private float _lastScrollY;
+    private float _lastDevToolsHeight;
+    private bool _lastDevToolsVisible;
+    private readonly DevToolsPanel _devTools;
+
+    private DateTime _lastInputTime = DateTime.Now;
+    private const double InputCooldownMs = 80;
+
+    private string? _dialogResult;
+    private string? _dialogInput;
+    private bool _dialogActive;
+    private string _dialogMessage = "";
+    private string _dialogType = "";
+    private SKRect _dialogOkRect;
+    private SKRect _dialogCancelRect;
+    private SKRect _dialogInputRect;
+
+    // IME support: track focused input element
+    private UpBrowser.Core.Dom.Element? _focusedElement;
+    private StringBuilder _imeCommittedText = new();
 
     public BrowserApp(int logicalWidth, int logicalHeight)
     {
@@ -44,17 +66,74 @@ public class BrowserApp : IDisposable
         int physicalWidth = (int)(logicalWidth * _dpiScale);
         int physicalHeight = (int)(logicalHeight * _dpiScale);
 
-        _window = PlatformFactory.CreateWindow(physicalWidth, physicalHeight, "UpBrowser");
+var winWindow = PlatformFactory.CreateWindowsWindow(physicalWidth, physicalHeight, "UpBrowser");
+        _window = winWindow;
         _docManager = new DocumentManager();
         _chrome = new ChromeRenderer();
         _scroll = new ScrollManager();
         _skiaRenderer = new SkiaRenderer();
         _jsEngine = new JavaScriptEngine();
         _eventLoop = new EventLoop();
+        _devTools = new DevToolsPanel();
+        _contentOffset = _chrome.GetContentOffset();
         _input = new InputHandler(_chrome, _scroll, _window, _dpiScale);
         _input.OnDomClick = HandleDomClick;
+        _input.OnDevToolsKey = () =>
+        {
+            _devTools.Toggle();
+            _input.NeedsRedraw = true;
+        };
 
-        _contentOffset = _chrome.GetContentOffset();
+        _input.OnDomClick = HandleDomClick;
+        _input.OnDevToolsKey = () =>
+        {
+            _devTools.Toggle();
+            _input.NeedsRedraw = true;
+        };
+
+        _devTools.SetJavaScriptEngine(_jsEngine);
+        _devTools.SetSourceChangeHandler(async (html) =>
+        {
+            _currentHtml = html;
+            _currentLoad = await _docManager.LoadHtmlAsync(html);
+            var (pw, ph) = _window.GetClientSize();
+            _jsEngine.LoadDocument(_currentLoad.Document);
+            _devTools.SetDocument(_currentLoad.Document, html);
+            _input.NeedsRedraw = true;
+        });
+        _devTools.OnChanged += () =>
+        {
+            _input.NeedsRedraw = true;
+        };
+        _input.OnDevToolsInput = (c, key) => _devTools.HandleKeyPress(c, key);
+        _input.OnDevToolsClick = (x, y, isDown) => HandleDevToolsClick(x, y, isDown);
+        _input.OnDevToolsWheel = (delta, mx, my) => _devTools.HandleWheel(delta, mx, my);
+        _input.OnImeChar = HandleImeChar;
+
+        _jsEngine.ShowDialog = ShowDialog;
+        _input.OnDialogClick = (x, y) =>
+        {
+            if (!_dialogActive) return false;
+
+            if (_dialogOkRect.Contains(x, y))
+            {
+                _dialogResult = _dialogType.StartsWith("prompt:") ? _dialogInput : _dialogType == "confirm" ? "true" : "";
+                _dialogActive = false;
+                return true;
+            }
+
+            if (_dialogCancelRect.Contains(x, y) && (_dialogType.StartsWith("prompt:") || _dialogType == "confirm"))
+            {
+                _dialogResult = _dialogType.StartsWith("prompt:") ? null : "false";
+                _dialogActive = false;
+                return true;
+            }
+
+            if (_dialogInputRect.Contains(x, y) && _dialogType.StartsWith("prompt:"))
+                return true;
+
+            return true;
+        };
 
         Initialize();
     }
@@ -69,6 +148,127 @@ public class BrowserApp : IDisposable
         _eventLoop.Start();
 
         _input.WireEvents();
+    }
+
+    private string? ShowDialog(string message, string? type)
+    {
+        _dialogMessage = message;
+        _dialogType = type ?? "";
+        _dialogInput = (type ?? "").StartsWith("prompt:") ? (type ?? "")[7..] : "";
+        _dialogResult = null;
+        _dialogActive = true;
+
+        var (pw, ph) = _window.GetClientSize();
+        int ww = (int)(pw / _dpiScale);
+        int wh = (int)(ph / _dpiScale);
+
+        while (_dialogActive)
+        {
+            if (!_window.PumpPendingMessage())
+                break;
+
+            RenderDialogFrame(ww, wh);
+
+            Thread.Sleep(10);
+        }
+
+        _dialogActive = false;
+        return _dialogResult;
+    }
+
+    private void RenderDialogFrame(int windowWidth, int windowHeight)
+    {
+        _skiaRenderer.Canvas.Clear(SKColors.White);
+
+        var title = _currentLoad?.AngleSharpDoc.Title ?? "UpBrowser";
+        var currentUrl = _chrome.GetCurrentUrl();
+        _chrome.RenderChrome(_skiaRenderer.Canvas, windowWidth, windowHeight, currentUrl ?? "upbrowser://local", title);
+
+        float devToolsHeight = _devTools.Visible ? _devTools.PanelHeight : 0;
+        float contentViewportHeight = windowHeight - _contentOffset - _chrome.GetStatusBarHeight() - devToolsHeight;
+        _skiaRenderer.RenderWithScroll(_displayList, _contentOffset,
+            _scroll.ScrollX, _scroll.ScrollY,
+            windowWidth, contentViewportHeight);
+
+        RenderDialogOverlay(_skiaRenderer.Canvas, windowWidth, windowHeight);
+
+        var pixels = _skiaRenderer.GetPixelData();
+        _window.Render(pixels, _skiaRenderer.PhysicalWidth, _skiaRenderer.PhysicalHeight);
+    }
+
+    private void RenderDialogOverlay(SKCanvas canvas, float windowWidth, float windowHeight)
+    {
+        using var overlay = new SKPaint { Color = new SKColor(0, 0, 0, 128), Style = SKPaintStyle.Fill };
+        canvas.DrawRect(0, 0, windowWidth, windowHeight, overlay);
+
+        float dlgW = 360, dlgH = 160;
+        float dlgX = (windowWidth - dlgW) / 2;
+        float dlgY = (windowHeight - dlgH) / 2;
+
+        using var bg = new SKPaint { Color = SKColors.White, Style = SKPaintStyle.Fill, IsAntialias = true };
+        canvas.DrawRoundRect(dlgX, dlgY, dlgW, dlgH, 8, 8, bg);
+
+        using var border = new SKPaint { Color = new SKColor(200, 200, 200), Style = SKPaintStyle.Stroke, StrokeWidth = 1, IsAntialias = true };
+        canvas.DrawRoundRect(dlgX, dlgY, dlgW, dlgH, 8, 8, border);
+
+        using var titleFont = FontHelper.CreatePaint(14);
+        titleFont.Color = SKColor.Parse("#333333");
+        string titleText = _dialogType == "alert" ? "Alert" : _dialogType == "confirm" ? "Confirm" : "Prompt";
+        canvas.DrawText(titleText, dlgX + 16, dlgY + 24, titleFont);
+
+        using var msgFont = FontHelper.CreatePaint(13);
+        msgFont.Color = SKColor.Parse("#666666");
+        float msgY = dlgY + 55;
+        float maxMsgW = dlgW - 32;
+        string msg = _dialogMessage;
+        if (msgFont.MeasureText(msg) > maxMsgW)
+        {
+            while (msgFont.MeasureText(msg + "…") > maxMsgW && msg.Length > 0)
+                msg = msg[..^1];
+            msg += "…";
+        }
+        canvas.DrawText(msg, dlgX + 16, msgY, msgFont);
+
+        bool isPrompt = _dialogType.StartsWith("prompt:");
+        float btnY = dlgY + dlgH - 40;
+
+        if (isPrompt)
+        {
+            using var inputFont = FontHelper.CreatePaint(13);
+            inputFont.Color = SKColor.Parse("#333333");
+            using var inputBg = new SKPaint { Color = SKColor.Parse("#F5F5F5"), Style = SKPaintStyle.Fill };
+            float inpX = dlgX + 16, inpY = dlgY + 80, inpW = dlgW - 32, inpH = 28;
+            canvas.DrawRoundRect(inpX, inpY, inpW, inpH, 4, 4, inputBg);
+            canvas.DrawText(_dialogInput ?? "", inpX + 8, inpY + inpH * 0.7f, inputFont);
+            _dialogInputRect = new SKRect(inpX, inpY, inpX + inpW, inpY + inpH);
+        }
+
+        float btnW = 70, btnH = 28;
+        float btnSpacing = 10;
+        float totalBtnW = (isPrompt || _dialogType == "confirm") ? btnW * 2 + btnSpacing : btnW;
+        float btnStartX = dlgX + (dlgW - totalBtnW) / 2;
+
+        if (isPrompt || _dialogType == "confirm")
+        {
+            _dialogCancelRect = new SKRect(btnStartX, btnY, btnStartX + btnW, btnY + btnH);
+            using var cancelPaint = new SKPaint { Color = SKColor.Parse("#E0E0E0"), Style = SKPaintStyle.Fill, IsAntialias = true };
+            canvas.DrawRoundRect(_dialogCancelRect, 4, 4, cancelPaint);
+            using var cancelFont = FontHelper.CreatePaint(12);
+            cancelFont.Color = SKColor.Parse("#333333");
+            string cancelLabel = isPrompt ? "Cancel" : "Cancel";
+            float cw = cancelFont.MeasureText(cancelLabel);
+            canvas.DrawText(cancelLabel, _dialogCancelRect.Left + (btnW - cw) / 2, _dialogCancelRect.Top + btnH * 0.7f, cancelFont);
+            btnStartX += btnW + btnSpacing;
+        }
+
+        _dialogOkRect = new SKRect(btnStartX, btnY, btnStartX + btnW, btnY + btnH);
+        using var okPaint = new SKPaint { Color = SKColor.Parse("#1A73E8"), Style = SKPaintStyle.Fill, IsAntialias = true };
+        canvas.DrawRoundRect(_dialogOkRect, 4, 4, okPaint);
+        using var okFont = FontHelper.CreatePaint(12);
+        okFont.Color = SKColors.White;
+        string okLabel = isPrompt ? "OK" : "OK";
+        float ow = okFont.MeasureText(okLabel);
+        canvas.DrawText(okLabel, _dialogOkRect.Left + (btnW - ow) / 2, _dialogOkRect.Top + btnH * 0.7f, okFont);
     }
 
     public async Task RunAsync()
@@ -107,7 +307,7 @@ public class BrowserApp : IDisposable
             {
                 if (url == "upbrowser://newtab" || url == "upbrowser://local")
                 {
-        _currentHtml = DocumentManager.DefaultHtml;
+                    _currentHtml = DocumentManager.DefaultHtml;
                     await NavigateToHtml(_currentHtml);
                     _scroll.ScrollTo(0, 0);
                 }
@@ -154,6 +354,8 @@ public class BrowserApp : IDisposable
 
         _jsEngine.LoadDocument(_currentLoad.Document);
 
+        _devTools.SetDocument(_currentLoad.Document, html);
+
         RunPageScripts();
 
         BuildDisplayList(ww, wh);
@@ -174,18 +376,18 @@ public class BrowserApp : IDisposable
             if (!string.IsNullOrEmpty(src))
             {
                 Task.Run(async () =>
+                {
+                    try
                     {
-                        try
-                        {
-                            using var client = new HttpClient();
-                            var code = await client.GetStringAsync(src);
-                            _jsEngine.Execute(code);
-                        }
-                        catch (Exception ex)
-                        {
-                            Console.WriteLine($"[JS] Failed to load script '{src}': {ex.Message}");
-                        }
-                    });
+                        using var client = new HttpClient();
+                        var code = await client.GetStringAsync(src);
+                        _jsEngine.Execute(code);
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"[JS] Failed to load script '{src}': {ex.Message}");
+                    }
+                });
                 continue;
             }
 
@@ -253,7 +455,28 @@ public class BrowserApp : IDisposable
         _eventLoop.ProcessTasks();
         _jsEngine.TickTimers();
 
+        _input.UpdatePageThumbDrag();
+
+        float currentDevToolsHeight = _devTools.Visible ? _devTools.PanelHeight : 0;
+        bool devToolsChanged = _devTools.Visible != _lastDevToolsVisible ||
+                               Math.Abs(currentDevToolsHeight - _lastDevToolsHeight) > 0.5f;
+
+        if (_devTools.Visible)
+        {
+            var (mx, my) = _input.GetMousePosition();
+            if (_input.IsMouseDown())
+            {
+                bool dragMoved = _devTools.HandleDragMove(mx, my);
+                if (dragMoved) _input.NeedsRedraw = true;
+            }
+            else
+            {
+                _devTools.HandleDragEnd();
+            }
+        }
+
         bool cursorChanged = _chrome.UpdateCursorBlink();
+        bool devToolsCursorChanged = _devTools.Visible && _devTools.TickCursorBlink();
 
         var (pw, ph) = _window.GetClientSize();
         int windowWidth = (int)(pw / _dpiScale);
@@ -262,14 +485,17 @@ public class BrowserApp : IDisposable
         bool sizeChanged = windowWidth != _lastWindowWidth || windowHeight != _lastWindowHeight;
         bool scrollChanged = Math.Abs(_scroll.ScrollX - _lastScrollX) > 0.5f ||
                              Math.Abs(_scroll.ScrollY - _lastScrollY) > 0.5f;
-        bool chromeNeedsRedraw = cursorChanged && _chrome.IsUrlBarFocused();
-        bool needsRedraw = _input.NeedsRedraw;
 
-        if (!sizeChanged && !scrollChanged && !chromeNeedsRedraw && !needsRedraw && !_jsEngine.NeedsReLayout)
+        bool inputRecently = (DateTime.Now - _lastInputTime).TotalMilliseconds < InputCooldownMs;
+        bool cursorNeedsRedraw = (cursorChanged && _chrome.IsUrlBarFocused()) || devToolsCursorChanged;
+        bool needsRedraw = _input.NeedsRedraw || _jsEngine.NeedsReLayout || devToolsChanged ||
+                           (cursorNeedsRedraw && !inputRecently) || scrollChanged;
+
+        if (!sizeChanged && !needsRedraw)
             return;
 
         var now = DateTime.Now;
-        if ((now - _lastRenderTime) < _targetFrameTime && !sizeChanged && !needsRedraw)
+        if ((now - _lastRenderTime) < _targetFrameTime && !sizeChanged && !_input.NeedsRedraw && !scrollChanged && !devToolsChanged)
             return;
         _lastRenderTime = now;
 
@@ -283,7 +509,9 @@ public class BrowserApp : IDisposable
             _lastWindowHeight = windowHeight;
         }
 
-        if (sizeChanged || windowWidth != _lastLayoutWidth || _jsEngine.NeedsReLayout)
+        float contentViewportHeight = windowHeight - _contentOffset - _chrome.GetStatusBarHeight() - currentDevToolsHeight;
+
+        if (sizeChanged || windowWidth != _lastLayoutWidth || _jsEngine.NeedsReLayout || devToolsChanged)
         {
             _lastLayoutWidth = windowWidth;
 
@@ -294,18 +522,28 @@ public class BrowserApp : IDisposable
                 _jsEngine.ClearDirty();
             }
 
-            BuildDisplayList(windowWidth, windowHeight);
+            BuildDisplayList(windowWidth, Math.Max(100, (int)contentViewportHeight));
 
             var bodyBox = _currentLoad.Document.Body?.LayoutBox;
             float contentWidth = bodyBox?.BorderBox.Width ?? windowWidth;
             float contentHeight = bodyBox?.BorderBox.Height ?? 0;
-            float viewportH = windowHeight - _contentOffset - _chrome.GetStatusBarHeight();
 
-            _scroll.UpdateScroll(contentWidth, contentHeight, windowWidth, viewportH);
+            _scroll.UpdateScroll(contentWidth, contentHeight, windowWidth, contentViewportHeight);
+
+            // Position IME caret after layout rebuild
+            PositionImeCaret();
+        }
+
+        // Update IME caret position each frame when an input element is focused
+        if (_focusedElement != null && _focusedElement.IsFormElement)
+        {
+            PositionImeCaret();
         }
 
         _lastScrollX = _scroll.ScrollX;
         _lastScrollY = _scroll.ScrollY;
+        _lastDevToolsHeight = currentDevToolsHeight;
+        _lastDevToolsVisible = _devTools.Visible;
 
         _skiaRenderer.Canvas.Clear(SKColors.White);
 
@@ -316,17 +554,43 @@ public class BrowserApp : IDisposable
 
         _chrome.RenderChrome(_skiaRenderer.Canvas, windowWidth, windowHeight, currentUrl, title);
 
-        float contentViewportHeight = windowHeight - _contentOffset - _chrome.GetStatusBarHeight();
         _skiaRenderer.RenderWithScroll(_displayList, _contentOffset,
             _scroll.ScrollX, _scroll.ScrollY,
             windowWidth, contentViewportHeight);
 
         _chrome.RenderScrollbars(_skiaRenderer.Canvas, windowWidth, windowHeight, _scroll);
 
+        _devTools.Render(_skiaRenderer.Canvas, windowWidth, windowHeight, _contentOffset);
+
         var pixels = _skiaRenderer.GetPixelData();
         _window.Render(pixels, _skiaRenderer.PhysicalWidth, _skiaRenderer.PhysicalHeight);
 
         _input.NeedsRedraw = false;
+        if (_input.IsMouseDown()) _input.NeedsRedraw = true;
+    }
+
+    private void OnKeyDown(Key key)
+    {
+        _lastInputTime = DateTime.Now;
+        if (key == Key.F12)
+        {
+            _devTools.Toggle();
+            _input.NeedsRedraw = true;
+            return;
+        }
+        _chrome.HandleKeyPress('\0', key switch
+        {
+            Key.Escape => SKKey.Escape,
+            Key.F5 => SKKey.None,
+            _ => SKKey.None
+        });
+    }
+
+    private bool HandleDevToolsClick(float x, float y, bool isDown)
+    {
+        if (_devTools.HandleDragStart(x, y))
+            return true;
+        return _devTools.HandleClick(x, y);
     }
 
     private void HandleDomClick(float x, float y)
@@ -338,7 +602,56 @@ public class BrowserApp : IDisposable
         if (element != null)
         {
             _jsEngine.DispatchEvent(element, "click");
+
+            // Track focus on form elements
+            if (element.IsFormElement)
+            {
+                _focusedElement = element;
+                _imeCommittedText.Clear();
+                PositionImeCaret();
+            }
+            else
+            {
+                _focusedElement = null;
+                _imeCommittedText.Clear();
+            }
         }
+    }
+
+    private void HandleImeChar(char charCode)
+    {
+        if (charCode == '\0') return;
+
+        if (_focusedElement != null && _focusedElement.IsFormElement)
+        {
+            _imeCommittedText.Append(charCode);
+            _jsEngine.DispatchEvent(_focusedElement, "input");
+            _input.NeedsRedraw = true;
+        }
+        else if (_chrome.IsUrlBarFocused())
+        {
+            _chrome.HandleKeyPress(charCode, SKKey.None);
+            _input.NeedsRedraw = true;
+        }
+    }
+
+    private void PositionImeCaret()
+    {
+        if (_focusedElement == null || _currentLoad == null) return;
+
+        var box = _focusedElement.LayoutBox;
+        if (box == null) return;
+
+        var winWindow = _window as WindowsWindow;
+        if (winWindow?.ImeHandler == null) return;
+
+        float caretScreenX = box.BorderBox.Left * _dpiScale;
+        float caretScreenY = (box.BorderBox.Top - _scroll.ScrollY) * _dpiScale;
+        float lineHeight = box.LineHeight * _dpiScale;
+
+        winWindow.ImeHandler.SetCaretPosition(
+            new SKPoint(caretScreenX, caretScreenY),
+            lineHeight);
     }
 
     private static UpBrowser.Core.Dom.Element? HitTest(UpBrowser.Core.Dom.Document doc, float x, float y)

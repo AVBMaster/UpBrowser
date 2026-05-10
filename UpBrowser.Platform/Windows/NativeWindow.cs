@@ -67,6 +67,12 @@ public static class NativeWindow
     public const uint WM_RBUTTONDOWN = 0x0204;
     public const uint WM_RBUTTONUP = 0x0205;
     public const uint WM_MOUSEWHEEL = 0x020A;
+    public const uint WM_IME_STARTCOMPOSITION = 0x010D;
+    public const uint WM_IME_ENDCOMPOSITION = 0x010E;
+    public const uint WM_IME_COMPOSITION = 0x010F;
+    public const uint WM_IME_NOTIFY = 0x0282;
+    public const uint WM_IME_CHAR = 0x0286;
+
     public const uint WM_CAPTURECHANGED = 0x0215;
 
     public const int CW_USEDEFAULT = -1;

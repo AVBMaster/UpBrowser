@@ -7,17 +7,18 @@ public class MacWindow : IWindow
     private int _height;
 
     public Action<char>? OnChar { get; set; }
+    public Action<char>? OnImeChar { get; set; }
     public Func<char, Key, bool>? OnKeyDownWithChar { get; set; }
     public Action<Key>? OnKeyDown { get; set; }
     public Action<float, float>? OnMouseMove { get; set; }
     public Action<float, float, bool>? OnMouseClick { get; set; }
     public Action<double>? OnMouseWheel { get; set; }
-    public Action<bool, bool>? OnScrollbarClick { get; set; }
-    public Action<float, float>? OnScrollbarDrag { get; set; }
     public Action<float>? OnDpiChanged { get; set; }
 
     public int Width => _width;
     public int Height => _height;
+
+    public IImeHandler? ImeHandler => null;
 
     public MacWindow(int width, int height, string title)
     {
@@ -38,6 +39,8 @@ public class MacWindow : IWindow
     public void Close()
     {
     }
+
+    public bool PumpPendingMessage() => false;
 
     public void Dispose()
     {

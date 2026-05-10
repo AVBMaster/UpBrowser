@@ -1,0 +1,316 @@
+using SkiaSharp;
+using UpBrowser.Core.JavaScript;
+using UpBrowser.Platform;
+
+namespace UpBrowser.Rendering.DevTools;
+
+public class DevToolsConsole
+{
+    private readonly List<string> _outputLines = new();
+    private readonly List<string> _commandHistory = new();
+    private int _historyIndex = -1;
+    private string _inputText = "";
+    private int _cursorPos;
+    private bool _showCursor = true;
+    private DateTime _lastBlink = DateTime.Now;
+    private JavaScriptEngine? _jsEngine;
+    private float _scrollOffset;
+    private float _contentHeight;
+    private float _viewHeight;
+    private const float LineHeight = 18;
+    private const float PaddingX = 8;
+    private const float InputHeight = 24;
+    private float _renderX, _renderY, _renderW, _renderH;
+
+    private readonly SKPaint _font = FontHelper.CreateMonoPaint(12);
+
+    private bool _thumbDragging;
+    private float _thumbDragStartY;
+    private float _thumbDragStartOffset;
+
+    public DevToolsConsole()
+    {
+        _outputLines.Add("UpBrowser DevTools Console v1.0");
+        _outputLines.Add("Type JavaScript and press Enter to execute.");
+        _outputLines.Add("");
+    }
+
+    public void SetJavaScriptEngine(JavaScriptEngine? engine) { _jsEngine = engine; }
+
+    public void AppendOutput(string text)
+    {
+        _outputLines.Add(text);
+        _scrollOffset = float.MaxValue;
+    }
+
+    public bool TickCursorBlink()
+    {
+        if ((DateTime.Now - _lastBlink).TotalMilliseconds > 500)
+        {
+            _showCursor = !_showCursor;
+            _lastBlink = DateTime.Now;
+            return true;
+        }
+        return false;
+    }
+
+    public bool HandleWheel(double delta)
+    {
+        float outputHeight = _viewHeight - InputHeight;
+        float maxScroll = Math.Max(0, _contentHeight - outputHeight + LineHeight);
+        _scrollOffset -= (float)delta * 3;
+        _scrollOffset = Math.Max(0, Math.Min(_scrollOffset, maxScroll));
+        return true;
+    }
+
+    public void SetScrollOffset(float offset)
+    {
+        float outputHeight = _viewHeight - InputHeight;
+        float maxScroll = Math.Max(0, _contentHeight - outputHeight + LineHeight);
+        _scrollOffset = Math.Max(0, Math.Min(offset, maxScroll));
+    }
+
+    public bool HandleThumbDragStart(float y)
+    {
+        float outputHeight = _viewHeight - InputHeight;
+        if (_contentHeight <= outputHeight) return false;
+        float sh = outputHeight * outputHeight / Math.Max(1, _contentHeight);
+        float maxScroll = Math.Max(0, _contentHeight - outputHeight);
+        if (maxScroll <= 0) return false;
+        float sy = _renderY + (_scrollOffset / maxScroll) * (outputHeight - sh);
+        if (y >= sy && y <= sy + sh)
+        {
+            _thumbDragging = true;
+            _thumbDragStartY = y;
+            _thumbDragStartOffset = _scrollOffset;
+            return true;
+        }
+        return false;
+    }
+
+    public bool HandleThumbDrag(float y)
+    {
+        if (!_thumbDragging) return false;
+        float outputHeight = _viewHeight - InputHeight;
+        float sh = outputHeight * outputHeight / Math.Max(1, _contentHeight);
+        float maxScroll = Math.Max(0, _contentHeight - outputHeight);
+        if (maxScroll <= 0) return false;
+        float delta = (y - _thumbDragStartY) / Math.Max(1, outputHeight - sh) * maxScroll;
+        _scrollOffset = Math.Max(0, Math.Min(maxScroll, _thumbDragStartOffset + delta));
+        return true;
+    }
+
+    public void HandleThumbDragEnd() { _thumbDragging = false; }
+
+    public void Render(SKCanvas canvas, float x, float y, float width, float height)
+    {
+        _renderX = x; _renderY = y; _renderW = width; _renderH = height;
+        _viewHeight = height;
+
+        using var bg = new SKPaint { Color = SKColor.Parse("#1E1E1E"), Style = SKPaintStyle.Fill };
+        canvas.DrawRect(x, y, width, height, bg);
+
+        float inputY = y + height - InputHeight;
+        float outputHeight = inputY - y;
+
+        _contentHeight = 0;
+        foreach (var line in _outputLines)
+            _contentHeight += (int)Math.Ceiling(_font.MeasureText(line) / Math.Max(1, width - PaddingX * 2)) * LineHeight;
+
+        float maxScroll = Math.Max(0, _contentHeight - outputHeight + LineHeight);
+        if (_scrollOffset == float.MaxValue) _scrollOffset = maxScroll;
+        _scrollOffset = Math.Max(0, Math.Min(_scrollOffset, maxScroll));
+        maxScroll = Math.Max(0, _contentHeight - outputHeight);
+
+        canvas.Save();
+        canvas.ClipRect(new SKRect(x, y, x + width, y + outputHeight));
+        float dy = y + LineHeight - _scrollOffset;
+        foreach (var line in _outputLines)
+            DrawColored(canvas, line, x + PaddingX, ref dy, width - PaddingX * 2);
+        canvas.Restore();
+
+        DrawScrollbar(canvas, x, y, outputHeight);
+
+        canvas.DrawRect(x, inputY, width, InputHeight, new SKPaint { Color = SKColor.Parse("#2D2D2D"), Style = SKPaintStyle.Fill });
+
+        _font.Color = SKColor.Parse("#569CD6");
+        canvas.DrawText("> ", x + PaddingX, inputY + InputHeight * 0.7f, _font);
+        float pw = _font.MeasureText("> ");
+
+        _font.Color = SKColor.Parse("#D4D4D4");
+        string displayText = _inputText;
+        float textW = _font.MeasureText(displayText);
+        float textAreaW = width - PaddingX * 2 - pw - 6;
+        float textOffsetX = 0;
+        float cursorVisualPos = _font.MeasureText(displayText[..Math.Min(_cursorPos, displayText.Length)]);
+        if (cursorVisualPos > textAreaW)
+            textOffsetX = textAreaW - cursorVisualPos;
+        else if (cursorVisualPos < 0)
+            textOffsetX = 0;
+
+        canvas.Save();
+        canvas.ClipRect(new SKRect(x + PaddingX + pw, inputY, x + PaddingX + pw + textAreaW, inputY + InputHeight));
+        canvas.DrawText(displayText, x + PaddingX + pw + textOffsetX, inputY + InputHeight * 0.7f, _font);
+        canvas.Restore();
+
+        if ((DateTime.Now - _lastBlink).TotalMilliseconds > 500) { _showCursor = !_showCursor; _lastBlink = DateTime.Now; }
+        if (_showCursor)
+        {
+            float cursorX = x + PaddingX + pw + textOffsetX + cursorVisualPos;
+            canvas.DrawLine(cursorX, inputY + 4, cursorX, inputY + InputHeight - 4,
+                new SKPaint { Color = SKColors.White, Style = SKPaintStyle.Fill, StrokeWidth = 1 });
+        }
+    }
+
+    private void DrawScrollbar(SKCanvas canvas, float x, float y, float outputHeight)
+    {
+        float maxScroll = Math.Max(0, _contentHeight - outputHeight);
+        if (_contentHeight > outputHeight && maxScroll > 0)
+        {
+            float sh = outputHeight * outputHeight / _contentHeight;
+            float sy = y + (_scrollOffset / maxScroll) * (outputHeight - sh);
+            using var sp = new SKPaint { Color = new SKColor(80, 80, 80), Style = SKPaintStyle.Fill };
+            canvas.DrawRoundRect(x + _renderW - 6, sy, 4, sh, 2, 2, sp);
+        }
+    }
+
+    public bool HandleKeyPress(char keyChar, Key key)
+    {
+        switch (key)
+        {
+            case Key.Enter:
+                ExecuteInput();
+                return true;
+
+            case Key.Backspace:
+                if (_cursorPos > 0)
+                {
+                    _inputText = _inputText[..(_cursorPos - 1)] + _inputText[_cursorPos..];
+                    _cursorPos--;
+                }
+                return true;
+
+            case Key.Delete:
+                if (_cursorPos < _inputText.Length)
+                    _inputText = _inputText[.._cursorPos] + _inputText[(_cursorPos + 1)..];
+                return true;
+
+            case Key.Left:
+                if (_cursorPos > 0) _cursorPos--;
+                return true;
+
+            case Key.Right:
+                if (_cursorPos < _inputText.Length) _cursorPos++;
+                return true;
+
+            case Key.Home:
+                _cursorPos = 0;
+                return true;
+
+            case Key.End:
+                _cursorPos = _inputText.Length;
+                return true;
+
+            case Key.Up:
+                if (_commandHistory.Count > 0)
+                {
+                    if (_historyIndex < 0) _historyIndex = _commandHistory.Count - 1;
+                    else if (_historyIndex > 0) _historyIndex--;
+                    _inputText = _commandHistory[_historyIndex];
+                    _cursorPos = _inputText.Length;
+                }
+                return true;
+
+            case Key.Down:
+                if (_commandHistory.Count > 0 && _historyIndex >= 0)
+                {
+                    if (_historyIndex < _commandHistory.Count - 1)
+                    {
+                        _historyIndex++;
+                        _inputText = _commandHistory[_historyIndex];
+                    }
+                    else
+                    {
+                        _historyIndex = -1;
+                        _inputText = "";
+                    }
+                    _cursorPos = _inputText.Length;
+                }
+                return true;
+
+            default:
+                if (!char.IsControl(keyChar))
+                {
+                    _inputText = _inputText[.._cursorPos] + keyChar + _inputText[_cursorPos..];
+                    _cursorPos++;
+                }
+                return true;
+        }
+    }
+
+    private void ExecuteInput()
+    {
+        var cmd = _inputText.Trim();
+        _outputLines.Add($"> {cmd}");
+
+        if (!string.IsNullOrEmpty(cmd))
+        {
+            _commandHistory.Add(cmd);
+        }
+        _historyIndex = -1;
+
+        if (string.IsNullOrEmpty(cmd)) { _inputText = ""; _cursorPos = 0; _scrollOffset = float.MaxValue; return; }
+
+        if (cmd == "clear" || cmd == "cls")
+        {
+            _outputLines.Clear();
+            _inputText = "";
+            _cursorPos = 0;
+            _scrollOffset = float.MaxValue;
+            return;
+        }
+
+        if (_jsEngine != null)
+        {
+            try
+            {
+                var result = _jsEngine.Evaluate(cmd);
+                _outputLines.Add(result switch
+                {
+                    null => "undefined",
+                    string s => $"\"{s}\"",
+                    _ => result.ToString() ?? "undefined"
+                });
+            }
+            catch (Exception ex) { _outputLines.Add($"Error: {ex.Message}"); }
+        }
+        else _outputLines.Add("Error: JS engine not available");
+
+        _inputText = ""; _cursorPos = 0;
+        _scrollOffset = float.MaxValue;
+    }
+
+    private void DrawColored(SKCanvas canvas, string text, float x, ref float y, float maxW)
+    {
+        if (string.IsNullOrEmpty(text)) { y += LineHeight; return; }
+        if (_font.MeasureText(text) <= maxW) { DrawOne(canvas, text, x, y); y += LineHeight; return; }
+
+        int cpl = Math.Max(1, (int)(maxW / (_font.MeasureText("W") * 0.6f)));
+        for (int p = 0; p < text.Length; p += cpl)
+        {
+            int len = Math.Min(cpl, text.Length - p);
+            DrawOne(canvas, text.Substring(p, len), x, y);
+            y += LineHeight;
+        }
+    }
+
+    private void DrawOne(SKCanvas canvas, string text, float x, float y)
+    {
+        if (text.StartsWith("> ")) { _font.Color = SKColor.Parse("#569CD6"); canvas.DrawText("> ", x, y, _font); _font.Color = SKColor.Parse("#D4D4D4"); canvas.DrawText(text[2..], x + _font.MeasureText("> "), y, _font); }
+        else if (text.StartsWith("Error:") || text.StartsWith("[JS Error]")) { _font.Color = SKColor.Parse("#F44747"); canvas.DrawText(text, x, y, _font); }
+        else if (text == "true" || text == "false" || text == "undefined") { _font.Color = SKColor.Parse("#569CD6"); canvas.DrawText(text, x, y, _font); }
+        else if (text.StartsWith("\"") && text.EndsWith("\"")) { _font.Color = SKColor.Parse("#CE9178"); canvas.DrawText(text, x, y, _font); }
+        else if (int.TryParse(text, out _) || float.TryParse(text, out _)) { _font.Color = SKColor.Parse("#B5CEA8"); canvas.DrawText(text, x, y, _font); }
+        else { _font.Color = SKColor.Parse("#D4D4D4"); canvas.DrawText(text, x, y, _font); }
+    }
+}

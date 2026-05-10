@@ -217,7 +217,46 @@ public class DrawTextOp : PaintOp
 
     private static SKTypeface? _cachedChineseTypeface;
     private static bool _isChineseTypefaceDisposed = false;
-    
+
+    private static SKTypeface? _cachedEmojiTypeface;
+    private static bool _isEmojiTypefaceDisposed = false;
+
+    private static SKTypeface? GetCachedEmojiTypeface()
+    {
+        if (_cachedEmojiTypeface != null && !_isEmojiTypefaceDisposed)
+        {
+            try
+            {
+                return _cachedEmojiTypeface;
+            }
+            catch (ObjectDisposedException)
+            {
+                _isEmojiTypefaceDisposed = true;
+                _cachedEmojiTypeface = null;
+            }
+        }
+
+        var families = SKFontManager.Default.FontFamilies.ToArray();
+        string[] emojiFonts = { "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", "Segoe UI Symbol" };
+
+        foreach (var fontName in emojiFonts)
+        {
+            var index = Array.IndexOf(families, fontName);
+            if (index >= 0)
+            {
+                var tf = SKFontManager.Default.GetFontStyles(index).CreateTypeface(0);
+                if (tf != null && tf.FamilyName != null)
+                {
+                    _cachedEmojiTypeface = tf;
+                    _isEmojiTypefaceDisposed = false;
+                    return tf;
+                }
+            }
+        }
+
+        return null;
+    }
+
     private static SKTypeface GetCachedChineseTypeface()
     {
         if (_cachedChineseTypeface != null && !_isChineseTypefaceDisposed)
@@ -262,14 +301,14 @@ public class DrawTextOp : PaintOp
         if (!string.IsNullOrEmpty(FontFamily))
         {
             var fontName = FontFamily.Split(',')[0].Trim();
-            
+
             if (IsChineseString(fontName))
             {
                 var chineseTf = TryGetChineseFont(fontName);
                 if (chineseTf != null)
                     return chineseTf;
             }
-            
+
             var families = SKFontManager.Default.FontFamilies.ToArray();
             var index = Array.IndexOf(families, fontName);
             if (index >= 0)
@@ -284,7 +323,13 @@ public class DrawTextOp : PaintOp
                 }
             }
         }
-        
+
+        if (!string.IsNullOrEmpty(Text) && HasEmoji(Text))
+        {
+            var emojiTf = GetCachedEmojiTypeface();
+            if (emojiTf != null) return emojiTf;
+        }
+
         return GetCachedChineseTypeface();
     }
     
@@ -293,6 +338,16 @@ public class DrawTextOp : PaintOp
         foreach (char c in text)
         {
             if (c >= 0x4E00 && c <= 0x9FFF)
+                return true;
+        }
+        return false;
+    }
+
+    private static bool HasEmoji(string text)
+    {
+        foreach (char c in text)
+        {
+            if (c >= 0x2600 || c == 0x200D)
                 return true;
         }
         return false;

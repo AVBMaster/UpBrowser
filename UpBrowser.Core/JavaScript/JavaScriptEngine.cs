@@ -1,3 +1,5 @@
+using System.Text;
+using System.Text.Json;
 using Microsoft.ClearScript;
 using Microsoft.ClearScript.V8;
 using DomDocument = UpBrowser.Core.Dom.Document;
@@ -15,10 +17,16 @@ public class JavaScriptEngine : IDisposable
     private readonly Dictionary<int, TimerInfo> _timers = new();
     private readonly object _timersLock = new();
 
+    private int _nextFetchId = 1;
+    private readonly Dictionary<int, (ScriptObject resolve, ScriptObject reject)> _fetchCallbacks = new();
+    private readonly Dictionary<int, FetchResult> _fetchResults = new();
+    private readonly object _fetchLock = new();
+
     [ThreadStatic]
     internal static JavaScriptEngine? Current;
 
     public event Action? OnDomChanged;
+    public Func<string, string?, string?>? ShowDialog { get; set; }
 
     public JavaScriptEngine()
     {
@@ -52,9 +60,15 @@ public class JavaScriptEngine : IDisposable
             function parseFloat(s) { return __upbrowser.parseFloat(s); }
             function isNaN(v) { return __upbrowser.isNaN(v); }
             function isFinite(v) { return __upbrowser.isFinite(v); }
+
+            function fetch(url, opts) {
+                return new Promise(function(resolve, reject) {
+                    __upbrowser._fetch(url, JSON.stringify(opts || {}), resolve, reject);
+                });
+            }
         ");
 
-        _engine.AddHostObject("__win", new WindowHost());
+        _engine.AddHostObject("__win", new WindowHost(this));
         _engine.AddHostObject("navigator", new NavigatorHost());
         _engine.AddHostObject("location", new LocationHost());
         _engine.AddHostObject("history", new HistoryHost());
@@ -163,6 +177,10 @@ public class JavaScriptEngine : IDisposable
             try { action(); }
             finally { Current = null; }
         }
+
+        Current = this;
+        try { ProcessCompletedFetches(); }
+        finally { Current = null; }
     }
 
     public bool NeedsReLayout { get; set; }
@@ -207,6 +225,80 @@ public class JavaScriptEngine : IDisposable
     {
         lock (_timersLock) _timers.Remove(id);
     }
+
+    internal int AddFetch(ScriptObject resolve, ScriptObject reject)
+    {
+        var id = Interlocked.Increment(ref _nextFetchId);
+        lock (_fetchLock)
+            _fetchCallbacks[id] = (resolve, reject);
+        return id;
+    }
+
+    internal void CompleteFetch(int id, FetchResult result)
+    {
+        lock (_fetchLock)
+            _fetchResults[id] = result;
+    }
+
+    private void ProcessCompletedFetches()
+    {
+        List<(int id, FetchResult result)> completed;
+        lock (_fetchLock)
+        {
+            completed = _fetchResults.Select(kv => (kv.Key, kv.Value)).ToList();
+            _fetchResults.Clear();
+        }
+
+        foreach (var (id, result) in completed)
+        {
+            lock (_fetchLock)
+            {
+                if (!_fetchCallbacks.TryGetValue(id, out var cb)) continue;
+                _fetchCallbacks.Remove(id);
+
+                try
+                {
+                    if (result.Success)
+                    {
+                        var resp = new Dictionary<string, object?>
+                        {
+                            ["ok"] = result.Status >= 200 && result.Status < 300,
+                            ["status"] = result.Status,
+                            ["statusText"] = result.StatusText ?? "",
+                            ["data"] = result.Data ?? "",
+                            ["headers"] = result.Headers ?? new Dictionary<string, string>()
+                        };
+                        cb.resolve.Invoke(false, resp);
+                    }
+                    else
+                    {
+                        cb.reject.Invoke(false, result.Error ?? "Fetch failed");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[Fetch] callback error: {ex.Message}");
+                }
+            }
+        }
+    }
+}
+
+public class FetchOptions
+{
+    public string? Method { get; set; }
+    public string? Body { get; set; }
+    public Dictionary<string, object?>? Headers { get; set; }
+}
+
+public class FetchResult
+{
+    public bool Success { get; set; }
+    public string? Data { get; set; }
+    public int Status { get; set; }
+    public string? StatusText { get; set; }
+    public string? Error { get; set; }
+    public Dictionary<string, string>? Headers { get; set; }
 }
 
 internal class TimerInfo
@@ -218,52 +310,54 @@ internal class TimerInfo
 
 public class WindowHost
 {
+    private readonly JavaScriptEngine _engine;
+
+    public WindowHost(JavaScriptEngine engine) => _engine = engine;
+
     public void alert(object? message)
     {
         var msg = message?.ToString() ?? "";
-        Console.WriteLine("");
-        Console.WriteLine($"═══════════════════════════════════════");
-        Console.WriteLine($"  JavaScript Alert:");
-        Console.WriteLine($"  {msg}");
-        Console.WriteLine($"═══════════════════════════════════════");
-        Console.WriteLine("  Press Enter to continue...");
-        Console.WriteLine("");
-        try { System.Console.ReadLine(); } catch { }
+        if (_engine.ShowDialog != null)
+        {
+            _engine.ShowDialog(msg, "alert");
+        }
+        else
+        {
+            Console.WriteLine($"[Alert] {msg}");
+        }
     }
 
     public bool confirm(object? message)
     {
         var msg = message?.ToString() ?? "";
-        Console.WriteLine("");
-        Console.WriteLine($"═══════════════════════════════════════");
-        Console.WriteLine($"  JavaScript Confirm:");
-        Console.WriteLine($"  {msg}");
-        Console.WriteLine($"═══════════════════════════════════════");
-        Console.Write("  (y/N): ");
-        try
+        if (_engine.ShowDialog != null)
         {
-            var key = System.Console.ReadLine()?.Trim().ToLowerInvariant();
+            var result = _engine.ShowDialog(msg, "confirm");
+            return result == "true";
+        }
+        else
+        {
+            Console.Write($"[Confirm] {msg} (y/N): ");
+            var key = Console.ReadLine()?.Trim().ToLowerInvariant();
             return key == "y" || key == "yes";
         }
-        catch { return false; }
     }
 
     public string? prompt(object? message, object? defaultValue)
     {
         var msg = message?.ToString() ?? "";
         var def = defaultValue?.ToString() ?? "";
-        Console.WriteLine("");
-        Console.WriteLine($"═══════════════════════════════════════");
-        Console.WriteLine($"  JavaScript Prompt:");
-        Console.WriteLine($"  {msg}");
-        Console.WriteLine($"═══════════════════════════════════════");
-        Console.Write($"  [{def}]: ");
-        try
+        if (_engine.ShowDialog != null)
         {
-            var input = System.Console.ReadLine();
+            var result = _engine.ShowDialog(msg, "prompt:" + def);
+            return result ?? def;
+        }
+        else
+        {
+            Console.Write($"[Prompt] {msg} [{def}]: ");
+            var input = Console.ReadLine();
             return string.IsNullOrEmpty(input) ? def : input;
         }
-        catch { return def; }
     }
 }
 
@@ -277,6 +371,66 @@ public class UpBrowserBuiltins
     public int setInterval(ScriptObject fn, int ms) => _engine.SetTimer(fn, ms, true);
     public void clearTimeout(int id) => _engine.ClearTimer(id);
     public void clearInterval(int id) => _engine.ClearTimer(id);
+
+    public int _fetch(string url, string optionsJson, ScriptObject resolve, ScriptObject reject)
+    {
+        var id = _engine.AddFetch(resolve, reject);
+
+        Task.Run(async () =>
+        {
+            try
+            {
+                using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
+
+                var options = string.IsNullOrEmpty(optionsJson) ? null :
+                    System.Text.Json.JsonSerializer.Deserialize<FetchOptions>(optionsJson);
+
+                var method = options?.Method ?? "GET";
+                var req = new HttpRequestMessage(new HttpMethod(method), url);
+
+                string? contentType = null;
+                if (options?.Headers != null)
+                {
+                    foreach (var h in options.Headers)
+                    {
+                        if (string.Equals(h.Key, "Content-Type", StringComparison.OrdinalIgnoreCase))
+                            contentType = h.Value?.ToString();
+                        else
+                            req.Headers.TryAddWithoutValidation(h.Key, h.Value?.ToString() ?? "");
+                    }
+                }
+
+                if (options?.Body != null && (method == "POST" || method == "PUT" || method == "PATCH"))
+                {
+                    req.Content = new StringContent(options.Body, Encoding.UTF8);
+                    if (contentType != null)
+                        req.Content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(contentType);
+                }
+
+                var response = await http.SendAsync(req);
+                var text = await response.Content.ReadAsStringAsync();
+
+                var headers = new Dictionary<string, string>();
+                foreach (var h in response.Headers)
+                    headers[h.Key] = string.Join(", ", h.Value);
+
+                _engine.CompleteFetch(id, new FetchResult
+                {
+                    Success = true,
+                    Data = text,
+                    Status = (int)response.StatusCode,
+                    StatusText = response.ReasonPhrase ?? "",
+                    Headers = headers
+                });
+            }
+            catch (Exception ex)
+            {
+                _engine.CompleteFetch(id, new FetchResult { Success = false, Error = ex.Message });
+            }
+        });
+
+        return id;
+    }
 
     public string decodeURI(string str) => Uri.UnescapeDataString(str);
     public string encodeURI(string str) => Uri.EscapeDataString(str);
