@@ -111,11 +111,11 @@ public static class FormElements
                 style.BorderBottomColor = SKColor.Parse("#767676");
                 style.BorderLeftColor = SKColor.Parse("#767676");
 
-                // 内边距 - 确保是 PixelLength 类型
-                style.PaddingTop = new PixelLength(4);
-                style.PaddingBottom = new PixelLength(4);
-                style.PaddingLeft = new PixelLength(10);
-                style.PaddingRight = new PixelLength(10);
+                // 内边距 - 与 Chromium 一致
+                style.PaddingTop = new PixelLength(1);
+                style.PaddingBottom = new PixelLength(1);
+                style.PaddingLeft = new PixelLength(6);
+                style.PaddingRight = new PixelLength(6);
 
                 // 背景色
                 style.BackgroundColor = SKColor.Parse("#EFEFEF");

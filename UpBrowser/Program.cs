@@ -8,6 +8,7 @@ using UpBrowser.Core.EventLoop;
 using AngleSharp;
 using SkiaSharp;
 using System.IO;
+using System.Text;
 
 namespace UpBrowser;
 
@@ -596,11 +597,31 @@ class Program
             }
             else if (child.NodeType == AngleSharp.Dom.NodeType.Text)
             {
-                var text = child.TextContent?.Trim();
-                if (!string.IsNullOrEmpty(text))
+                var text = NormalizeTextContent(child.TextContent ?? "");
+                if (!string.IsNullOrWhiteSpace(text))
                     target.AppendChild(new TextNode(text));
             }
         }
+    }
+
+    static string NormalizeTextContent(string text)
+    {
+        if (string.IsNullOrEmpty(text)) return text;
+        var sb = new StringBuilder(text.Length);
+        bool prevSpace = false;
+        foreach (var c in text)
+        {
+            if (char.IsWhiteSpace(c))
+            {
+                if (!prevSpace) { sb.Append(' '); prevSpace = true; }
+            }
+            else
+            {
+                sb.Append(c);
+                prevSpace = false;
+            }
+        }
+        return sb.ToString();
     }
 
     static void ConvertElementChildren(AngleSharp.Dom.INode source, Element target)
@@ -627,8 +648,8 @@ class Program
             }
             else if (child.NodeType == AngleSharp.Dom.NodeType.Text)
             {
-                var text = child.TextContent?.Trim();
-                if (!string.IsNullOrEmpty(text))
+                var text = NormalizeTextContent(child.TextContent ?? "");
+                if (!string.IsNullOrWhiteSpace(text))
                     target.AppendChild(new TextNode(text));
             }
         }

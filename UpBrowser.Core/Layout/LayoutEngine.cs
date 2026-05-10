@@ -327,6 +327,40 @@ public class LayoutEngine
                 currentY += actualMarginTop;
                 collapsedMarginBottom = 0;
 
+                if (childStyle.Display == DisplayType.Inline)
+                {
+                    var textSb = new StringBuilder();
+                    TextNode? firstTextNode = null;
+                    foreach (var c in childElement.Children)
+                    {
+                        if (c is TextNode tn)
+                        {
+                            textSb.Append(tn.TextContent);
+                            firstTextNode ??= tn;
+                        }
+                    }
+                    string text = textSb.ToString().Trim();
+                    if (!string.IsNullOrEmpty(text) && firstTextNode != null)
+                    {
+                        float inlineFontSize = childStyle.FontSize > 0 ? childStyle.FontSize : fontSize;
+                        float textWidth = text.Length * inlineFontSize * 0.55f;
+
+                        box.LineRuns ??= new List<InlineRun>();
+                        box.LineRuns.Add(new InlineRun
+                        {
+                            Text = text,
+                            Width = textWidth,
+                            Height = inlineFontSize,
+                            IsText = true,
+                            Node = firstTextNode,
+                            Color = childStyle.Color.Alpha > 0 ? childStyle.Color : style.Color,
+                            FontSize = inlineFontSize,
+                            FontFamily = childStyle.FontFamily ?? style.FontFamily
+                        });
+                    }
+                    continue;
+                }
+
                 if (childStyle.Clear != ClearType.None)
                 {
                     float clearY = currentY;

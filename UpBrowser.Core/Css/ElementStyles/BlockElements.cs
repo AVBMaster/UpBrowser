@@ -80,9 +80,8 @@ public static class BlockElements
                 break;
             case "li":
                 style.Display = DisplayType.ListItem;
-                // li 默认 margin 为 0，间距由 line-height 和父元素 margin 控制
-                style.MarginTop = new PixelLength(0);
-                style.MarginBottom = new PixelLength(0);
+                style.PaddingTop = new PixelLength(2);
+                style.PaddingBottom = new PixelLength(2);
                 style.PaddingLeft = new PixelLength(20);
                 break;
             case "dl":
