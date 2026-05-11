@@ -43,6 +43,13 @@ public class ChromeRenderer
     private SKFont _cachedTitleFont = null!;
     private SKFont _cachedStatusFont = null!;
     private SKFont _cachedSymbolFont = null!;
+    private SKFont _cachedCloseFont = null!;
+
+    // Cached per-frame paints
+    private SKPaint _scrollbarTrackPaint = null!;
+    private SKPaint _scrollbarThumbPaint = null!;
+    private SKPaint _closeBtnHoverPaint = null!;
+    private SKPaint _closeBtnHoverBgPaint = null!;
 
     private bool _backHovered;
     private bool _forwardHovered;
@@ -122,7 +129,13 @@ public class ChromeRenderer
         _cachedStatusFont = new SKFont(_chineseTypeface, 11) { Hinting = SKFontHinting.Normal, Edging = SKFontEdging.Antialias };
         _cachedSymbolPaint = new SKPaint { Color = SKColor.Parse("#3C4043"), IsAntialias = true };
         _cachedSymbolFont = new SKFont(_chineseTypeface, 14) { Hinting = SKFontHinting.Normal, Edging = SKFontEdging.Antialias };
+        _cachedCloseFont = new SKFont(_chineseTypeface ?? SKTypeface.Default, 11) { Hinting = SKFontHinting.Normal, Edging = SKFontEdging.Antialias };
         _cachedCursorPaint = new SKPaint { Color = SKColor.Parse("#1A73E8"), Style = SKPaintStyle.Fill, StrokeWidth = 1 };
+
+        _scrollbarTrackPaint = new SKPaint { Color = new SKColor(230, 230, 230), Style = SKPaintStyle.Fill };
+        _scrollbarThumbPaint = new SKPaint { Color = new SKColor(180, 180, 180), Style = SKPaintStyle.Fill, IsAntialias = true };
+        _closeBtnHoverBgPaint = new SKPaint { Color = SKColor.Parse("#DADCE0"), Style = SKPaintStyle.Fill, IsAntialias = true };
+        _closeBtnHoverPaint = new SKPaint { Color = SKColor.Parse("#202124"), IsAntialias = true };
 
         // 默认打开一个新标签页
         _tabs.Add(new TabInfo { Title = "New Tab", Url = "upbrowser://newtab", IsActive = true });
@@ -244,21 +257,12 @@ public class ChromeRenderer
             }
 
             // 关闭按钮 X
-            using var closePaint = new SKPaint
-            {
-                Color = (i == _hoveredCloseIndex) ? SKColor.Parse("#202124") : SKColor.Parse("#80868B"),
-                IsAntialias = true
-            };
-            using var closeFont = new SKFont(_chineseTypeface ?? SKTypeface.Default, 11)
-            {
-                Hinting = SKFontHinting.Normal,
-                Edging = SKFontEdging.Antialias
-            };
+            _closeBtnHoverPaint.Color = (i == _hoveredCloseIndex) ? SKColor.Parse("#202124") : SKColor.Parse("#80868B");
             float cx = closeRect.Left + closeBtnSize / 2;
             float cy = closeRect.Top + closeBtnSize * 0.7f;
             string closeSymbol = "✕";
-            float symWidth = closeFont.MeasureText(closeSymbol);
-            canvas.DrawText(closeSymbol, cx - symWidth / 2, cy, SKTextAlign.Left, closeFont, closePaint);
+            float symWidth = _cachedCloseFont.MeasureText(closeSymbol);
+            canvas.DrawText(closeSymbol, cx - symWidth / 2, cy, SKTextAlign.Left, _cachedCloseFont, _closeBtnHoverPaint);
 
             tabX += tabWidth + 3;
         }
@@ -704,8 +708,7 @@ public class ChromeRenderer
 
             if (contentHeight <= viewportHeight) return;
 
-            using var trackPaint = new SKPaint { Color = new SKColor(230, 230, 230), Style = SKPaintStyle.Fill };
-            canvas.DrawRect(scrollbarLeft, trackTop, ScrollManager.ScrollbarWidth, trackHeight, trackPaint);
+            canvas.DrawRect(scrollbarLeft, trackTop, ScrollManager.ScrollbarWidth, trackHeight, _scrollbarTrackPaint);
 
             float thumbHeight = Math.Max(ScrollManager.ScrollbarMinThumbSize,
                 trackHeight * viewportHeight / contentHeight);
@@ -717,13 +720,7 @@ public class ChromeRenderer
 
             var thumbRect = new SKRect(scrollbarLeft + 2, thumbTop,
                 scrollbarLeft + ScrollManager.ScrollbarWidth - 2, thumbTop + thumbHeight);
-            using var thumbPaint = new SKPaint
-            {
-                Color = new SKColor(180, 180, 180),
-                Style = SKPaintStyle.Fill,
-                IsAntialias = true
-            };
-            canvas.DrawRoundRect(thumbRect, 4, 4, thumbPaint);
+            canvas.DrawRoundRect(thumbRect, 4, 4, _scrollbarThumbPaint);
         }
 
         if (scrollManager.CanScrollX && viewportWidth > 0)
@@ -736,8 +733,7 @@ public class ChromeRenderer
 
             if (contentWidth <= viewportWidth) return;
 
-            using var trackPaint = new SKPaint { Color = new SKColor(230, 230, 230), Style = SKPaintStyle.Fill };
-            canvas.DrawRect(trackLeft, scrollbarTop, trackWidth, ScrollManager.ScrollbarWidth, trackPaint);
+            canvas.DrawRect(trackLeft, scrollbarTop, trackWidth, ScrollManager.ScrollbarWidth, _scrollbarTrackPaint);
 
             float thumbWidth = Math.Max(ScrollManager.ScrollbarMinThumbSize,
                 trackWidth * viewportWidth / contentWidth);
@@ -749,13 +745,7 @@ public class ChromeRenderer
 
             var thumbRect = new SKRect(thumbLeft, scrollbarTop + 2,
                 thumbLeft + thumbWidth, scrollbarTop + ScrollManager.ScrollbarWidth - 2);
-            using var thumbPaint = new SKPaint
-            {
-                Color = new SKColor(180, 180, 180),
-                Style = SKPaintStyle.Fill,
-                IsAntialias = true
-            };
-            canvas.DrawRoundRect(thumbRect, 4, 4, thumbPaint);
+            canvas.DrawRoundRect(thumbRect, 4, 4, _scrollbarThumbPaint);
         }
     }
 
@@ -792,6 +782,12 @@ public class ChromeRenderer
         _cachedTitleFont.Dispose();
         _cachedStatusFont.Dispose();
         _cachedSymbolFont.Dispose();
+        _cachedCloseFont.Dispose();
+
+        _scrollbarTrackPaint.Dispose();
+        _scrollbarThumbPaint.Dispose();
+        _closeBtnHoverPaint.Dispose();
+        _closeBtnHoverBgPaint.Dispose();
     }
 }
 

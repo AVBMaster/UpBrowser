@@ -304,7 +304,9 @@ public class WindowsWindow : IWindow
         NativeWindow.MSG msg;
         while (_isRunning)
         {
-            if (NativeWindow.PeekMessageW(out msg, IntPtr.Zero, 0, 0, 1))
+            bool hasMessage = NativeWindow.PeekMessageW(out msg, IntPtr.Zero, 0, 0, 1);
+
+            if (hasMessage)
             {
                 if (msg.message == NativeWindow.WM_QUIT)
                     break;
@@ -317,8 +319,16 @@ public class WindowsWindow : IWindow
             {
                 var now = DateTime.Now;
                 var dt = (now - _lastFrameTime).TotalSeconds;
-                _lastFrameTime = now;
-                _onFrame(dt);
+
+                if (dt >= 0.016)
+                {
+                    _lastFrameTime = now;
+                    _onFrame(dt);
+                }
+                else if (!hasMessage)
+                {
+                    Thread.Sleep(1);
+                }
             }
         }
     }

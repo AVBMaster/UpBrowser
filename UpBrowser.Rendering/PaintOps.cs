@@ -245,6 +245,23 @@ public class DrawTextOp : PaintOp
     private static SKTypeface? _cachedEmojiTypeface;
     private static bool _isEmojiTypefaceDisposed = false;
 
+    private static string[] _cachedFontFamilies = null!;
+    private static readonly object _fontFamiliesLock = new();
+    private static readonly Dictionary<string, SKTypeface> _globalTypefaceCache = new();
+
+    private static string[] GetFontFamilies()
+    {
+        if (_cachedFontFamilies == null)
+        {
+            lock (_fontFamiliesLock)
+            {
+                if (_cachedFontFamilies == null)
+                    _cachedFontFamilies = SKFontManager.Default.FontFamilies.ToArray();
+            }
+        }
+        return _cachedFontFamilies;
+    }
+
     private static SKTypeface? GetCachedEmojiTypeface()
     {
         if (_cachedEmojiTypeface != null && !_isEmojiTypefaceDisposed)
@@ -260,7 +277,7 @@ public class DrawTextOp : PaintOp
             }
         }
 
-        var families = SKFontManager.Default.FontFamilies.ToArray();
+        var families = GetFontFamilies();
         string[] emojiFonts = { "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", "Segoe UI Symbol" };
 
         foreach (var fontName in emojiFonts)
@@ -296,7 +313,7 @@ public class DrawTextOp : PaintOp
             }
         }
         
-        var families = SKFontManager.Default.FontFamilies.ToArray();
+        var families = GetFontFamilies();
         string[] chineseFonts = { "Microsoft YaHei", "Microsoft YaHei UI", "SimSun", "SimHei", "KaiTi", "FangSong", "YouYuan", "STSong" };
         
         foreach (var fontName in chineseFonts)
@@ -325,14 +342,27 @@ public class DrawTextOp : PaintOp
         {
             var fontName = FontFamily.Split(',')[0].Trim();
 
-            if (IsChineseString(fontName))
+            var cacheKey = "tf:" + fontName;
+            lock (_globalTypefaceCache)
             {
-                var chineseTf = TryGetChineseFont(fontName);
-                if (chineseTf != null)
-                    return chineseTf;
+                if (_globalTypefaceCache.TryGetValue(cacheKey, out var cached))
+                    return cached;
             }
 
-            var families = SKFontManager.Default.FontFamilies.ToArray();
+            SKTypeface? result = null;
+
+            if (IsChineseString(fontName))
+            {
+                result = TryGetChineseFont(fontName);
+                if (result != null)
+                {
+                    lock (_globalTypefaceCache)
+                        _globalTypefaceCache[cacheKey] = result;
+                    return result;
+                }
+            }
+
+            var families = GetFontFamilies();
             var index = Array.IndexOf(families, fontName);
             if (index >= 0)
             {
@@ -342,8 +372,20 @@ public class DrawTextOp : PaintOp
                 {
                     bool isSystemFont = tf.FamilyName == "Segoe UI" || tf.FamilyName == "Arial";
                     if (!isSystemFont)
+                    {
+                        lock (_globalTypefaceCache)
+                            _globalTypefaceCache[cacheKey] = tf;
                         return tf;
+                    }
+                    result = tf;
                 }
+            }
+
+            if (result != null)
+            {
+                lock (_globalTypefaceCache)
+                    _globalTypefaceCache[cacheKey] = result;
+                return result;
             }
         }
 
@@ -378,7 +420,7 @@ public class DrawTextOp : PaintOp
     
     private static SKTypeface? TryGetChineseFont(string fontName)
     {
-        var families = SKFontManager.Default.FontFamilies.ToArray();
+        var families = GetFontFamilies();
         var index = Array.IndexOf(families, fontName);
         if (index >= 0)
         {

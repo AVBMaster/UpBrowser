@@ -27,6 +27,7 @@ public class JavaScriptEngine : IDisposable
 
     public event Action? OnDomChanged;
     public Func<string, string?, string?>? ShowDialog { get; set; }
+    public bool HasTimers { get { lock (_timersLock) return _timers.Count > 0; } }
 
     public JavaScriptEngine()
     {

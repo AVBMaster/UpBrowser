@@ -72,8 +72,6 @@ public class BrowserApp : IDisposable
     private float _lastLayoutWidth;
     private string _currentHtml = "";
 
-    private DateTime _lastRenderTime = DateTime.Now;
-    private readonly TimeSpan _targetFrameTime = TimeSpan.FromSeconds(1.0 / 60.0);
     private int _lastWindowWidth;
     private int _lastWindowHeight;
     private float _lastScrollX;
@@ -81,6 +79,11 @@ public class BrowserApp : IDisposable
     private float _lastDevToolsHeight;
     private bool _lastDevToolsVisible;
     private readonly DevToolsPanel _devTools;
+
+    private readonly ImageCache _sharedImageCache = new();
+    private readonly Dictionary<string, SKTypeface> _sharedTypefaceCache = new();
+    private static string[]? _fontFamilies;
+    private bool _pendingRelayout;
 
     private DateTime _lastInputTime = DateTime.Now;
     private const double InputCooldownMs = 80;
@@ -102,6 +105,9 @@ public class BrowserApp : IDisposable
 
     public BrowserApp(int logicalWidth, int logicalHeight)
     {
+        // Cache font families once at startup (avoids O(SKFontManager) enumeration per frame)
+        _fontFamilies ??= SkiaSharp.SKFontManager.Default.FontFamilies.ToArray();
+
         _dpiScale = PlatformFactory.GetDpiScale();
         Console.WriteLine($"DPI Scale: {_dpiScale:F2} ({_dpiScale * 100}%)");
 
@@ -508,7 +514,10 @@ var winWindow = PlatformFactory.CreateWindowsWindow(physicalWidth, physicalHeigh
 
         _layout.Layout(_currentLoad.Document, windowWidth, windowHeight);
 
-        _cachedPaintVisitor = new PaintVisitor(_contentOffset);
+        // Return old display list ops to pool before creating new one (fixes memory leak)
+        _displayList.Clear();
+
+        _cachedPaintVisitor = new PaintVisitor(_contentOffset, _sharedTypefaceCache, _sharedImageCache, _fontFamilies);
         _cachedPaintVisitor.VisitDocument(_currentLoad.Document);
         _displayList = _cachedPaintVisitor.GetDisplayList();
         _displayList.SortByZIndex();
@@ -521,7 +530,8 @@ var winWindow = PlatformFactory.CreateWindowsWindow(physicalWidth, physicalHeigh
     private void RenderFrame(double dt)
     {
         _eventLoop.ProcessTasks();
-        _jsEngine.TickTimers();
+        if (_jsEngine.HasTimers)
+            _jsEngine.TickTimers();
 
         if (_input.IsMouseDown())
         {
@@ -548,6 +558,7 @@ var winWindow = PlatformFactory.CreateWindowsWindow(physicalWidth, physicalHeigh
 
         bool cursorChanged = _chrome.UpdateCursorBlink();
         bool devToolsCursorChanged = _devTools.Visible && _devTools.TickCursorBlink();
+        bool cursorNeedsRedraw = (cursorChanged && _chrome.IsUrlBarFocused()) || devToolsCursorChanged;
 
         var (pw, ph) = _window.GetClientSize();
         int windowWidth = (int)(pw / _dpiScale);
@@ -558,17 +569,16 @@ var winWindow = PlatformFactory.CreateWindowsWindow(physicalWidth, physicalHeigh
                              Math.Abs(_scroll.ScrollY - _lastScrollY) > 0.5f;
 
         bool inputRecently = (DateTime.Now - _lastInputTime).TotalMilliseconds < InputCooldownMs;
-        bool cursorNeedsRedraw = (cursorChanged && _chrome.IsUrlBarFocused()) || devToolsCursorChanged;
-        bool needsRedraw = _input.NeedsRedraw || _jsEngine.NeedsReLayout || devToolsChanged ||
+
+        // Accumulate pending relayout flag
+        if (_jsEngine.NeedsReLayout)
+            _pendingRelayout = true;
+
+        bool needsRedraw = _input.NeedsRedraw || _pendingRelayout || devToolsChanged ||
                            (cursorNeedsRedraw && !inputRecently) || scrollChanged;
 
         if (!sizeChanged && !needsRedraw)
             return;
-
-        var now = DateTime.Now;
-        if ((now - _lastRenderTime) < _targetFrameTime && !sizeChanged && !_input.NeedsRedraw && !scrollChanged && !devToolsChanged)
-            return;
-        _lastRenderTime = now;
 
         if (windowWidth <= 0 || windowHeight <= 0 || _currentLoad == null)
             return;
@@ -582,15 +592,16 @@ var winWindow = PlatformFactory.CreateWindowsWindow(physicalWidth, physicalHeigh
 
         float contentViewportHeight = windowHeight - _contentOffset - _chrome.GetStatusBarHeight() - currentDevToolsHeight;
 
-        if (sizeChanged || windowWidth != _lastLayoutWidth || _jsEngine.NeedsReLayout || devToolsChanged)
+        if (sizeChanged || windowWidth != _lastLayoutWidth || _pendingRelayout || devToolsChanged)
         {
             _lastLayoutWidth = windowWidth;
 
-            if (_jsEngine.NeedsReLayout)
+            if (_pendingRelayout)
             {
                 var styleComputer = new StyleComputer();
                 styleComputer.ComputeStyles(_currentLoad.Document);
                 _jsEngine.ClearDirty();
+                _pendingRelayout = false;
             }
 
             BuildDisplayList(windowWidth, Math.Max(100, (int)contentViewportHeight));
@@ -601,11 +612,9 @@ var winWindow = PlatformFactory.CreateWindowsWindow(physicalWidth, physicalHeigh
 
             _scroll.UpdateScroll(contentWidth, contentHeight, windowWidth, contentViewportHeight);
 
-            // Position IME caret after layout rebuild
             PositionImeCaret();
         }
 
-        // Update IME caret position each frame when an input element is focused
         if (_focusedElement != null && _focusedElement.IsFormElement)
         {
             PositionImeCaret();

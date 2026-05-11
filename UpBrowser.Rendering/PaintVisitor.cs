@@ -9,14 +9,21 @@ public class PaintVisitor
 {
     private readonly DisplayList _displayList = new();
     private SKTypeface _defaultTypeface = SKTypeface.Default;
-    private Dictionary<string, SKTypeface> _typefaceCache = new();
-    private ImageCache _imageCache = new();
+    private Dictionary<string, SKTypeface> _typefaceCache;
+    private ImageCache _imageCache;
     private float _contentOffsetY;
+    private string[]? _fontFamilies;
 
-    public PaintVisitor(float contentOffsetY = 0)
+    public PaintVisitor(float contentOffsetY = 0,
+        Dictionary<string, SKTypeface>? sharedTypefaceCache = null,
+        ImageCache? sharedImageCache = null,
+        string[]? fontFamilies = null)
     {
         _contentOffsetY = contentOffsetY;
         _defaultTypeface = FontHelper.GetChineseTypeface() ?? SKTypeface.Default;
+        _typefaceCache = sharedTypefaceCache ?? new Dictionary<string, SKTypeface>();
+        _imageCache = sharedImageCache ?? new ImageCache();
+        _fontFamilies = fontFamilies;
     }
 
     private float TotalOffsetY => _contentOffsetY;
@@ -29,7 +36,7 @@ public class PaintVisitor
         var key = $"{family}:{weight}";
         if (!_typefaceCache.TryGetValue(key, out var typeface))
         {
-            var families = SKFontManager.Default.FontFamilies.ToArray();
+            var families = _fontFamilies ?? SKFontManager.Default.FontFamilies.ToArray();
             var index = Array.IndexOf(families, family);
             if (index >= 0)
             {
