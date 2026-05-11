@@ -6,8 +6,8 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="AngleSharp" Version="1.1.2" />
-    <PackageReference Include="Microsoft.ClearScript" Version="7.4.5" />
-    <PackageReference Include="SkiaSharp" Version="2.88.9" />
+    <PackageReference Include="AngleSharp" Version="*" />
+    <PackageReference Include="Microsoft.ClearScript" Version="*" />
+    <PackageReference Include="SkiaSharp" Version="*" />
   </ItemGroup>
 </Project>

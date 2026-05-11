@@ -185,7 +185,7 @@ public class DrawTextOp : PaintOp
         using var typeface = GetTypeface();
         using var font = new SKFont(typeface, FontSize)
         {
-            Edging = SKFontEdging.Antialias,
+            Edging = SKFontEdging.SubpixelAntialias,
             Subpixel = true,
             Hinting = SKFontHinting.Normal
         };
@@ -193,25 +193,24 @@ public class DrawTextOp : PaintOp
         {
             Color = Color,
             Style = SKPaintStyle.Fill,
-            IsAntialias = true,
-            LcdRenderText = true
+            IsAntialias = true
         };
 
         float x = X;
         if (TextAlign == TextAlignType.Center)
         {
-            float width = paint.MeasureText(Text);
+            float width = font.MeasureText(Text);
             x -= width / 2;
         }
         else if (TextAlign == TextAlignType.End || TextAlign == TextAlignType.Right)
         {
-            float width = paint.MeasureText(Text);
+            float width = font.MeasureText(Text);
             x -= width;
         }
 
         canvas.DrawText(Text, x, Y, font, paint);
 
-        float textWidth = paint.MeasureText(Text);
+        float textWidth = font.MeasureText(Text);
 
         if (Underline)
         {

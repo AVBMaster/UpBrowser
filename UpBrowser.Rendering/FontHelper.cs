@@ -33,33 +33,48 @@ public static class FontHelper
     public static SKPaint CreateMonoPaint(float textSize = 12)
     {
         Initialize();
-        return new SKPaint
+        return new SKPaint { IsAntialias = true };
+    }
+
+    public static SKFont CreateMonoFont(float textSize = 12)
+    {
+        Initialize();
+        return new SKFont(_monoTypeface ?? _defaultTypeface ?? SKTypeface.Default, textSize)
         {
-            TextSize = textSize,
-            IsAntialias = true,
-            Typeface = _monoTypeface ?? _defaultTypeface ?? SKTypeface.Default,
+            Hinting = SKFontHinting.Normal,
+            Edging = SKFontEdging.Antialias
         };
     }
 
     public static SKPaint CreatePaint(float textSize = 12)
     {
         Initialize();
-        return new SKPaint
+        return new SKPaint { IsAntialias = true };
+    }
+
+    public static SKFont CreateFont(float textSize = 12)
+    {
+        Initialize();
+        return new SKFont(_defaultTypeface ?? SKTypeface.Default, textSize)
         {
-            TextSize = textSize,
-            IsAntialias = true,
-            Typeface = _defaultTypeface ?? SKTypeface.Default,
+            Hinting = SKFontHinting.Normal,
+            Edging = SKFontEdging.Antialias
         };
     }
 
     public static SKPaint CreateChinesePaint(float textSize = 12)
     {
         Initialize();
-        return new SKPaint
+        return new SKPaint { IsAntialias = true };
+    }
+
+    public static SKFont CreateChineseFont(float textSize = 12)
+    {
+        Initialize();
+        return new SKFont(_chineseTypeface ?? _defaultTypeface ?? SKTypeface.Default, textSize)
         {
-            TextSize = textSize,
-            IsAntialias = true,
-            Typeface = _chineseTypeface ?? _defaultTypeface ?? SKTypeface.Default,
+            Hinting = SKFontHinting.Normal,
+            Edging = SKFontEdging.Antialias
         };
     }
 
@@ -90,11 +105,16 @@ public static class FontHelper
     public static SKPaint CreateEmojiPaint(float textSize = 12)
     {
         Initialize();
-        return new SKPaint
+        return new SKPaint { IsAntialias = true };
+    }
+
+    public static SKFont CreateEmojiFont(float textSize = 12)
+    {
+        Initialize();
+        return new SKFont(_emojiTypeface ?? _defaultTypeface ?? SKTypeface.Default, textSize)
         {
-            TextSize = textSize,
-            IsAntialias = true,
-            Typeface = _emojiTypeface ?? _defaultTypeface ?? SKTypeface.Default,
+            Hinting = SKFontHinting.Normal,
+            Edging = SKFontEdging.Antialias
         };
     }
 

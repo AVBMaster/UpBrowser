@@ -26,6 +26,7 @@ public class DevToolsConsole
     private float _renderX, _renderY, _renderW, _renderH;
 
     private readonly SKPaint _font = FontHelper.CreateMonoPaint(12);
+    private readonly SKFont _skFont = FontHelper.CreateMonoFont(12);
 
     private bool _thumbDragging;
     private float _thumbDragStartY;
@@ -115,7 +116,7 @@ public class DevToolsConsole
         float inputY = _renderY + _renderH - InputHeight;
         if (y >= inputY && y <= inputY + InputHeight)
         {
-            float textStartX = _renderX + PaddingX + _font.MeasureText("> ");
+            float textStartX = _renderX + PaddingX + _skFont.MeasureText("> ");
             float clickX = x - textStartX;
             _selectionStart = -1;
             _selectionEnd = -1;
@@ -123,7 +124,7 @@ public class DevToolsConsole
             float currentX = 0;
             for (int i = 0; i <= _inputText.Length; i++)
             {
-                float charWidth = i < _inputText.Length ? _font.MeasureText(_inputText[i].ToString()) : _font.MeasureText(" ");
+                float charWidth = i < _inputText.Length ? _skFont.MeasureText(_inputText[i].ToString()) : _skFont.MeasureText(" ");
                 if (currentX + charWidth / 2 >= clickX)
                 {
                     _cursorPos = i;
@@ -177,7 +178,7 @@ public class DevToolsConsole
 
         _contentHeight = 0;
         foreach (var line in _outputLines)
-            _contentHeight += (int)Math.Ceiling(_font.MeasureText(line) / Math.Max(1, width - PaddingX * 2)) * LineHeight;
+            _contentHeight += (int)Math.Ceiling(_skFont.MeasureText(line) / Math.Max(1, width - PaddingX * 2)) * LineHeight;
 
         float maxScroll = Math.Max(0, _contentHeight - outputHeight + LineHeight);
         if (_scrollOffset == float.MaxValue) _scrollOffset = maxScroll;
@@ -196,15 +197,15 @@ public class DevToolsConsole
         canvas.DrawRect(x, inputY, width, InputHeight, new SKPaint { Color = SKColor.Parse("#2D2D2D"), Style = SKPaintStyle.Fill });
 
         _font.Color = SKColor.Parse("#569CD6");
-        canvas.DrawText("> ", x + PaddingX, inputY + InputHeight * 0.7f, _font);
-        float pw = _font.MeasureText("> ");
+        canvas.DrawText("> ", x + PaddingX, inputY + InputHeight * 0.7f, SKTextAlign.Left, _skFont, _font);
+        float pw = _skFont.MeasureText("> ");
 
         _font.Color = SKColor.Parse("#D4D4D4");
         string displayText = _inputText;
-        float textW = _font.MeasureText(displayText);
+        float textW = _skFont.MeasureText(displayText);
         float textAreaW = width - PaddingX * 2 - pw - 6;
         float textOffsetX = 0;
-        float cursorVisualPos = _font.MeasureText(displayText[..Math.Min(_cursorPos, displayText.Length)]);
+        float cursorVisualPos = _skFont.MeasureText(displayText[..Math.Min(_cursorPos, displayText.Length)]);
         if (cursorVisualPos > textAreaW)
             textOffsetX = textAreaW - cursorVisualPos;
         else if (cursorVisualPos < 0)
@@ -217,13 +218,13 @@ public class DevToolsConsole
         {
             int selStart = Math.Min(_selectionStart, _selectionEnd);
             int selEnd = Math.Max(_selectionStart, _selectionEnd);
-            float selStartX = _font.MeasureText(displayText[..Math.Min(selStart, displayText.Length)]);
-            float selEndX = _font.MeasureText(displayText[..Math.Min(selEnd, displayText.Length)]);
+            float selStartX = _skFont.MeasureText(displayText[..Math.Min(selStart, displayText.Length)]);
+            float selEndX = _skFont.MeasureText(displayText[..Math.Min(selEnd, displayText.Length)]);
             using var selBg = new SKPaint { Color = SKColor.Parse("#264F78"), Style = SKPaintStyle.Fill };
             canvas.DrawRect(x + PaddingX + pw + textOffsetX + selStartX, inputY + 2, selEndX - selStartX, InputHeight - 4, selBg);
         }
 
-        canvas.DrawText(displayText, x + PaddingX + pw + textOffsetX, inputY + InputHeight * 0.7f, _font);
+        canvas.DrawText(displayText, x + PaddingX + pw + textOffsetX, inputY + InputHeight * 0.7f, SKTextAlign.Left, _skFont, _font);
         canvas.Restore();
 
         if ((DateTime.Now - _lastBlink).TotalMilliseconds > 500) { _showCursor = !_showCursor; _lastBlink = DateTime.Now; }
@@ -429,9 +430,9 @@ public class DevToolsConsole
     private void DrawColored(SKCanvas canvas, string text, float x, ref float y, float maxW)
     {
         if (string.IsNullOrEmpty(text)) { y += LineHeight; return; }
-        if (_font.MeasureText(text) <= maxW) { DrawOne(canvas, text, x, y); y += LineHeight; return; }
+        if (_skFont.MeasureText(text) <= maxW) { DrawOne(canvas, text, x, y); y += LineHeight; return; }
 
-        int cpl = Math.Max(1, (int)(maxW / (_font.MeasureText("W") * 0.6f)));
+        int cpl = Math.Max(1, (int)(maxW / (_skFont.MeasureText("W") * 0.6f)));
         for (int p = 0; p < text.Length; p += cpl)
         {
             int len = Math.Min(cpl, text.Length - p);
@@ -442,11 +443,11 @@ public class DevToolsConsole
 
     private void DrawOne(SKCanvas canvas, string text, float x, float y)
     {
-        if (text.StartsWith("> ")) { _font.Color = SKColor.Parse("#569CD6"); canvas.DrawText("> ", x, y, _font); _font.Color = SKColor.Parse("#D4D4D4"); canvas.DrawText(text[2..], x + _font.MeasureText("> "), y, _font); }
-        else if (text.StartsWith("Error:") || text.StartsWith("[JS Error]")) { _font.Color = SKColor.Parse("#F44747"); canvas.DrawText(text, x, y, _font); }
-        else if (text == "true" || text == "false" || text == "undefined") { _font.Color = SKColor.Parse("#569CD6"); canvas.DrawText(text, x, y, _font); }
-        else if (text.StartsWith("\"") && text.EndsWith("\"")) { _font.Color = SKColor.Parse("#CE9178"); canvas.DrawText(text, x, y, _font); }
-        else if (int.TryParse(text, out _) || float.TryParse(text, out _)) { _font.Color = SKColor.Parse("#B5CEA8"); canvas.DrawText(text, x, y, _font); }
-        else { _font.Color = SKColor.Parse("#D4D4D4"); canvas.DrawText(text, x, y, _font); }
+        if (text.StartsWith("> ")) { _font.Color = SKColor.Parse("#569CD6"); canvas.DrawText("> ", x, y, SKTextAlign.Left, _skFont, _font); _font.Color = SKColor.Parse("#D4D4D4"); canvas.DrawText(text[2..], x + _skFont.MeasureText("> "), y, SKTextAlign.Left, _skFont, _font); }
+        else if (text.StartsWith("Error:") || text.StartsWith("[JS Error]")) { _font.Color = SKColor.Parse("#F44747"); canvas.DrawText(text, x, y, SKTextAlign.Left, _skFont, _font); }
+        else if (text == "true" || text == "false" || text == "undefined") { _font.Color = SKColor.Parse("#569CD6"); canvas.DrawText(text, x, y, SKTextAlign.Left, _skFont, _font); }
+        else if (text.StartsWith("\"") && text.EndsWith("\"")) { _font.Color = SKColor.Parse("#CE9178"); canvas.DrawText(text, x, y, SKTextAlign.Left, _skFont, _font); }
+        else if (int.TryParse(text, out _) || float.TryParse(text, out _)) { _font.Color = SKColor.Parse("#B5CEA8"); canvas.DrawText(text, x, y, SKTextAlign.Left, _skFont, _font); }
+        else { _font.Color = SKColor.Parse("#D4D4D4"); canvas.DrawText(text, x, y, SKTextAlign.Left, _skFont, _font); }
     }
 }

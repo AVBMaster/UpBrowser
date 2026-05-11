@@ -96,9 +96,10 @@ public class DevToolsSource
             _editCol = 0;
             float currentX = 0;
             using var testPaint = FontHelper.CreateMonoPaint(12);
+            using var testFont = FontHelper.CreateMonoFont(12);
             for (int i = 0; i < line.Length; i++)
             {
-                float charWidth = testPaint.MeasureText(line[i].ToString());
+                float charWidth = testFont.MeasureText(line[i].ToString());
                 if (currentX + charWidth / 2 >= clickX)
                     break;
                 _editCol = i + 1;
@@ -322,6 +323,7 @@ public class DevToolsSource
         canvas.DrawRect(x, y, width, height, bg);
 
         using var font = FontHelper.CreateMonoPaint(12);
+        using var skFont = FontHelper.CreateMonoFont(12);
         using var lineNumPaint = FontHelper.CreateMonoPaint(12);
         using var tagPaint = FontHelper.CreateMonoPaint(12);
         using var attrPaint = FontHelper.CreateMonoPaint(12);
@@ -352,14 +354,14 @@ public class DevToolsSource
 
             lineNumPaint.Color = SKColor.Parse("#858585");
             string ln = (i + 1).ToString().PadLeft(4);
-            canvas.DrawText(ln, x + 4, lineDrawY, lineNumPaint);
+            canvas.DrawText(ln, x + 4, lineDrawY, SKTextAlign.Left, skFont, lineNumPaint);
 
             float tx = x + lnW;
-            HighlightLine(canvas, _lines[i], tx, lineDrawY, width - lnW - 8, font, tagPaint, attrPaint, strPaint, commentPaint, defPaint);
+            HighlightLine(canvas, _lines[i], tx, lineDrawY, width - lnW - 8, skFont, tagPaint, attrPaint, strPaint, commentPaint, defPaint);
 
             if (_editing && i == _editLine && _showCursor)
             {
-                float cursorX = tx + font.MeasureText(_lines[i][..Math.Min(_editCol, _lines[i].Length)]);
+                float cursorX = tx + skFont.MeasureText(_lines[i][..Math.Min(_editCol, _lines[i].Length)]);
                 using var cp = new SKPaint { Color = SKColors.White, Style = SKPaintStyle.Fill, StrokeWidth = 1 };
                 canvas.DrawLine(cursorX, lineDrawY - lh + 4, cursorX, lineDrawY + 2, cp);
             }
@@ -380,7 +382,7 @@ public class DevToolsSource
     }
 
     private void HighlightLine(SKCanvas canvas, string line, float x, float y, float maxW,
-        SKPaint font, SKPaint tag, SKPaint attr, SKPaint str, SKPaint comment, SKPaint def)
+        SKFont font, SKPaint tag, SKPaint attr, SKPaint str, SKPaint comment, SKPaint def)
     {
         if (string.IsNullOrEmpty(line)) return;
 
@@ -394,7 +396,7 @@ public class DevToolsSource
                 if (end < 0) end = line.Length - 1; else end += 3;
                 string c = line[i..(Math.Min(end + 1, line.Length))];
                 comment.Color = SKColor.Parse("#6A9955");
-                canvas.DrawText(c, cx, y, comment);
+                canvas.DrawText(c, cx, y, SKTextAlign.Left, font, comment);
                 cx += font.MeasureText(c);
                 i = end + 1;
                 continue;
@@ -412,7 +414,7 @@ public class DevToolsSource
                 }
                 string tn = line[i..(Math.Min(ne + 1, line.Length))];
                 tag.Color = SKColor.Parse("#569CD6");
-                canvas.DrawText(tn, cx, y, tag);
+                canvas.DrawText(tn, cx, y, SKTextAlign.Left, font, tag);
                 cx += font.MeasureText(tn);
                 i = ne;
 
@@ -426,7 +428,7 @@ public class DevToolsSource
                     if (ae > i)
                     {
                         attr.Color = SKColor.Parse("#CE9178");
-                        canvas.DrawText(line[i..ae], cx, y, attr);
+                        canvas.DrawText(line[i..ae], cx, y, SKTextAlign.Left, font, attr);
                         cx += font.MeasureText(line[i..ae]);
                         i = ae;
                     }
@@ -434,7 +436,7 @@ public class DevToolsSource
                     if (i < end && line[i] == '=')
                     {
                         def.Color = SKColor.Parse("#D4D4D4");
-                        canvas.DrawText("=", cx, y, def);
+                        canvas.DrawText("=", cx, y, SKTextAlign.Left, font, def);
                         cx += font.MeasureText("=");
                         i++;
                         if (i < end && (line[i] == '"' || line[i] == '\''))
@@ -444,7 +446,7 @@ public class DevToolsSource
                             if (ve < 0 || ve > end) ve = end;
                             string v = line[i..(Math.Min(ve + 1, line.Length))];
                             str.Color = SKColor.Parse("#CE9178");
-                            canvas.DrawText(v, cx, y, str);
+                            canvas.DrawText(v, cx, y, SKTextAlign.Left, font, str);
                             cx += font.MeasureText(v);
                             i = ve + 1;
                         }
@@ -454,7 +456,7 @@ public class DevToolsSource
                 if (end < line.Length && line[end] == '>' && ne < end)
                 {
                     tag.Color = SKColor.Parse("#569CD6");
-                    canvas.DrawText(">", cx, y, tag);
+                    canvas.DrawText(">", cx, y, SKTextAlign.Left, font, tag);
                     cx += font.MeasureText(">");
                 }
                 i = end + 1;
@@ -464,7 +466,7 @@ public class DevToolsSource
                 int nt = line.IndexOf('<', i + 1);
                 if (nt < 0) nt = line.Length;
                 def.Color = SKColor.Parse("#D4D4D4");
-                canvas.DrawText(line[i..nt], cx, y, def);
+                canvas.DrawText(line[i..nt], cx, y, SKTextAlign.Left, font, def);
                 cx += font.MeasureText(line[i..nt]);
                 i = nt;
             }

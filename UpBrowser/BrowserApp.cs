@@ -109,7 +109,7 @@ public class BrowserApp : IDisposable
         int physicalHeight = (int)(logicalHeight * _dpiScale);
 
 var winWindow = PlatformFactory.CreateWindowsWindow(physicalWidth, physicalHeight, "UpBrowser");
-        _window = winWindow;
+        _window = winWindow ?? throw new InvalidOperationException("Failed to create window");
         _docManager = new DocumentManager();
         _chrome = new ChromeRenderer();
         _scroll = new ScrollManager();
@@ -192,10 +192,10 @@ var winWindow = PlatformFactory.CreateWindowsWindow(physicalWidth, physicalHeigh
         _skiaRenderer.Initialize(1024, 768, enableDirtyRegions: true);
         _skiaRenderer.DpiScale = _dpiScale;
 
-        // Attempt DirectX 11 GPU acceleration
+        // Attempt GPU acceleration (OpenGL via SkiaSharp GRContext)
         if (_skiaRenderer.TryEnableGpu())
         {
-            Console.WriteLine("GPU acceleration enabled (DirectX 11)");
+            Console.WriteLine("GPU acceleration enabled (OpenGL)");
             _skiaRenderer.Initialize(1024, 768, enableDirtyRegions: false);
             _skiaRenderer.DpiScale = _dpiScale;
         }
@@ -270,13 +270,15 @@ var winWindow = PlatformFactory.CreateWindowsWindow(physicalWidth, physicalHeigh
         using var border = new SKPaint { Color = new SKColor(200, 200, 200), Style = SKPaintStyle.Stroke, StrokeWidth = 1, IsAntialias = true };
         canvas.DrawRoundRect(dlgX, dlgY, dlgW, dlgH, 8, 8, border);
 
-        using var titleFont = FontHelper.CreatePaint(14);
-        titleFont.Color = SKColor.Parse("#333333");
+        using var titlePaint = FontHelper.CreatePaint(14);
+        using var titleFont = FontHelper.CreateFont(14);
+        titlePaint.Color = SKColor.Parse("#333333");
         string titleText = _dialogType == "alert" ? "Alert" : _dialogType == "confirm" ? "Confirm" : "Prompt";
-        canvas.DrawText(titleText, dlgX + 16, dlgY + 24, titleFont);
+        canvas.DrawText(titleText, dlgX + 16, dlgY + 24, SKTextAlign.Left, titleFont, titlePaint);
 
-        using var msgFont = FontHelper.CreatePaint(13);
-        msgFont.Color = SKColor.Parse("#666666");
+        using var msgPaint = FontHelper.CreatePaint(13);
+        using var msgFont = FontHelper.CreateFont(13);
+        msgPaint.Color = SKColor.Parse("#666666");
         float msgY = dlgY + 55;
         float maxMsgW = dlgW - 32;
         string msg = _dialogMessage;
@@ -286,19 +288,20 @@ var winWindow = PlatformFactory.CreateWindowsWindow(physicalWidth, physicalHeigh
                 msg = msg[..^1];
             msg += "…";
         }
-        canvas.DrawText(msg, dlgX + 16, msgY, msgFont);
+        canvas.DrawText(msg, dlgX + 16, msgY, SKTextAlign.Left, msgFont, msgPaint);
 
         bool isPrompt = _dialogType.StartsWith("prompt:");
         float btnY = dlgY + dlgH - 40;
 
         if (isPrompt)
         {
-            using var inputFont = FontHelper.CreatePaint(13);
-            inputFont.Color = SKColor.Parse("#333333");
+            using var inputPaint = FontHelper.CreatePaint(13);
+            using var inputFont = FontHelper.CreateFont(13);
+            inputPaint.Color = SKColor.Parse("#333333");
             using var inputBg = new SKPaint { Color = SKColor.Parse("#F5F5F5"), Style = SKPaintStyle.Fill };
             float inpX = dlgX + 16, inpY = dlgY + 80, inpW = dlgW - 32, inpH = 28;
             canvas.DrawRoundRect(inpX, inpY, inpW, inpH, 4, 4, inputBg);
-            canvas.DrawText(_dialogInput ?? "", inpX + 8, inpY + inpH * 0.7f, inputFont);
+            canvas.DrawText(_dialogInput ?? "", inpX + 8, inpY + inpH * 0.7f, SKTextAlign.Left, inputFont, inputPaint);
             _dialogInputRect = new SKRect(inpX, inpY, inpX + inpW, inpY + inpH);
         }
 
@@ -312,22 +315,24 @@ var winWindow = PlatformFactory.CreateWindowsWindow(physicalWidth, physicalHeigh
             _dialogCancelRect = new SKRect(btnStartX, btnY, btnStartX + btnW, btnY + btnH);
             using var cancelPaint = new SKPaint { Color = SKColor.Parse("#E0E0E0"), Style = SKPaintStyle.Fill, IsAntialias = true };
             canvas.DrawRoundRect(_dialogCancelRect, 4, 4, cancelPaint);
-            using var cancelFont = FontHelper.CreatePaint(12);
-            cancelFont.Color = SKColor.Parse("#333333");
+            using var cancelFontPaint = FontHelper.CreatePaint(12);
+            using var cancelFont = FontHelper.CreateFont(12);
+            cancelFontPaint.Color = SKColor.Parse("#333333");
             string cancelLabel = isPrompt ? "Cancel" : "Cancel";
             float cw = cancelFont.MeasureText(cancelLabel);
-            canvas.DrawText(cancelLabel, _dialogCancelRect.Left + (btnW - cw) / 2, _dialogCancelRect.Top + btnH * 0.7f, cancelFont);
+            canvas.DrawText(cancelLabel, _dialogCancelRect.Left + (btnW - cw) / 2, _dialogCancelRect.Top + btnH * 0.7f, SKTextAlign.Left, cancelFont, cancelFontPaint);
             btnStartX += btnW + btnSpacing;
         }
 
         _dialogOkRect = new SKRect(btnStartX, btnY, btnStartX + btnW, btnY + btnH);
         using var okPaint = new SKPaint { Color = SKColor.Parse("#1A73E8"), Style = SKPaintStyle.Fill, IsAntialias = true };
         canvas.DrawRoundRect(_dialogOkRect, 4, 4, okPaint);
-        using var okFont = FontHelper.CreatePaint(12);
-        okFont.Color = SKColors.White;
+        using var okFontPaint = FontHelper.CreatePaint(12);
+        using var okFont = FontHelper.CreateFont(12);
+        okFontPaint.Color = SKColors.White;
         string okLabel = isPrompt ? "OK" : "OK";
         float ow = okFont.MeasureText(okLabel);
-        canvas.DrawText(okLabel, _dialogOkRect.Left + (btnW - ow) / 2, _dialogOkRect.Top + btnH * 0.7f, okFont);
+        canvas.DrawText(okLabel, _dialogOkRect.Left + (btnW - ow) / 2, _dialogOkRect.Top + btnH * 0.7f, SKTextAlign.Left, okFont, okFontPaint);
     }
 
     public async Task RunAsync()

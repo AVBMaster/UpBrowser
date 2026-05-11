@@ -16,7 +16,7 @@ public class PaintVisitor
     public PaintVisitor(float contentOffsetY = 0)
     {
         _contentOffsetY = contentOffsetY;
-        _defaultTypeface = FontHelper.GetChineseTypeface();
+        _defaultTypeface = FontHelper.GetChineseTypeface() ?? SKTypeface.Default;
     }
 
     private float TotalOffsetY => _contentOffsetY;

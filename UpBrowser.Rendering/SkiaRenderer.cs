@@ -8,8 +8,6 @@ public class SkiaRenderer : IDisposable
 {
     private SKSurface? _gpuSurface;
     private GRContext? _grContext;
-    private IntPtr _d3dDevice;
-    private IntPtr _d3dContext;
     private bool _useGpu;
 
     private SKBitmap? _bitmap;
@@ -27,6 +25,11 @@ public class SkiaRenderer : IDisposable
     private DirtyRegionManager? _dirtyManager;
     private bool _useDirtyRegions;
 
+    // OpenGL context for GPU backend
+    private IntPtr _glDummyWindow;
+    private IntPtr _glDC;
+    private IntPtr _glRC;
+
     public SKCanvas Canvas => _canvas!;
     public DisplayList? CurrentDisplayList => _currentDisplayList;
     public float DpiScale { get => _dpiScale; set => _dpiScale = value; }
@@ -39,33 +42,98 @@ public class SkiaRenderer : IDisposable
 
     /// <summary>
     /// Attempt to enable GPU acceleration via SkiaSharp GRContext.
-    /// Falls back silently if GPU init fails (e.g. no GL/D3D runtime).
-    /// All other optimizations (SKPicture caching, object pooling, spatial
-    /// index, bulk pixel copy) are active regardless.
+    /// Creates a hidden OpenGL context on Windows, then uses GRContext.CreateGl().
+    /// Falls back to CPU software rendering if GPU init fails.
     /// </summary>
     public bool TryEnableGpu()
     {
         try
         {
-            if (CreateD3D11Device(out _d3dDevice, out _d3dContext))
+            // 1. Create a hidden dummy window for OpenGL context
+            const uint WS_POPUP = 0x80000000;
+            var hInstance = GetModuleHandleW(null);
+            _glDummyWindow = CreateWindowExW(0, "STATIC", "",
+                WS_POPUP, 0, 0, 1, 1,
+                IntPtr.Zero, IntPtr.Zero, hInstance, IntPtr.Zero);
+
+            if (_glDummyWindow == IntPtr.Zero)
             {
-                _grContext = GRContext.CreateGl();
-                if (_grContext == null)
-                {
-                    Marshal.Release(_d3dDevice);
-                    Marshal.Release(_d3dContext);
-                    _d3dDevice = _d3dContext = IntPtr.Zero;
-                    return false;
-                }
-                _useGpu = true;
-                return true;
+                Console.WriteLine("[GPU] Failed to create dummy window");
+                return false;
             }
+
+            // 2. Get device context and set pixel format for OpenGL
+            _glDC = GetDC(_glDummyWindow);
+            if (_glDC == IntPtr.Zero)
+            {
+                Console.WriteLine("[GPU] Failed to get DC");
+                CleanupGlWindow();
+                return false;
+            }
+
+            var pfd = new PIXELFORMATDESCRIPTOR
+            {
+                nSize = (ushort)Marshal.SizeOf<PIXELFORMATDESCRIPTOR>(),
+                nVersion = 1,
+                dwFlags = PFD_DRAW_TO_WINDOW | PFD_SUPPORT_OPENGL | PFD_DOUBLEBUFFER,
+                iPixelType = PFD_TYPE_RGBA,
+                cColorBits = 32,
+                cAlphaBits = 8,
+                cDepthBits = 24,
+                cStencilBits = 8,
+                iLayerType = 0
+            };
+
+            var pixelFormat = ChoosePixelFormat(_glDC, ref pfd);
+            if (pixelFormat == 0)
+            {
+                Console.WriteLine("[GPU] ChoosePixelFormat failed");
+                CleanupGlWindow();
+                return false;
+            }
+
+            if (!SetPixelFormat(_glDC, pixelFormat, ref pfd))
+            {
+                Console.WriteLine("[GPU] SetPixelFormat failed");
+                CleanupGlWindow();
+                return false;
+            }
+
+            // 3. Create and make current the OpenGL rendering context
+            _glRC = wglCreateContext(_glDC);
+            if (_glRC == IntPtr.Zero)
+            {
+                Console.WriteLine("[GPU] wglCreateContext failed");
+                CleanupGlWindow();
+                return false;
+            }
+
+            if (!wglMakeCurrent(_glDC, _glRC))
+            {
+                Console.WriteLine("[GPU] wglMakeCurrent failed");
+                CleanupGlWindow();
+                return false;
+            }
+
+            // 4. Create SkiaSharp GRContext via OpenGL
+            _grContext = GRContext.CreateGl();
+            if (_grContext == null)
+            {
+                Console.WriteLine("[GPU] GRContext.CreateGl returned null");
+                CleanupGlContext();
+                return false;
+            }
+
+            _useGpu = true;
+            Console.WriteLine("[GPU] OpenGL GPU acceleration enabled");
+            return true;
         }
-        catch
+        catch (Exception ex)
         {
-            // GPU unavailable — will use software rendering
+            Console.WriteLine($"[GPU] Init failed: {ex.GetType().Name}: {ex.Message}");
+            CleanupGlContext();
+            return false;
         }
-        return false;
     }
 
     public void Initialize(int width, int height, bool enableDirtyRegions = true)
@@ -76,6 +144,7 @@ public class SkiaRenderer : IDisposable
 
         if (_useGpu)
         {
+            MakeGlCurrent();
             CreateGpuSurface(width, height);
         }
         else
@@ -99,6 +168,7 @@ public class SkiaRenderer : IDisposable
 
         if (_useGpu)
         {
+            MakeGlCurrent();
             _gpuSurface?.Dispose();
             _gpuSurface = null;
             CreateGpuSurface(width, height);
@@ -133,6 +203,12 @@ public class SkiaRenderer : IDisposable
         _canvas.Scale(_dpiScale, _dpiScale);
     }
 
+    private void MakeGlCurrent()
+    {
+        if (_glRC != IntPtr.Zero && _glDC != IntPtr.Zero)
+            wglMakeCurrent(_glDC, _glRC);
+    }
+
     public void SetDisplayList(DisplayList displayList)
     {
         _currentDisplayList = displayList;
@@ -161,6 +237,8 @@ public class SkiaRenderer : IDisposable
     {
         _currentDisplayList = displayList;
 
+        if (_useGpu) MakeGlCurrent();
+
         if (_useDirtyRegions && _dirtyManager != null)
         {
             var dirtyRects = _dirtyManager.GetDirtyRegions();
@@ -181,6 +259,8 @@ public class SkiaRenderer : IDisposable
         _currentDisplayList = displayList;
 
         if (displayList == null) return;
+
+        if (_useGpu) MakeGlCurrent();
 
         Canvas.Save();
 
@@ -253,6 +333,7 @@ public class SkiaRenderer : IDisposable
 
         if (_useGpu && _gpuSurface != null)
         {
+            MakeGlCurrent();
             using var image = _gpuSurface.Snapshot();
             var info = new SKImageInfo(pw, ph, SKColorType.Bgra8888, SKAlphaType.Premul);
             unsafe
@@ -273,50 +354,101 @@ public class SkiaRenderer : IDisposable
         return pixels;
     }
 
-    // ── D3D11 interop for GPU acceleration ──
+    // ── OpenGL P/Invoke ──
 
-    private static bool CreateD3D11Device(out IntPtr device, out IntPtr context)
+    [StructLayout(LayoutKind.Sequential)]
+    private struct PIXELFORMATDESCRIPTOR
     {
-        device = IntPtr.Zero;
-        context = IntPtr.Zero;
-        try
-        {
-            uint featureLevel = D3D11_FEATURE_LEVEL_11_0;
-            int hr = D3D11CreateDevice(
-                IntPtr.Zero,
-                D3D11_DRIVER_TYPE_HARDWARE,
-                IntPtr.Zero,
-                D3D11_CREATE_DEVICE_BGRA_SUPPORT,
-                ref featureLevel, 1,
-                D3D11_SDK_VERSION,
-                out device,
-                out _,
-                out context);
-            return hr >= 0;
-        }
-        catch
-        {
-            return false;
-        }
+        public ushort nSize;
+        public ushort nVersion;
+        public uint dwFlags;
+        public byte iPixelType;
+        public byte cColorBits;
+        public byte cRedBits;
+        public byte cRedShift;
+        public byte cGreenBits;
+        public byte cGreenShift;
+        public byte cBlueBits;
+        public byte cBlueShift;
+        public byte cAlphaBits;
+        public byte cAlphaShift;
+        public byte cAccumBits;
+        public byte cAccumRedBits;
+        public byte cAccumGreenBits;
+        public byte cAccumBlueBits;
+        public byte cAccumAlphaBits;
+        public byte cDepthBits;
+        public byte cStencilBits;
+        public byte cAuxBuffers;
+        public byte iLayerType;
+        public byte bReserved;
+        public uint dwLayerMask;
+        public uint dwVisibleMask;
+        public uint dwDamageMask;
     }
 
-    private const uint D3D11_FEATURE_LEVEL_11_0 = 0xB000;
-    private const uint D3D11_DRIVER_TYPE_HARDWARE = 1;
-    private const uint D3D11_CREATE_DEVICE_BGRA_SUPPORT = 0x20;
-    private const uint D3D11_SDK_VERSION = 7;
+    private const uint PFD_DRAW_TO_WINDOW = 0x00000004;
+    private const uint PFD_SUPPORT_OPENGL = 0x00000020;
+    private const uint PFD_DOUBLEBUFFER = 0x00000001;
+    private const byte PFD_TYPE_RGBA = 0;
 
-    [DllImport("d3d11.dll", CallingConvention = CallingConvention.StdCall)]
-    private static extern int D3D11CreateDevice(
-        IntPtr pAdapter,
-        uint DriverType,
-        IntPtr Software,
-        uint Flags,
-        [In] ref uint pFeatureLevels,
-        uint FeatureLevels,
-        uint SDKVersion,
-        out IntPtr ppDevice,
-        out uint pFeatureLevel,
-        out IntPtr ppImmediateContext);
+    [DllImport("opengl32.dll", CallingConvention = CallingConvention.StdCall)]
+    private static extern IntPtr wglCreateContext(IntPtr hdc);
+
+    [DllImport("opengl32.dll", CallingConvention = CallingConvention.StdCall)]
+    private static extern bool wglMakeCurrent(IntPtr hdc, IntPtr hglrc);
+
+    [DllImport("opengl32.dll", CallingConvention = CallingConvention.StdCall)]
+    private static extern bool wglDeleteContext(IntPtr hglrc);
+
+    [DllImport("gdi32.dll", CallingConvention = CallingConvention.StdCall)]
+    private static extern int ChoosePixelFormat(IntPtr hdc, ref PIXELFORMATDESCRIPTOR ppfd);
+
+    [DllImport("gdi32.dll", CallingConvention = CallingConvention.StdCall)]
+    private static extern bool SetPixelFormat(IntPtr hdc, int format, ref PIXELFORMATDESCRIPTOR ppfd);
+
+    [DllImport("user32.dll", CallingConvention = CallingConvention.StdCall)]
+    private static extern IntPtr GetDC(IntPtr hWnd);
+
+    [DllImport("user32.dll", CallingConvention = CallingConvention.StdCall)]
+    private static extern int ReleaseDC(IntPtr hWnd, IntPtr hDC);
+
+    [DllImport("user32.dll", CallingConvention = CallingConvention.StdCall, CharSet = CharSet.Unicode)]
+    private static extern IntPtr CreateWindowExW(uint exStyle, string className, string windowName,
+        uint style, int x, int y, int w, int h, IntPtr parent, IntPtr menu, IntPtr instance, IntPtr param);
+
+    [DllImport("user32.dll", CallingConvention = CallingConvention.StdCall)]
+    private static extern bool DestroyWindow(IntPtr hWnd);
+
+    [DllImport("kernel32.dll", CallingConvention = CallingConvention.StdCall, CharSet = CharSet.Unicode)]
+    private static extern IntPtr GetModuleHandleW(string? lpModuleName);
+
+    // ── Cleanup helpers ──
+
+    private void CleanupGlContext()
+    {
+        if (_glRC != IntPtr.Zero)
+        {
+            wglMakeCurrent(IntPtr.Zero, IntPtr.Zero);
+            wglDeleteContext(_glRC);
+            _glRC = IntPtr.Zero;
+        }
+        CleanupGlWindow();
+    }
+
+    private void CleanupGlWindow()
+    {
+        if (_glDC != IntPtr.Zero && _glDummyWindow != IntPtr.Zero)
+        {
+            ReleaseDC(_glDummyWindow, _glDC);
+            _glDC = IntPtr.Zero;
+        }
+        if (_glDummyWindow != IntPtr.Zero)
+        {
+            DestroyWindow(_glDummyWindow);
+            _glDummyWindow = IntPtr.Zero;
+        }
+    }
 
     // ── IDisposable ──
 
@@ -330,8 +462,7 @@ public class SkiaRenderer : IDisposable
         {
             _gpuSurface?.Dispose();
             _grContext?.Dispose();
-            if (_d3dDevice != IntPtr.Zero) Marshal.Release(_d3dDevice);
-            if (_d3dContext != IntPtr.Zero) Marshal.Release(_d3dContext);
+            CleanupGlContext();
         }
         else
         {

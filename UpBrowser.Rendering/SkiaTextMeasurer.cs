@@ -18,41 +18,39 @@ public class SkiaTextMeasurer : ITextMeasurer
     {
         if (string.IsNullOrEmpty(text)) return 0;
         
-        var paint = CreatePaint(fontFamily, fontSize, weight);
-        return paint.MeasureText(text);
+        using var font = CreateFont(fontFamily, fontSize, weight);
+        return font.MeasureText(text);
     }
 
     public float MeasureTextAdvanced(string text, string fontFamily, float fontSize, FontWeight weight = FontWeight.Normal, FontStyleType style = FontStyleType.Normal)
     {
         if (string.IsNullOrEmpty(text)) return 0;
         
-        var paint = CreatePaint(fontFamily, fontSize, weight, style);
-        return paint.MeasureText(text);
+        using var font = CreateFont(fontFamily, fontSize, weight, style);
+        return font.MeasureText(text);
     }
 
     public (float width, float height, float baseline) MeasureTextDetail(string text, string fontFamily, float fontSize, FontWeight weight = FontWeight.Normal)
     {
         if (string.IsNullOrEmpty(text)) return (0, 0, 0);
         
-        var paint = CreatePaint(fontFamily, fontSize, weight);
-        var width = paint.MeasureText(text);
+        using var font = CreateFont(fontFamily, fontSize, weight);
+        var width = font.MeasureText(text);
         
-        var metrics = paint.FontMetrics;
+        var metrics = font.Metrics;
         var height = metrics.Descent - metrics.Ascent;
         var baseline = -metrics.Ascent;
         
         return (width, height, baseline);
     }
 
-    private SKPaint CreatePaint(string fontFamily, float fontSize, FontWeight weight = FontWeight.Normal, FontStyleType style = FontStyleType.Normal)
+    private SKFont CreateFont(string fontFamily, float fontSize, FontWeight weight = FontWeight.Normal, FontStyleType style = FontStyleType.Normal)
     {
         var typeface = GetTypeface(fontFamily, weight, style);
-        return new SKPaint
+        return new SKFont(typeface, fontSize)
         {
-            Typeface = typeface,
-            TextSize = fontSize,
-            IsAntialias = true,
-            SubpixelText = true
+            Subpixel = true,
+            Hinting = SKFontHinting.Normal
         };
     }
 
@@ -68,7 +66,6 @@ public class SkiaTextMeasurer : ITextMeasurer
         
         var skWeight = weight == FontWeight.Bold ? SKFontStyleWeight.Bold : SKFontStyleWeight.Normal;
 
-        // Try to find the font family
         var fontManager = SKFontManager.Default;
         var typeface = fontManager.MatchFamily(family, new SKFontStyle(skWeight, SKFontStyleWidth.Normal, skStyle));
         

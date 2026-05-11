@@ -34,6 +34,16 @@ public class ChromeRenderer
     private SKPaint _cachedSymbolPaint = null!;
     private SKPaint _cachedCursorPaint = null!;
 
+    private SKFont _textFont = null!;
+    private SKFont _urlTextFont = null!;
+    private SKFont _cachedLockFont = null!;
+    private SKFont _cachedBrowserFont = null!;
+    private SKFont _cachedInfoFont = null!;
+    private SKFont _cachedNewTabFont = null!;
+    private SKFont _cachedTitleFont = null!;
+    private SKFont _cachedStatusFont = null!;
+    private SKFont _cachedSymbolFont = null!;
+
     private bool _backHovered;
     private bool _forwardHovered;
     private bool _refreshHovered;
@@ -85,8 +95,10 @@ public class ChromeRenderer
 
         _backgroundPaint = new SKPaint { Color = SKColor.Parse("#E8EAED"), Style = SKPaintStyle.Fill };
         _borderPaint = new SKPaint { Color = SKColor.Parse("#DADCE0"), Style = SKPaintStyle.Stroke, StrokeWidth = 1 };
-        _textPaint = new SKPaint { Color = SKColors.Black, TextSize = 13, IsAntialias = true, Typeface = _chineseTypeface };
-        _urlTextPaint = new SKPaint { Color = SKColor.Parse("#3C4043"), TextSize = 14, IsAntialias = true, Typeface = _chineseTypeface };
+        _textPaint = new SKPaint { Color = SKColors.Black, IsAntialias = true };
+        _textFont = new SKFont(_chineseTypeface, 13) { Hinting = SKFontHinting.Normal, Edging = SKFontEdging.Antialias };
+        _urlTextPaint = new SKPaint { Color = SKColor.Parse("#3C4043"), IsAntialias = true };
+        _urlTextFont = new SKFont(_chineseTypeface, 14) { Hinting = SKFontHinting.Normal, Edging = SKFontEdging.Antialias };
         _buttonPaint = new SKPaint { Color = SKColor.Parse("#E8EAED"), Style = SKPaintStyle.Fill };
         _buttonHoverPaint = new SKPaint { Color = SKColor.Parse("#DADCE0"), Style = SKPaintStyle.Fill, IsAntialias = true };
         _buttonActivePaint = new SKPaint { Color = SKColor.Parse("#BDC1C6"), Style = SKPaintStyle.Fill, IsAntialias = true };
@@ -96,13 +108,20 @@ public class ChromeRenderer
 
         _cachedTabActivePaint = new SKPaint { Color = SKColors.White, Style = SKPaintStyle.Fill };
         _cachedTabInactivePaint = new SKPaint { Color = SKColor.Parse("#DADCE0"), Style = SKPaintStyle.Fill };
-        _cachedLockPaint = new SKPaint { Color = SKColor.Parse("#34A853"), TextSize = 14, Typeface = _chineseTypeface };
-        _cachedBrowserPaint = new SKPaint { Color = SKColor.Parse("#1A73E8"), TextSize = 14, Typeface = _chineseTypeface };
-        _cachedInfoPaint = new SKPaint { Color = SKColor.Parse("#F9AB00"), TextSize = 14, Typeface = _chineseTypeface };
-        _cachedNewTabPaint = new SKPaint { Color = SKColor.Parse("#5F6368"), TextSize = 22, Typeface = _chineseTypeface, IsAntialias = true };
-        _cachedTitlePaint = new SKPaint { Color = SKColor.Parse("#202124"), TextSize = 12, Typeface = _chineseTypeface };
-        _cachedStatusPaint = new SKPaint { Color = SKColor.Parse("#5F6368"), TextSize = 11, Typeface = _chineseTypeface };
-        _cachedSymbolPaint = new SKPaint { Color = SKColor.Parse("#3C4043"), TextSize = 14, Typeface = _chineseTypeface, IsAntialias = true };
+        _cachedLockPaint = new SKPaint { Color = SKColor.Parse("#34A853") };
+        _cachedLockFont = new SKFont(_chineseTypeface, 14) { Hinting = SKFontHinting.Normal, Edging = SKFontEdging.Antialias };
+        _cachedBrowserPaint = new SKPaint { Color = SKColor.Parse("#1A73E8") };
+        _cachedBrowserFont = new SKFont(_chineseTypeface, 14) { Hinting = SKFontHinting.Normal, Edging = SKFontEdging.Antialias };
+        _cachedInfoPaint = new SKPaint { Color = SKColor.Parse("#F9AB00") };
+        _cachedInfoFont = new SKFont(_chineseTypeface, 14) { Hinting = SKFontHinting.Normal, Edging = SKFontEdging.Antialias };
+        _cachedNewTabPaint = new SKPaint { Color = SKColor.Parse("#5F6368"), IsAntialias = true };
+        _cachedNewTabFont = new SKFont(_chineseTypeface, 22) { Hinting = SKFontHinting.Normal, Edging = SKFontEdging.Antialias };
+        _cachedTitlePaint = new SKPaint { Color = SKColor.Parse("#202124") };
+        _cachedTitleFont = new SKFont(_chineseTypeface, 12) { Hinting = SKFontHinting.Normal, Edging = SKFontEdging.Antialias };
+        _cachedStatusPaint = new SKPaint { Color = SKColor.Parse("#5F6368") };
+        _cachedStatusFont = new SKFont(_chineseTypeface, 11) { Hinting = SKFontHinting.Normal, Edging = SKFontEdging.Antialias };
+        _cachedSymbolPaint = new SKPaint { Color = SKColor.Parse("#3C4043"), IsAntialias = true };
+        _cachedSymbolFont = new SKFont(_chineseTypeface, 14) { Hinting = SKFontHinting.Normal, Edging = SKFontEdging.Antialias };
         _cachedCursorPaint = new SKPaint { Color = SKColor.Parse("#1A73E8"), Style = SKPaintStyle.Fill, StrokeWidth = 1 };
 
         // 默认打开一个新标签页
@@ -196,11 +215,11 @@ public class ChromeRenderer
             float closeButtonWidth = 20;
             float textMaxWidth = tabWidth - 25 - closeButtonWidth;
 
-            _textPaint.TextSize = 12;
+            _textFont.Size = 12;
             _textPaint.Color = (i == _activeTabIndex) ? SKColor.Parse("#1A73E8") : SKColor.Parse("#5F6368");
 
             // 截断过长标题
-            while (tabTitle.Length > 0 && _textPaint.MeasureText(tabTitle + "…") > textMaxWidth)
+            while (tabTitle.Length > 0 && _textFont.MeasureText(tabTitle + "…") > textMaxWidth)
             {
                 tabTitle = tabTitle[..^1];
             }
@@ -209,7 +228,7 @@ public class ChromeRenderer
 
             float textX = tabRect.Left + 10;
             float textY = tabRect.Top + tabHeight * 0.65f;
-            canvas.DrawText(tabTitle, textX, textY, _textPaint);
+            canvas.DrawText(tabTitle, textX, textY, SKTextAlign.Left, _textFont, _textPaint);
 
             // 关闭按钮
             float closeBtnSize = 14;
@@ -228,15 +247,18 @@ public class ChromeRenderer
             using var closePaint = new SKPaint
             {
                 Color = (i == _hoveredCloseIndex) ? SKColor.Parse("#202124") : SKColor.Parse("#80868B"),
-                TextSize = 11,
-                Typeface = _chineseTypeface,
                 IsAntialias = true
+            };
+            using var closeFont = new SKFont(_chineseTypeface ?? SKTypeface.Default, 11)
+            {
+                Hinting = SKFontHinting.Normal,
+                Edging = SKFontEdging.Antialias
             };
             float cx = closeRect.Left + closeBtnSize / 2;
             float cy = closeRect.Top + closeBtnSize * 0.7f;
             string closeSymbol = "✕";
-            float symWidth = closePaint.MeasureText(closeSymbol);
-            canvas.DrawText(closeSymbol, cx - symWidth / 2, cy, closePaint);
+            float symWidth = closeFont.MeasureText(closeSymbol);
+            canvas.DrawText(closeSymbol, cx - symWidth / 2, cy, SKTextAlign.Left, closeFont, closePaint);
 
             tabX += tabWidth + 3;
         }
@@ -252,18 +274,18 @@ public class ChromeRenderer
 
         _cachedNewTabPaint.Color = _newTabHovered ? SKColor.Parse("#202124") : SKColor.Parse("#5F6368");
         string plusSymbol = "+";
-        float plusWidth = _cachedNewTabPaint.MeasureText(plusSymbol);
+        float plusWidth = _cachedNewTabFont.MeasureText(plusSymbol);
         canvas.DrawText(plusSymbol,
             _newTabButtonRect.Left + (_newTabButtonRect.Width - plusWidth) / 2,
             _newTabButtonRect.Top + _newTabButtonRect.Height * 0.7f,
-            _cachedNewTabPaint);
+            SKTextAlign.Left, _cachedNewTabFont, _cachedNewTabPaint);
 
         // 窗口标题
-        _cachedTitlePaint.TextSize = 12;
+        _cachedTitleFont.Size = 12;
         _cachedTitlePaint.Color = SKColor.Parse("#202124");
         string windowTitle = "UpBrowser";
-        float titleWidth = _cachedTitlePaint.MeasureText(windowTitle);
-        canvas.DrawText(windowTitle, width - controlArea + 5, TabBarHeight * 0.65f, _cachedTitlePaint);
+        float titleWidth = _cachedTitleFont.MeasureText(windowTitle);
+        canvas.DrawText(windowTitle, width - controlArea + 5, TabBarHeight * 0.65f, SKTextAlign.Left, _cachedTitleFont, _cachedTitlePaint);
     }
 
     private void RenderToolbar(SKCanvas canvas, float width, string url)
@@ -299,11 +321,11 @@ public class ChromeRenderer
         float iconY = toolbarCenter + 5;
 
         if (url.StartsWith("https"))
-            canvas.DrawText("🔒", iconX, iconY, _cachedLockPaint);
+            canvas.DrawText("🔒", iconX, iconY, SKTextAlign.Left, _cachedLockFont, _cachedLockPaint);
         else if (url.StartsWith("upbrowser://"))
-            canvas.DrawText("🌐", iconX, iconY, _cachedBrowserPaint);
+            canvas.DrawText("🌐", iconX, iconY, SKTextAlign.Left, _cachedBrowserFont, _cachedBrowserPaint);
         else
-            canvas.DrawText("ℹ", iconX, iconY, _cachedInfoPaint);
+            canvas.DrawText("ℹ", iconX, iconY, SKTextAlign.Left, _cachedInfoFont, _cachedInfoPaint);
 
         float textX = iconX + 20;
         float textY = toolbarCenter + 5;
@@ -313,12 +335,12 @@ public class ChromeRenderer
             displayUrl = displayUrl[..60] + "...";
 
         _urlTextPaint.Color = _urlBarFocused ? SKColor.Parse("#1A73E8") : SKColor.Parse("#3C4043");
-        canvas.DrawText(displayUrl, textX, textY, _urlTextPaint);
+        canvas.DrawText(displayUrl, textX, textY, SKTextAlign.Left, _urlTextFont, _urlTextPaint);
 
         if (_urlBarFocused && _showCursor)
         {
             string textBeforeCursor = _urlBarText[..Math.Min(_cursorPosition, _urlBarText.Length)];
-            float cursorX = textX + _urlTextPaint.MeasureText(textBeforeCursor);
+            float cursorX = textX + _urlTextFont.MeasureText(textBeforeCursor);
             canvas.DrawLine(cursorX, iconY - 12, cursorX, iconY + 2, _cachedCursorPaint);
         }
     }
@@ -329,11 +351,11 @@ public class ChromeRenderer
         canvas.DrawRoundRect(rect, new SKSize(BorderRadius, BorderRadius), paint);
 
         _cachedSymbolPaint.Color = enabled ? SKColor.Parse("#3C4043") : SKColor.Parse("#BDC1C6");
-        float symWidth = _cachedSymbolPaint.MeasureText(symbol);
+        float symWidth = _cachedSymbolFont.MeasureText(symbol);
         canvas.DrawText(symbol,
             rect.Left + (rect.Width - symWidth) / 2,
             rect.Top + rect.Height * 0.7f,
-            _cachedSymbolPaint);
+            SKTextAlign.Left, _cachedSymbolFont, _cachedSymbolPaint);
     }
 
     private void RenderStatusBar(SKCanvas canvas, float width, float height)
@@ -346,11 +368,11 @@ public class ChromeRenderer
         string statusText = string.IsNullOrEmpty(_currentUrl) ? "Ready" : _currentUrl;
         if (statusText.Length > 80)
             statusText = statusText[..80] + "...";
-        canvas.DrawText(statusText, 10, statusTop + StatusBarHeight * 0.7f, _cachedStatusPaint);
+        canvas.DrawText(statusText, 10, statusTop + StatusBarHeight * 0.7f, SKTextAlign.Left, _cachedStatusFont, _cachedStatusPaint);
 
         string tabCount = $"Tab {_activeTabIndex + 1}/{_tabs.Count}";
-        float tcWidth = _cachedStatusPaint.MeasureText(tabCount);
-        canvas.DrawText(tabCount, width - tcWidth - 10, statusTop + StatusBarHeight * 0.7f, _cachedStatusPaint);
+        float tcWidth = _cachedStatusFont.MeasureText(tabCount);
+        canvas.DrawText(tabCount, width - tcWidth - 10, statusTop + StatusBarHeight * 0.7f, SKTextAlign.Left, _cachedStatusFont, _cachedStatusPaint);
     }
 
     // ==================== 输入处理方法 ====================
@@ -760,6 +782,16 @@ public class ChromeRenderer
         _cachedStatusPaint.Dispose();
         _cachedSymbolPaint.Dispose();
         _cachedCursorPaint.Dispose();
+
+        _textFont.Dispose();
+        _urlTextFont.Dispose();
+        _cachedLockFont.Dispose();
+        _cachedBrowserFont.Dispose();
+        _cachedInfoFont.Dispose();
+        _cachedNewTabFont.Dispose();
+        _cachedTitleFont.Dispose();
+        _cachedStatusFont.Dispose();
+        _cachedSymbolFont.Dispose();
     }
 }
 

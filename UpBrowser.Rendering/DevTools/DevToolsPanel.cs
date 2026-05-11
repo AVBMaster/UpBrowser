@@ -267,12 +267,13 @@ public class DevToolsPanel
         float tabBarTop = _panelTop;
         float tabX = 10;
         using var tabFont = FontHelper.CreateMonoPaint(12);
+        using var tabSkFont = FontHelper.CreateMonoFont(12);
         using var tabActive = new SKPaint { Color = SKColor.Parse("#569CD6"), Style = SKPaintStyle.Fill, StrokeWidth = 2 };
 
         TabRects.Clear();
         for (int i = 0; i < _tabNames.Length; i++)
         {
-            float tw = tabFont.MeasureText(_tabNames[i]) + 24;
+            float tw = tabSkFont.MeasureText(_tabNames[i]) + 24;
             var tr = new SKRect(tabX, tabBarTop, tabX + tw, tabBarTop + _tabBarHeight);
             TabRects.Add(tr);
 
@@ -288,15 +289,16 @@ public class DevToolsPanel
             }
             else tabFont.Color = SKColor.Parse("#808080");
 
-            canvas.DrawText(_tabNames[i], tx, ty, tabFont);
+            canvas.DrawText(_tabNames[i], tx, ty, SKTextAlign.Left, tabSkFont, tabFont);
             tabX += tw;
         }
 
         float cx_close = _panelWidth - 30;
         float cy_close = tabBarTop + 4;
         CloseButtonRect = new SKRect(cx_close, cy_close, cx_close + 20, cy_close + 20);
-        using var cp = new SKPaint { Color = SKColor.Parse("#808080"), TextSize = 14, IsAntialias = true };
-        canvas.DrawText("✕", cx_close + 3, cy_close + 15, cp);
+        using var cp = new SKPaint { Color = SKColor.Parse("#808080"), IsAntialias = true };
+        using var cpFont = FontHelper.CreateFont(14);
+        canvas.DrawText("✕", cx_close + 3, cy_close + 15, SKTextAlign.Left, cpFont, cp);
 
         float cl = 0, ct = tabBarTop + _tabBarHeight, cw = _panelWidth, ch = _panelHeight - _tabBarHeight;
         switch (_activeTab)
