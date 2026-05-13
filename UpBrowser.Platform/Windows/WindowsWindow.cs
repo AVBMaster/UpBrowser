@@ -20,6 +20,8 @@ public class WindowsWindow : IWindow
 
     private WindowsImeHandler? _imeHandler;
     private IImeSupport? _imeTarget;
+    private IntPtr _detachedImeContext;
+    private bool _imeContextDetached;
     private float _dpiScale = 1.0f;
 
     private Action<char>? _onChar;
@@ -122,7 +124,46 @@ public class WindowsWindow : IWindow
 
     public void SetImeTarget(IImeSupport? target)
     {
+        bool changed = _imeTarget != target;
         _imeTarget = target;
+        UpdateInputMethodAssociation();
+        if (changed && _imeTarget != null)
+        {
+            UpdateImeCompositionWindow();
+        }
+    }
+
+    private void UpdateInputMethodAssociation()
+    {
+        if (_hwnd == IntPtr.Zero)
+            return;
+
+        bool shouldEnableIme = _imeTarget != null;
+
+        if (shouldEnableIme)
+        {
+            if (!_imeContextDetached)
+                return;
+
+            if (_detachedImeContext != IntPtr.Zero)
+            {
+                _ = Imm32Interop.ImmAssociateContext(_hwnd, _detachedImeContext);
+            }
+            else
+            {
+                _ = Imm32Interop.ImmAssociateContextEx(_hwnd, IntPtr.Zero, 0x0010);
+            }
+
+            _detachedImeContext = IntPtr.Zero;
+            _imeContextDetached = false;
+            return;
+        }
+
+        if (_imeContextDetached)
+            return;
+
+        _detachedImeContext = Imm32Interop.ImmAssociateContext(_hwnd, IntPtr.Zero);
+        _imeContextDetached = true;
     }
 
     public void UpdateImeCompositionWindow()
@@ -143,7 +184,7 @@ public class WindowsWindow : IWindow
 
             var compForm = new Imm32Interop.COMPOSITIONFORM
             {
-                dwStyle = Imm32Interop.CFS_POINT,
+                dwStyle = Imm32Interop.CFS_FORCE_POSITION,
                 ptCurrentPos = new Imm32Interop.POINT
                 {
                     X = caretX,
@@ -161,6 +202,29 @@ public class WindowsWindow : IWindow
             finally
             {
                 Marshal.FreeHGlobal(ptr);
+            }
+
+            var candForm = new Imm32Interop.CANDIDATEFORM
+            {
+                dwIndex = 0,
+                dwStyle = Imm32Interop.CFS_CANDIDATEPOS,
+                ptCurrentPos = new Imm32Interop.POINT
+                {
+                    X = caretX,
+                    Y = caretY + (int)(20 * _dpiScale)
+                }
+            };
+
+            int candSize = Marshal.SizeOf(candForm);
+            IntPtr candPtr = Marshal.AllocHGlobal(candSize);
+            try
+            {
+                Marshal.StructureToPtr(candForm, candPtr, false);
+                Imm32Interop.ImmSetCandidateWindow(hIMC, candPtr);
+            }
+            finally
+            {
+                Marshal.FreeHGlobal(candPtr);
             }
         }
         finally
@@ -194,6 +258,10 @@ public class WindowsWindow : IWindow
             throw new InvalidOperationException("Failed to create window");
 
         _imeHandler = new WindowsImeHandler(_hwnd);
+
+        // Initially detach IME context (no input target yet)
+        _detachedImeContext = Imm32Interop.ImmAssociateContext(_hwnd, IntPtr.Zero);
+        _imeContextDetached = true;
 
         NativeWindow.ShowWindow(_hwnd, NativeWindow.SW_SHOWNORMAL);
         NativeWindow.UpdateWindow(_hwnd);

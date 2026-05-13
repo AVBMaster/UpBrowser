@@ -131,9 +131,8 @@ public static class Imm32Interop
 
     public const int CFS_DEFAULT = 0x0000;
     public const int CFS_FORCE_POSITION = 0x0020;
-    public const int CFS_POINT = 0x0001;
-    public const int CFS_RECT = 0x0004;
-    public const int CFS_SCREEN = 0x0008;
+    public const int CFS_POINT = 0x0002;
+    public const int CFS_RECT = 0x0001;
     public const int CFS_CANDIDATEPOS = 0x0040;
     public const int CFS_EXCLUDE = 0x0080;
 

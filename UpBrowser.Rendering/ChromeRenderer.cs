@@ -584,7 +584,7 @@ public class ChromeRenderer : IImeSupport
             if (url.Contains('.') || url.Contains('/'))
                 url = "https://" + url;
             else
-                url = "https://www.google.com/search?q=" + Uri.EscapeDataString(url);
+                url = "https://www.baidu.com/search?q=" + Uri.EscapeDataString(url);
         }
 
         _currentUrl = url;
