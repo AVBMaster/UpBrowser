@@ -830,11 +830,11 @@ public class ChromeRenderer : IImeSupport
             return new Point(0, 0);
 
         float textX = 155;
-        float textY = TabBarHeight + ToolbarHeight / 2 + 5;
+        float textY = TabBarHeight + ToolbarHeight+20 + 2;
         string textBeforeCursor = _urlBarText[..Math.Min(_cursorPosition, _urlBarText.Length)];
         float cursorX = textX + 20 + _urlTextFont.MeasureText(textBeforeCursor);
 
-        return new Point(cursorX, textY - 5);
+        return new Point(cursorX, textY);
     }
 
     public void OnImeCompositionStart()
