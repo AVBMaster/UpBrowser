@@ -1,4 +1,3 @@
-using JavaScriptEngineSwitcher.ChakraCore;
 using JavaScriptEngineSwitcher.Core;
 using JavaScriptEngineSwitcher.Jint;
 using JavaScriptEngineSwitcher.Jurassic;
@@ -10,8 +9,7 @@ public enum JsEngineType
 {
     V8,
     Jint,
-    Jurassic,
-    ChakraCore
+    Jurassic
 }
 
 public static class JsEngineConfig
@@ -42,7 +40,6 @@ public static class JsEngineConfig
         switcher.EngineFactories.AddV8();
         switcher.EngineFactories.AddJint();
         switcher.EngineFactories.AddJurassic();
-        switcher.EngineFactories.AddChakraCore();
         switcher.DefaultEngineName = GetEngineName(_defaultEngineType);
     }
 
@@ -57,7 +54,6 @@ public static class JsEngineConfig
         JsEngineType.V8 => V8JsEngine.EngineName,
         JsEngineType.Jint => JintJsEngine.EngineName,
         JsEngineType.Jurassic => JurassicJsEngine.EngineName,
-        JsEngineType.ChakraCore => ChakraCoreJsEngine.EngineName,
         _ => V8JsEngine.EngineName
     };
 }

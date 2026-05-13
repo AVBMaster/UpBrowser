@@ -13,6 +13,5 @@
     <PackageReference Include="SkiaSharp" Version="*" />
     <PackageReference Include="JavaScriptEngineSwitcher.Jint" Version="*" />
     <PackageReference Include="JavaScriptEngineSwitcher.Jurassic" Version="*" />
-    <PackageReference Include="JavaScriptEngineSwitcher.ChakraCore" Version="*" />
   </ItemGroup>
 </Project>
