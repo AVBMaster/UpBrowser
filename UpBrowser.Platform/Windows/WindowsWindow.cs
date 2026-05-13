@@ -96,9 +96,14 @@ public class WindowsWindow : IWindow
         public int Left, Top, Right, Bottom;
     }
 
+    [DllImport("user32.dll")]
+    private static extern bool GetClientRect(IntPtr hWnd, out RECT lpRect);
+
     public (int width, int height) GetClientSize()
     {
-        return (_width, _height);
+        if (_hwnd == IntPtr.Zero) return (0, 0);
+        GetClientRect(_hwnd, out RECT rect);
+        return (rect.Right - rect.Left, rect.Bottom - rect.Top);
     }
 
     private unsafe void Initialize(int width, int height, string title)
@@ -141,13 +146,7 @@ public class WindowsWindow : IWindow
                 return IntPtr.Zero;
 
             case NativeWindow.WM_PAINT:
-                {
-                    NativeWindow.BeginPaint(hWnd, out var ps);
-                    NativeWindow.EndPaint(hWnd, ref ps);
-                    return IntPtr.Zero;
-                }
             case NativeWindow.WM_ERASEBKGND:
-                return new IntPtr(1);
             case NativeWindow.WM_NCPAINT:
                 return IntPtr.Zero;
 
@@ -305,18 +304,16 @@ public class WindowsWindow : IWindow
         NativeWindow.MSG msg;
         while (_isRunning)
         {
-            // Process all pending messages
-            while (NativeWindow.PeekMessageW(out msg, IntPtr.Zero, 0, 0, 1))
+            bool hasMessage = NativeWindow.PeekMessageW(out msg, IntPtr.Zero, 0, 0, 1);
+
+            if (hasMessage)
             {
                 if (msg.message == NativeWindow.WM_QUIT)
-                {
-                    _isRunning = false;
                     break;
-                }
+
                 NativeWindow.TranslateMessage(ref msg);
                 NativeWindow.DispatchMessageW(ref msg);
             }
-            if (!_isRunning) break;
 
             if (_onFrame != null)
             {
@@ -328,11 +325,9 @@ public class WindowsWindow : IWindow
                     _lastFrameTime = now;
                     _onFrame(dt);
                 }
-                else
+                else if (!hasMessage)
                 {
-                    // Not time for next frame yet - wait efficiently
-                    int sleepMs = Math.Max(1, (int)((0.016 - dt) * 1000) - 1);
-                    Thread.Sleep(sleepMs);
+                    Thread.Sleep(1);
                 }
             }
         }
