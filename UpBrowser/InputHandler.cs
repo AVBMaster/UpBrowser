@@ -31,6 +31,7 @@ public class InputHandler
     public Action? OnPaste { get; set; }
     public Action? OnCut { get; set; }
     public Action? OnSelectAll { get; set; }
+    public Action? OnImeTargetChanged { get; set; }
 
     public InputHandler(ChromeRenderer chrome, ScrollManager scroll, IWindow window, float dpiScale)
     {
@@ -50,8 +51,9 @@ public class InputHandler
         _window.OnMouseWheel = OnMouseWheel;
         _window.OnImeChar = OnImeChar;
 
-        _chrome.OnUrlBarFocus = () => _window.SetImeTarget(_chrome);
-        _chrome.OnUrlBarBlur = () => _window.SetImeTarget(null);
+        // IME target is centrally managed via OnImeTargetChanged
+        _chrome.OnUrlBarFocus = () => { };
+        _chrome.OnUrlBarBlur = () => { };
     }
 
     private void OnMouseMove(float x, float y)
@@ -100,6 +102,9 @@ public class InputHandler
             _mouseDown = false;
             _pageThumbDragging = false;
         }
+
+        if (isDown)
+            OnImeTargetChanged?.Invoke();
     }
 
     // Handles scrollbar clicks: thumb drag or track click (page up/down)
@@ -205,7 +210,10 @@ public class InputHandler
         NeedsRedraw = true;
 
         if (handledByChrome)
+        {
+            OnImeTargetChanged?.Invoke();
             return true;
+        }
 
         if (_chrome.IsUrlBarFocused())
             return false;

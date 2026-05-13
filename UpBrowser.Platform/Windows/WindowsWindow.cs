@@ -354,11 +354,17 @@ public class WindowsWindow : IWindow
                     {
                         if (!string.IsNullOrEmpty(state.CommittedText))
                         {
-                            foreach (char c in state.CommittedText)
+                            if (_imeTarget != null)
                             {
-                                _onImeChar?.Invoke(c);
+                                _imeTarget.OnImeCompositionEnd(state.CommittedText);
                             }
-                            _imeTarget?.OnImeCompositionEnd(state.CommittedText);
+                            else
+                            {
+                                foreach (char c in state.CommittedText)
+                                {
+                                    _onImeChar?.Invoke(c);
+                                }
+                            }
                         }
                     }
 
@@ -366,8 +372,11 @@ public class WindowsWindow : IWindow
                     {
                         if (!string.IsNullOrEmpty(state.CompositionText))
                         {
-                            _imeTarget?.OnImeCompositionUpdate(state.CompositionText, state.CursorPosition);
-                            UpdateImeCompositionWindow();
+                            if (_imeTarget != null)
+                            {
+                                _imeTarget.OnImeCompositionUpdate(state.CompositionText, state.CursorPosition);
+                                UpdateImeCompositionWindow();
+                            }
                         }
                     }
 

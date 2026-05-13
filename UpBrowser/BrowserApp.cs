@@ -1,5 +1,5 @@
+using UpBrowser.Core;
 using UpBrowser.Platform;
-using UpBrowser.Platform.Windows;
 using UpBrowser.Rendering;
 using UpBrowser.Rendering.DevTools;
 using UpBrowser.Core.Dom;
@@ -8,7 +8,6 @@ using UpBrowser.Core.Css;
 using UpBrowser.Core.JavaScript;
 using UpBrowser.Core.EventLoop;
 using SkiaSharp;
-using System.Text;
 
 namespace UpBrowser;
 
@@ -99,8 +98,8 @@ public class BrowserApp : IDisposable
 
     // IME support: track focused input element
     private UpBrowser.Core.Dom.Element? _focusedElement;
-    private StringBuilder _imeCommittedText = new();
     private bool _devToolsFocused;
+    private readonly PageInputImeHost _pageInputImeHost;
     private const float ScrollbarDragThreshold = 5;
 
     public BrowserApp(int logicalWidth, int logicalHeight)
@@ -125,6 +124,7 @@ var winWindow = PlatformFactory.CreateWindowsWindow(physicalWidth, physicalHeigh
         _jsEngine = new JavaScriptEngine();
         _eventLoop = new EventLoop();
         _devTools = new DevToolsPanel();
+        _pageInputImeHost = new PageInputImeHost(this);
         _contentOffset = _chrome.GetContentOffset();
         _input = new InputHandler(_chrome, _scroll, _window, _dpiScale);
         _input.OnDomClick = HandleDomClick;
@@ -139,6 +139,7 @@ var winWindow = PlatformFactory.CreateWindowsWindow(physicalWidth, physicalHeigh
         {
             _devTools.Toggle();
             _devToolsFocused = _devTools.Visible;
+            UpdateImeTarget();
             _input.NeedsRedraw = true;
         };
 
@@ -154,12 +155,14 @@ var winWindow = PlatformFactory.CreateWindowsWindow(physicalWidth, physicalHeigh
         });
         _devTools.OnChanged += () =>
         {
+            UpdateImeTarget();
             _input.NeedsRedraw = true;
         };
         _input.OnDevToolsInput = (c, key) => DevToolsHandleInput(c, key);
         _input.OnDevToolsClick = (x, y, isDown) => HandleDevToolsClick(x, y, isDown);
         _input.OnDevToolsWheel = (delta, mx, my) => _devTools.HandleWheel(delta, mx, my);
         _input.OnImeChar = HandleImeChar;
+        _input.OnImeTargetChanged = UpdateImeTarget;
         _input.OnCopy = PerformCopy;
         _input.OnPaste = PerformPaste;
         _input.OnCut = PerformCut;
@@ -614,12 +617,12 @@ var winWindow = PlatformFactory.CreateWindowsWindow(physicalWidth, physicalHeigh
 
             _scroll.UpdateScroll(contentWidth, contentHeight, windowWidth, contentViewportHeight);
 
-            PositionImeCaret();
+            _window.UpdateImeCompositionWindow();
         }
 
         if (_focusedElement != null && _focusedElement.IsFormElement)
         {
-            PositionImeCaret();
+            _window.UpdateImeCompositionWindow();
         }
 
         _lastScrollX = _scroll.ScrollX;
@@ -651,6 +654,33 @@ var winWindow = PlatformFactory.CreateWindowsWindow(physicalWidth, physicalHeigh
         if (_input.IsMouseDown()) _input.NeedsRedraw = true;
     }
 
+    private void UpdateImeTarget()
+    {
+        if (_chrome.IsUrlBarFocused())
+        {
+            _devToolsFocused = false;
+            _focusedElement = null;
+            _window.SetImeTarget(_chrome);
+        }
+        else if (_devToolsFocused && _devTools.Visible)
+        {
+            _focusedElement = null;
+            var ime = _devTools.GetActiveImeSupport();
+            _window.SetImeTarget(ime);
+        }
+        else if (_focusedElement != null && _focusedElement.IsFormElement)
+        {
+            _devToolsFocused = false;
+            _window.SetImeTarget(_pageInputImeHost);
+        }
+        else
+        {
+            _devToolsFocused = false;
+            _focusedElement = null;
+            _window.SetImeTarget(null);
+        }
+    }
+
     private void OnKeyDown(Key key)
     {
         _lastInputTime = DateTime.Now;
@@ -673,6 +703,8 @@ var winWindow = PlatformFactory.CreateWindowsWindow(physicalWidth, physicalHeigh
         if (_devTools.HandleDragStart(x, y))
         {
             _devToolsFocused = true;
+            _focusedElement = null;
+            UpdateImeTarget();
             return true;
         }
         bool handled = _devTools.HandleClick(x, y);
@@ -680,9 +712,14 @@ var winWindow = PlatformFactory.CreateWindowsWindow(physicalWidth, physicalHeigh
         {
             _devToolsFocused = true;
             _focusedElement = null;
-            PositionImeCaret();
+            _window.UpdateImeCompositionWindow();
             _input.NeedsRedraw = true;
         }
+        else
+        {
+            _devToolsFocused = false;
+        }
+        UpdateImeTarget();
         return handled;
     }
 
@@ -696,19 +733,21 @@ var winWindow = PlatformFactory.CreateWindowsWindow(physicalWidth, physicalHeigh
         {
             _jsEngine.DispatchEvent(element, "click");
 
-            // Track focus on form elements
             if (element.IsFormElement)
             {
                 _focusedElement = element;
-                _imeCommittedText.Clear();
-                PositionImeCaret();
+                _window.UpdateImeCompositionWindow();
             }
             else
             {
                 _focusedElement = null;
-                _imeCommittedText.Clear();
             }
         }
+        else
+        {
+            _focusedElement = null;
+        }
+        UpdateImeTarget();
     }
 
     private bool DevToolsHandleInput(char c, Key key)
@@ -737,7 +776,6 @@ var winWindow = PlatformFactory.CreateWindowsWindow(physicalWidth, physicalHeigh
 
         if (_focusedElement != null && _focusedElement.IsFormElement)
         {
-            _imeCommittedText.Append(charCode);
             _jsEngine.DispatchEvent(_focusedElement, "input");
             _input.NeedsRedraw = true;
         }
@@ -746,40 +784,6 @@ var winWindow = PlatformFactory.CreateWindowsWindow(physicalWidth, physicalHeigh
             _chrome.HandleKeyPress(charCode, SKKey.None);
             _input.NeedsRedraw = true;
         }
-    }
-
-    private void PositionImeCaret()
-    {
-        var winWindow = _window as WindowsWindow;
-        if (winWindow?.ImeHandler == null) return;
-
-        if (_devTools.Visible && _devToolsFocused)
-        {
-            var (pw, ph) = _window.GetClientSize();
-            int ww = (int)(pw / _dpiScale);
-            int wh = (int)(ph / _dpiScale);
-            var caretPos = _devTools.GetCaretScreenPosition(ww, wh);
-            if (caretPos.HasValue)
-            {
-                winWindow.ImeHandler.SetCaretPosition(
-                    new SKPoint(caretPos.Value.X * _dpiScale, caretPos.Value.Y * _dpiScale),
-                    18 * _dpiScale);
-                return;
-            }
-        }
-
-        if (_focusedElement == null || _currentLoad == null) return;
-
-        var box = _focusedElement.LayoutBox;
-        if (box == null) return;
-
-        float caretScreenX = box.BorderBox.Left * _dpiScale;
-        float caretScreenY = (box.BorderBox.Top - _scroll.ScrollY) * _dpiScale;
-        float lineHeight = box.LineHeight * _dpiScale;
-
-        winWindow.ImeHandler.SetCaretPosition(
-            new SKPoint(caretScreenX, caretScreenY),
-            lineHeight);
     }
 
     private void PerformCopy()
@@ -822,6 +826,35 @@ var winWindow = PlatformFactory.CreateWindowsWindow(physicalWidth, physicalHeigh
     public void InjectImeChar(char c)
     {
         HandleImeChar(c);
+    }
+
+    private class PageInputImeHost : IImeSupport
+    {
+        private readonly BrowserApp _app;
+
+        public PageInputImeHost(BrowserApp app) { _app = app; }
+
+        public Point GetImeCaretPosition()
+        {
+            var el = _app._focusedElement;
+            if (el?.LayoutBox == null)
+                return new Point(0, _app._contentOffset);
+
+            float caretScreenX = el.LayoutBox.BorderBox.Left;
+            float caretScreenY = el.LayoutBox.BorderBox.Top - _app._scroll.ScrollY + _app._contentOffset;
+            return new Point(caretScreenX, caretScreenY);
+        }
+
+        public void OnImeCompositionStart() { }
+        public void OnImeCompositionUpdate(string compositionString, int cursorPosition) { }
+
+        public void OnImeCompositionEnd(string? resultString)
+        {
+            if (resultString != null && _app._focusedElement != null && _app._focusedElement.IsFormElement)
+            {
+                _app._jsEngine.DispatchEvent(_app._focusedElement, "input");
+            }
+        }
     }
 
     private static UpBrowser.Core.Dom.Element? HitTest(UpBrowser.Core.Dom.Document doc, float x, float y)

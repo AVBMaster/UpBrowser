@@ -1,4 +1,5 @@
 using SkiaSharp;
+using UpBrowser.Core;
 using UpBrowser.Core.Dom;
 using UpBrowser.Core.JavaScript;
 using UpBrowser.Platform;
@@ -46,6 +47,16 @@ public class DevToolsPanel
 
     public void SetJavaScriptEngine(JavaScriptEngine engine) { _console.SetJavaScriptEngine(engine); }
     public void SetSourceChangeHandler(Action<string> handler) { _source.OnHtmlChanged = handler; }
+
+    public IImeSupport? GetActiveImeSupport()
+    {
+        return _activeTab switch
+        {
+            0 => _console,
+            2 => _source,
+            _ => null
+        };
+    }
 
     public void SetDocument(Document? document, string htmlSource)
     {

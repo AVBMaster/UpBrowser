@@ -1,11 +1,12 @@
 using SkiaSharp;
+using UpBrowser.Core;
 using UpBrowser.Core.JavaScript;
 using UpBrowser.Platform;
 using System.Text;
 
 namespace UpBrowser.Rendering.DevTools;
 
-public class DevToolsConsole
+public class DevToolsConsole : IImeSupport
 {
     private readonly List<string> _outputLines = new();
     private readonly List<string> _commandHistory = new();
@@ -31,6 +32,11 @@ public class DevToolsConsole
     private bool _thumbDragging;
     private float _thumbDragStartY;
     private float _thumbDragStartOffset;
+
+    // IME composition state
+    private bool _isImeComposing;
+    private string _imeCompositionString = "";
+    private int _imeCompositionCursorPos;
 
     public Action<char>? OnImeChar { get; set; }
     public Action? OnInputChanged { get; set; }
@@ -450,4 +456,53 @@ public class DevToolsConsole
         else if (int.TryParse(text, out _) || float.TryParse(text, out _)) { _font.Color = SKColor.Parse("#B5CEA8"); canvas.DrawText(text, x, y, SKTextAlign.Left, _skFont, _font); }
         else { _font.Color = SKColor.Parse("#D4D4D4"); canvas.DrawText(text, x, y, SKTextAlign.Left, _skFont, _font); }
     }
+
+    #region IImeSupport
+
+    public Point GetImeCaretPosition()
+    {
+        float inputY = _renderY + _renderH - InputHeight;
+        float textStartX = _renderX + PaddingX + _skFont.MeasureText("> ");
+        string textBeforeCursor = _inputText[..Math.Min(_cursorPos, _inputText.Length)];
+        float cursorX = textStartX + _skFont.MeasureText(textBeforeCursor);
+        return new Point(cursorX, inputY + InputHeight);
+    }
+
+    public void OnImeCompositionStart()
+    {
+        _isImeComposing = true;
+        _imeCompositionString = "";
+        _imeCompositionCursorPos = 0;
+    }
+
+    public void OnImeCompositionUpdate(string compositionString, int cursorPosition)
+    {
+        _imeCompositionString = compositionString;
+        _imeCompositionCursorPos = cursorPosition;
+        _isImeComposing = true;
+    }
+
+    public void OnImeCompositionEnd(string? resultString)
+    {
+        _isImeComposing = false;
+        _imeCompositionString = "";
+
+        if (resultString != null)
+        {
+            if (_selectionStart >= 0 && _selectionEnd > _selectionStart)
+            {
+                int selStart = Math.Min(_selectionStart, _selectionEnd);
+                int selEnd = Math.Max(_selectionStart, _selectionEnd);
+                _inputText = _inputText[..selStart] + _inputText[selEnd..];
+                _cursorPos = selStart;
+                _selectionStart = -1;
+                _selectionEnd = -1;
+            }
+            _inputText = _inputText[.._cursorPos] + resultString + _inputText[_cursorPos..];
+            _cursorPos += resultString.Length;
+            OnInputChanged?.Invoke();
+        }
+    }
+
+    #endregion
 }

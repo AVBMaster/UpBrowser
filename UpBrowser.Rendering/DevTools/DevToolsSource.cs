@@ -1,9 +1,10 @@
 using SkiaSharp;
+using UpBrowser.Core;
 using UpBrowser.Platform;
 
 namespace UpBrowser.Rendering.DevTools;
 
-public class DevToolsSource
+public class DevToolsSource : IImeSupport
 {
     private string _html = "";
     private float _scrollOffset;
@@ -23,6 +24,10 @@ public class DevToolsSource
     private int _selectionEnd = -1;
     private bool _showCursor = true;
     private DateTime _lastBlink = DateTime.Now;
+
+    // IME composition state
+    private bool _isImeComposing;
+    private string _imeCompositionString = "";
 
     public Action<string>? OnHtmlChanged;
     public Action<char>? OnImeChar;
@@ -380,6 +385,57 @@ public class DevToolsSource
             canvas.DrawRoundRect(x + width - 6, sy, 4, sh, 2, 2, sp);
         }
     }
+
+    #region IImeSupport
+
+    public Point GetImeCaretPosition()
+    {
+        if (!_editing || _editLine < 0 || _editLine >= _lines.Length)
+            return new Point(_renderX + 50, _renderY);
+
+        float textStartX = _renderX + 50;
+        string line = _lines[_editLine];
+        string textBeforeCursor = line[..Math.Min(_editCol, line.Length)];
+        using var testFont = FontHelper.CreateMonoFont(12);
+        float cursorX = textStartX + testFont.MeasureText(textBeforeCursor);
+        float lineY = _renderY + (_editLine * 18) - _scrollOffset + 18;
+        return new Point(cursorX, lineY);
+    }
+
+    public void OnImeCompositionStart()
+    {
+        _isImeComposing = true;
+        _imeCompositionString = "";
+    }
+
+    public void OnImeCompositionUpdate(string compositionString, int cursorPosition)
+    {
+        _imeCompositionString = compositionString;
+        _isImeComposing = true;
+    }
+
+    public void OnImeCompositionEnd(string? resultString)
+    {
+        _isImeComposing = false;
+        _imeCompositionString = "";
+
+        if (resultString != null && _editing && _editLine >= 0 && _editLine < _lines.Length)
+        {
+            if (_selectionStart >= 0 && _selectionEnd > _selectionStart)
+            {
+                int selStart = Math.Min(_selectionStart, _selectionEnd);
+                int selEnd = Math.Max(_selectionStart, _selectionEnd);
+                string sl = _lines[_editLine];
+                _lines[_editLine] = sl[..selStart] + sl[selEnd..];
+                _editCol = selStart;
+                _selectionStart = -1;
+                _selectionEnd = -1;
+            }
+            InsertAtCursor(resultString);
+        }
+    }
+
+    #endregion
 
     private void HighlightLine(SKCanvas canvas, string line, float x, float y, float maxW,
         SKFont font, SKPaint tag, SKPaint attr, SKPaint str, SKPaint comment, SKPaint def)
