@@ -20,6 +20,7 @@ public class WindowsWindow : IWindow
 
     private WindowsImeHandler? _imeHandler;
     private IImeSupport? _imeTarget;
+    private float _dpiScale = 1.0f;
 
     private Action<char>? _onChar;
     private Action<char>? _onImeChar;
@@ -137,13 +138,16 @@ public class WindowsWindow : IWindow
 
         try
         {
+            int caretX = (int)(caretPos.X * _dpiScale);
+            int caretY = (int)(caretPos.Y * _dpiScale);
+
             var compForm = new Imm32Interop.COMPOSITIONFORM
             {
                 dwStyle = Imm32Interop.CFS_POINT,
                 ptCurrentPos = new Imm32Interop.POINT
                 {
-                    X = (int)caretPos.X,
-                    Y = (int)caretPos.Y
+                    X = caretX,
+                    Y = caretY
                 }
             };
 
@@ -229,8 +233,8 @@ public class WindowsWindow : IWindow
             case 0x02E0:
                 {
                     uint dpi = (uint)(wParam.ToInt64() & 0xFFFF);
-                    float newDpiScale = dpi / 96.0f;
-                    _onDpiChanged?.Invoke(newDpiScale);
+                    _dpiScale = dpi / 96.0f;
+                    _onDpiChanged?.Invoke(_dpiScale);
 
                     unsafe
                     {
@@ -266,6 +270,7 @@ public class WindowsWindow : IWindow
             case NativeWindow.WM_IME_STARTCOMPOSITION:
                 {
                     _imeTarget?.OnImeCompositionStart();
+                    UpdateImeCompositionWindow();
                     return IntPtr.Zero;
                 }
 
@@ -294,6 +299,7 @@ public class WindowsWindow : IWindow
                         if (!string.IsNullOrEmpty(state.CompositionText))
                         {
                             _imeTarget?.OnImeCompositionUpdate(state.CompositionText, state.CursorPosition);
+                            UpdateImeCompositionWindow();
                         }
                     }
 
