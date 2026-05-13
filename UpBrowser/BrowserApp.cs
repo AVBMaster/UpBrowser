@@ -120,6 +120,8 @@ var winWindow = PlatformFactory.CreateWindowsWindow(physicalWidth, physicalHeigh
         _chrome = new ChromeRenderer();
         _scroll = new ScrollManager();
         _skiaRenderer = new SkiaRenderer();
+        JsEngineConfig.DefaultEngineType = JsEngineType.ChakraCore;
+        JsEngineConfig.Initialize();
         _jsEngine = new JavaScriptEngine();
         _eventLoop = new EventLoop();
         _devTools = new DevToolsPanel();

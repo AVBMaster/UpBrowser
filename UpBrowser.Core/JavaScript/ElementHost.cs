@@ -1,5 +1,4 @@
 using UpBrowser.Core.Dom;
-using Microsoft.ClearScript;
 
 namespace UpBrowser.Core.JavaScript;
 
@@ -7,7 +6,7 @@ public class ElementHost
 {
     private readonly Element _element;
     private StyleHost? _styleHost;
-    private readonly Dictionary<string, List<ScriptObject>> _eventListeners = new();
+    private readonly Dictionary<string, List<int>> _eventCallbackIds = new();
 
     public ElementHost(Element element)
     {
@@ -239,21 +238,31 @@ public class ElementHost
         return false;
     }
 
-    public void addEventListener(string type, ScriptObject callback)
+    public void addEventListener(string type, object callback)
     {
-        if (!_eventListeners.TryGetValue(type, out var list))
+        var engine = JavaScriptEngine.Current;
+        if (engine == null) return;
+
+        var cbId = engine.StoreCallbackRef(callback);
+        if (!_eventCallbackIds.TryGetValue(type, out var list))
         {
-            list = new List<ScriptObject>();
-            _eventListeners[type] = list;
+            list = new List<int>();
+            _eventCallbackIds[type] = list;
         }
-        if (!list.Contains(callback))
-            list.Add(callback);
+        list.Add(cbId);
     }
 
-    public void removeEventListener(string type, ScriptObject callback)
+    public void removeEventListener(string type, object callback)
     {
-        if (_eventListeners.TryGetValue(type, out var list))
-            list.Remove(callback);
+        if (_eventCallbackIds.TryGetValue(type, out var list))
+        {
+            foreach (var cbId in list)
+            {
+                var engine = JavaScriptEngine.Current;
+                engine?.RemoveCallback(cbId);
+            }
+            list.Clear();
+        }
     }
 
     public void click()
@@ -327,17 +336,23 @@ public class ElementHost
         return !evt.DefaultPrevented;
     }
 
-    // Internal event dispatching (called from InputHandler)
     internal bool DispatchEvent(ScriptEvent evt)
     {
         if (string.IsNullOrEmpty(evt.type)) return true;
 
-        if (_eventListeners.TryGetValue(evt.type, out var list))
+        if (_eventCallbackIds.TryGetValue(evt.type, out var cbIds))
         {
-            foreach (var cb in list.ToList())
+            var engine = JavaScriptEngine.Current;
+            if (engine != null)
             {
-                try { cb.Invoke(false, evt); }
-                catch { }
+                foreach (var cbId in cbIds.ToList())
+                {
+                    try
+                    {
+                        engine.InvokeCallbackWith(cbId, evt);
+                    }
+                    catch { }
+                }
             }
         }
 
@@ -358,8 +373,6 @@ public class ElementHost
 
     internal IEnumerable<ElementHost> GetChildHosts() =>
         _element.Children.OfType<Element>().Select(e => new ElementHost(e));
-
-    // ===== Private helpers =====
 
     private string GetTextContent()
     {

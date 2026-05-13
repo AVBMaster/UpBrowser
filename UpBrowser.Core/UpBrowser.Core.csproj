@@ -7,7 +7,12 @@
 
   <ItemGroup>
     <PackageReference Include="AngleSharp" Version="*" />
-    <PackageReference Include="Microsoft.ClearScript" Version="*" />
+    <PackageReference Include="JavaScriptEngineSwitcher.ChakraCore.Native.win-x64" Version="*" />
+    <PackageReference Include="JavaScriptEngineSwitcher.Core" Version="*" />
+    <PackageReference Include="JavaScriptEngineSwitcher.V8" Version="*" />
     <PackageReference Include="SkiaSharp" Version="*" />
+    <PackageReference Include="JavaScriptEngineSwitcher.Jint" Version="*" />
+    <PackageReference Include="JavaScriptEngineSwitcher.Jurassic" Version="*" />
+    <PackageReference Include="JavaScriptEngineSwitcher.ChakraCore" Version="*" />
   </ItemGroup>
 </Project>
