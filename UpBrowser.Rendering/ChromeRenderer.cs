@@ -1,8 +1,9 @@
 using SkiaSharp;
+using UpBrowser.Core;
 
 namespace UpBrowser.Rendering;
 
-public class ChromeRenderer
+public class ChromeRenderer : IImeSupport
 {
     private const float UrlBarHeight = 30;
     private const float TabBarHeight = 35;
@@ -81,6 +82,10 @@ public class ChromeRenderer
     private int _cursorPosition = 0;
     private bool _showCursor = true;
     private DateTime _lastCursorBlink = DateTime.Now;
+
+    private bool _isImeComposing;
+    private string _imeCompositionString = "";
+    private int _imeCompositionCursor = 0;
 
     public Action<string>? OnNavigate { get; set; }
     public Action? OnRefresh { get; set; }
@@ -490,6 +495,18 @@ public class ChromeRenderer
     {
         if (!_urlBarFocused) return false;
 
+        if (_isImeComposing)
+        {
+            if (key == SKKey.Escape)
+            {
+                _isImeComposing = false;
+                _imeCompositionString = "";
+                _imeCompositionCursor = 0;
+                return true;
+            }
+            return true;
+        }
+
         switch (key)
         {
             case SKKey.Enter:
@@ -789,6 +806,53 @@ public class ChromeRenderer
         _closeBtnHoverPaint.Dispose();
         _closeBtnHoverBgPaint.Dispose();
     }
+
+    #region IImeSupport Implementation
+
+    public Point GetImeCaretPosition()
+    {
+        if (!_urlBarFocused)
+            return new Point(0, 0);
+
+        float textX = 155;
+        float textY = TabBarHeight + ToolbarHeight / 2 + 5;
+        string textBeforeCursor = _urlBarText[..Math.Min(_cursorPosition, _urlBarText.Length)];
+        float cursorX = textX + 20 + _urlTextFont.MeasureText(textBeforeCursor);
+
+        return new Point(cursorX, textY - 5);
+    }
+
+    public void OnImeCompositionStart()
+    {
+        _isImeComposing = true;
+        _imeCompositionString = "";
+        _imeCompositionCursor = 0;
+    }
+
+    public void OnImeCompositionUpdate(string compositionString, int cursorPosition)
+    {
+        _imeCompositionString = compositionString;
+        _imeCompositionCursor = cursorPosition;
+        _isImeComposing = true;
+    }
+
+    public void OnImeCompositionEnd(string? resultString)
+    {
+        _isImeComposing = false;
+        _imeCompositionString = "";
+        _imeCompositionCursor = 0;
+
+        if (resultString != null)
+        {
+            _urlBarText = _urlBarText[.._cursorPosition] + resultString + _urlBarText[_cursorPosition..];
+            _cursorPosition += resultString.Length;
+        }
+    }
+
+    public bool IsImeComposing => _isImeComposing;
+    public string ImeCompositionString => _imeCompositionString;
+
+    #endregion
 }
 
 public enum SKKey

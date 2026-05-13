@@ -73,6 +73,9 @@ public static class NativeWindow
     public const uint WM_IME_NOTIFY = 0x0282;
     public const uint WM_IME_CHAR = 0x0286;
 
+    public const uint WM_SETFOCUS = 0x0007;
+    public const uint WM_KILLFOCUS = 0x0008;
+
     public const uint WM_CAPTURECHANGED = 0x0215;
     public const uint WM_INPUTLANGCHANGEREQUEST = 0x0050;
     public const uint WM_INPUTLANGCHANGE = 0x0051;

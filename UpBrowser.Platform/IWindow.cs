@@ -1,3 +1,4 @@
+using UpBrowser.Core;
 using UpBrowser.Platform;
 
 namespace UpBrowser.Platform;
@@ -15,8 +16,13 @@ public interface IWindow : IDisposable
     Action<float, float, bool>? OnMouseClick { get; set; }
     Action<double>? OnMouseWheel { get; set; }
     Action<float>? OnDpiChanged { get; set; }
+    Action? OnSetFocus { get; set; }
+    Action? OnKillFocus { get; set; }
 
     IImeHandler? ImeHandler { get; }
+
+    void SetImeTarget(IImeSupport? target);
+    void UpdateImeCompositionWindow();
 
     (int width, int height) GetClientSize();
     void Run(Action<double> onFrame);

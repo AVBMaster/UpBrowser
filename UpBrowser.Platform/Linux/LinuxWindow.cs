@@ -1,3 +1,5 @@
+using UpBrowser.Core;
+
 namespace UpBrowser.Platform.Linux;
 
 public class LinuxWindow : IWindow
@@ -14,6 +16,8 @@ public class LinuxWindow : IWindow
     public Action<float, float, bool>? OnMouseClick { get; set; }
     public Action<double>? OnMouseWheel { get; set; }
     public Action<float>? OnDpiChanged { get; set; }
+    public Action? OnSetFocus { get; set; }
+    public Action? OnKillFocus { get; set; }
 
     public int Width => _width;
     public int Height => _height;
@@ -27,6 +31,14 @@ public class LinuxWindow : IWindow
     }
 
     public (int width, int height) GetClientSize() => (_width, _height);
+
+    public void SetImeTarget(IImeSupport? target)
+    {
+    }
+
+    public void UpdateImeCompositionWindow()
+    {
+    }
 
     public void Run(Action<double> onFrame)
     {

@@ -26,6 +26,9 @@ public static class Imm32Interop
     public static extern IntPtr ImmAssociateContext(IntPtr hWnd, IntPtr hIMC);
 
     [DllImport(ImmDll, CharSet = CharSet.Unicode)]
+    public static extern IntPtr ImmAssociateContextEx(IntPtr hWnd, IntPtr hIMC, int dwFlags);
+
+    [DllImport(ImmDll, CharSet = CharSet.Unicode)]
     public static extern bool ImmSetOpenStatus(IntPtr hIMC, bool fOpen);
 
     [DllImport(ImmDll, CharSet = CharSet.Unicode)]

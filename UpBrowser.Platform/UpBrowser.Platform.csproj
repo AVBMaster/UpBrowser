@@ -12,5 +12,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\UpBrowser.Native\UpBrowser.Native.csproj" />
+    <ProjectReference Include="..\UpBrowser.Core\UpBrowser.Core.csproj" />
+    <ProjectReference Include="..\UpBrowser.Input\UpBrowser.Input.csproj" />
   </ItemGroup>
 </Project>
