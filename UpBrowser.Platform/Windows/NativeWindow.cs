@@ -150,6 +150,27 @@ public static class NativeWindow
     [DllImport("user32.dll")]
     public static extern int GetSystemMetrics(int nIndex);
 
+    [DllImport("user32.dll")]
+    public static extern IntPtr BeginPaint(IntPtr hWnd, out PAINTSTRUCT lpPaint);
+
+    [DllImport("user32.dll")]
+    public static extern bool EndPaint(IntPtr hWnd, ref PAINTSTRUCT lpPaint);
+
+    [DllImport("user32.dll")]
+    public static extern bool WaitMessage();
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct PAINTSTRUCT
+    {
+        public IntPtr hdc;
+        public bool fErase;
+        public RECT rcPaint;
+        public bool fRestore;
+        public bool fIncUpdate;
+        [MarshalAs(UnmanagedType.ByValArray, SizeConst = 32)]
+        public byte[] rgbReserved;
+    }
+
     public const int SM_CXSCREEN = 0;
     public const int SM_CYSCREEN = 1;
 
