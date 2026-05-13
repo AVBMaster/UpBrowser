@@ -93,6 +93,8 @@ public class ChromeRenderer : IImeSupport
     public Action? OnForward { get; set; }
     public Action? OnHome { get; set; }
     public Action? OnTabChanged { get; set; }      // 标签切换回调
+    public Action? OnUrlBarFocus { get; set; }    // URL 栏获得焦点回调
+    public Action? OnUrlBarBlur { get; set; }    // URL 栏失去焦点回调
 
     public class TabInfo
     {
@@ -452,43 +454,56 @@ public class ChromeRenderer : IImeSupport
         // 检查 URL 栏点击
         if (_urlBarRect.Contains(x, y))
         {
-            _urlBarFocused = true;
-            _urlBarText = _currentUrl;
-            _cursorPosition = _urlBarText.Length;
+            if (!_urlBarFocused)
+            {
+                _urlBarFocused = true;
+                _urlBarText = _currentUrl;
+                _cursorPosition = _urlBarText.Length;
+                OnUrlBarFocus?.Invoke();
+            }
             return true;
         }
 
         // 检查导航按钮点击
         if (_backButtonRect.Contains(x, y) && CanGoBack())
         {
-            _urlBarFocused = false;
+            BlurUrlBar();
             GoBack();
             return true;
         }
 
         if (_forwardButtonRect.Contains(x, y) && CanGoForward())
         {
-            _urlBarFocused = false;
+            BlurUrlBar();
             GoForward();
             return true;
         }
 
         if (_refreshButtonRect.Contains(x, y))
         {
-            _urlBarFocused = false;
+            BlurUrlBar();
             OnRefresh?.Invoke();
             return true;
         }
 
         if (_homeButtonRect.Contains(x, y))
         {
-            _urlBarFocused = false;
+            BlurUrlBar();
             OnHome?.Invoke();
             return true;
         }
 
-        _urlBarFocused = false;
+        BlurUrlBar();
         return false;
+    }
+
+    private void BlurUrlBar()
+    {
+        if (_urlBarFocused)
+        {
+            _urlBarFocused = false;
+            OnUrlBarBlur?.Invoke();
+        }
     }
 
     public bool HandleKeyPress(char keyChar, SKKey key)

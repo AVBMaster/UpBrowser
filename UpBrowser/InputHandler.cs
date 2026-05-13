@@ -49,21 +49,9 @@ public class InputHandler
         _window.OnKeyDown = OnKeyDown;
         _window.OnMouseWheel = OnMouseWheel;
         _window.OnImeChar = OnImeChar;
-        _window.OnSetFocus = OnSetFocus;
-        _window.OnKillFocus = OnKillFocus;
-    }
 
-    private void OnSetFocus()
-    {
-        if (_chrome.IsUrlBarFocused())
-        {
-            _window.SetImeTarget(_chrome);
-        }
-    }
-
-    private void OnKillFocus()
-    {
-        _window.SetImeTarget(null);
+        _chrome.OnUrlBarFocus = () => _window.SetImeTarget(_chrome);
+        _chrome.OnUrlBarBlur = () => _window.SetImeTarget(null);
     }
 
     private void OnMouseMove(float x, float y)

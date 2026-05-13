@@ -1,7 +1,6 @@
 using System.Runtime.InteropServices;
 using System.Text;
 using UpBrowser.Core;
-using UpBrowser.Input;
 using UpBrowser.Native.Windows;
 
 namespace UpBrowser.Platform.Windows;
@@ -21,8 +20,6 @@ public class WindowsWindow : IWindow
 
     private WindowsImeHandler? _imeHandler;
     private IImeSupport? _imeTarget;
-    private IntPtr _detachedImeContext;
-    private bool _imeContextDetached;
 
     private Action<char>? _onChar;
     private Action<char>? _onImeChar;
@@ -124,15 +121,7 @@ public class WindowsWindow : IWindow
 
     public void SetImeTarget(IImeSupport? target)
     {
-        if (_imeTarget != target)
-        {
-            if (InputMethod.IsComposing)
-            {
-                InputMethod.CancelComposition();
-            }
-            _imeTarget = target;
-            UpdateInputMethodAssociation();
-        }
+        _imeTarget = target;
     }
 
     public void UpdateImeCompositionWindow()
@@ -169,76 +158,11 @@ public class WindowsWindow : IWindow
             {
                 Marshal.FreeHGlobal(ptr);
             }
-
-            var candForm = new Imm32Interop.CANDIDATEFORM
-            {
-                dwIndex = 0,
-                dwStyle = Imm32Interop.CFS_CANDIDATEPOS,
-                ptCurrentPos = new Imm32Interop.POINT
-                {
-                    X = (int)caretPos.X,
-                    Y = (int)(caretPos.Y + 20)
-                }
-            };
-
-            int candSize = Marshal.SizeOf(candForm);
-            IntPtr candPtr = Marshal.AllocHGlobal(candSize);
-            try
-            {
-                Marshal.StructureToPtr(candForm, candPtr, false);
-                Imm32Interop.ImmSetCandidateWindow(hIMC, candPtr);
-            }
-            finally
-            {
-                Marshal.FreeHGlobal(candPtr);
-            }
         }
         finally
         {
             Imm32Interop.ImmReleaseContext(_hwnd, hIMC);
         }
-    }
-
-    private bool CanHandleImeMessages()
-    {
-        return _imeTarget != null;
-    }
-
-    private void UpdateInputMethodAssociation()
-    {
-        if (_hwnd == IntPtr.Zero)
-            return;
-
-        bool shouldEnableIme = CanHandleImeMessages();
-        if (!shouldEnableIme && InputMethod.IsComposing)
-        {
-            InputMethod.CancelComposition();
-        }
-
-        if (shouldEnableIme)
-        {
-            if (!_imeContextDetached)
-                return;
-
-            if (_detachedImeContext != IntPtr.Zero)
-            {
-                _ = Imm32Interop.ImmAssociateContext(_hwnd, _detachedImeContext);
-            }
-            else
-            {
-                _ = Imm32Interop.ImmAssociateContextEx(_hwnd, IntPtr.Zero, 0x0010);
-            }
-
-            _detachedImeContext = IntPtr.Zero;
-            _imeContextDetached = false;
-            return;
-        }
-
-        if (_imeContextDetached)
-            return;
-
-        _detachedImeContext = Imm32Interop.ImmAssociateContext(_hwnd, IntPtr.Zero);
-        _imeContextDetached = true;
     }
 
     private unsafe void Initialize(int width, int height, string title)
@@ -330,38 +254,28 @@ public class WindowsWindow : IWindow
             case NativeWindow.WM_SETFOCUS:
                 {
                     _onSetFocus?.Invoke();
-                    UpdateInputMethodAssociation();
                     return IntPtr.Zero;
                 }
 
             case NativeWindow.WM_KILLFOCUS:
                 {
                     _onKillFocus?.Invoke();
-                    UpdateInputMethodAssociation();
                     return IntPtr.Zero;
                 }
 
             case NativeWindow.WM_IME_STARTCOMPOSITION:
                 {
-                    if (!CanHandleImeMessages())
-                        return IntPtr.Zero;
-
-                    InputMethod.StartComposition();
                     _imeTarget?.OnImeCompositionStart();
-                    UpdateImeCompositionWindow();
                     return IntPtr.Zero;
                 }
 
             case NativeWindow.WM_IME_COMPOSITION:
                 {
-                    if (!CanHandleImeMessages())
+                    if (_imeHandler == null)
                         return IntPtr.Zero;
 
                     int flags = (int)lParam;
-                    var state = _imeHandler?.GetCompositionState();
-
-                    if (state == null)
-                        return IntPtr.Zero;
+                    var state = _imeHandler.GetCompositionState();
 
                     if ((flags & Imm32Interop.GCS_RESULTSTR) != 0)
                     {
@@ -372,7 +286,6 @@ public class WindowsWindow : IWindow
                                 _onImeChar?.Invoke(c);
                             }
                             _imeTarget?.OnImeCompositionEnd(state.CommittedText);
-                            InputMethod.EndComposition(state.CommittedText);
                         }
                     }
 
@@ -380,9 +293,7 @@ public class WindowsWindow : IWindow
                     {
                         if (!string.IsNullOrEmpty(state.CompositionText))
                         {
-                            InputMethod.UpdateComposition(state.CompositionText, state.CursorPosition);
                             _imeTarget?.OnImeCompositionUpdate(state.CompositionText, state.CursorPosition);
-                            UpdateImeCompositionWindow();
                         }
                     }
 
@@ -391,11 +302,7 @@ public class WindowsWindow : IWindow
 
             case NativeWindow.WM_IME_ENDCOMPOSITION:
                 {
-                    if (!CanHandleImeMessages() && !InputMethod.IsComposing)
-                        return IntPtr.Zero;
-
                     _imeTarget?.OnImeCompositionEnd(null);
-                    InputMethod.EndComposition(null);
                     _imeHandler?.Reset();
                     return IntPtr.Zero;
                 }
