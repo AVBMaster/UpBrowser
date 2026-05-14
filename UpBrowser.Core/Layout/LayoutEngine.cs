@@ -225,7 +225,9 @@ public class LayoutEngine
             {
                 foreach (var line in box.Lines)
                 {
-                    float lineWidth = line.Runs.Sum(r => r.Width);
+                    float lineWidth = 0;
+                    if (line.Runs != null)
+                        foreach (var r in line.Runs) lineWidth += r.Width;
                     if (lineWidth > contentWidthFromContent)
                         contentWidthFromContent = lineWidth;
                 }
@@ -246,7 +248,8 @@ public class LayoutEngine
 
             if (box.LineRuns != null && box.LineRuns.Count > 0)
             {
-                float runsWidth = box.LineRuns.Sum(r => r.Width);
+                float runsWidth = 0;
+                foreach (var r in box.LineRuns) runsWidth += r.Width;
                 if (runsWidth > contentWidthFromContent)
                     contentWidthFromContent = runsWidth;
             }
@@ -312,7 +315,7 @@ public class LayoutEngine
 
         var floatLeftElements = new List<Element>();
         var floatRightElements = new List<Element>();
-        var normalFlowElements = new List<object>();
+        var normalFlowElements = new List<Node>();
 
         foreach (var child in element.Children)
         {
@@ -787,7 +790,9 @@ public class LayoutEngine
 
         foreach (var line in box.Lines)
         {
-            float lineWidth = line.Runs.Sum(run => run.Width);
+            float lineWidth = 0;
+            if (line.Runs != null)
+                foreach (var run in line.Runs) lineWidth += run.Width;
             float offset = 0;
             if (textAlign == TextAlignType.Center)
                 offset = (availableWidth - lineWidth) / 2;
@@ -804,9 +809,12 @@ public class LayoutEngine
         var style = element.ComputedStyle;
         if (style == null) return;
 
-        var children = element.Children.OfType<Element>()
-            .Where(e => e.ComputedStyle != null && e.ComputedStyle.Display != DisplayType.None)
-            .ToList();
+        var children = new List<Element>(element.Children.Count);
+        foreach (var c in element.Children)
+        {
+            if (c is Element el && el.ComputedStyle != null && el.ComputedStyle.Display != DisplayType.None)
+                children.Add(el);
+        }
 
         if (children.Count == 0) return;
 
@@ -866,8 +874,13 @@ public class LayoutEngine
             float lineCrossStart = isRow ? box.ContentBox.Top : box.ContentBox.Left;
             float lineMainSize = isRow ? box.ContentBox.Width : box.ContentBox.Height;
 
-            float totalGrow = line.Items.Sum(item => item.Grow);
-            float usedMain = line.Items.Sum(item => item.ComputedMainSize + item.MarginLeft + item.MarginRight);
+            float totalGrow = 0;
+            float usedMain = 0;
+            foreach (var item in line.Items)
+            {
+                totalGrow += item.Grow;
+                usedMain += item.ComputedMainSize + item.MarginLeft + item.MarginRight;
+            }
             float remainingSpace = lineMainSize - usedMain;
 
             float offset = 0;
@@ -982,9 +995,15 @@ public class LayoutEngine
 
     private void DistributeFlexSpace(FlexLine line, bool isRow)
     {
-        float totalGrow = line.Items.Sum(item => item.Grow);
-        float totalShrink = line.Items.Sum(item => item.Shrink * item.Basis);
-        float usedSpace = line.Items.Sum(item => item.Basis + item.MarginLeft + item.MarginRight);
+        float totalGrow = 0;
+        float totalShrink = 0;
+        float usedSpace = 0;
+        foreach (var item in line.Items)
+        {
+            totalGrow += item.Grow;
+            totalShrink += item.Shrink * item.Basis;
+            usedSpace += item.Basis + item.MarginLeft + item.MarginRight;
+        }
         float remainingSpace = line.MainSize - usedSpace;
 
         if (remainingSpace > 0 && totalGrow > 0)

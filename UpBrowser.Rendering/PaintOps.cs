@@ -552,6 +552,7 @@ public class DrawPathOp : PaintOp
     public override void Reset()
     {
         base.Reset();
+        Path.Dispose();
         Path = new();
         FillPaint?.Dispose();
         FillPaint = null;
@@ -638,6 +639,7 @@ public class DrawShadowOp : PaintOp
     public override void Reset()
     {
         base.Reset();
+        Path.Dispose();
         Path = new();
         Color = default;
         BlurRadius = OffsetX = OffsetY = 0;
@@ -831,7 +833,7 @@ public class DisplayList
     public void SortByZIndex()
     {
         if (_isSorted) return;
-        _ops = _ops.OrderBy(op => op.ZIndex).ToList();
+        _ops.Sort((a, b) => a.ZIndex.CompareTo(b.ZIndex));
         _isSorted = true;
     }
 

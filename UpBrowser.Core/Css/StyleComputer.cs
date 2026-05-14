@@ -8,6 +8,7 @@ namespace UpBrowser.Core.Css;
 public class StyleComputer
 {
     private readonly List<Stylesheet> _stylesheets = new();
+    private readonly CssParser _inlineParser = new();
     private ComputedStyle? _rootStyle;
 
     public static readonly HashSet<string> InheritedProperties = new()
@@ -83,8 +84,7 @@ public class StyleComputer
         var inlineStyleAttr = element.GetAttribute("style");
         if (!string.IsNullOrEmpty(inlineStyleAttr))
         {
-            var parser = new CssParser();
-            var inlineProps = parser.ParseInlineStyle(inlineStyleAttr);
+            var inlineProps = _inlineParser.ParseInlineStyle(inlineStyleAttr);
             foreach (var prop in inlineProps)
             {
                 ApplyStyleProperty(style, prop.Key, prop.Value, parentStyle);

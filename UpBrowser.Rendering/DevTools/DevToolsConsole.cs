@@ -200,7 +200,8 @@ public class DevToolsConsole : IImeSupport
 
         DrawScrollbar(canvas, x, y, outputHeight);
 
-        canvas.DrawRect(x, inputY, width, InputHeight, new SKPaint { Color = SKColor.Parse("#2D2D2D"), Style = SKPaintStyle.Fill });
+        using var inputBg = new SKPaint { Color = SKColor.Parse("#2D2D2D"), Style = SKPaintStyle.Fill };
+        canvas.DrawRect(x, inputY, width, InputHeight, inputBg);
 
         _font.Color = SKColor.Parse("#569CD6");
         canvas.DrawText("> ", x + PaddingX, inputY + InputHeight * 0.7f, SKTextAlign.Left, _skFont, _font);
@@ -237,8 +238,8 @@ public class DevToolsConsole : IImeSupport
         if (_showCursor)
         {
             float cursorX = x + PaddingX + pw + textOffsetX + cursorVisualPos;
-            canvas.DrawLine(cursorX, inputY + 4, cursorX, inputY + InputHeight - 4,
-                new SKPaint { Color = SKColors.White, Style = SKPaintStyle.Fill, StrokeWidth = 1 });
+            using var cursorPaint = new SKPaint { Color = SKColors.White, Style = SKPaintStyle.Fill, StrokeWidth = 1 };
+            canvas.DrawLine(cursorX, inputY + 4, cursorX, inputY + InputHeight - 4, cursorPaint);
         }
     }
 

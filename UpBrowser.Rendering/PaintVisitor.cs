@@ -432,7 +432,12 @@ public class PaintVisitor
 
     private void DrawRoundedBorder(SKRect rect, float tl, float tr, float br, float bl, ComputedStyle style)
     {
-        var borderPath = new SKPath();
+        bool hasFill = style.BackgroundColor.HasValue && style.BackgroundColor.Value.Alpha > 0;
+        bool hasStroke = style.BorderTopWidth > 0;
+
+        if (!hasFill && !hasStroke) return;
+
+        using var borderPath = new SKPath();
 
         float x = rect.Left;
         float y = rect.Top;
@@ -450,27 +455,24 @@ public class PaintVisitor
         borderPath.QuadTo(x, y, x + tl, y);
         borderPath.Close();
 
-        if (style.BackgroundColor.HasValue && style.BackgroundColor.Value.Alpha > 0)
+        if (hasFill)
         {
             var bgOp = PaintOpPool.GetDrawPathOp();
-            bgOp.Path = borderPath;
+            bgOp.Path = new SKPath(borderPath);
             bgOp.FillPaint = new SKPaint { Color = style.BackgroundColor.Value, Style = SKPaintStyle.Fill };
             bgOp.Bounds = rect;
             _displayList.Add(bgOp);
         }
 
-        var borderColor = style.BorderTopColor;
-        var borderWidth = style.BorderTopWidth;
-
-        if (borderWidth > 0)
+        if (hasStroke)
         {
             var strokeOp = PaintOpPool.GetDrawPathOp();
-            strokeOp.Path = borderPath;
+            strokeOp.Path = new SKPath(borderPath);
             strokeOp.StrokePaint = new SKPaint
             {
-                Color = borderColor,
+                Color = style.BorderTopColor,
                 Style = SKPaintStyle.Stroke,
-                StrokeWidth = borderWidth,
+                StrokeWidth = style.BorderTopWidth,
                 IsAntialias = true
             };
             strokeOp.Bounds = rect;

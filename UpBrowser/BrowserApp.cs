@@ -147,6 +147,13 @@ var winWindow = PlatformFactory.CreateWindowsWindow(physicalWidth, physicalHeigh
         _devTools.SetSourceChangeHandler(async (html) =>
         {
             _currentHtml = html;
+
+            // Dispose old AngleSharp document to free memory
+            if (_currentLoad != null)
+            {
+                _currentLoad.AngleSharpDoc?.Dispose();
+            }
+
             _currentLoad = await _docManager.LoadHtmlAsync(html);
             var (pw, ph) = _window.GetClientSize();
             _jsEngine.LoadDocument(_currentLoad.Document);
@@ -250,7 +257,7 @@ var winWindow = PlatformFactory.CreateWindowsWindow(physicalWidth, physicalHeigh
     {
         _skiaRenderer.Canvas.Clear(SKColors.White);
 
-        var title = _currentLoad?.AngleSharpDoc.Title ?? "UpBrowser";
+        var title = _currentLoad?.Document.Title ?? "UpBrowser";
         var currentUrl = _chrome.GetCurrentUrl();
         _chrome.RenderChrome(_skiaRenderer.Canvas, windowWidth, windowHeight, currentUrl ?? "upbrowser://local", title);
 
@@ -421,6 +428,13 @@ var winWindow = PlatformFactory.CreateWindowsWindow(physicalWidth, physicalHeigh
     private async Task NavigateToHtml(string html)
     {
         _currentHtml = html;
+
+        // Dispose old AngleSharp document to free memory
+        if (_currentLoad != null)
+        {
+            _currentLoad.AngleSharpDoc?.Dispose();
+        }
+
         _currentLoad = await _docManager.LoadHtmlAsync(html);
 
         var (pw, ph) = _window.GetClientSize();
@@ -485,7 +499,7 @@ var winWindow = PlatformFactory.CreateWindowsWindow(physicalWidth, physicalHeigh
             var webHtml = await httpClient.GetStringAsync(url);
             await NavigateToHtml(webHtml);
 
-            Console.WriteLine($"Loaded: {_currentLoad?.AngleSharpDoc.Title}");
+            Console.WriteLine($"Loaded: {_currentLoad?.Document.Title}");
         }
         catch (Exception ex)
         {
@@ -632,7 +646,7 @@ var winWindow = PlatformFactory.CreateWindowsWindow(physicalWidth, physicalHeigh
 
         _skiaRenderer.Canvas.Clear(SKColors.White);
 
-        var title = _currentLoad.AngleSharpDoc.Title ?? "UpBrowser";
+        var title = _currentLoad.Document.Title ?? "UpBrowser";
         var currentUrl = _chrome.GetCurrentUrl();
         if (string.IsNullOrEmpty(currentUrl))
             currentUrl = "upbrowser://local";
@@ -889,6 +903,10 @@ var winWindow = PlatformFactory.CreateWindowsWindow(physicalWidth, physicalHeigh
 
     public void Dispose()
     {
+        if (_currentLoad != null)
+        {
+            _currentLoad.AngleSharpDoc?.Dispose();
+        }
         _chrome.Dispose();
         _skiaRenderer.Dispose();
         _window.Dispose();
