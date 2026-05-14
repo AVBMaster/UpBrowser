@@ -840,7 +840,7 @@ var winWindow = PlatformFactory.CreateWindowsWindow(physicalWidth, physicalHeigh
             if (el?.LayoutBox == null)
                 return new Point(0, _app._contentOffset);
 
-            float caretScreenX = el.LayoutBox.BorderBox.Left;
+            float caretScreenX = el.LayoutBox.BorderBox.Left + 40;
             float caretScreenY = el.LayoutBox.BorderBox.Top - _app._scroll.ScrollY + _app._contentOffset;
             return new Point(caretScreenX, caretScreenY);
         }

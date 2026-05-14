@@ -38,7 +38,7 @@ public class DevToolsSource : IImeSupport
     public int EditCol => _editCol;
     public float ScrollOffset => _scrollOffset;
 
-    public void SetHtml(string html) { _html = html ?? ""; _lines = _html.Split('\n'); _editing = false; }
+    public void SetHtml(string html) { _html = html ?? ""; _lines = _html.Split('\n'); }
 
     public bool HandleWheel(double delta)
     {
@@ -397,8 +397,9 @@ public class DevToolsSource : IImeSupport
         string line = _lines[_editLine];
         string textBeforeCursor = line[..Math.Min(_editCol, line.Length)];
         using var testFont = FontHelper.CreateMonoFont(12);
-        float cursorX = textStartX + testFont.MeasureText(textBeforeCursor);
-        float lineY = _renderY + (_editLine * 18) - _scrollOffset + 18;
+        float cursorX = textStartX + testFont.MeasureText(textBeforeCursor) + 0;
+        // Put IME window below the current line
+        float lineY = _renderY + ((_editLine + 1) * 18) - _scrollOffset + 520;
         return new Point(cursorX, lineY);
     }
 

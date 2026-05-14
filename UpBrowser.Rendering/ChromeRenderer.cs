@@ -832,7 +832,7 @@ public class ChromeRenderer : IImeSupport
         float textX = 155;
         float textY = TabBarHeight + ToolbarHeight+20 + 2;
         string textBeforeCursor = _urlBarText[..Math.Min(_cursorPosition, _urlBarText.Length)];
-        float cursorX = textX + 20 + _urlTextFont.MeasureText(textBeforeCursor);
+        float cursorX = textX + 20 + _urlTextFont.MeasureText(textBeforeCursor) + 200;
 
         return new Point(cursorX, textY);
     }

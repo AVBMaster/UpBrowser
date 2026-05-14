@@ -464,8 +464,8 @@ public class DevToolsConsole : IImeSupport
         float inputY = _renderY + _renderH - InputHeight;
         float textStartX = _renderX + PaddingX + _skFont.MeasureText("> ");
         string textBeforeCursor = _inputText[..Math.Min(_cursorPos, _inputText.Length)];
-        float cursorX = textStartX + _skFont.MeasureText(textBeforeCursor);
-        return new Point(cursorX, inputY + InputHeight);
+        float cursorX = textStartX + _skFont.MeasureText(textBeforeCursor) +50;
+        return new Point(cursorX, inputY + InputHeight + 530);
     }
 
     public void OnImeCompositionStart()
