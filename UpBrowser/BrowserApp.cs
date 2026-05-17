@@ -84,8 +84,8 @@ public class BrowserApp : IDisposable
     private static string[]? _fontFamilies;
     private bool _pendingRelayout;
 
-    private DateTime _lastInputTime = DateTime.Now;
-    private const double InputCooldownMs = 80;
+    private long _lastInputTimeTick = Environment.TickCount64;
+    private const long InputCooldownMs = 80;
 
     private string? _dialogResult;
     private string? _dialogInput;
@@ -429,6 +429,10 @@ var winWindow = PlatformFactory.CreateWindowsWindow(physicalWidth, physicalHeigh
     {
         _currentHtml = html;
 
+        // Clear page-specific caches to free memory from previous page
+        _sharedImageCache.Clear();
+        _sharedTypefaceCache.Clear();
+
         // Dispose old AngleSharp document to free memory
         if (_currentLoad != null)
         {
@@ -587,7 +591,7 @@ var winWindow = PlatformFactory.CreateWindowsWindow(physicalWidth, physicalHeigh
         bool scrollChanged = Math.Abs(_scroll.ScrollX - _lastScrollX) > 0.5f ||
                              Math.Abs(_scroll.ScrollY - _lastScrollY) > 0.5f;
 
-        bool inputRecently = (DateTime.Now - _lastInputTime).TotalMilliseconds < InputCooldownMs;
+        bool inputRecently = Environment.TickCount64 - _lastInputTimeTick < InputCooldownMs;
 
         // Accumulate pending relayout flag
         if (_jsEngine.NeedsReLayout)
@@ -697,7 +701,7 @@ var winWindow = PlatformFactory.CreateWindowsWindow(physicalWidth, physicalHeigh
 
     private void OnKeyDown(Key key)
     {
-        _lastInputTime = DateTime.Now;
+        _lastInputTimeTick = Environment.TickCount64;
         if (key == Key.F12)
         {
             _devTools.Toggle();

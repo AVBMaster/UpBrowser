@@ -463,10 +463,19 @@ public class DevToolsConsole : IImeSupport
     public Point GetImeCaretPosition()
     {
         float inputY = _renderY + _renderH - InputHeight;
-        float textStartX = _renderX + PaddingX + _skFont.MeasureText("> ");
-        string textBeforeCursor = _inputText[..Math.Min(_cursorPos, _inputText.Length)];
-        float cursorX = textStartX + _skFont.MeasureText(textBeforeCursor) +50;
-        return new Point(cursorX, inputY + InputHeight + 530);
+        float pw = _skFont.MeasureText("> ");
+        string displayText = _inputText;
+        float textAreaW = _renderW - PaddingX * 2 - pw - 6;
+        float textOffsetX = 0;
+        float cursorVisualPos = _skFont.MeasureText(displayText[..Math.Min(_cursorPos, displayText.Length)]);
+        if (cursorVisualPos > textAreaW)
+            textOffsetX = textAreaW - cursorVisualPos;
+        else if (cursorVisualPos < 0)
+            textOffsetX = 0;
+
+        float cursorX = _renderX + PaddingX + pw + textOffsetX + cursorVisualPos;
+        float cursorY = inputY + 4;
+        return new Point(cursorX, cursorY);
     }
 
     public void OnImeCompositionStart()

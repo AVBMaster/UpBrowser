@@ -248,6 +248,24 @@ public class DrawTextOp : PaintOp
     private static string[] _cachedFontFamilies = null!;
     private static readonly object _fontFamiliesLock = new();
     private static readonly Dictionary<string, SKTypeface> _globalTypefaceCache = new();
+    private static readonly LinkedList<string> _typefaceCacheOrder = new();
+    private const int MaxTypefaceCacheSize = 64;
+
+    private static void CacheTypeface(string key, SKTypeface tf)
+    {
+        if (_globalTypefaceCache.Count >= MaxTypefaceCacheSize)
+        {
+            var last = _typefaceCacheOrder.Last;
+            if (last != null)
+            {
+                _globalTypefaceCache.Remove(last.Value);
+                _typefaceCacheOrder.RemoveLast();
+            }
+        }
+        _globalTypefaceCache[key] = tf;
+        _typefaceCacheOrder.Remove(key);
+        _typefaceCacheOrder.AddFirst(key);
+    }
 
     private static string[] GetFontFamilies()
     {
@@ -357,7 +375,7 @@ public class DrawTextOp : PaintOp
                 if (result != null)
                 {
                     lock (_globalTypefaceCache)
-                        _globalTypefaceCache[cacheKey] = result;
+                        CacheTypeface(cacheKey, result);
                     return result;
                 }
             }
@@ -374,7 +392,7 @@ public class DrawTextOp : PaintOp
                     if (!isSystemFont)
                     {
                         lock (_globalTypefaceCache)
-                            _globalTypefaceCache[cacheKey] = tf;
+                            CacheTypeface(cacheKey, tf);
                         return tf;
                     }
                     result = tf;
@@ -384,7 +402,7 @@ public class DrawTextOp : PaintOp
             if (result != null)
             {
                 lock (_globalTypefaceCache)
-                    _globalTypefaceCache[cacheKey] = result;
+                    CacheTypeface(cacheKey, result);
                 return result;
             }
         }
@@ -663,12 +681,9 @@ public class DrawShadowOp : PaintOp
 
 public enum ImageFit { Fill, Contain, Cover, None }
 
-/// <summary>
-/// Object pool for PaintOp instances to reduce GC pressure.
-/// </summary>
 public static class PaintOpPool
 {
-    private const int MaxPoolSize = 2000;
+    private const int MaxPoolSize = 500;
     private static readonly Stack<DrawRectOp> _rectOps = new();
     private static readonly Stack<DrawTextOp> _textOps = new();
     private static readonly Stack<DrawImageOp> _imageOps = new();

@@ -864,8 +864,10 @@ public class PaintVisitor
 public class ImageCache
 {
     private readonly Dictionary<string, SKImage> _cache = new();
+    private readonly LinkedList<string> _accessOrder = new();
     private readonly HttpClient _httpClient = new();
     private readonly object _lock = new();
+    private const int MaxCacheSize = 200;
 
     public async Task<SKImage?> GetImageAsync(string url)
     {
@@ -874,7 +876,12 @@ public class ImageCache
         SKImage? image;
         lock (_lock)
         {
-            if (_cache.TryGetValue(url, out image)) return image;
+            if (_cache.TryGetValue(url, out image))
+            {
+                _accessOrder.Remove(url);
+                _accessOrder.AddFirst(url);
+                return image;
+            }
         }
 
         try
@@ -900,6 +907,8 @@ public class ImageCache
                 lock (_lock)
                 {
                     _cache[url] = image;
+                    _accessOrder.AddFirst(url);
+                    EvictIfNeeded();
                 }
             }
 
@@ -908,6 +917,30 @@ public class ImageCache
         catch
         {
             return null;
+        }
+    }
+
+    private void EvictIfNeeded()
+    {
+        while (_cache.Count > MaxCacheSize)
+        {
+            var last = _accessOrder.Last;
+            if (last == null) break;
+            if (_cache.TryGetValue(last.Value, out var oldImage))
+                oldImage?.Dispose();
+            _cache.Remove(last.Value);
+            _accessOrder.RemoveLast();
+        }
+    }
+
+    public void Clear()
+    {
+        lock (_lock)
+        {
+            foreach (var img in _cache.Values)
+                img?.Dispose();
+            _cache.Clear();
+            _accessOrder.Clear();
         }
     }
 }

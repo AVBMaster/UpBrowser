@@ -96,11 +96,11 @@ public static class Imm32Interop
     public const int IMN_SETCOMPOSITIONFONT = 0x0007;
     public const int IMN_SETCOMPOSITIONWINDOW = 0x0008;
 
-    [DllImport(ImmDll, CharSet = CharSet.Unicode)]
-    public static extern bool ImmSetCompositionWindow(IntPtr hIMC, IntPtr lpCompForm);
+    [DllImport(ImmDll)]
+    public static extern bool ImmSetCompositionWindow(IntPtr hIMC, ref COMPOSITIONFORM lpCompForm);
 
-    [DllImport(ImmDll, CharSet = CharSet.Unicode)]
-    public static extern bool ImmSetCandidateWindow(IntPtr hIMC, IntPtr lpCandidate);
+    [DllImport(ImmDll)]
+    public static extern bool ImmSetCandidateWindow(IntPtr hIMC, ref CANDIDATEFORM lpCandidate);
 
     [DllImport(ImmDll, CharSet = CharSet.Unicode)]
     public static extern int ImmGetCandidateCount(IntPtr hIMC);
@@ -202,7 +202,7 @@ public static class Imm32Interop
     [StructLayout(LayoutKind.Sequential)]
     public struct COMPOSITIONFORM
     {
-        public int dwStyle;
+        public uint dwStyle;
         public POINT ptCurrentPos;
         public RECT rcArea;
     }
@@ -226,8 +226,8 @@ public static class Imm32Interop
     [StructLayout(LayoutKind.Sequential)]
     public struct CANDIDATEFORM
     {
-        public int dwIndex;
-        public int dwStyle;
+        public uint dwIndex;
+        public uint dwStyle;
         public POINT ptCurrentPos;
         public RECT rcArea;
     }

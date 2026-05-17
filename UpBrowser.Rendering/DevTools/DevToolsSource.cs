@@ -393,14 +393,15 @@ public class DevToolsSource : IImeSupport
         if (!_editing || _editLine < 0 || _editLine >= _lines.Length)
             return new Point(_renderX + 50, _renderY);
 
-        float textStartX = _renderX + 50;
+        float tx = _renderX + 50;
+        float lh = 18;
         string line = _lines[_editLine];
         string textBeforeCursor = line[..Math.Min(_editCol, line.Length)];
         using var testFont = FontHelper.CreateMonoFont(12);
-        float cursorX = textStartX + testFont.MeasureText(textBeforeCursor) + 0;
-        // Put IME window below the current line
-        float lineY = _renderY + ((_editLine + 1) * 18) - _scrollOffset + 520;
-        return new Point(cursorX, lineY);
+        float cursorX = tx + testFont.MeasureText(textBeforeCursor);
+        float lineDrawY = _renderY + lh - _scrollOffset + _editLine * lh;
+        float cursorY = lineDrawY - lh + 4;
+        return new Point(cursorX, cursorY);
     }
 
     public void OnImeCompositionStart()

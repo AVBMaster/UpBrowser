@@ -1,4 +1,3 @@
-using System.Runtime.InteropServices;
 using System.Text;
 using UpBrowser.Core;
 using UpBrowser.Native.Windows;
@@ -106,22 +105,6 @@ public class WindowsWindow : IWindow
         Initialize(width, height, title);
     }
 
-    [StructLayout(LayoutKind.Sequential)]
-    public struct RECT
-    {
-        public int Left, Top, Right, Bottom;
-    }
-
-    [DllImport("user32.dll")]
-    private static extern bool GetClientRect(IntPtr hWnd, out RECT lpRect);
-
-    public (int width, int height) GetClientSize()
-    {
-        if (_hwnd == IntPtr.Zero) return (0, 0);
-        GetClientRect(_hwnd, out RECT rect);
-        return (rect.Right - rect.Left, rect.Bottom - rect.Top);
-    }
-
     public void SetImeTarget(IImeSupport? target)
     {
         bool changed = _imeTarget != target;
@@ -179,12 +162,12 @@ public class WindowsWindow : IWindow
 
         try
         {
-            int caretX = (int)(caretPos.X * _dpiScale);
-            int caretY = (int)(caretPos.Y * _dpiScale);
+            int caretX = (int)Math.Round(caretPos.X * _dpiScale);
+            int caretY = (int)Math.Round(caretPos.Y * _dpiScale);
 
             var compForm = new Imm32Interop.COMPOSITIONFORM
             {
-                dwStyle = Imm32Interop.CFS_FORCE_POSITION,
+                dwStyle = Imm32Interop.CFS_POINT,
                 ptCurrentPos = new Imm32Interop.POINT
                 {
                     X = caretX,
@@ -192,17 +175,7 @@ public class WindowsWindow : IWindow
                 }
             };
 
-            int size = Marshal.SizeOf(compForm);
-            IntPtr ptr = Marshal.AllocHGlobal(size);
-            try
-            {
-                Marshal.StructureToPtr(compForm, ptr, false);
-                Imm32Interop.ImmSetCompositionWindow(hIMC, ptr);
-            }
-            finally
-            {
-                Marshal.FreeHGlobal(ptr);
-            }
+            Imm32Interop.ImmSetCompositionWindow(hIMC, ref compForm);
 
             var candForm = new Imm32Interop.CANDIDATEFORM
             {
@@ -211,21 +184,11 @@ public class WindowsWindow : IWindow
                 ptCurrentPos = new Imm32Interop.POINT
                 {
                     X = caretX,
-                    Y = caretY + (int)(20 * _dpiScale)
+                    Y = caretY
                 }
             };
 
-            int candSize = Marshal.SizeOf(candForm);
-            IntPtr candPtr = Marshal.AllocHGlobal(candSize);
-            try
-            {
-                Marshal.StructureToPtr(candForm, candPtr, false);
-                Imm32Interop.ImmSetCandidateWindow(hIMC, candPtr);
-            }
-            finally
-            {
-                Marshal.FreeHGlobal(candPtr);
-            }
+            Imm32Interop.ImmSetCandidateWindow(hIMC, ref candForm);
         }
         finally
         {
@@ -277,7 +240,18 @@ public class WindowsWindow : IWindow
                 return IntPtr.Zero;
 
             case NativeWindow.WM_PAINT:
+                {
+                    // 必须调用 BeginPaint/EndPaint 来验证更新区域，
+                    // 否则 Windows 会无限生成 WM_PAINT 消息导致 CPU 100%
+                    NativeWindow.BeginPaint(hWnd, out var ps);
+                    NativeWindow.EndPaint(hWnd, ref ps);
+                    return IntPtr.Zero;
+                }
+
             case NativeWindow.WM_ERASEBKGND:
+                // 返回 1 表示已擦除背景，禁止 DefWindowProc 擦除（避免闪烁）
+                return new IntPtr(1);
+
             case NativeWindow.WM_NCPAINT:
                 return IntPtr.Zero;
 
@@ -306,13 +280,15 @@ public class WindowsWindow : IWindow
 
                     unsafe
                     {
-                        RECT* suggestedRect = (RECT*)lParam;
+                        NativeWindow.RECT* suggestedRect = (NativeWindow.RECT*)lParam;
                         NativeWindow.SetWindowPos(_hwnd, IntPtr.Zero,
                             suggestedRect->Left, suggestedRect->Top,
                             suggestedRect->Right - suggestedRect->Left,
                             suggestedRect->Bottom - suggestedRect->Top,
                             0x0040);
                     }
+
+                    UpdateImeCompositionWindow();
                     return IntPtr.Zero;
                 }
 
@@ -471,13 +447,16 @@ public class WindowsWindow : IWindow
         NativeWindow.MSG msg;
         while (_isRunning)
         {
-            bool hasMessage = NativeWindow.PeekMessageW(out msg, IntPtr.Zero, 0, 0, 1);
-
-            if (hasMessage)
+            // 一次性处理完所有待处理消息，减少循环次数
+            bool hasMessage = false;
+            while (NativeWindow.PeekMessageW(out msg, IntPtr.Zero, 0, 0, 1))
             {
+                hasMessage = true;
                 if (msg.message == NativeWindow.WM_QUIT)
-                    break;
-
+                {
+                    _isRunning = false;
+                    return;
+                }
                 NativeWindow.TranslateMessage(ref msg);
                 NativeWindow.DispatchMessageW(ref msg);
             }
@@ -494,11 +473,18 @@ public class WindowsWindow : IWindow
                 }
                 else if (!hasMessage)
                 {
-                    Thread.Sleep(1);
+                    // 精确计算剩余帧预算时间，线程在此长时间休眠（非自旋）
+                    // 帧率为 60fps，空转时约休眠 15ms，CPU 占用接近 0
+                    var elapsed = (DateTime.Now - _lastFrameTime).TotalMilliseconds;
+                    int sleepMs = Math.Max(1, (int)(16.5 - elapsed));
+                    if (sleepMs > 0)
+                        Thread.Sleep(sleepMs);
                 }
             }
         }
     }
+
+    public (int width, int height) GetClientSize() => (_width, _height);
 
     public bool PumpPendingMessage()
     {

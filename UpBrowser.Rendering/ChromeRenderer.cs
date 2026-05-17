@@ -81,7 +81,7 @@ public class ChromeRenderer : IImeSupport
     private string _urlBarText = "";
     private int _cursorPosition = 0;
     private bool _showCursor = true;
-    private DateTime _lastCursorBlink = DateTime.Now;
+    private long _lastCursorBlinkTick = Environment.TickCount64;
 
     private bool _isImeComposing;
     private string _imeCompositionString = "";
@@ -706,10 +706,10 @@ public class ChromeRenderer : IImeSupport
 
     public bool UpdateCursorBlink()
     {
-        if ((DateTime.Now - _lastCursorBlink).TotalMilliseconds > 500)
+        if (Environment.TickCount64 - _lastCursorBlinkTick > 500)
         {
             _showCursor = !_showCursor;
-            _lastCursorBlink = DateTime.Now;
+            _lastCursorBlinkTick = Environment.TickCount64;
             return true;
         }
         return false;
@@ -829,10 +829,10 @@ public class ChromeRenderer : IImeSupport
         if (!_urlBarFocused)
             return new Point(0, 0);
 
-        float textX = 155;
-        float textY = TabBarHeight + ToolbarHeight+20 + 2;
+        float textX = 165;
+        float textY = TabBarHeight + ToolbarHeight / 2 + 5;
         string textBeforeCursor = _urlBarText[..Math.Min(_cursorPosition, _urlBarText.Length)];
-        float cursorX = textX + 20 + _urlTextFont.MeasureText(textBeforeCursor) + 200;
+        float cursorX = textX + _urlTextFont.MeasureText(textBeforeCursor);
 
         return new Point(cursorX, textY);
     }

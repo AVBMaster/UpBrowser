@@ -156,6 +156,30 @@ public static class NativeWindow
     public const int SM_CXSCREEN = 0;
     public const int SM_CYSCREEN = 1;
 
+    [DllImport("user32.dll")]
+    public static extern IntPtr MonitorFromWindow(IntPtr hwnd, uint dwFlags);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    public static extern bool GetMonitorInfoW(IntPtr hMonitor, ref MONITORINFO lpmi);
+
+    public const uint MONITOR_DEFAULTTONEAREST = 2;
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    public struct MONITORINFO
+    {
+        public uint cbSize;
+        public RECT rcMonitor;
+        public RECT rcWork;
+        public uint dwFlags;
+
+        public static MONITORINFO Create()
+        {
+            var mi = new MONITORINFO();
+            mi.cbSize = (uint)Marshal.SizeOf(mi);
+            return mi;
+        }
+    }
+
     public static IntPtr IDC_ARROW = new IntPtr(32512);
     public static IntPtr HINSTANCE_CURRENT = IntPtr.Zero;
 
@@ -276,4 +300,22 @@ public static class NativeWindow
 
     [DllImport("user32.dll")]
     public static extern bool ClientToScreen(IntPtr hWnd, ref POINT lpPoint);
+
+    [DllImport("user32.dll")]
+    public static extern IntPtr BeginPaint(IntPtr hWnd, out PAINTSTRUCT lpPaint);
+
+    [DllImport("user32.dll")]
+    public static extern bool EndPaint(IntPtr hWnd, ref PAINTSTRUCT lpPaint);
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct PAINTSTRUCT
+    {
+        public IntPtr hdc;
+        public int fErase;
+        public RECT rcPaint;
+        public int fRestore;
+        public int fIncUpdate;
+        [MarshalAs(UnmanagedType.ByValArray, SizeConst = 32)]
+        public byte[] rgbReserved;
+    }
 }

@@ -41,34 +41,27 @@ public class WindowsImeHandler : IImeHandler
 
         try
         {
+            int caretX = (int)Math.Round(screenPosition.X);
+            int caretY = (int)Math.Round(screenPosition.Y + lineHeight);
+
             var compForm = new Imm32Interop.COMPOSITIONFORM
             {
-                dwStyle = Imm32Interop.CFS_FORCE_POSITION,
+                dwStyle = Imm32Interop.CFS_POINT,
                 ptCurrentPos = new Imm32Interop.POINT
                 {
-                    X = (int)screenPosition.X,
-                    Y = (int)(screenPosition.Y + lineHeight)
+                    X = caretX,
+                    Y = caretY
                 },
                 rcArea = new Imm32Interop.RECT
                 {
-                    Left = (int)screenPosition.X,
-                    Top = (int)screenPosition.Y,
-                    Right = (int)screenPosition.X + 200,
-                    Bottom = (int)(screenPosition.Y + lineHeight * 2)
+                    Left = caretX,
+                    Top = caretY,
+                    Right = caretX + 200,
+                    Bottom = caretY + (int)(lineHeight * 2)
                 }
             };
 
-            int size = Marshal.SizeOf(compForm);
-            IntPtr ptr = Marshal.AllocHGlobal(size);
-            try
-            {
-                Marshal.StructureToPtr(compForm, ptr, false);
-                Imm32Interop.ImmSetCompositionWindow(hIMC, ptr);
-            }
-            finally
-            {
-                Marshal.FreeHGlobal(ptr);
-            }
+            Imm32Interop.ImmSetCompositionWindow(hIMC, ref compForm);
 
             var candForm = new Imm32Interop.CANDIDATEFORM
             {
@@ -76,22 +69,12 @@ public class WindowsImeHandler : IImeHandler
                 dwStyle = Imm32Interop.CFS_FORCE_POSITION,
                 ptCurrentPos = new Imm32Interop.POINT
                 {
-                    X = (int)screenPosition.X,
-                    Y = (int)(screenPosition.Y + lineHeight * 2)
+                    X = caretX,
+                    Y = caretY
                 }
             };
 
-            int candSize = Marshal.SizeOf(candForm);
-            IntPtr candPtr = Marshal.AllocHGlobal(candSize);
-            try
-            {
-                Marshal.StructureToPtr(candForm, candPtr, false);
-                Imm32Interop.ImmSetCandidateWindow(hIMC, candPtr);
-            }
-            finally
-            {
-                Marshal.FreeHGlobal(candPtr);
-            }
+            Imm32Interop.ImmSetCandidateWindow(hIMC, ref candForm);
         }
         finally
         {
