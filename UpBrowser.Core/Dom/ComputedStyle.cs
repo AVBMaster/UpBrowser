@@ -28,6 +28,33 @@ public abstract class Length
 
         return AutoLength.Instance;
     }
+
+    public static bool TryParse(string value, out Length length)
+    {
+        try
+        {
+            length = Parse(value);
+            return true;
+        }
+        catch
+        {
+            length = AutoLength.Instance;
+            return false;
+        }
+    }
+
+    public static float ParseFontSize(string value, float parentFontSize)
+    {
+        if (value.EndsWith("px") && float.TryParse(value[..^2], out var px)) return px;
+        if (value.EndsWith("rem") && float.TryParse(value[..^2], out var rem)) return rem * 16;
+        if (value.EndsWith("em") && float.TryParse(value[..^2], out var em)) return em * parentFontSize;
+        if (value.EndsWith("%") && float.TryParse(value[..^2], out var pct)) return pct / 100f * parentFontSize;
+        return value.ToLowerInvariant() switch
+        {
+            "xx-small" => 10, "x-small" => 12, "small" => 14, "medium" => 16,
+            "large" => 18, "x-large" => 24, "xx-large" => 32, _ => 16
+        };
+    }
 }
 
 public class AutoLength : Length
@@ -172,6 +199,19 @@ public class ComputedStyle
     public string? ListStyleImage { get; set; }
     public ListStylePosition ListStylePosition { get; set; } = ListStylePosition.Outside;
 
+    public string? Transform { get; set; }
+    public string? Transition { get; set; }
+    public string? Animation { get; set; }
+    public string? PointerEvents { get; set; } = "auto";
+    public string? UserSelect { get; set; } = "auto";
+    public string Direction { get; set; } = "ltr";
+    public float LetterSpacing { get; set; }
+    public float WordSpacing { get; set; }
+    public float TextIndent { get; set; }
+    public string TextTransform { get; set; } = "none";
+    public Length RowGap { get; set; } = new PixelLength(0);
+    public Length ColumnGap { get; set; } = new PixelLength(0);
+
     public float GetWidth(float viewportWidth, float rootFontSize)
     {
         if (Width is AutoLength) return float.NaN;
@@ -184,14 +224,46 @@ public class ComputedStyle
         return Height.ToPixels(viewportHeight, rootFontSize, 0, viewportHeight);
     }
 
+    public ComputedStyle Clone()
+    {
+        return new ComputedStyle
+        {
+            Width = Width, Height = Height, Top = Top, Left = Left, Right = Right, Bottom = Bottom,
+            MarginTop = MarginTop, MarginRight = MarginRight, MarginBottom = MarginBottom, MarginLeft = MarginLeft,
+            PaddingTop = PaddingTop, PaddingRight = PaddingRight, PaddingBottom = PaddingBottom, PaddingLeft = PaddingLeft,
+            BorderTopWidth = BorderTopWidth, BorderRightWidth = BorderRightWidth, BorderBottomWidth = BorderBottomWidth, BorderLeftWidth = BorderLeftWidth,
+            BorderTopColor = BorderTopColor, BorderRightColor = BorderRightColor, BorderBottomColor = BorderBottomColor, BorderLeftColor = BorderLeftColor,
+            BorderTopStyle = BorderTopStyle, BorderRightStyle = BorderRightStyle, BorderBottomStyle = BorderBottomStyle, BorderLeftStyle = BorderLeftStyle,
+            BorderTopLeftRadius = BorderTopLeftRadius, BorderTopRightRadius = BorderTopRightRadius, BorderBottomRightRadius = BorderBottomRightRadius, BorderBottomLeftRadius = BorderBottomLeftRadius,
+            Display = Display, Position = Position, Float = Float, Clear = Clear,
+            FontFamily = FontFamily, FontSize = FontSize, FontWeight = FontWeight, FontStyle = FontStyle, LineHeight = LineHeight,
+            Color = Color, BackgroundColor = BackgroundColor, BackgroundImage = BackgroundImage,
+            BackgroundPositionX = BackgroundPositionX, BackgroundPositionY = BackgroundPositionY,
+            BackgroundRepeat = BackgroundRepeat, BackgroundAttachment = BackgroundAttachment,
+            TextAlign = TextAlign, TextDecoration = TextDecoration, VerticalAlign = VerticalAlign, WhiteSpace = WhiteSpace,
+            Overflow = Overflow, OverflowX = OverflowX, OverflowY = OverflowY, Visibility = Visibility,
+            ZIndex = ZIndex, Cursor = Cursor, Opacity = Opacity, BoxShadow = BoxShadow,
+            BackgroundSize = BackgroundSize, BackgroundSizeWidth = BackgroundSizeWidth, BackgroundSizeHeight = BackgroundSizeHeight,
+            FlexDirection = FlexDirection, FlexWrap = FlexWrap, FlexGrow = FlexGrow, FlexShrink = FlexShrink, FlexBasis = FlexBasis,
+            JustifyContent = JustifyContent, AlignItems = AlignItems, AlignSelf = AlignSelf,
+            MinWidth = MinWidth, MaxWidth = MaxWidth, MinHeight = MinHeight, MaxHeight = MaxHeight,
+            BoxSizing = BoxSizing, BorderCollapse = BorderCollapse,
+            ListStyleType = ListStyleType, ListStyleImage = ListStyleImage, ListStylePosition = ListStylePosition,
+            Transform = Transform, Transition = Transition, Animation = Animation,
+            PointerEvents = PointerEvents, UserSelect = UserSelect, Direction = Direction,
+            LetterSpacing = LetterSpacing, WordSpacing = WordSpacing, TextIndent = TextIndent, TextTransform = TextTransform,
+            RowGap = RowGap, ColumnGap = ColumnGap
+        };
+    }
+
     public static ComputedStyle CreateDefault() => new();
 }
 
-public enum DisplayType { Block, Inline, InlineBlock, Flex, InlineFlex, ListItem, Table, TableRow, TableRowGroup, TableCell, TableCaption, TableColumnGroup, TableColumn, Ruby, None }
+public enum DisplayType { Block, Inline, InlineBlock, Flex, InlineFlex, ListItem, Table, TableRow, TableRowGroup, TableHeaderGroup, TableFooterGroup, TableCell, TableCaption, TableColumnGroup, TableColumn, Ruby, Contents, None }
 public enum PositionType { Static, Relative, Absolute, Fixed, Sticky }
 public enum FloatType { None, Left, Right }
 public enum ClearType { None, Left, Right, Both }
-public enum BorderStyle { None, Solid, Dashed, Dotted, Double }
+public enum BorderStyle { None, Solid, Dashed, Dotted, Double, Groove, Ridge, Inset, Outset }
 public enum FontWeight { Normal = 400, Bold = 700 }
 public enum FontStyleType { Normal, Italic, Oblique }
 public enum TextAlignType { Start, End, Left, Right, Center, Justify }
@@ -206,9 +278,9 @@ public enum JustifyContentType { FlexStart, FlexEnd, Center, SpaceBetween, Space
 public enum AlignItemsType { Stretch, FlexStart, FlexEnd, Center, Baseline }
 public enum AlignSelfType { Auto, Stretch, FlexStart, FlexEnd, Center, Baseline }
 public enum BackgroundRepeat { Repeat, RepeatX, RepeatY, NoRepeat }
-public enum BackgroundAttachment { Scroll, Fixed }
+public enum BackgroundAttachment { Scroll, Fixed, Local }
 public enum BoxSizingType { ContentBox, BorderBox }
-public enum ListStyleType { Disc, Circle, Square, Decimal, LowerRoman, UpperRoman, None }
+public enum ListStyleType { Disc, Circle, Square, Decimal, DecimalLeadingZero, LowerRoman, UpperRoman, LowerAlpha, UpperAlpha, None }
 public enum ListStylePosition { Inside, Outside }
 
 public enum BackgroundSizeType { Auto, Cover, Contain, Length }

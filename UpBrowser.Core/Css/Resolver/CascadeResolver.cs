@@ -1,0 +1,1013 @@
+using SkiaSharp;
+using UpBrowser.Core.Dom;
+using UpBrowser.Core.Css.ElementStyles;
+
+namespace UpBrowser.Core.Css.Resolver;
+
+/// <summary>
+/// CSS Cascade resolution system - inspired by Blink's StyleCascade.
+/// Two-phase design: Analyze (build CascadeMap) → Apply (build ComputedStyle).
+/// Priority encoding: Importance → Origin → TreeOrder → LayerOrder → Position
+/// </summary>
+public class CascadeResolver
+{
+    private readonly List<Stylesheet> _stylesheets = new();
+    private readonly CssParser _inlineParser = new();
+    private readonly SelectorMatcher _matcher = new();
+    private readonly CascadeMap _cascadeMap = new();
+    private readonly MatchedPropertiesCache _cache = new();
+
+    private ComputedStyle? _rootStyle;
+    private int _treeOrderCounter;
+
+    public void AddStylesheet(Stylesheet stylesheet) => _stylesheets.Add(stylesheet);
+
+    public void ResolveStyles(Document document)
+    {
+        _treeOrderCounter = 0;
+        _cache.Clear();
+
+        _rootStyle = CreateUserAgentStyle("html");
+        _rootStyle.FontSize = 16;
+
+        var root = document.DocumentElement ?? document.Body;
+        if (root != null)
+            ResolveElement(root, _rootStyle);
+    }
+
+    private void ResolveElement(Element element, ComputedStyle? parentStyle)
+    {
+        int treeOrder = _treeOrderCounter++;
+
+        var style = new ComputedStyle();
+
+        if (parentStyle != null)
+            InheritProperties(style, parentStyle);
+
+        ApplyUserAgentStyles(style, element.TagName);
+
+        var cacheKey = new CacheKey(element, _stylesheets.Count);
+        if (_cache.TryGet(cacheKey, out var cached))
+        {
+            CopyStyle(style, cached);
+            element.ComputedStyle = style;
+            ResolveChildren(element, style);
+            return;
+        }
+
+        _cascadeMap.Clear();
+
+        Analyze(element, treeOrder);
+
+        ApplyCascadeAffecting(style);
+        ApplyHighPriority(style, parentStyle);
+        ApplyMatchResult(style, parentStyle);
+
+        ApplyInlineStyle(style, element, parentStyle);
+        ApplyJsModifiedStyle(style, element, parentStyle);
+
+        _cache.Set(cacheKey, style.Clone());
+
+        element.ComputedStyle = style;
+        ResolveChildren(element, style);
+    }
+
+    private void ResolveChildren(Element element, ComputedStyle parentStyle)
+    {
+        foreach (var child in element.Children)
+        {
+            if (child is Element childElement)
+                ResolveElement(childElement, parentStyle);
+        }
+    }
+
+    /// <summary>
+    /// Analyze phase: traverse all declarations, insert into CascadeMap,
+    /// keeping only the highest-priority entry per property.
+    /// </summary>
+    private void Analyze(Element element, int treeOrder)
+    {
+        foreach (var stylesheet in _stylesheets)
+        {
+            foreach (var rule in stylesheet.Rules)
+            {
+                if (_matcher.Matches(rule, element))
+                {
+                    var priority = new CascadePriority(
+                        importance: false,
+                        origin: CascadeOrigin.Author,
+                        treeOrder: treeOrder
+                    );
+
+                    foreach (var prop in rule.Properties)
+                    {
+                        _cascadeMap.Insert(prop.Key, prop.Value, priority);
+                    }
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Apply cascade-affecting properties first (direction, writing-mode, zoom).
+    /// These affect how other properties are resolved.
+    /// </summary>
+    private void ApplyCascadeAffecting(ComputedStyle style)
+    {
+        // Direction and writing-mode affect text layout
+        // For now, these are handled by inheritance
+    }
+
+    /// <summary>
+    /// Apply high-priority properties first (font properties).
+    /// em/ch units depend on font-size, so font must be resolved first.
+    /// </summary>
+    private void ApplyHighPriority(ComputedStyle style, ComputedStyle? parentStyle)
+    {
+        if (_cascadeMap.TryGetValue("font-size", out var fontSizeVal))
+            style.FontSize = ParseFontSize(fontSizeVal, parentStyle);
+
+        if (_cascadeMap.TryGetValue("font-weight", out var fontWeightVal))
+            style.FontWeight = ParseFontWeight(fontWeightVal);
+
+        if (_cascadeMap.TryGetValue("font-style", out var fontStyleVal))
+            style.FontStyle = ParseFontStyle(fontStyleVal);
+
+        if (_cascadeMap.TryGetValue("font-family", out var fontFamilyVal))
+            style.FontFamily = ParseFontFamily(fontFamilyVal);
+
+        if (_cascadeMap.TryGetValue("line-height", out var lineHeightVal))
+            style.LineHeight = ParseLineHeight(lineHeightVal, style.FontSize);
+    }
+
+    /// <summary>
+    /// Apply all remaining cascade-winning declarations.
+    /// </summary>
+    private void ApplyMatchResult(ComputedStyle style, ComputedStyle? parentStyle)
+    {
+        foreach (var (name, value) in _cascadeMap.GetAll())
+        {
+            if (IsHighPriorityProperty(name)) continue;
+            ApplyProperty(style, name, value, parentStyle);
+        }
+    }
+
+    private void ApplyInlineStyle(ComputedStyle style, Element element, ComputedStyle? parentStyle)
+    {
+        var inlineStyleAttr = element.GetAttribute("style");
+        if (string.IsNullOrEmpty(inlineStyleAttr)) return;
+
+        var inlineProps = _inlineParser.ParseInlineStyle(inlineStyleAttr);
+        foreach (var prop in inlineProps)
+            ApplyProperty(style, prop.Key, prop.Value, parentStyle);
+    }
+
+    private void ApplyJsModifiedStyle(ComputedStyle style, Element element, ComputedStyle? parentStyle)
+    {
+        foreach (var kv in element.Style)
+        {
+            if (!string.IsNullOrEmpty(kv.Key) && !string.IsNullOrEmpty(kv.Value))
+                ApplyProperty(style, kv.Key, kv.Value, parentStyle);
+        }
+    }
+
+    private void ApplyProperty(ComputedStyle style, string name, string value, ComputedStyle? parentStyle)
+    {
+        switch (name)
+        {
+            case "width": style.Width = Length.Parse(value); break;
+            case "height": style.Height = Length.Parse(value); break;
+            case "min-width": style.MinWidth = Length.Parse(value); break;
+            case "min-height": style.MinHeight = Length.Parse(value); break;
+            case "max-width": style.MaxWidth = Length.Parse(value); break;
+            case "max-height": style.MaxHeight = Length.Parse(value); break;
+            case "display": style.Display = ParseDisplay(value); break;
+            case "position": style.Position = ParsePosition(value); break;
+            case "float": style.Float = ParseFloat(value); break;
+            case "clear": style.Clear = ParseClear(value); break;
+            case "margin":
+                ParseShorthand4(value, out var mt, out var mr, out var mb, out var ml);
+                style.MarginTop = mt; style.MarginRight = mr; style.MarginBottom = mb; style.MarginLeft = ml;
+                break;
+            case "margin-top": style.MarginTop = Length.Parse(value); break;
+            case "margin-bottom": style.MarginBottom = Length.Parse(value); break;
+            case "margin-left": style.MarginLeft = Length.Parse(value); break;
+            case "margin-right": style.MarginRight = Length.Parse(value); break;
+            case "padding":
+                ParseShorthand4(value, out var pt, out var pr, out var pb, out var pl);
+                style.PaddingTop = pt; style.PaddingRight = pr; style.PaddingBottom = pb; style.PaddingLeft = pl;
+                break;
+            case "padding-top": style.PaddingTop = Length.Parse(value); break;
+            case "padding-bottom": style.PaddingBottom = Length.Parse(value); break;
+            case "padding-left": style.PaddingLeft = Length.Parse(value); break;
+            case "padding-right": style.PaddingRight = Length.Parse(value); break;
+            case "color": style.Color = ColorParser.Parse(value); break;
+            case "background": ParseBackgroundShorthand(value, style); break;
+            case "background-color": style.BackgroundColor = ColorParser.Parse(value); break;
+            case "background-image": style.BackgroundImage = value == "none" ? null : ParseUrl(value); break;
+            case "background-repeat": style.BackgroundRepeat = ParseBackgroundRepeat(value); break;
+            case "background-position": ParseBackgroundPosition(value, style); break;
+            case "background-size": ParseBackgroundSize(value, style); break;
+            case "background-attachment": style.BackgroundAttachment = ParseBackgroundAttachment(value); break;
+            case "text-align": style.TextAlign = ParseTextAlign(value); break;
+            case "text-decoration": style.TextDecoration = ParseTextDecoration(value); break;
+            case "vertical-align": style.VerticalAlign = ParseVerticalAlign(value); break;
+            case "white-space": style.WhiteSpace = ParseWhiteSpace(value); break;
+            case "visibility": style.Visibility = ParseVisibility(value); break;
+            case "overflow":
+                var overflow = ParseOverflow(value);
+                style.Overflow = overflow; style.OverflowX = overflow; style.OverflowY = overflow;
+                break;
+            case "overflow-x": style.OverflowX = ParseOverflow(value); break;
+            case "overflow-y": style.OverflowY = ParseOverflow(value); break;
+            case "z-index": if (value != "auto") style.ZIndex = int.TryParse(value, out var z) ? z : null; break;
+            case "border": ParseBorderShorthand(value, style); break;
+            case "border-top": ParseBorderSide(style, "top", value); break;
+            case "border-bottom": ParseBorderSide(style, "bottom", value); break;
+            case "border-left": ParseBorderSide(style, "left", value); break;
+            case "border-right": ParseBorderSide(style, "right", value); break;
+            case "border-width": ParseBorderWidth(value, style); break;
+            case "border-color": ParseBorderColor(value, style); break;
+            case "border-style": ParseBorderStyle(value, style); break;
+            case "border-radius": ParseBorderRadius(value, style); break;
+            case "box-sizing": style.BoxSizing = value.Contains("border") ? BoxSizingType.BorderBox : BoxSizingType.ContentBox; break;
+            case "opacity": if (float.TryParse(value, out var o)) style.Opacity = Math.Clamp(o, 0, 1); break;
+            case "box-shadow": style.BoxShadow = ParseBoxShadow(value); break;
+            case "flex-direction": style.FlexDirection = ParseFlexDirection(value); break;
+            case "flex-wrap": style.FlexWrap = ParseFlexWrap(value); break;
+            case "flex-grow": if (float.TryParse(value, out var g)) style.FlexGrow = g; break;
+            case "flex-shrink": if (float.TryParse(value, out var s)) style.FlexShrink = s; break;
+            case "flex-basis": style.FlexBasis = Length.Parse(value); break;
+            case "flex": ParseFlexShorthand(value, style); break;
+            case "justify-content": style.JustifyContent = ParseJustifyContent(value); break;
+            case "align-items": style.AlignItems = ParseAlignItems(value); break;
+            case "align-self": style.AlignSelf = ParseAlignSelf(value); break;
+            case "top": style.Top = Length.Parse(value); break;
+            case "bottom": style.Bottom = Length.Parse(value); break;
+            case "left": style.Left = Length.Parse(value); break;
+            case "right": style.Right = Length.Parse(value); break;
+            case "list-style-type": style.ListStyleType = ParseListStyleType(value); break;
+            case "list-style-position": style.ListStylePosition = value.Contains("inside") ? ListStylePosition.Inside : ListStylePosition.Outside; break;
+            case "list-style-image": style.ListStyleImage = value == "none" ? null : ParseUrl(value); break;
+            case "list-style": ParseListStyle(value, style); break;
+            case "cursor": style.Cursor = value; break;
+            case "gap": ParseGap(value, style); break;
+            case "row-gap": if (Length.TryParse(value, out var rg)) style.RowGap = rg; break;
+            case "column-gap": if (Length.TryParse(value, out var cg)) style.ColumnGap = cg; break;
+            case "transform": style.Transform = value; break;
+            case "transition": style.Transition = value; break;
+            case "animation": style.Animation = value; break;
+            case "pointer-events": style.PointerEvents = value; break;
+            case "user-select": style.UserSelect = value; break;
+        }
+    }
+
+    private bool IsHighPriorityProperty(string name) => name switch
+    {
+        "font-size" or "font-weight" or "font-style" or "font-family" or "line-height" => true,
+        _ => false
+    };
+
+    private void InheritProperties(ComputedStyle child, ComputedStyle parent)
+    {
+        child.Color = parent.Color;
+        child.FontFamily = parent.FontFamily;
+        child.FontSize = parent.FontSize;
+        child.FontWeight = parent.FontWeight;
+        child.FontStyle = parent.FontStyle;
+        child.LineHeight = parent.LineHeight;
+        child.TextAlign = parent.TextAlign;
+        child.WhiteSpace = parent.WhiteSpace;
+        child.Visibility = parent.Visibility;
+        child.Cursor = parent.Cursor;
+        child.Direction = parent.Direction;
+        child.LetterSpacing = parent.LetterSpacing;
+        child.WordSpacing = parent.WordSpacing;
+        child.TextIndent = parent.TextIndent;
+        child.TextTransform = parent.TextTransform;
+    }
+
+    private void ApplyUserAgentStyles(ComputedStyle style, string tagName)
+    {
+        ElementStyleRegistry.ApplyUserAgentStyle(style, tagName);
+    }
+
+    private ComputedStyle CreateUserAgentStyle(string tagName)
+    {
+        var style = new ComputedStyle();
+        ApplyUserAgentStyles(style, tagName);
+        return style;
+    }
+
+    private void CopyStyle(ComputedStyle dest, ComputedStyle src)
+    {
+        dest.Width = src.Width; dest.Height = src.Height;
+        dest.MinWidth = src.MinWidth; dest.MinHeight = src.MinHeight;
+        dest.MaxWidth = src.MaxWidth; dest.MaxHeight = src.MaxHeight;
+        dest.Display = src.Display; dest.Position = src.Position;
+        dest.Float = src.Float; dest.Clear = src.Clear;
+        dest.MarginTop = src.MarginTop; dest.MarginRight = src.MarginRight;
+        dest.MarginBottom = src.MarginBottom; dest.MarginLeft = src.MarginLeft;
+        dest.PaddingTop = src.PaddingTop; dest.PaddingRight = src.PaddingRight;
+        dest.PaddingBottom = src.PaddingBottom; dest.PaddingLeft = src.PaddingLeft;
+        dest.Color = src.Color; dest.BackgroundColor = src.BackgroundColor;
+        dest.BackgroundImage = src.BackgroundImage;
+        dest.BackgroundRepeat = src.BackgroundRepeat;
+        dest.BackgroundPositionX = src.BackgroundPositionX;
+        dest.BackgroundPositionY = src.BackgroundPositionY;
+        dest.BackgroundSize = src.BackgroundSize;
+        dest.BackgroundAttachment = src.BackgroundAttachment;
+        dest.FontFamily = src.FontFamily; dest.FontSize = src.FontSize;
+        dest.FontWeight = src.FontWeight; dest.FontStyle = src.FontStyle;
+        dest.LineHeight = src.LineHeight;
+        dest.TextAlign = src.TextAlign;
+        dest.TextDecoration = src.TextDecoration;
+        dest.VerticalAlign = src.VerticalAlign;
+        dest.WhiteSpace = src.WhiteSpace;
+        dest.Visibility = src.Visibility;
+        dest.Overflow = src.Overflow;
+        dest.OverflowX = src.OverflowX; dest.OverflowY = src.OverflowY;
+        dest.ZIndex = src.ZIndex;
+        dest.BorderTopWidth = src.BorderTopWidth;
+        dest.BorderRightWidth = src.BorderRightWidth;
+        dest.BorderBottomWidth = src.BorderBottomWidth;
+        dest.BorderLeftWidth = src.BorderLeftWidth;
+        dest.BorderTopColor = src.BorderTopColor;
+        dest.BorderRightColor = src.BorderRightColor;
+        dest.BorderBottomColor = src.BorderBottomColor;
+        dest.BorderLeftColor = src.BorderLeftColor;
+        dest.BorderTopStyle = src.BorderTopStyle;
+        dest.BorderRightStyle = src.BorderRightStyle;
+        dest.BorderBottomStyle = src.BorderBottomStyle;
+        dest.BorderLeftStyle = src.BorderLeftStyle;
+        dest.BorderTopLeftRadius = src.BorderTopLeftRadius;
+        dest.BorderTopRightRadius = src.BorderTopRightRadius;
+        dest.BorderBottomRightRadius = src.BorderBottomRightRadius;
+        dest.BorderBottomLeftRadius = src.BorderBottomLeftRadius;
+        dest.BoxSizing = src.BoxSizing;
+        dest.Opacity = src.Opacity;
+        dest.BoxShadow = src.BoxShadow;
+        dest.FlexDirection = src.FlexDirection;
+        dest.FlexWrap = src.FlexWrap;
+        dest.FlexGrow = src.FlexGrow;
+        dest.FlexShrink = src.FlexShrink;
+        dest.FlexBasis = src.FlexBasis;
+        dest.JustifyContent = src.JustifyContent;
+        dest.AlignItems = src.AlignItems;
+        dest.AlignSelf = src.AlignSelf;
+        dest.Top = src.Top; dest.Bottom = src.Bottom;
+        dest.Left = src.Left; dest.Right = src.Right;
+        dest.ListStyleType = src.ListStyleType;
+        dest.ListStylePosition = src.ListStylePosition;
+        dest.ListStyleImage = src.ListStyleImage;
+        dest.Cursor = src.Cursor;
+        dest.Transform = src.Transform;
+        dest.Transition = src.Transition;
+        dest.Animation = src.Animation;
+    }
+
+    // ── Parsing helpers (delegated to specialized parsers) ──
+
+    private void ParseShorthand4(string value, out Length top, out Length right, out Length bottom, out Length left)
+    {
+        var parts = value.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        top = Length.Parse(parts.Length > 0 ? parts[0] : "0");
+        right = Length.Parse(parts.Length > 1 ? parts[1] : parts[0]);
+        bottom = Length.Parse(parts.Length > 2 ? parts[2] : parts[0]);
+        left = Length.Parse(parts.Length > 3 ? parts[3] : (parts.Length > 1 ? parts[1] : parts[0]));
+    }
+
+    private float ParseFontSize(string value, ComputedStyle? parentStyle)
+    {
+        float parentFontSize = parentStyle?.FontSize ?? 16;
+        return Length.ParseFontSize(value, parentFontSize);
+    }
+
+    private FontWeight ParseFontWeight(string value) => value.ToLowerInvariant() switch
+    {
+        "bold" or "bolder" or "500" or "600" or "700" or "800" or "900" => FontWeight.Bold,
+        _ => FontWeight.Normal
+    };
+
+    private FontStyleType ParseFontStyle(string value) => value.ToLowerInvariant() switch
+    {
+        "italic" or "oblique" => FontStyleType.Italic,
+        _ => FontStyleType.Normal
+    };
+
+    private string ParseFontFamily(string value) => value.Trim('"', '\'');
+
+    private float ParseLineHeight(string value, float fontSize)
+    {
+        if (value.EndsWith("px") && float.TryParse(value[..^2], out var px)) return px / fontSize;
+        if (float.TryParse(value, out var num)) return num;
+        return 1.2f;
+    }
+
+    private DisplayType ParseDisplay(string value) => value.ToLowerInvariant() switch
+    {
+        "block" => DisplayType.Block,
+        "inline" => DisplayType.Inline,
+        "inline-block" => DisplayType.InlineBlock,
+        "flex" => DisplayType.Flex,
+        "inline-flex" => DisplayType.InlineFlex,
+        "list-item" => DisplayType.ListItem,
+        "table" => DisplayType.Table,
+        "table-row" => DisplayType.TableRow,
+        "table-cell" => DisplayType.TableCell,
+        "table-header-group" => DisplayType.TableHeaderGroup,
+        "table-row-group" => DisplayType.TableRowGroup,
+        "table-footer-group" => DisplayType.TableFooterGroup,
+        "none" => DisplayType.None,
+        "contents" => DisplayType.Contents,
+        _ => DisplayType.Block
+    };
+
+    private PositionType ParsePosition(string value) => value.ToLowerInvariant() switch
+    {
+        "relative" => PositionType.Relative,
+        "absolute" => PositionType.Absolute,
+        "fixed" => PositionType.Fixed,
+        "sticky" => PositionType.Sticky,
+        _ => PositionType.Static
+    };
+
+    private FloatType ParseFloat(string value) => value.ToLowerInvariant() switch
+    {
+        "left" => FloatType.Left,
+        "right" => FloatType.Right,
+        _ => FloatType.None
+    };
+
+    private ClearType ParseClear(string value) => value.ToLowerInvariant() switch
+    {
+        "left" => ClearType.Left,
+        "right" => ClearType.Right,
+        "both" => ClearType.Both,
+        _ => ClearType.None
+    };
+
+    private TextAlignType ParseTextAlign(string value) => value.ToLowerInvariant() switch
+    {
+        "left" => TextAlignType.Left,
+        "right" => TextAlignType.Right,
+        "center" => TextAlignType.Center,
+        "justify" => TextAlignType.Justify,
+        "start" => TextAlignType.Start,
+        "end" => TextAlignType.End,
+        _ => TextAlignType.Start
+    };
+
+    private TextDecorationType ParseTextDecoration(string value) => value.ToLowerInvariant() switch
+    {
+        "underline" => TextDecorationType.Underline,
+        "overline" => TextDecorationType.Overline,
+        "line-through" => TextDecorationType.LineThrough,
+        "none" => TextDecorationType.None,
+        _ => TextDecorationType.None
+    };
+
+    private VerticalAlignType ParseVerticalAlign(string value) => value.ToLowerInvariant() switch
+    {
+        "top" => VerticalAlignType.Top,
+        "bottom" => VerticalAlignType.Bottom,
+        "middle" => VerticalAlignType.Middle,
+        "sub" => VerticalAlignType.Sub,
+        "super" => VerticalAlignType.Super,
+        "text-top" => VerticalAlignType.TextTop,
+        "text-bottom" => VerticalAlignType.TextBottom,
+        _ => VerticalAlignType.Baseline
+    };
+
+    private WhiteSpaceMode ParseWhiteSpace(string value) => value.ToLowerInvariant() switch
+    {
+        "nowrap" => WhiteSpaceMode.Nowrap,
+        "pre" => WhiteSpaceMode.Pre,
+        "pre-wrap" => WhiteSpaceMode.PreWrap,
+        "pre-line" => WhiteSpaceMode.PreLine,
+        _ => WhiteSpaceMode.Normal
+    };
+
+    private VisibilityType ParseVisibility(string value) => value.ToLowerInvariant() switch
+    {
+        "hidden" => VisibilityType.Hidden,
+        "collapse" => VisibilityType.Collapse,
+        _ => VisibilityType.Visible
+    };
+
+    private OverflowType ParseOverflow(string value) => value.ToLowerInvariant() switch
+    {
+        "hidden" => OverflowType.Hidden,
+        "scroll" => OverflowType.Scroll,
+        "auto" => OverflowType.Auto,
+        _ => OverflowType.Visible
+    };
+
+    private BackgroundRepeat ParseBackgroundRepeat(string value) => value.ToLowerInvariant() switch
+    {
+        "repeat-x" => BackgroundRepeat.RepeatX,
+        "repeat-y" => BackgroundRepeat.RepeatY,
+        "no-repeat" => BackgroundRepeat.NoRepeat,
+        _ => BackgroundRepeat.Repeat
+    };
+
+    private BackgroundAttachment ParseBackgroundAttachment(string value) => value.ToLowerInvariant() switch
+    {
+        "fixed" => BackgroundAttachment.Fixed,
+        "local" => BackgroundAttachment.Local,
+        _ => BackgroundAttachment.Scroll
+    };
+
+    private void ParseBackgroundPosition(string value, ComputedStyle style)
+    {
+        var parts = value.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length > 0)
+        {
+            style.BackgroundPositionX = parts[0].ToLowerInvariant() switch
+            {
+                "left" => new PixelLength(0),
+                "center" => new PercentLength(0.5f),
+                "right" => new PercentLength(1),
+                _ => Length.Parse(parts[0])
+            };
+            style.BackgroundPositionY = parts.Length > 1 ? Length.Parse(parts[1]) : new PixelLength(0);
+        }
+    }
+
+    private static void ParseBackgroundSize(string value, ComputedStyle style)
+    {
+        if (value == "cover") { style.BackgroundSize = BackgroundSizeType.Cover; return; }
+        if (value == "contain") { style.BackgroundSize = BackgroundSizeType.Contain; return; }
+        if (value == "auto") { style.BackgroundSize = BackgroundSizeType.Auto; return; }
+
+        var parts = value.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length > 0 && parts[0] != "auto")
+            style.BackgroundSizeWidth = Length.Parse(parts[0]);
+        if (parts.Length > 1 && parts[1] != "auto")
+            style.BackgroundSizeHeight = Length.Parse(parts[1]);
+        style.BackgroundSize = BackgroundSizeType.Length;
+    }
+
+    private void ParseBackgroundShorthand(string value, ComputedStyle style)
+    {
+        var parts = value.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        foreach (var part in parts)
+        {
+            var lower = part.ToLowerInvariant();
+            if (lower == "none" || lower == "transparent")
+            {
+                style.BackgroundColor = SKColors.Transparent;
+                style.BackgroundImage = null;
+            }
+            else if (lower.StartsWith("#") || lower.StartsWith("rgb") || lower.StartsWith("rgba") || ColorParser.IsColorName(lower))
+            {
+                style.BackgroundColor = ColorParser.Parse(part);
+            }
+            else if (lower.StartsWith("url("))
+            {
+                style.BackgroundImage = ParseUrl(part);
+            }
+            else if (lower is "repeat" or "repeat-x" or "repeat-y" or "no-repeat")
+            {
+                style.BackgroundRepeat = ParseBackgroundRepeat(part);
+            }
+            else if (lower is "scroll" or "fixed" or "local")
+            {
+                style.BackgroundAttachment = ParseBackgroundAttachment(part);
+            }
+            else if (lower is "cover" or "contain")
+            {
+                style.BackgroundSize = lower == "cover" ? BackgroundSizeType.Cover : BackgroundSizeType.Contain;
+            }
+        }
+    }
+
+    private string? ParseUrl(string value)
+    {
+        if (value.StartsWith("url("))
+            return value[4..].Trim(' ', '"', '\'', ')');
+        return null;
+    }
+
+    private void ParseBorderShorthand(string value, ComputedStyle style)
+    {
+        var parts = value.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        foreach (var part in parts)
+        {
+            if (part is "solid" or "dashed" or "dotted" or "double" or "none")
+            {
+                var bs = ParseBorderStyleValue(part);
+                style.BorderTopStyle = bs; style.BorderRightStyle = bs;
+                style.BorderBottomStyle = bs; style.BorderLeftStyle = bs;
+            }
+            else if (part.EndsWith("px"))
+            {
+                var width = ParseSize(part);
+                if (width.HasValue)
+                {
+                    style.BorderTopWidth = width.Value; style.BorderRightWidth = width.Value;
+                    style.BorderBottomWidth = width.Value; style.BorderLeftWidth = width.Value;
+                }
+            }
+            else
+            {
+                var color = ColorParser.Parse(part);
+                style.BorderTopColor = color; style.BorderRightColor = color;
+                style.BorderBottomColor = color; style.BorderLeftColor = color;
+            }
+        }
+    }
+
+    private void ParseBorderSide(ComputedStyle style, string side, string value)
+    {
+        var parts = value.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        foreach (var part in parts)
+        {
+            if (part is "solid" or "dashed" or "dotted" or "double" or "none")
+            {
+                var bs = ParseBorderStyleValue(part);
+                if (side == "top") style.BorderTopStyle = bs;
+                else if (side == "bottom") style.BorderBottomStyle = bs;
+                else if (side == "left") style.BorderLeftStyle = bs;
+                else if (side == "right") style.BorderRightStyle = bs;
+            }
+            else if (part.EndsWith("px"))
+            {
+                var width = ParseSize(part);
+                if (width.HasValue)
+                {
+                    if (side == "top") style.BorderTopWidth = width.Value;
+                    else if (side == "bottom") style.BorderBottomWidth = width.Value;
+                    else if (side == "left") style.BorderLeftWidth = width.Value;
+                    else if (side == "right") style.BorderRightWidth = width.Value;
+                }
+            }
+            else
+            {
+                var color = ColorParser.Parse(part);
+                if (side == "top") style.BorderTopColor = color;
+                else if (side == "bottom") style.BorderBottomColor = color;
+                else if (side == "left") style.BorderLeftColor = color;
+                else if (side == "right") style.BorderRightColor = color;
+            }
+        }
+    }
+
+    private void ParseBorderWidth(string value, ComputedStyle style)
+    {
+        var widths = value.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        var w = widths.Select(v => v switch
+        {
+            "thin" => 1f,
+            "medium" => 3f,
+            "thick" => 5f,
+            _ => ParseSize(v) ?? 0
+        }).ToList();
+
+        style.BorderTopWidth = w.Count > 0 ? w[0] : 0;
+        style.BorderRightWidth = w.Count > 1 ? w[1] : w[0];
+        style.BorderBottomWidth = w.Count > 2 ? w[2] : w[0];
+        style.BorderLeftWidth = w.Count > 3 ? w[3] : w[1];
+    }
+
+    private void ParseBorderColor(string value, ComputedStyle style)
+    {
+        var colors = value.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        var c = colors.Select(ColorParser.Parse).ToList();
+        style.BorderTopColor = c.Count > 0 ? c[0] : SKColors.Black;
+        style.BorderRightColor = c.Count > 1 ? c[1] : c[0];
+        style.BorderBottomColor = c.Count > 2 ? c[2] : c[0];
+        style.BorderLeftColor = c.Count > 3 ? c[3] : c[1];
+    }
+
+    private void ParseBorderStyle(string value, ComputedStyle style)
+    {
+        var styles = value.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        var s = styles.Select(ParseBorderStyleValue).ToList();
+        style.BorderTopStyle = s.Count > 0 ? s[0] : BorderStyle.None;
+        style.BorderRightStyle = s.Count > 1 ? s[1] : (s.Count > 0 ? s[0] : BorderStyle.None);
+        style.BorderBottomStyle = s.Count > 2 ? s[2] : (s.Count > 0 ? s[0] : BorderStyle.None);
+        style.BorderLeftStyle = s.Count > 3 ? s[3] : (s.Count > 1 ? s[1] : (s.Count > 0 ? s[0] : BorderStyle.None));
+    }
+
+    private void ParseBorderRadius(string value, ComputedStyle style)
+    {
+        var radii = value.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        var r = radii.Select(v => ParseSize(v) ?? 0).ToList();
+        style.BorderTopLeftRadius = r.Count > 0 ? r[0] : 0;
+        style.BorderTopRightRadius = r.Count > 1 ? r[1] : r[0];
+        style.BorderBottomRightRadius = r.Count > 2 ? r[2] : r[0];
+        style.BorderBottomLeftRadius = r.Count > 3 ? r[3] : (r.Count > 0 ? r[0] : 0);
+    }
+
+    private BorderStyle ParseBorderStyleValue(string value) => value.ToLowerInvariant() switch
+    {
+        "solid" => BorderStyle.Solid,
+        "dashed" => BorderStyle.Dashed,
+        "dotted" => BorderStyle.Dotted,
+        "double" => BorderStyle.Double,
+        "groove" => BorderStyle.Groove,
+        "ridge" => BorderStyle.Ridge,
+        "inset" => BorderStyle.Inset,
+        "outset" => BorderStyle.Outset,
+        _ => BorderStyle.None
+    };
+
+    private float? ParseSize(string value)
+    {
+        if (value.EndsWith("px") && float.TryParse(value[..^2], out var px)) return px;
+        if (value.EndsWith("em") && float.TryParse(value[..^2], out var em)) return em * 16;
+        if (value.EndsWith("rem") && float.TryParse(value[..^2], out var rem)) return rem * 16;
+        if (value == "0") return 0;
+        return null;
+    }
+
+    private void ParseFlexShorthand(string value, ComputedStyle style)
+    {
+        var parts = value.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length == 0) return;
+
+        if (parts[0] == "none" || parts[0] == "auto")
+        {
+            style.FlexGrow = 0; style.FlexShrink = 1;
+            style.FlexBasis = AutoLength.Instance;
+            return;
+        }
+
+        int i = 0;
+        if (float.TryParse(parts[0], out var g))
+        {
+            style.FlexGrow = g; i++;
+            if (i < parts.Length && float.TryParse(parts[i], out var s))
+            { style.FlexShrink = s; i++; }
+        }
+        else
+        {
+            style.FlexBasis = Length.Parse(parts[0]); i++;
+            if (i < parts.Length && float.TryParse(parts[i], out var g2))
+                style.FlexGrow = g2;
+        }
+    }
+
+    private FlexDirectionType ParseFlexDirection(string value) => value.ToLowerInvariant() switch
+    {
+        "row-reverse" => FlexDirectionType.RowReverse,
+        "column" => FlexDirectionType.Column,
+        "column-reverse" => FlexDirectionType.ColumnReverse,
+        _ => FlexDirectionType.Row
+    };
+
+    private FlexWrapType ParseFlexWrap(string value) => value.ToLowerInvariant() switch
+    {
+        "wrap" => FlexWrapType.Wrap,
+        "wrap-reverse" => FlexWrapType.WrapReverse,
+        _ => FlexWrapType.NoWrap
+    };
+
+    private JustifyContentType ParseJustifyContent(string value) => value.ToLowerInvariant() switch
+    {
+        "flex-end" => JustifyContentType.FlexEnd,
+        "center" => JustifyContentType.Center,
+        "space-between" => JustifyContentType.SpaceBetween,
+        "space-around" => JustifyContentType.SpaceAround,
+        "space-evenly" => JustifyContentType.SpaceEvenly,
+        _ => JustifyContentType.FlexStart
+    };
+
+    private AlignItemsType ParseAlignItems(string value) => value.ToLowerInvariant() switch
+    {
+        "flex-start" => AlignItemsType.FlexStart,
+        "flex-end" => AlignItemsType.FlexEnd,
+        "center" => AlignItemsType.Center,
+        "baseline" => AlignItemsType.Baseline,
+        _ => AlignItemsType.Stretch
+    };
+
+    private AlignSelfType ParseAlignSelf(string value) => value.ToLowerInvariant() switch
+    {
+        "flex-start" => AlignSelfType.FlexStart,
+        "flex-end" => AlignSelfType.FlexEnd,
+        "center" => AlignSelfType.Center,
+        "baseline" => AlignSelfType.Baseline,
+        "stretch" => AlignSelfType.Stretch,
+        _ => AlignSelfType.Auto
+    };
+
+    private ListStyleType ParseListStyleType(string value) => value.ToLowerInvariant() switch
+    {
+        "disc" => ListStyleType.Disc,
+        "circle" => ListStyleType.Circle,
+        "square" => ListStyleType.Square,
+        "decimal" => ListStyleType.Decimal,
+        "decimal-leading-zero" => ListStyleType.DecimalLeadingZero,
+        "lower-roman" => ListStyleType.LowerRoman,
+        "upper-roman" => ListStyleType.UpperRoman,
+        "lower-alpha" => ListStyleType.LowerAlpha,
+        "upper-alpha" => ListStyleType.UpperAlpha,
+        "none" => ListStyleType.None,
+        _ => ListStyleType.Disc
+    };
+
+    private void ParseListStyle(string value, ComputedStyle style)
+    {
+        var parts = value.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        foreach (var part in parts)
+        {
+            var lower = part.ToLowerInvariant();
+            if (lower is "inside" or "outside")
+                style.ListStylePosition = lower == "inside" ? ListStylePosition.Inside : ListStylePosition.Outside;
+            else if (lower == "none")
+                style.ListStyleType = ListStyleType.None;
+            else if (lower is "disc" or "circle" or "square" or "decimal" or "lower-roman" or "upper-roman")
+                style.ListStyleType = ParseListStyleType(part);
+            else if (lower.StartsWith("url("))
+                style.ListStyleImage = ParseUrl(part);
+        }
+    }
+
+    private void ParseGap(string value, ComputedStyle style)
+    {
+        var parts = value.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length > 0 && Length.TryParse(parts[0], out var gap))
+        {
+            style.RowGap = gap;
+            style.ColumnGap = parts.Length > 1 ? Length.Parse(parts[1]) : gap;
+        }
+    }
+
+    private static BoxShadowValue? ParseBoxShadow(string value)
+    {
+        if (string.IsNullOrEmpty(value) || value == "none") return null;
+
+        var parts = value.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length < 2) return null;
+        if (parts[0] == "inset") return null;
+
+        float offsetX = float.TryParse(parts[0].TrimEnd('p', 'x'), out var ox) ? ox : 0;
+        float offsetY = float.TryParse(parts[1].TrimEnd('p', 'x'), out var oy) ? oy : 0;
+        float blurRadius = 0, spread = 0;
+        int index = 2;
+
+        if (index < parts.Length && parts[index].Contains("px") && float.TryParse(parts[index].TrimEnd('p', 'x'), out var br))
+        { blurRadius = br; index++; }
+        if (index < parts.Length && parts[index].Contains("px") && float.TryParse(parts[index].TrimEnd('p', 'x'), out var sp))
+        { spread = sp; index++; }
+
+        var color = index < parts.Length ? ColorParser.Parse(string.Join(" ", parts.Skip(index))) : new SKColor(0, 0, 0, 80);
+        return new BoxShadowValue(color, offsetX, offsetY, blurRadius, spread);
+    }
+}
+
+/// <summary>
+/// Cascade priority encoding - similar to Blink's 96-bit priority integer.
+/// Order: Importance → Origin → TreeOrder
+/// </summary>
+public readonly struct CascadePriority : IComparable<CascadePriority>
+{
+    public readonly bool Importance;
+    public readonly CascadeOrigin Origin;
+    public readonly int TreeOrder;
+
+    public CascadePriority(bool importance, CascadeOrigin origin, int treeOrder)
+    {
+        Importance = importance;
+        Origin = origin;
+        TreeOrder = treeOrder;
+    }
+
+    public int CompareTo(CascadePriority other)
+    {
+        if (Importance != other.Importance)
+            return Importance.CompareTo(other.Importance);
+
+        int originCmp = GetOriginWeight(Origin).CompareTo(GetOriginWeight(other.Origin));
+        if (originCmp != 0) return originCmp;
+
+        return TreeOrder.CompareTo(other.TreeOrder);
+    }
+
+    private static int GetOriginWeight(CascadeOrigin origin) => origin switch
+    {
+        CascadeOrigin.UserAgent => 1,
+        CascadeOrigin.User => 2,
+        CascadeOrigin.Author => 4,
+        _ => 0
+    };
+}
+
+public enum CascadeOrigin { UserAgent, User, Author }
+
+/// <summary>
+/// CascadeMap stores property declarations and keeps only the highest-priority one per property.
+/// Similar to Blink's CascadeMap in style_cascade.cc.
+/// </summary>
+public class CascadeMap
+{
+    private readonly Dictionary<string, (string value, CascadePriority priority)> _map = new();
+
+    public void Clear() => _map.Clear();
+
+    public void Insert(string property, string value, CascadePriority priority)
+    {
+        if (_map.TryGetValue(property, out var existing))
+        {
+            if (priority.CompareTo(existing.priority) >= 0)
+                _map[property] = (value, priority);
+        }
+        else
+        {
+            _map[property] = (value, priority);
+        }
+    }
+
+    public bool TryGetValue(string property, out string value)
+    {
+        if (_map.TryGetValue(property, out var entry))
+        {
+            value = entry.value;
+            return true;
+        }
+        value = string.Empty;
+        return false;
+    }
+
+    public IEnumerable<KeyValuePair<string, string>> GetAll()
+    {
+        foreach (var kv in _map)
+            yield return new KeyValuePair<string, string>(kv.Key, kv.Value.value);
+    }
+}
+
+/// <summary>
+/// SelectorMatcher - pre-compiles selectors for faster matching.
+/// Inspired by Blink's CSS selector matching optimization.
+/// </summary>
+public class SelectorMatcher
+{
+    private readonly Dictionary<string, CssSelector> _selectorCache = new();
+
+    public bool Matches(CssRule rule, Element element)
+    {
+        if (!_selectorCache.TryGetValue(rule.Selector, out var selector))
+        {
+            selector = CssSelector.Parse(rule.Selector);
+            _selectorCache[rule.Selector] = selector;
+        }
+
+        return selector.Matches(element, element.ParentElement);
+    }
+
+    public void ClearCache() => _selectorCache.Clear();
+}
+
+/// <summary>
+/// MatchedPropertiesCache - caches resolved styles for elements to avoid re-computation.
+/// Similar to Blink's MatchedPropertiesCache.
+/// </summary>
+public class MatchedPropertiesCache
+{
+    private readonly Dictionary<CacheKey, ComputedStyle> _cache = new();
+    private const int MaxSize = 1024;
+
+    public bool TryGet(CacheKey key, out ComputedStyle? style)
+    {
+        return _cache.TryGetValue(key, out style);
+    }
+
+    public void Set(CacheKey key, ComputedStyle style)
+    {
+        if (_cache.Count >= MaxSize)
+        {
+            var oldest = _cache.Keys.First();
+            _cache.Remove(oldest);
+        }
+        _cache[key] = style;
+    }
+
+    public void Clear() => _cache.Clear();
+}
+
+public readonly struct CacheKey : IEquatable<CacheKey>
+{
+    public readonly int ElementId;
+    public readonly int StylesheetCount;
+    public readonly int StyleAttrHash;
+    public readonly int ClassHash;
+
+    public CacheKey(Element element, int stylesheetCount)
+    {
+        ElementId = element.GetHashCode();
+        StylesheetCount = stylesheetCount;
+        StyleAttrHash = element.GetAttribute("style")?.GetHashCode() ?? 0;
+        ClassHash = element.ClassName?.GetHashCode() ?? 0;
+    }
+
+    public bool Equals(CacheKey other) =>
+        ElementId == other.ElementId &&
+        StylesheetCount == other.StylesheetCount &&
+        StyleAttrHash == other.StyleAttrHash &&
+        ClassHash == other.ClassHash;
+
+    public override bool Equals(object? obj) => obj is CacheKey other && Equals(other);
+    public override int GetHashCode() => HashCode.Combine(ElementId, StylesheetCount, StyleAttrHash, ClassHash);
+}

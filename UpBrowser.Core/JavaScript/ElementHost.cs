@@ -509,6 +509,176 @@ public class ElementHost
         if (node is Element e) return new ElementHost(e);
         return new TextNodeWrapper((TextNode)node);
     }
+
+    public int getClientRects() => 1;
+
+    public bool hasAttributes() => _element.Attributes.Count > 0;
+
+    public ElementHost? firstElementChild
+    {
+        get
+        {
+            foreach (var child in _element.Children)
+            {
+                if (child is Element el) return new ElementHost(el);
+            }
+            return null;
+        }
+    }
+
+    public ElementHost? lastElementChild
+    {
+        get
+        {
+            Element? last = null;
+            foreach (var child in _element.Children)
+            {
+                if (child is Element el) last = el;
+            }
+            return last != null ? new ElementHost(last) : null;
+        }
+    }
+
+    public string? namespaceURI => "http://www.w3.org/1999/xhtml";
+
+    public string? prefix => null;
+
+    public string localName => _element.TagName.ToLowerInvariant();
+
+    public string baseURI => "";
+
+    public bool isConnected => _element.ParentElement != null || _element.TagName == "HTML";
+
+    public object? ownerDocument => null;
+
+    public bool matches(string selector)
+    {
+        var parsed = UpBrowser.Core.Css.CssSelector.Parse(selector);
+        return parsed.Matches(_element, _element.ParentElement);
+    }
+
+    public void insertAdjacentHTML(string position, string text)
+    {
+        var parsed = HtmlParser.ParseFragment(text, _element.TagName);
+        switch (position.ToLowerInvariant())
+        {
+            case "beforebegin":
+                var parent = _element.ParentElement;
+                parent?.InsertBefore(parsed[0], _element);
+                break;
+            case "afterbegin":
+                for (int i = parsed.Count - 1; i >= 0; i--)
+                    _element.InsertBefore(parsed[i], _element.Children.FirstOrDefault());
+                break;
+            case "beforeend":
+                foreach (var node in parsed)
+                    _element.AppendChild(node);
+                break;
+            case "afterend":
+                var parent2 = _element.ParentElement;
+                var next = _element.NextSibling;
+                foreach (var node in parsed)
+                    parent2?.InsertBefore(node, next);
+                break;
+        }
+    }
+
+    public void insertAdjacentText(string position, string text)
+    {
+        insertAdjacentHTML(position, text);
+    }
+
+    public void remove()
+    {
+        _element.ParentElement?.RemoveChild(_element);
+    }
+
+    public object? replaceWith(object newElement)
+    {
+        if (newElement is ElementHost host)
+        {
+            var parent = _element.ParentElement;
+            if (parent != null)
+            {
+                parent.RemoveChild(_element);
+                parent.AppendChild(host._element);
+            }
+        }
+        return null;
+    }
+
+    public object? before(object newElement)
+    {
+        if (newElement is ElementHost host)
+        {
+            _element.ParentElement?.InsertBefore(host._element, _element);
+        }
+        return null;
+    }
+
+    public object? after(object newElement)
+    {
+        if (newElement is ElementHost host)
+        {
+            _element.ParentElement?.InsertBefore(host._element, _element.NextSibling);
+        }
+        return null;
+    }
+
+    public bool hasAttributeNS(string ns, string name)
+    {
+        return _element.HasAttribute(name);
+    }
+
+    public object? dataset => null;
+
+    public string? dir
+    {
+        get => _element.GetAttribute("dir");
+        set => _element.SetAttribute("dir", value);
+    }
+
+    public string? lang
+    {
+        get => _element.GetAttribute("lang");
+        set => _element.SetAttribute("lang", value);
+    }
+
+    public string? title
+    {
+        get => _element.GetAttribute("title");
+        set => _element.SetAttribute("title", value);
+    }
+
+    public bool hidden
+    {
+        get => _element.GetAttribute("hidden") != null;
+        set
+        {
+            if (value) _element.SetAttribute("hidden", "");
+            else _element.RemoveAttribute("hidden");
+        }
+    }
+
+    public bool draggable
+    {
+        get => _element.GetAttribute("draggable") == "true";
+        set => _element.SetAttribute("draggable", value ? "true" : "false");
+    }
+
+    public string? accessKey
+    {
+        get => _element.GetAttribute("accesskey");
+        set => _element.SetAttribute("accesskey", value);
+    }
+
+    public int tabIndex
+    {
+        get => int.TryParse(_element.GetAttribute("tabindex"), out var i) ? i : 0;
+        set => _element.SetAttribute("tabindex", value.ToString());
+    }
+
+    public void animate() { }
 }
 
 public class TextNodeWrapper
@@ -542,4 +712,24 @@ public class ScriptEvent
     public void preventDefault() => DefaultPrevented = true;
     public void stopPropagation() => bubbles = false;
     public void stopImmediatePropagation() => bubbles = false;
+}
+
+public class DomRect
+{
+    public float x { get; }
+    public float y { get; }
+    public float width { get; }
+    public float height { get; }
+    public float top => y;
+    public float right => x + width;
+    public float bottom => y + height;
+    public float left => x;
+
+    public DomRect(float x, float y, float width, float height)
+    {
+        this.x = x;
+        this.y = y;
+        this.width = width;
+        this.height = height;
+    }
 }

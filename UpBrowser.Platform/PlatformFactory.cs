@@ -37,6 +37,14 @@ public static class PlatformFactory
         {
             return GetWindowsDpiScale();
         }
+        else if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
+        {
+            return GetMacDpiScale();
+        }
+        else if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+        {
+            return GetLinuxDpiScale();
+        }
 
         return 1.0f;
     }
@@ -62,6 +70,47 @@ public static class PlatformFactory
         return 1.0f;
     }
 
+    private static float GetMacDpiScale()
+    {
+        try
+        {
+            var nsScreenClass = objc_getClass("NSScreen");
+            var mainScreen = objc_msgSend_ptr(nsScreenClass, sel_registerName("mainScreen"));
+            if (mainScreen != IntPtr.Zero)
+            {
+                var backingScaleFactor = objc_msgSend_float(mainScreen, sel_registerName("backingScaleFactor"));
+                return backingScaleFactor;
+            }
+        }
+        catch { }
+        return 2.0f;
+    }
+
+    private static float GetLinuxDpiScale()
+    {
+        try
+        {
+            var display = XOpenDisplay(IntPtr.Zero);
+            if (display != IntPtr.Zero)
+            {
+                int screen = XDefaultScreen(display);
+                int widthMm = XDisplayWidthMM(display, screen);
+                int widthPx = XDisplayWidth(display, screen);
+
+                XCloseDisplay(display);
+
+                if (widthMm > 0)
+                {
+                    float dpi = widthPx * 25.4f / widthMm;
+                    return dpi / 96.0f;
+                }
+            }
+        }
+        catch { }
+        return 1.0f;
+    }
+
+    // Windows P/Invoke
     [DllImport("user32.dll")]
     private static extern bool SetProcessDPIAware();
 
@@ -81,4 +130,37 @@ public static class PlatformFactory
 
     private const int LOGPIXELSX = 88;
     private const int LOGPIXELSY = 90;
+
+    // macOS P/Invoke
+    private const string libObjC = "/usr/lib/libobjc.dylib";
+
+    [DllImport(libObjC)]
+    private static extern IntPtr objc_getClass(string className);
+
+    [DllImport(libObjC)]
+    private static extern IntPtr sel_registerName(string name);
+
+    [DllImport(libObjC, EntryPoint = "objc_msgSend")]
+    private static extern IntPtr objc_msgSend_ptr(IntPtr receiver, IntPtr selector);
+
+    [DllImport(libObjC, EntryPoint = "objc_msgSend")]
+    private static extern float objc_msgSend_float(IntPtr receiver, IntPtr selector);
+
+    // Linux X11 P/Invoke
+    private const string libX11 = "libX11.so.6";
+
+    [DllImport(libX11)]
+    private static extern IntPtr XOpenDisplay(IntPtr display);
+
+    [DllImport(libX11)]
+    private static extern int XCloseDisplay(IntPtr display);
+
+    [DllImport(libX11)]
+    private static extern int XDefaultScreen(IntPtr display);
+
+    [DllImport(libX11)]
+    private static extern int XDisplayWidthMM(IntPtr display, int screen);
+
+    [DllImport(libX11)]
+    private static extern int XDisplayWidth(IntPtr display, int screen);
 }

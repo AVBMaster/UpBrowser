@@ -236,4 +236,97 @@ public class DocumentHost
             return el.HasClass(selector[1..]);
         return el.TagName.Equals(selector, StringComparison.OrdinalIgnoreCase);
     }
+
+    public object getComputedStyle(ElementHost element)
+    {
+        var computedStyle = element.NativeElement.ComputedStyle;
+        if (computedStyle == null)
+            return new ComputedStyleHost(new Dictionary<string, string>());
+
+        var props = new Dictionary<string, string>
+        {
+            ["width"] = computedStyle.Width.ToString(),
+            ["height"] = computedStyle.Height.ToString(),
+            ["display"] = computedStyle.Display.ToString().ToLowerInvariant(),
+            ["position"] = computedStyle.Position.ToString().ToLowerInvariant(),
+            ["float"] = computedStyle.Float.ToString().ToLowerInvariant(),
+            ["clear"] = computedStyle.Clear.ToString().ToLowerInvariant(),
+            ["color"] = $"rgb({computedStyle.Color.Red}, {computedStyle.Color.Green}, {computedStyle.Color.Blue})",
+            ["font-family"] = computedStyle.FontFamily ?? "",
+            ["font-size"] = $"{computedStyle.FontSize}px",
+            ["font-weight"] = computedStyle.FontWeight.ToString(),
+            ["font-style"] = computedStyle.FontStyle.ToString().ToLowerInvariant(),
+            ["line-height"] = computedStyle.LineHeight.ToString(),
+            ["text-align"] = computedStyle.TextAlign.ToString().ToLowerInvariant(),
+            ["text-decoration"] = computedStyle.TextDecoration.ToString().ToLowerInvariant(),
+            ["white-space"] = computedStyle.WhiteSpace.ToString().ToLowerInvariant(),
+            ["visibility"] = computedStyle.Visibility.ToString().ToLowerInvariant(),
+            ["overflow"] = computedStyle.Overflow.ToString().ToLowerInvariant(),
+            ["opacity"] = computedStyle.Opacity.ToString(),
+            ["z-index"] = computedStyle.ZIndex?.ToString() ?? "auto",
+            ["background-color"] = computedStyle.BackgroundColor.HasValue
+                ? $"rgba({computedStyle.BackgroundColor.Value.Red}, {computedStyle.BackgroundColor.Value.Green}, {computedStyle.BackgroundColor.Value.Blue}, {computedStyle.BackgroundColor.Value.Alpha / 255f})"
+                : "transparent",
+            ["margin-top"] = computedStyle.MarginTop.ToString(),
+            ["margin-right"] = computedStyle.MarginRight.ToString(),
+            ["margin-bottom"] = computedStyle.MarginBottom.ToString(),
+            ["margin-left"] = computedStyle.MarginLeft.ToString(),
+            ["padding-top"] = computedStyle.PaddingTop.ToString(),
+            ["padding-right"] = computedStyle.PaddingRight.ToString(),
+            ["padding-bottom"] = computedStyle.PaddingBottom.ToString(),
+            ["padding-left"] = computedStyle.PaddingLeft.ToString(),
+            ["border-top-width"] = $"{computedStyle.BorderTopWidth}px",
+            ["border-right-width"] = $"{computedStyle.BorderRightWidth}px",
+            ["border-bottom-width"] = $"{computedStyle.BorderBottomWidth}px",
+            ["border-left-width"] = $"{computedStyle.BorderLeftWidth}px",
+            ["flex-direction"] = computedStyle.FlexDirection.ToString().ToLowerInvariant(),
+            ["flex-wrap"] = computedStyle.FlexWrap.ToString().ToLowerInvariant(),
+            ["justify-content"] = computedStyle.JustifyContent.ToString().ToLowerInvariant(),
+            ["align-items"] = computedStyle.AlignItems.ToString().ToLowerInvariant()
+        };
+
+        return new ComputedStyleHost(props);
+    }
+
+    public object? createEvent(string type)
+    {
+        return type?.ToLowerInvariant() switch
+        {
+            "customevent" => new ScriptEvent("Custom", null),
+            "mouseevent" => new ScriptEvent("Mouse", null),
+            "keyevent" => new ScriptEvent("Key", null),
+            _ => new ScriptEvent(type ?? "Event", null)
+        };
+    }
+
+    public string? getSelection() => null;
+
+    public ElementHost? activeElement => null;
+
+    public string readyState => "complete";
+
+    public string domain
+    {
+        get => _document.Url;
+        set { }
+    }
+
+    public string referrer => "";
+
+    public string lastModified => DateTime.Now.ToString();
+}
+
+public class ComputedStyleHost
+{
+    private readonly Dictionary<string, string> _properties;
+
+    public ComputedStyleHost(Dictionary<string, string> properties)
+    {
+        _properties = properties;
+    }
+
+    public string? getProperty(string name)
+    {
+        return _properties.GetValueOrDefault(name?.ToLowerInvariant());
+    }
 }
