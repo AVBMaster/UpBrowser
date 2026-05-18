@@ -1,6 +1,7 @@
 using System.Text;
 using UpBrowser.Core.Css;
 using AngleSharp;
+using AngleSharp.Css.Parser;
 
 namespace UpBrowser.Core.Dom;
 
@@ -8,15 +9,15 @@ public class DocumentManager
 {
     private static readonly Stylesheet _uaStylesheet;
     private static readonly string _defaultHtml;
+    private static readonly CssParser _cssParser = new();
 
     static DocumentManager()
     {
-        var parser = new CssParser();
-        _uaStylesheet = parser.Parse(GetUserAgentStylesStatic());
+        _uaStylesheet = _cssParser.Parse(GetUserAgentStylesStatic());
         _defaultHtml = BuildDefaultHtml();
     }
 
-    public async Task<DocumentLoadResult> LoadHtmlAsync(string html)
+    public async Task<DocumentLoadResult> LoadHtmlAsync(string html, string? baseUrl = null)
     {
         var config = Configuration.Default;
         var context = BrowsingContext.New(config);
@@ -24,117 +25,215 @@ public class DocumentManager
 
         var doc = new Document
         {
-            Url = "upbrowser://local",
+            Url = baseUrl ?? "upbrowser://local",
             Title = angleSharpDoc.Title ?? "Untitled"
         };
 
-        ConvertHtmlToDom(angleSharpDoc.DocumentElement!, doc);
+        try
+        {
+            ConvertHtmlToDom(angleSharpDoc.DocumentElement!, doc);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[DOM] Error converting HTML to DOM: {ex.Message}");
+        }
 
-        var cssParser = new CssParser();
         var styleComputer = new StyleComputer();
         styleComputer.AddStylesheet(_uaStylesheet);
 
-        await LoadStylesFromHtml(angleSharpDoc, cssParser, styleComputer);
-        styleComputer.ComputeStyles(doc);
+        try
+        {
+            await LoadStylesFromHtml(angleSharpDoc, styleComputer, baseUrl);
+            styleComputer.ComputeStyles(doc);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[CSS] Error computing styles: {ex.Message}");
+        }
 
         return new DocumentLoadResult(doc, angleSharpDoc);
     }
 
     public static string DefaultHtml => _defaultHtml;
 
-    private static async Task LoadStylesFromHtml(AngleSharp.Dom.IDocument angleSharpDoc, CssParser cssParser, StyleComputer styleComputer)
+    private async Task LoadStylesFromHtml(AngleSharp.Dom.IDocument angleSharpDoc, StyleComputer styleComputer, string? baseUrl)
     {
         var elements = angleSharpDoc.All;
-        var styleElements = elements.Where(e => e.LocalName?.ToLowerInvariant() == "style");
 
+        var styleElements = elements.Where(e => e.LocalName?.ToLowerInvariant() == "style");
         foreach (var styleElement in styleElements)
         {
             var cssText = styleElement.TextContent;
             if (!string.IsNullOrEmpty(cssText))
             {
-                var stylesheet = cssParser.Parse(cssText);
+                try
+                {
+                    var stylesheet = _cssParser.Parse(cssText);
+                    styleComputer.AddStylesheet(stylesheet);
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[CSS] Failed to parse <style>: {ex.Message}");
+                }
+            }
+        }
+
+        var linkElements = elements.Where(e =>
+            e.LocalName?.ToLowerInvariant() == "link" &&
+            e.GetAttribute("rel")?.ToLowerInvariant() == "stylesheet");
+
+        foreach (var link in linkElements)
+        {
+            var href = link.GetAttribute("href");
+            if (string.IsNullOrEmpty(href)) continue;
+
+            var url = ResolveUrl(baseUrl, href);
+            if (url == null) continue;
+
+            try
+            {
+                using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
+                var cssText = await client.GetStringAsync(url);
+                var stylesheet = _cssParser.Parse(cssText);
                 styleComputer.AddStylesheet(stylesheet);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[CSS] Failed to load stylesheet '{url}': {ex.Message}");
             }
         }
     }
 
-    private static void ConvertHtmlToDom(AngleSharp.Dom.IElement source, Document target)
+    private static string? ResolveUrl(string? baseUrl, string href)
     {
+        if (href.StartsWith("http://") || href.StartsWith("https://") || href.StartsWith("data:"))
+            return href;
+
+        if (baseUrl != null && (baseUrl.StartsWith("http://") || baseUrl.StartsWith("https://")))
+        {
+            try
+            {
+                var baseUri = new Uri(baseUrl);
+                var resolved = new Uri(baseUri, href);
+                return resolved.ToString();
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        return null;
+    }
+
+    private void ConvertHtmlToDom(AngleSharp.Dom.IElement source, Document target)
+    {
+        if (source == null) return;
+
         foreach (var child in source.ChildNodes)
         {
-            if (child is AngleSharp.Dom.IElement childElement)
+            try
             {
-                var element = new HtmlElement(childElement.LocalName);
+                if (child is AngleSharp.Dom.IElement childElement)
+                {
+                    var element = new HtmlElement(childElement.LocalName);
 
-                foreach (var attr in childElement.Attributes)
-                    element.Attributes[attr.Name] = attr.Value;
+                    foreach (var attr in childElement.Attributes)
+                    {
+                        if (!string.IsNullOrEmpty(attr.Name))
+                            element.Attributes[attr.Name] = attr.Value ?? "";
+                    }
 
-                if (childElement.HasAttribute("style"))
-                {
-                    var styleParser = new CssParser();
-                    var props = styleParser.ParseInlineStyle(childElement.GetAttribute("style") ?? "");
-                    foreach (var prop in props)
-                        element.Style[prop.Key] = prop.Value;
-                }
+                    if (childElement.HasAttribute("style"))
+                    {
+                        var props = _cssParser.ParseInlineStyle(childElement.GetAttribute("style") ?? "");
+                        foreach (var prop in props)
+                            element.Style[prop.Key] = prop.Value;
+                    }
 
-                if (childElement.LocalName.Equals("body", StringComparison.OrdinalIgnoreCase))
-                {
-                    target.Body = element;
-                    target.DocumentElement ??= element;
-                    ConvertElementChildren(childElement, element);
+                    var tagName = childElement.LocalName?.ToLowerInvariant();
+
+                    if (tagName == "html")
+                    {
+                        target.DocumentElement = element;
+                        ConvertElementChildren(childElement, element);
+                    }
+                    else if (tagName == "body")
+                    {
+                        target.Body = element;
+                        if (target.DocumentElement == null)
+                            target.DocumentElement = element;
+                        ConvertElementChildren(childElement, element);
+                    }
+                    else if (tagName == "head")
+                    {
+                        target.Head = element;
+                        ConvertElementChildren(childElement, element);
+                    }
+                    else if (tagName == "title")
+                    {
+                        target.Title = childElement.TextContent ?? "";
+                    }
+                    else
+                    {
+                        if (target.DocumentElement == null)
+                            target.DocumentElement = element;
+                        target.AppendChild(element);
+                        ConvertElementChildren(childElement, element);
+                    }
                 }
-                else if (childElement.LocalName.Equals("head", StringComparison.OrdinalIgnoreCase))
+                else if (child.NodeType == AngleSharp.Dom.NodeType.Text)
                 {
-                    target.Head = element;
-                    ConvertElementChildren(childElement, element);
+                    var text = NormalizeTextContent(child.TextContent ?? "");
+                    if (!string.IsNullOrWhiteSpace(text))
+                        target.AppendChild(new TextNode(text));
                 }
-                else if (childElement.LocalName.Equals("title", StringComparison.OrdinalIgnoreCase))
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[DOM] Error converting element: {ex.Message}");
+            }
+        }
+    }
+
+    private void ConvertElementChildren(AngleSharp.Dom.INode source, Element target)
+    {
+        if (source == null || target == null) return;
+
+        foreach (var child in source.ChildNodes)
+        {
+            try
+            {
+                if (child is AngleSharp.Dom.IElement childElement)
                 {
-                    target.Title = childElement.TextContent ?? "";
-                }
-                else
-                {
-                    target.DocumentElement ??= element;
+                    var element = new HtmlElement(childElement.LocalName);
+
+                    foreach (var attr in childElement.Attributes)
+                    {
+                        if (!string.IsNullOrEmpty(attr.Name))
+                            element.Attributes[attr.Name] = attr.Value ?? "";
+                    }
+
+                    if (childElement.HasAttribute("style"))
+                    {
+                        var props = _cssParser.ParseInlineStyle(childElement.GetAttribute("style") ?? "");
+                        foreach (var prop in props)
+                            element.Style[prop.Key] = prop.Value;
+                    }
+
                     target.AppendChild(element);
                     ConvertElementChildren(childElement, element);
                 }
-            }
-            else if (child.NodeType == AngleSharp.Dom.NodeType.Text)
-            {
-                var text = NormalizeTextContent(child.TextContent ?? "");
-                if (!string.IsNullOrWhiteSpace(text))
-                    target.AppendChild(new TextNode(text));
-            }
-        }
-    }
-
-    private static void ConvertElementChildren(AngleSharp.Dom.INode source, Element target)
-    {
-        foreach (var child in source.ChildNodes)
-        {
-            if (child is AngleSharp.Dom.IElement childElement)
-            {
-                var element = new HtmlElement(childElement.LocalName);
-
-                foreach (var attr in childElement.Attributes)
-                    element.Attributes[attr.Name] = attr.Value;
-
-                if (childElement.HasAttribute("style"))
+                else if (child.NodeType == AngleSharp.Dom.NodeType.Text)
                 {
-                    var styleParser = new CssParser();
-                    var props = styleParser.ParseInlineStyle(childElement.GetAttribute("style") ?? "");
-                    foreach (var prop in props)
-                        element.Style[prop.Key] = prop.Value;
+                    var text = NormalizeTextContent(child.TextContent ?? "");
+                    if (!string.IsNullOrWhiteSpace(text))
+                        target.AppendChild(new TextNode(text));
                 }
-
-                target.AppendChild(element);
-                ConvertElementChildren(childElement, element);
             }
-            else if (child.NodeType == AngleSharp.Dom.NodeType.Text)
+            catch (Exception ex)
             {
-                var text = NormalizeTextContent(child.TextContent ?? "");
-                if (!string.IsNullOrWhiteSpace(text))
-                    target.AppendChild(new TextNode(text));
+                Console.WriteLine($"[DOM] Error converting child: {ex.Message}");
             }
         }
     }
@@ -209,6 +308,7 @@ public class DocumentManager
     private static string GetUserAgentStylesStatic()
     {
         return @"
+            html { display: block; }
             body { font-family: Arial, sans-serif; display: block; margin: 8px; }
             h1 { display: block; margin: 0.67em 0; font-size: 2em; font-weight: bold; }
             h2 { display: block; margin: 0.83em 0; font-size: 1.5em; font-weight: bold; }

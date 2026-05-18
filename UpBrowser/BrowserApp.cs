@@ -380,7 +380,7 @@ var winWindow = PlatformFactory.CreateWindowsWindow(physicalWidth, physicalHeigh
 
     private void WireNavigation()
     {
-        _chrome.OnNavigate = async (url) =>
+        _chrome.OnNavigate = (url) =>
         {
             Console.WriteLine($"Navigating to: {url}");
             _input.NeedsRedraw = true;
@@ -390,17 +390,17 @@ var winWindow = PlatformFactory.CreateWindowsWindow(physicalWidth, physicalHeigh
                 if (url == "upbrowser://newtab" || url == "upbrowser://local")
                 {
                     _currentHtml = DocumentManager.DefaultHtml;
-                    await NavigateToHtml(_currentHtml);
+                    _ = LoadAndRenderHtml(_currentHtml);
                     _scroll.ScrollTo(0, 0);
                 }
             }
             else if (url.StartsWith("http://") || url.StartsWith("https://"))
             {
-                await NavigateToHttp(url);
+                NavigateToHttp(url);
             }
             else
             {
-                await NavigateToSearch(url);
+                _ = NavigateToSearch(url);
             }
         };
 
@@ -410,11 +410,7 @@ var winWindow = PlatformFactory.CreateWindowsWindow(physicalWidth, physicalHeigh
             _input.NeedsRedraw = true;
             if (!string.IsNullOrEmpty(_currentHtml))
             {
-                Task.Run(async () =>
-                {
-                    await NavigateToHtml(_currentHtml);
-                    _input.NeedsRedraw = true;
-                });
+                _ = LoadAndRenderHtml(_currentHtml);
             }
         };
 
@@ -423,36 +419,76 @@ var winWindow = PlatformFactory.CreateWindowsWindow(physicalWidth, physicalHeigh
             Console.WriteLine("Going home...");
             _chrome.NavigateToUrl("upbrowser://local");
         };
+
+        _chrome.OnTabChanged = (url) =>
+        {
+            if (_isNavigating) return;
+
+            Console.WriteLine($"Tab changed to: {url}");
+            _input.NeedsRedraw = true;
+
+            int currentTabIndex = _chrome.ActiveTabIndex;
+            
+            // 保存当前标签页状态
+            if (_lastActiveTabIndex >= 0 && _currentLoad != null)
+            {
+                _tabStates[_lastActiveTabIndex] = new TabState
+                {
+                    Html = _currentHtml,
+                    LoadResult = _currentLoad,
+                    ScrollX = _scroll.ScrollX,
+                    ScrollY = _scroll.ScrollY
+                };
+            }
+
+            _lastActiveTabIndex = currentTabIndex;
+
+            // 检查目标标签页是否有已保存的状态
+            if (_tabStates.TryGetValue(currentTabIndex, out var savedState) && !string.IsNullOrEmpty(savedState.Html))
+            {
+                // 恢复已保存的状态
+                _currentHtml = savedState.Html;
+                _currentLoad = savedState.LoadResult;
+                _scroll.ScrollTo(savedState.ScrollX, savedState.ScrollY);
+
+                if (_currentLoad != null)
+                {
+                    _jsEngine.LoadDocument(_currentLoad.Document);
+                    _devTools.SetDocument(_currentLoad.Document, _currentHtml);
+                    BuildDisplayList(_lastWindowWidth, _lastWindowHeight);
+                }
+            }
+            else
+            {
+                // 新标签页，需要导航
+                if (url.StartsWith("http://") || url.StartsWith("https://"))
+                {
+                    NavigateToHttp(url);
+                }
+                else if (url == "upbrowser://newtab" || url == "upbrowser://local")
+                {
+                    _currentHtml = DocumentManager.DefaultHtml;
+                    _ = LoadAndRenderHtml(_currentHtml);
+                }
+            }
+        };
+
+        _chrome.OnNewTab = () =>
+        {
+            Console.WriteLine("New tab requested");
+            _input.NeedsRedraw = true;
+        };
+
+        _chrome.OnCloseTab = (index) =>
+        {
+            Console.WriteLine($"Close tab {index} requested");
+            _input.NeedsRedraw = true;
+        };
     }
 
     private async Task NavigateToHtml(string html)
     {
-        _currentHtml = html;
-
-        // Clear page-specific caches to free memory from previous page
-        _sharedImageCache.Clear();
-        _sharedTypefaceCache.Clear();
-
-        // Dispose old AngleSharp document to free memory
-        if (_currentLoad != null)
-        {
-            _currentLoad.AngleSharpDoc?.Dispose();
-        }
-
-        _currentLoad = await _docManager.LoadHtmlAsync(html);
-
-        var (pw, ph) = _window.GetClientSize();
-        int ww = (int)(pw / _dpiScale);
-        int wh = (int)(ph / _dpiScale);
-
-        _jsEngine.LoadDocument(_currentLoad.Document);
-
-        _devTools.SetDocument(_currentLoad.Document, html);
-
-        RunPageScripts();
-
-        BuildDisplayList(ww, wh);
-        _scroll.ScrollTo(0, 0);
+        await NavigateToHtml(html, null);
     }
 
     private void RunPageScripts()
@@ -492,31 +528,218 @@ var winWindow = PlatformFactory.CreateWindowsWindow(physicalWidth, physicalHeigh
         }
     }
 
-    private async Task NavigateToHttp(string url)
+    private bool _isNavigating;
+    private int _lastActiveTabIndex = -1;
+    private readonly Dictionary<int, TabState> _tabStates = new();
+
+    private class TabState
     {
+        public string Html { get; set; } = "";
+        public DocumentManager.DocumentLoadResult? LoadResult { get; set; }
+        public float ScrollX { get; set; }
+        public float ScrollY { get; set; }
+    }
+
+    private void NavigateToHttp(string url)
+    {
+        if (_isNavigating) return;
+        _isNavigating = true;
+        _chrome.SetLoadingState(true);
+        _input.NeedsRedraw = true;
+
+        Task.Run(async () =>
+        {
+            try
+            {
+                using var httpClient = new HttpClient();
+                httpClient.Timeout = TimeSpan.FromSeconds(30);
+                httpClient.DefaultRequestHeaders.Add("User-Agent",
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36");
+                httpClient.DefaultRequestHeaders.Add("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8");
+                httpClient.DefaultRequestHeaders.Add("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8");
+
+                var response = await httpClient.GetAsync(url);
+                response.EnsureSuccessStatusCode();
+                var webHtml = await response.Content.ReadAsStringAsync();
+
+                _eventLoop.PostTask(() =>
+                {
+                    _ = LoadAndRenderHtml(webHtml, url);
+                });
+            }
+            catch (TaskCanceledException)
+            {
+                _eventLoop.PostTask(() =>
+                {
+                    _ = ShowErrorPage(url, "Request timed out");
+                    _isNavigating = false;
+                    _chrome.SetLoadingState(false);
+                    _input.NeedsRedraw = true;
+                });
+            }
+            catch (Exception ex)
+            {
+                _eventLoop.PostTask(() =>
+                {
+                    _ = ShowErrorPage(url, ex.Message);
+                    _isNavigating = false;
+                    _chrome.SetLoadingState(false);
+                    _input.NeedsRedraw = true;
+                });
+            }
+        });
+    }
+
+    private async Task LoadAndRenderHtml(string html, string? baseUrl = null)
+    {
+        _currentHtml = html;
+
+        _sharedImageCache.Clear();
+        _sharedTypefaceCache.Clear();
+
+        if (_currentLoad != null)
+        {
+            try
+            {
+                _currentLoad.AngleSharpDoc?.Dispose();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[Dispose] Error disposing AngleSharp doc: {ex.Message}");
+            }
+            finally
+            {
+                _currentLoad = null;
+            }
+        }
+
         try
         {
-            using var httpClient = new HttpClient();
-            httpClient.DefaultRequestHeaders.Add("User-Agent",
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
-
-            var webHtml = await httpClient.GetStringAsync(url);
-            await NavigateToHtml(webHtml);
-
-            Console.WriteLine($"Loaded: {_currentLoad?.Document.Title}");
+            _currentLoad = await _docManager.LoadHtmlAsync(html, baseUrl);
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Failed to load URL: {ex.Message}");
+            Console.WriteLine($"[Load] Error loading HTML: {ex.Message}");
             var errorHtml = $@"<!DOCTYPE html>
 <html><head><title>Error</title></head>
 <body style='font-family: Arial; padding: 40px;'>
-    <h1 style='color: #d32f2f;'>Navigation Error</h1>
-    <p>Failed to load: {url}</p>
+    <h1 style='color: #d32f2f;'>Rendering Error</h1>
     <p style='color: #666;'>Error: {ex.Message}</p>
 </body></html>";
-            await NavigateToHtml(errorHtml);
+            _currentLoad = await _docManager.LoadHtmlAsync(errorHtml, baseUrl);
         }
+
+        var (pw, ph) = _window.GetClientSize();
+        int ww = (int)(pw / _dpiScale);
+        int wh = (int)(ph / _dpiScale);
+
+        _jsEngine.LoadDocument(_currentLoad.Document);
+        _devTools.SetDocument(_currentLoad.Document, html);
+
+        RunPageScripts();
+
+        BuildDisplayList(ww, wh);
+        _scroll.ScrollTo(0, 0);
+
+        // 保存当前标签页状态
+        _lastActiveTabIndex = _chrome.ActiveTabIndex;
+        _tabStates[_lastActiveTabIndex] = new TabState
+        {
+            Html = _currentHtml,
+            LoadResult = _currentLoad,
+            ScrollX = 0,
+            ScrollY = 0
+        };
+
+        _isNavigating = false;
+        _chrome.SetLoadingState(false);
+        _input.NeedsRedraw = true;
+    }
+
+    private async Task ShowErrorPage(string url, string errorMessage)
+    {
+        var errorHtml = $@"<!DOCTYPE html>
+<html><head><title>Error</title>
+<style>
+    body {{ font-family: 'Microsoft YaHei', Arial, sans-serif; padding: 40px; background: #f5f5f5; }}
+    .error-container {{ max-width: 600px; margin: 0 auto; background: white; padding: 30px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }}
+    h1 {{ color: #d32f2f; margin-top: 0; }}
+    .url {{ color: #666; word-break: break-all; }}
+    .error {{ color: #999; margin-top: 20px; }}
+    .retry-btn {{ background: #1a73e8; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; margin-top: 20px; }}
+</style>
+</head>
+<body>
+    <div class='error-container'>
+        <h1>Unable to connect</h1>
+        <p>Failed to load: <span class='url'>{url}</span></p>
+        <p class='error'>Error: {errorMessage}</p>
+        <button class='retry-btn' onclick='location.reload()'>Retry</button>
+    </div>
+</body></html>";
+        _ = LoadAndRenderHtml(errorHtml, url);
+    }
+
+    private async Task NavigateToHtml(string html, string? baseUrl = null)
+    {
+        _currentHtml = html;
+
+        _sharedImageCache.Clear();
+        _sharedTypefaceCache.Clear();
+
+        if (_currentLoad != null)
+        {
+            try
+            {
+                _currentLoad.AngleSharpDoc?.Dispose();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[Dispose] Error disposing AngleSharp doc: {ex.Message}");
+            }
+            finally
+            {
+                _currentLoad = null;
+            }
+        }
+
+        try
+        {
+            _currentLoad = await _docManager.LoadHtmlAsync(html, baseUrl);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[Load] Error loading HTML: {ex.Message}");
+            var errorHtml = $@"<!DOCTYPE html>
+<html><head><title>Error</title></head>
+<body style='font-family: Arial; padding: 40px;'>
+    <h1 style='color: #d32f2f;'>Rendering Error</h1>
+    <p style='color: #666;'>Error: {ex.Message}</p>
+</body></html>";
+            _currentLoad = await _docManager.LoadHtmlAsync(errorHtml, baseUrl);
+        }
+
+        var (pw, ph) = _window.GetClientSize();
+        int ww = (int)(pw / _dpiScale);
+        int wh = (int)(ph / _dpiScale);
+
+        _jsEngine.LoadDocument(_currentLoad.Document);
+        _devTools.SetDocument(_currentLoad.Document, html);
+
+        RunPageScripts();
+
+        BuildDisplayList(ww, wh);
+        _scroll.ScrollTo(0, 0);
+
+        // 保存当前标签页状态
+        _lastActiveTabIndex = _chrome.ActiveTabIndex;
+        _tabStates[_lastActiveTabIndex] = new TabState
+        {
+            Html = _currentHtml,
+            LoadResult = _currentLoad,
+            ScrollX = 0,
+            ScrollY = 0
+        };
     }
 
     private async Task NavigateToSearch(string query)
@@ -528,7 +751,7 @@ var winWindow = PlatformFactory.CreateWindowsWindow(physicalWidth, physicalHeigh
     <p>Searching for: <strong>{query}</strong></p>
     <p style='color: #666;'>Search functionality requires network access.</p>
 </body></html>";
-        await NavigateToHtml(searchHtml);
+        _ = LoadAndRenderHtml(searchHtml);
     }
 
     private void BuildDisplayList(float windowWidth, float windowHeight)
@@ -555,6 +778,8 @@ var winWindow = PlatformFactory.CreateWindowsWindow(physicalWidth, physicalHeigh
         _eventLoop.ProcessTasks();
         if (_jsEngine.HasTimers)
             _jsEngine.TickTimers();
+
+        _chrome.UpdateLoadingProgress();
 
         if (_input.IsMouseDown())
         {

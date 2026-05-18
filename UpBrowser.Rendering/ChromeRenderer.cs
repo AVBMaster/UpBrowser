@@ -87,12 +87,18 @@ public class ChromeRenderer : IImeSupport
     private string _imeCompositionString = "";
     private int _imeCompositionCursor = 0;
 
+    private bool _isLoading;
+    private float _loadingProgress;
+    private long _loadingStartTime;
+
     public Action<string>? OnNavigate { get; set; }
     public Action? OnRefresh { get; set; }
     public Action? OnBack { get; set; }
     public Action? OnForward { get; set; }
     public Action? OnHome { get; set; }
-    public Action? OnTabChanged { get; set; }      // 标签切换回调
+    public Action<string>? OnTabChanged { get; set; }      // 标签切换回调
+    public Action? OnNewTab { get; set; }                  // 新建标签页回调
+    public Action<int>? OnCloseTab { get; set; }           // 关闭标签页回调
     public Action? OnUrlBarFocus { get; set; }    // URL 栏获得焦点回调
     public Action? OnUrlBarBlur { get; set; }    // URL 栏失去焦点回调
 
@@ -101,6 +107,8 @@ public class ChromeRenderer : IImeSupport
         public string Title { get; set; } = "New Tab";
         public string Url { get; set; } = "upbrowser://newtab";
         public bool IsActive { get; set; }
+        public bool IsLoading { get; set; }
+        public float LoadingProgress { get; set; }
     }
 
     public void Initialize()
@@ -636,20 +644,19 @@ public class ChromeRenderer : IImeSupport
         _tabs.Add(new TabInfo { Title = "New Tab", Url = url });
         _activeTabIndex = _tabs.Count - 1;
         _urlBarFocused = false;
-        OnTabChanged?.Invoke();
 
-        // 导航到新标签 URL
-        NavigateToUrl(url);
+        _currentUrl = url;
+        OnTabChanged?.Invoke(url);
     }
 
     public void CloseTab(int index)
     {
         if (_tabs.Count <= 1)
         {
-            // 最后一个标签页不关闭，而是导航到新标签页
             _tabs[0] = new TabInfo { Title = "New Tab", Url = "upbrowser://newtab" };
             _activeTabIndex = 0;
-            NavigateToUrl("upbrowser://newtab");
+            _currentUrl = "upbrowser://newtab";
+            OnTabChanged?.Invoke("upbrowser://newtab");
             return;
         }
 
@@ -659,13 +666,11 @@ public class ChromeRenderer : IImeSupport
 
         if (index == _activeTabIndex)
         {
-            // 关闭的是当前标签
             if (_activeTabIndex >= _tabs.Count)
                 _activeTabIndex = _tabs.Count - 1;
 
             _currentUrl = _tabs[_activeTabIndex].Url;
-            OnTabChanged?.Invoke();
-            NavigateToUrl(_currentUrl);
+            OnTabChanged?.Invoke(_currentUrl);
         }
         else if (index < _activeTabIndex)
         {
@@ -684,8 +689,7 @@ public class ChromeRenderer : IImeSupport
         _urlBarFocused = false;
         _currentUrl = _tabs[_activeTabIndex].Url;
 
-        OnTabChanged?.Invoke();
-        NavigateToUrl(_currentUrl);
+        OnTabChanged?.Invoke(_currentUrl);
     }
 
     public void NextTab()
@@ -719,6 +723,28 @@ public class ChromeRenderer : IImeSupport
     public bool IsUrlBarFocused() => _urlBarFocused;
     public int TabCount => _tabs.Count;
     public int ActiveTabIndex => _activeTabIndex;
+    public bool IsLoading => _isLoading;
+
+    public void SetLoadingState(bool loading)
+    {
+        _isLoading = loading;
+        if (loading)
+        {
+            _loadingProgress = 0;
+            _loadingStartTime = Environment.TickCount64;
+        }
+        else
+        {
+            _loadingProgress = 1.0f;
+        }
+    }
+
+    public void UpdateLoadingProgress()
+    {
+        if (!_isLoading) return;
+        var elapsed = Environment.TickCount64 - _loadingStartTime;
+        _loadingProgress = Math.Min(0.95f, elapsed / 3000f);
+    }
 
     public float GetContentOffset() => TabBarHeight + ToolbarHeight;
     public float GetStatusBarHeight() => StatusBarHeight;

@@ -39,10 +39,28 @@ public static class FontHelper
     public static SKFont CreateMonoFont(float textSize = 12)
     {
         Initialize();
-        return new SKFont(_monoTypeface ?? _defaultTypeface ?? SKTypeface.Default, textSize)
+        var typeface = _monoTypeface ?? _defaultTypeface ?? SKTypeface.Default;
+        return new SKFont(typeface, textSize)
         {
             Hinting = SKFontHinting.Normal,
-            Edging = SKFontEdging.Antialias
+            Edging = SKFontEdging.Antialias,
+            Subpixel = true,
+            LinearMetrics = true,
+            Embolden = false,
+            ForceAutoHinting = false
+        };
+    }
+
+    public static SKFont CreateDevToolsFont(float textSize = 12)
+    {
+        Initialize();
+        var typeface = _chineseTypeface ?? _monoTypeface ?? _defaultTypeface ?? SKTypeface.Default;
+        return new SKFont(typeface, textSize)
+        {
+            Hinting = SKFontHinting.Normal,
+            Edging = SKFontEdging.Antialias,
+            Subpixel = true,
+            LinearMetrics = true
         };
     }
 

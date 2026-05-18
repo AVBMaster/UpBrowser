@@ -26,8 +26,8 @@ public class DevToolsConsole : IImeSupport
     private const float InputHeight = 24;
     private float _renderX, _renderY, _renderW, _renderH;
 
-    private readonly SKPaint _font = FontHelper.CreateMonoPaint(12);
-    private readonly SKFont _skFont = FontHelper.CreateMonoFont(12);
+    private readonly SKPaint _font = new SKPaint { IsAntialias = true };
+    private readonly SKFont _skFont = FontHelper.CreateDevToolsFont(12);
 
     private bool _thumbDragging;
     private float _thumbDragStartY;

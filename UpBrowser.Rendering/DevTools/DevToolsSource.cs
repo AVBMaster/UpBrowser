@@ -100,8 +100,8 @@ public class DevToolsSource : IImeSupport
             string line = _lines[clickedLine];
             _editCol = 0;
             float currentX = 0;
-            using var testPaint = FontHelper.CreateMonoPaint(12);
-            using var testFont = FontHelper.CreateMonoFont(12);
+            using var testPaint = new SKPaint { IsAntialias = true };
+            using var testFont = FontHelper.CreateDevToolsFont(12);
             for (int i = 0; i < line.Length; i++)
             {
                 float charWidth = testFont.MeasureText(line[i].ToString());
@@ -327,14 +327,14 @@ public class DevToolsSource : IImeSupport
         using var bg = new SKPaint { Color = SKColor.Parse("#1E1E1E"), Style = SKPaintStyle.Fill };
         canvas.DrawRect(x, y, width, height, bg);
 
-        using var font = FontHelper.CreateMonoPaint(12);
-        using var skFont = FontHelper.CreateMonoFont(12);
-        using var lineNumPaint = FontHelper.CreateMonoPaint(12);
-        using var tagPaint = FontHelper.CreateMonoPaint(12);
-        using var attrPaint = FontHelper.CreateMonoPaint(12);
-        using var strPaint = FontHelper.CreateMonoPaint(12);
-        using var commentPaint = FontHelper.CreateMonoPaint(12);
-        using var defPaint = FontHelper.CreateMonoPaint(12);
+        using var font = new SKPaint { IsAntialias = true };
+        using var skFont = FontHelper.CreateDevToolsFont(12);
+        using var lineNumPaint = new SKPaint { IsAntialias = true };
+        using var tagPaint = new SKPaint { IsAntialias = true };
+        using var attrPaint = new SKPaint { IsAntialias = true };
+        using var strPaint = new SKPaint { IsAntialias = true };
+        using var commentPaint = new SKPaint { IsAntialias = true };
+        using var defPaint = new SKPaint { IsAntialias = true };
 
         float lh = 18;
         float lnW = 50;
@@ -397,7 +397,7 @@ public class DevToolsSource : IImeSupport
         float lh = 18;
         string line = _lines[_editLine];
         string textBeforeCursor = line[..Math.Min(_editCol, line.Length)];
-        using var testFont = FontHelper.CreateMonoFont(12);
+        using var testFont = FontHelper.CreateDevToolsFont(12);
         float cursorX = tx + testFont.MeasureText(textBeforeCursor);
         float lineDrawY = _renderY + lh - _scrollOffset + _editLine * lh;
         float cursorY = lineDrawY - lh + 4;
