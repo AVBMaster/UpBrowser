@@ -358,7 +358,8 @@ var winWindow = PlatformFactory.CreateWindowsWindow(physicalWidth, physicalHeigh
         Console.WriteLine("UpBrowser - Starting...");
 
         _currentHtml = DocumentManager.DefaultHtml;
-        await NavigateToHtml(_currentHtml);
+        var initialLoad = await _docManager.LoadHtmlAsync(_currentHtml);
+        _currentLoad = initialLoad;
 
         var devTool = new LayoutDevTool();
         var debugReport = devTool.GenerateReport(_currentLoad!.Document, 1024, 768);
@@ -366,8 +367,22 @@ var winWindow = PlatformFactory.CreateWindowsWindow(physicalWidth, physicalHeigh
         Console.WriteLine("Debug report saved to layout_debug.txt");
         Console.WriteLine(devTool.GenerateQuickReport(_currentLoad.Document));
 
+        _jsEngine.LoadDocument(_currentLoad.Document);
+        _devTools.SetDocument(_currentLoad.Document, _currentHtml);
+        RunPageScripts(null);
+
         BuildDisplayList(1024, 768);
         _lastLayoutWidth = 1024;
+
+        _lastActiveTabIndex = _chrome.ActiveTabIndex;
+        _tabStates[_lastActiveTabIndex] = new TabState
+        {
+            Html = _currentHtml,
+            LoadResult = _currentLoad,
+            ScrollX = 0,
+            ScrollY = 0
+        };
+
         var bodyBox = _currentLoad.Document.Body?.LayoutBox;
         var lastContentHeight = bodyBox?.BorderBox.Height ?? 0;
 
@@ -390,7 +405,7 @@ var winWindow = PlatformFactory.CreateWindowsWindow(physicalWidth, physicalHeigh
                 if (url == "upbrowser://newtab" || url == "upbrowser://local")
                 {
                     _currentHtml = DocumentManager.DefaultHtml;
-                    _ = LoadAndRenderHtml(_currentHtml);
+                    LoadAndRenderHtml(_currentHtml);
                     _scroll.ScrollTo(0, 0);
                 }
             }
@@ -400,7 +415,7 @@ var winWindow = PlatformFactory.CreateWindowsWindow(physicalWidth, physicalHeigh
             }
             else
             {
-                _ = NavigateToSearch(url);
+                NavigateToSearch(url);
             }
         };
 
@@ -410,7 +425,7 @@ var winWindow = PlatformFactory.CreateWindowsWindow(physicalWidth, physicalHeigh
             _input.NeedsRedraw = true;
             if (!string.IsNullOrEmpty(_currentHtml))
             {
-                _ = LoadAndRenderHtml(_currentHtml);
+                LoadAndRenderHtml(_currentHtml);
             }
         };
 
@@ -468,7 +483,7 @@ var winWindow = PlatformFactory.CreateWindowsWindow(physicalWidth, physicalHeigh
                 else if (url == "upbrowser://newtab" || url == "upbrowser://local")
                 {
                     _currentHtml = DocumentManager.DefaultHtml;
-                    _ = LoadAndRenderHtml(_currentHtml);
+                    LoadAndRenderHtml(_currentHtml);
                 }
             }
         };
@@ -486,50 +501,9 @@ var winWindow = PlatformFactory.CreateWindowsWindow(physicalWidth, physicalHeigh
         };
     }
 
-    private async Task NavigateToHtml(string html)
-    {
-        await NavigateToHtml(html, null);
-    }
-
-    private void RunPageScripts()
-    {
-        if (_currentLoad == null) return;
-
-        var angleDoc = _currentLoad.AngleSharpDoc;
-        var scriptElements = angleDoc.All.Where(e =>
-            e.LocalName?.ToLowerInvariant() == "script");
-
-        foreach (var scriptEl in scriptElements)
-        {
-            var src = scriptEl.GetAttribute("src");
-            if (!string.IsNullOrEmpty(src))
-            {
-                Task.Run(async () =>
-                {
-                    try
-                    {
-                        using var client = new HttpClient();
-                        var code = await client.GetStringAsync(src);
-                        _jsEngine.Execute(code);
-                    }
-                    catch (Exception ex)
-                    {
-                        Console.WriteLine($"[JS] Failed to load script '{src}': {ex.Message}");
-                    }
-                });
-                continue;
-            }
-
-            var code = scriptEl.TextContent;
-            if (!string.IsNullOrWhiteSpace(code))
-            {
-                _jsEngine.Execute(code);
-            }
-        }
-    }
-
     private bool _isNavigating;
     private int _lastActiveTabIndex = -1;
+    private string? _currentBaseUrl;
     private readonly Dictionary<int, TabState> _tabStates = new();
 
     private class TabState
@@ -538,6 +512,152 @@ var winWindow = PlatformFactory.CreateWindowsWindow(physicalWidth, physicalHeigh
         public DocumentManager.DocumentLoadResult? LoadResult { get; set; }
         public float ScrollX { get; set; }
         public float ScrollY { get; set; }
+    }
+
+    private void RunPageScripts(string? baseUrl)
+    {
+        if (_currentLoad == null) return;
+
+        var angleDoc = _currentLoad.AngleSharpDoc;
+        
+        // First pass: collect all script elements
+        var scriptElements = angleDoc.All.Where(e =>
+            e.LocalName?.ToLowerInvariant() == "script").ToList();
+
+        // Separate scripts by type
+        var syncScripts = new List<AngleSharp.Dom.IElement>();
+        var asyncScripts = new List<AngleSharp.Dom.IElement>();
+        var deferScripts = new List<AngleSharp.Dom.IElement>();
+
+        foreach (var scriptEl in scriptElements)
+        {
+            var type = scriptEl.GetAttribute("type");
+            if (!string.IsNullOrEmpty(type) && type != "text/javascript" && type != "application/javascript" && type != "module")
+                continue; // Skip non-JS scripts
+
+            var isAsync = scriptEl.HasAttribute("async");
+            var isDefer = scriptEl.HasAttribute("defer");
+            var isModule = type == "module";
+
+            if (isAsync || isModule)
+                asyncScripts.Add(scriptEl);
+            else if (isDefer)
+                deferScripts.Add(scriptEl);
+            else
+                syncScripts.Add(scriptEl);
+        }
+
+        // Execute synchronous scripts immediately (in order)
+        foreach (var scriptEl in syncScripts)
+        {
+            ExecuteScriptElement(scriptEl, baseUrl);
+        }
+
+        // Execute async scripts as soon as they're loaded
+        foreach (var scriptEl in asyncScripts)
+        {
+            ExecuteScriptElementAsync(scriptEl, baseUrl);
+        }
+
+        // Execute defer scripts after document parsing (simulate)
+        foreach (var scriptEl in deferScripts)
+        {
+            ExecuteScriptElementAsync(scriptEl, baseUrl);
+        }
+    }
+
+    private void ExecuteScriptElement(AngleSharp.Dom.IElement scriptEl, string? baseUrl)
+    {
+        var src = scriptEl.GetAttribute("src");
+        if (!string.IsNullOrEmpty(src))
+        {
+            var absoluteUrl = ResolveUrl(src, baseUrl);
+            if (absoluteUrl == null)
+            {
+                Console.WriteLine($"[JS] Invalid script URL: {src}");
+                return;
+            }
+
+            try
+            {
+                using var client = new HttpClient();
+                client.Timeout = TimeSpan.FromSeconds(10);
+                var code = client.GetStringAsync(absoluteUrl).GetAwaiter().GetResult();
+                _jsEngine.Execute(code);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[JS] Failed to load script '{src}': {ex.Message}");
+            }
+        }
+        else
+        {
+            var code = scriptEl.TextContent;
+            if (!string.IsNullOrWhiteSpace(code))
+            {
+                _jsEngine.Execute(code);
+            }
+        }
+    }
+
+    private void ExecuteScriptElementAsync(AngleSharp.Dom.IElement scriptEl, string? baseUrl)
+    {
+        Task.Run(async () =>
+        {
+            try
+            {
+                var src = scriptEl.GetAttribute("src");
+                string code;
+                if (!string.IsNullOrEmpty(src))
+                {
+                    var absoluteUrl = ResolveUrl(src, baseUrl);
+                    if (absoluteUrl == null)
+                    {
+                        Console.WriteLine($"[JS] Invalid script URL: {src}");
+                        return;
+                    }
+
+                    using var client = new HttpClient();
+                    client.Timeout = TimeSpan.FromSeconds(10);
+                    code = await client.GetStringAsync(absoluteUrl);
+                }
+                else
+                {
+                    code = scriptEl.TextContent;
+                }
+
+                if (!string.IsNullOrWhiteSpace(code))
+                {
+                    _eventLoop.PostTask(() => _jsEngine.Execute(code));
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[JS] Failed to load script: {ex.Message}");
+            }
+        });
+    }
+
+    private static string? ResolveUrl(string url, string? baseUrl)
+    {
+        if (string.IsNullOrEmpty(url)) return null;
+        if (url.StartsWith("http://") || url.StartsWith("https://") || url.StartsWith("data:") || url.StartsWith("blob:"))
+            return url;
+
+        if (url.StartsWith("//"))
+        {
+            if (!string.IsNullOrEmpty(baseUrl) && baseUrl.StartsWith("https://"))
+                return "https:" + url;
+            return "http:" + url;
+        }
+
+        if (string.IsNullOrEmpty(baseUrl)) return null;
+        try
+        {
+            var baseUri = new Uri(baseUrl.EndsWith('/') ? baseUrl : baseUrl + '/');
+            return new Uri(baseUri, url).ToString();
+        }
+        catch { return null; }
     }
 
     private void NavigateToHttp(string url)
@@ -562,72 +682,71 @@ var winWindow = PlatformFactory.CreateWindowsWindow(physicalWidth, physicalHeigh
                 response.EnsureSuccessStatusCode();
                 var webHtml = await response.Content.ReadAsStringAsync();
 
-                _eventLoop.PostTask(() =>
-                {
-                    _ = LoadAndRenderHtml(webHtml, url);
-                });
+                _eventLoop.PostTask(() => LoadAndRenderHtml(webHtml, url));
             }
             catch (TaskCanceledException)
             {
-                _eventLoop.PostTask(() =>
-                {
-                    _ = ShowErrorPage(url, "Request timed out");
-                    _isNavigating = false;
-                    _chrome.SetLoadingState(false);
-                    _input.NeedsRedraw = true;
-                });
+                _eventLoop.PostTask(() => ShowErrorPage(url, "Request timed out"));
             }
             catch (Exception ex)
             {
-                _eventLoop.PostTask(() =>
-                {
-                    _ = ShowErrorPage(url, ex.Message);
-                    _isNavigating = false;
-                    _chrome.SetLoadingState(false);
-                    _input.NeedsRedraw = true;
-                });
+                _eventLoop.PostTask(() => ShowErrorPage(url, ex.Message));
             }
         });
     }
 
-    private async Task LoadAndRenderHtml(string html, string? baseUrl = null)
+    private void LoadAndRenderHtml(string html, string? baseUrl = null)
     {
         _currentHtml = html;
-
+        _currentBaseUrl = baseUrl;
         _sharedImageCache.Clear();
         _sharedTypefaceCache.Clear();
 
-        if (_currentLoad != null)
+        // Parse HTML on background thread
+        Task.Run(async () =>
         {
+            DocumentManager.DocumentLoadResult? loadResult = null;
             try
             {
-                _currentLoad.AngleSharpDoc?.Dispose();
+                var docManager = new DocumentManager();
+                loadResult = await docManager.LoadHtmlAsync(html, baseUrl);
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[Dispose] Error disposing AngleSharp doc: {ex.Message}");
-            }
-            finally
-            {
-                _currentLoad = null;
-            }
-        }
-
-        try
-        {
-            _currentLoad = await _docManager.LoadHtmlAsync(html, baseUrl);
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"[Load] Error loading HTML: {ex.Message}");
-            var errorHtml = $@"<!DOCTYPE html>
+                Console.WriteLine($"[Load] Error loading HTML: {ex.Message}");
+                var errorHtml = $@"<!DOCTYPE html>
 <html><head><title>Error</title></head>
 <body style='font-family: Arial; padding: 40px;'>
     <h1 style='color: #d32f2f;'>Rendering Error</h1>
     <p style='color: #666;'>Error: {ex.Message}</p>
 </body></html>";
-            _currentLoad = await _docManager.LoadHtmlAsync(errorHtml, baseUrl);
+                try
+                {
+                    var docManager = new DocumentManager();
+                    loadResult = await docManager.LoadHtmlAsync(errorHtml, baseUrl);
+                }
+                catch { return; }
+            }
+
+            if (loadResult != null)
+            {
+                var capturedHtml = html;
+                _eventLoop.PostTask(() => ApplyLoadedHtml(loadResult, capturedHtml));
+            }
+        });
+    }
+
+    private void ApplyLoadedHtml(DocumentManager.DocumentLoadResult loadResult, string html)
+    {
+        // Dispose old document safely
+        if (_currentLoad != null)
+        {
+            try { _currentLoad.AngleSharpDoc?.Dispose(); }
+            catch (Exception ex) { Console.WriteLine($"[Dispose] Error: {ex.Message}"); }
         }
+
+        _currentLoad = loadResult;
+        _currentHtml = html;
 
         var (pw, ph) = _window.GetClientSize();
         int ww = (int)(pw / _dpiScale);
@@ -636,12 +755,11 @@ var winWindow = PlatformFactory.CreateWindowsWindow(physicalWidth, physicalHeigh
         _jsEngine.LoadDocument(_currentLoad.Document);
         _devTools.SetDocument(_currentLoad.Document, html);
 
-        RunPageScripts();
+        RunPageScripts(_currentBaseUrl);
 
         BuildDisplayList(ww, wh);
         _scroll.ScrollTo(0, 0);
 
-        // 保存当前标签页状态
         _lastActiveTabIndex = _chrome.ActiveTabIndex;
         _tabStates[_lastActiveTabIndex] = new TabState
         {
@@ -656,7 +774,7 @@ var winWindow = PlatformFactory.CreateWindowsWindow(physicalWidth, physicalHeigh
         _input.NeedsRedraw = true;
     }
 
-    private async Task ShowErrorPage(string url, string errorMessage)
+    private void ShowErrorPage(string url, string errorMessage)
     {
         var errorHtml = $@"<!DOCTYPE html>
 <html><head><title>Error</title>
@@ -677,72 +795,13 @@ var winWindow = PlatformFactory.CreateWindowsWindow(physicalWidth, physicalHeigh
         <button class='retry-btn' onclick='location.reload()'>Retry</button>
     </div>
 </body></html>";
-        _ = LoadAndRenderHtml(errorHtml, url);
+        _isNavigating = false;
+        _chrome.SetLoadingState(false);
+        _input.NeedsRedraw = true;
+        LoadAndRenderHtml(errorHtml, url);
     }
 
-    private async Task NavigateToHtml(string html, string? baseUrl = null)
-    {
-        _currentHtml = html;
-
-        _sharedImageCache.Clear();
-        _sharedTypefaceCache.Clear();
-
-        if (_currentLoad != null)
-        {
-            try
-            {
-                _currentLoad.AngleSharpDoc?.Dispose();
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[Dispose] Error disposing AngleSharp doc: {ex.Message}");
-            }
-            finally
-            {
-                _currentLoad = null;
-            }
-        }
-
-        try
-        {
-            _currentLoad = await _docManager.LoadHtmlAsync(html, baseUrl);
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"[Load] Error loading HTML: {ex.Message}");
-            var errorHtml = $@"<!DOCTYPE html>
-<html><head><title>Error</title></head>
-<body style='font-family: Arial; padding: 40px;'>
-    <h1 style='color: #d32f2f;'>Rendering Error</h1>
-    <p style='color: #666;'>Error: {ex.Message}</p>
-</body></html>";
-            _currentLoad = await _docManager.LoadHtmlAsync(errorHtml, baseUrl);
-        }
-
-        var (pw, ph) = _window.GetClientSize();
-        int ww = (int)(pw / _dpiScale);
-        int wh = (int)(ph / _dpiScale);
-
-        _jsEngine.LoadDocument(_currentLoad.Document);
-        _devTools.SetDocument(_currentLoad.Document, html);
-
-        RunPageScripts();
-
-        BuildDisplayList(ww, wh);
-        _scroll.ScrollTo(0, 0);
-
-        // 保存当前标签页状态
-        _lastActiveTabIndex = _chrome.ActiveTabIndex;
-        _tabStates[_lastActiveTabIndex] = new TabState
-        {
-            Html = _currentHtml,
-            LoadResult = _currentLoad,
-            ScrollX = 0,
-            ScrollY = 0
-        };
-    }
-
-    private async Task NavigateToSearch(string query)
+    private void NavigateToSearch(string query)
     {
         var searchHtml = $@"<!DOCTYPE html>
 <html><head><title>Search: {query}</title></head>
@@ -751,7 +810,7 @@ var winWindow = PlatformFactory.CreateWindowsWindow(physicalWidth, physicalHeigh
     <p>Searching for: <strong>{query}</strong></p>
     <p style='color: #666;'>Search functionality requires network access.</p>
 </body></html>";
-        _ = LoadAndRenderHtml(searchHtml);
+        LoadAndRenderHtml(searchHtml);
     }
 
     private void BuildDisplayList(float windowWidth, float windowHeight)
@@ -763,7 +822,7 @@ var winWindow = PlatformFactory.CreateWindowsWindow(physicalWidth, physicalHeigh
         // Return old display list ops to pool before creating new one (fixes memory leak)
         _displayList.Clear();
 
-        _cachedPaintVisitor = new PaintVisitor(_contentOffset, _sharedTypefaceCache, _sharedImageCache, _fontFamilies);
+        _cachedPaintVisitor = new PaintVisitor(_contentOffset, _sharedTypefaceCache, _sharedImageCache, _fontFamilies, _currentBaseUrl);
         _cachedPaintVisitor.VisitDocument(_currentLoad.Document);
         _displayList = _cachedPaintVisitor.GetDisplayList();
         _displayList.SortByZIndex();

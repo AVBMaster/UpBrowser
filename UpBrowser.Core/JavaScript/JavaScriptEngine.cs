@@ -75,16 +75,23 @@ public class JavaScriptEngine : IDisposable
             }
             function clearTimeout(id) { __upbrowser.clearTimeout(id); }
             function clearInterval(id) { __upbrowser.clearInterval(id); }
-            function requestAnimationFrame(fn) { setTimeout(fn, 16); }
+            function requestAnimationFrame(fn) { return setTimeout(fn, 16); }
+            function cancelAnimationFrame(id) { return clearTimeout(id); }
             function alert(msg) { __win.alert(msg); }
             function confirm(msg) { return __win.confirm(msg); }
             function prompt(msg, def) { return __win.prompt(msg, def); }
             function decodeURI(str) { return __upbrowser.decodeURI(str); }
+            function decodeURIComponent(str) { return __upbrowser.decodeURIComponent(str); }
             function encodeURI(str) { return __upbrowser.encodeURI(str); }
+            function encodeURIComponent(str) { return __upbrowser.encodeURIComponent(str); }
             function parseInt(s, r) { return __upbrowser.parseInt(s, r); }
             function parseFloat(s) { return __upbrowser.parseFloat(s); }
             function isNaN(v) { return __upbrowser.isNaN(v); }
             function isFinite(v) { return __upbrowser.isFinite(v); }
+            function escape(str) { return __upbrowser.escape(str); }
+            function unescape(str) { return __upbrowser.unescape(str); }
+            function atob(str) { return __upbrowser.atob(str); }
+            function btoa(str) { return __upbrowser.btoa(str); }
 
             function fetch(url, opts) {
                 return new Promise(function(resolve, reject) {
@@ -93,12 +100,89 @@ public class JavaScriptEngine : IDisposable
                     __upbrowser._fetch(url, JSON.stringify(opts || {}), rid, rjid);
                 });
             }
+
+            function XMLHttpRequest() {
+                return __upbrowser.createXMLHttpRequest();
+            }
+
+            function URL(url, base) {
+                return __upbrowser.createURL(url, base || '');
+            }
+
+            function URLSearchParams(query) {
+                return __upbrowser.createURLSearchParams(query || '');
+            }
+
+            var window = this;
+            var globalThis = this;
+            var self = this;
+            var document = document;
+            var navigator = navigator;
+            var location = location;
+            var history = history;
+            var screen = screen;
+            var localStorage = localStorage;
+            var sessionStorage = sessionStorage;
+
+            Object.defineProperty(window, 'innerWidth', { get: function() { return __upbrowser.innerWidth(); } });
+            Object.defineProperty(window, 'innerHeight', { get: function() { return __upbrowser.innerHeight(); } });
+            Object.defineProperty(window, 'outerWidth', { get: function() { return __upbrowser.innerWidth(); } });
+            Object.defineProperty(window, 'outerHeight', { get: function() { return __upbrowser.innerHeight(); } });
+            Object.defineProperty(window, 'devicePixelRatio', { get: function() { return __upbrowser.devicePixelRatio(); } });
+            Object.defineProperty(window, 'pageXOffset', { get: function() { return __upbrowser.scrollX(); } });
+            Object.defineProperty(window, 'pageYOffset', { get: function() { return __upbrowser.scrollY(); } });
+            Object.defineProperty(window, 'scrollX', { get: function() { return __upbrowser.scrollX(); } });
+            Object.defineProperty(window, 'scrollY', { get: function() { return __upbrowser.scrollY(); } });
+
+            window.scrollTo = function(x, y) { __upbrowser.scrollTo(x || 0, y || 0); };
+            window.scrollBy = function(x, y) { __upbrowser.scrollBy(x || 0, y || 0); };
+            window.scroll = window.scrollTo;
+            window.getComputedStyle = function(el) { return document.getComputedStyle(el); };
+            window.matchMedia = function(query) { return { matches: true, media: query, addEventListener: function(){}, removeEventListener: function(){} }; };
+
+            function CustomEvent(type, detail) {
+                var evt = document.createEvent('customevent');
+                evt.type = type;
+                if (detail) evt.detail = detail;
+                return evt;
+            }
+
+            if (typeof Promise !== 'undefined') {
+                if (!Promise.allSettled) {
+                    Promise.allSettled = function(promises) {
+                        return Promise.all(promises.map(function(p) {
+                            return Promise.resolve(p).then(
+                                function(v) { return { status: 'fulfilled', value: v }; },
+                                function(e) { return { status: 'rejected', reason: e }; }
+                            );
+                        }));
+                    };
+                }
+                if (!Promise.any) {
+                    Promise.any = function(promises) {
+                        return new Promise(function(resolve, reject) {
+                            var errors = [];
+                            var count = 0;
+                            promises.forEach(function(p, i) {
+                                Promise.resolve(p).then(resolve, function(e) {
+                                    errors[i] = e;
+                                    count++;
+                                    if (count === promises.length) reject(new Error('All promises rejected'));
+                                });
+                            });
+                        });
+                    };
+                }
+            }
         ");
 
         _engine.EmbedHostObject("__win", new WindowHost(this));
         _engine.EmbedHostObject("navigator", new NavigatorHost());
         _engine.EmbedHostObject("location", new LocationHost());
         _engine.EmbedHostObject("history", new HistoryHost());
+        _engine.EmbedHostObject("screen", new ScreenHost());
+        _engine.EmbedHostObject("localStorage", new StorageHost());
+        _engine.EmbedHostObject("sessionStorage", new StorageHost());
     }
 
     public void LoadDocument(DomDocument document)
@@ -520,6 +604,23 @@ public class UpBrowserBuiltins
     public void clearTimeout(int id) => _engine.ClearTimer(id);
     public void clearInterval(int id) => _engine.ClearTimer(id);
 
+    public string decodeURIComponent(string str) => Uri.UnescapeDataString(str);
+    public string encodeURIComponent(string str) => Uri.EscapeDataString(str);
+    public string escape(string str) => System.Net.WebUtility.UrlEncode(str);
+    public string unescape(string str) => System.Net.WebUtility.UrlDecode(str);
+    public string atob(string str) => System.Text.Encoding.UTF8.GetString(System.Convert.FromBase64String(str));
+    public string btoa(string str) => System.Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(str));
+    public int innerWidth() => 1024;
+    public int innerHeight() => 768;
+    public double devicePixelRatio() => 1.0;
+    public int scrollX() => 0;
+    public int scrollY() => 0;
+    public void scrollTo(int x, int y) { }
+    public void scrollBy(int x, int y) { }
+    public XMLHttpRequestHost createXMLHttpRequest() => new XMLHttpRequestHost(_engine);
+    public URLHost createURL(string url, string? baseUrl) => new URLHost(url, baseUrl);
+    public URLSearchParamsHost createURLSearchParams(string query) => new URLSearchParamsHost(query);
+
     public int _fetch(string url, string optionsJson, int resolveId, int rejectId)
     {
         var id = _engine.AddFetch(resolveId, rejectId);
@@ -609,14 +710,124 @@ public class UpBrowserBuiltins
 
 public class ConsoleHost
 {
+    private readonly Dictionary<string, int> _counters = new();
+    private readonly Stack<(string label, long time)> _timers = new();
+    private int _groupLevel = 0;
+
     public void log(params object?[] args) => WriteLine("[JS]", args);
     public void error(params object?[] args) => WriteLine("[JS Error]", args);
     public void warn(params object?[] args) => WriteLine("[JS Warning]", args);
     public void info(params object?[] args) => WriteLine("[JS Info]", args);
-
-    private static void WriteLine(string prefix, object?[] args)
+    public void debug(params object?[] args) => WriteLine("[JS Debug]", args);
+    public void trace(params object?[] args)
     {
-        Console.WriteLine(prefix + " " + string.Join(" ", args.Select(a => a?.ToString() ?? "undefined")));
+        WriteLine("[JS Trace]", args);
+        Console.WriteLine(new System.Diagnostics.StackTrace(true).ToString());
+    }
+    public void dir(object? obj)
+    {
+        if (obj == null)
+        {
+            Console.WriteLine("null");
+            return;
+        }
+        if (obj is System.Collections.IDictionary dict)
+        {
+            foreach (var key in dict.Keys)
+            {
+                Console.WriteLine($"  {key}: {dict[key]}");
+            }
+        }
+        else
+        {
+            foreach (var prop in obj.GetType().GetProperties())
+            {
+                try
+                {
+                    Console.WriteLine($"  {prop.Name}: {prop.GetValue(obj)}");
+                }
+                catch { }
+            }
+        }
+    }
+    public void table(params object?[] args)
+    {
+        if (args.Length == 0) return;
+        if (args[0] is System.Collections.IEnumerable enumerable && args[0] is not string)
+        {
+            Console.WriteLine("[Table output - tabular data]");
+            foreach (var item in enumerable)
+            {
+                Console.WriteLine($"  {item}");
+            }
+        }
+        else
+        {
+            WriteLine("[Table]", args);
+        }
+    }
+    public void group(params object?[] args)
+    {
+        _groupLevel++;
+        var prefix = new string(' ', _groupLevel * 2);
+        Console.WriteLine($"{prefix}Group: {string.Join(" ", args.Select(a => a?.ToString() ?? "null"))}");
+    }
+    public void groupEnd()
+    {
+        if (_groupLevel > 0) _groupLevel--;
+    }
+    public void count(string? label = null)
+    {
+        var key = label ?? "default";
+        if (!_counters.ContainsKey(key))
+            _counters[key] = 0;
+        _counters[key]++;
+        Console.WriteLine($"{key}: {_counters[key]}");
+    }
+    public void countReset(string? label = null)
+    {
+        var key = label ?? "default";
+        _counters[key] = 0;
+        Console.WriteLine($"{key}: 0");
+    }
+    public void time(string? label = null)
+    {
+        var key = label ?? "default";
+        _timers.Push((key, Environment.TickCount64));
+        Console.WriteLine($"Timer '{key}' started");
+    }
+    public void timeEnd(string? label = null)
+    {
+        var key = label ?? "default";
+        while (_timers.Count > 0)
+        {
+            var (timerLabel, startTime) = _timers.Pop();
+            if (timerLabel == key)
+            {
+                var elapsed = Environment.TickCount64 - startTime;
+                Console.WriteLine($"Timer '{key}': {elapsed}ms");
+                return;
+            }
+        }
+        Console.WriteLine($"Timer '{key}' not found");
+    }
+    public void timeStamp(string? label = null)
+    {
+        Console.WriteLine($"Timestamp: {label ?? "unnamed"} at {DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}ms");
+    }
+    public void assert(bool condition, params object?[] args)
+    {
+        if (!condition)
+        {
+            WriteLine("[JS Assertion Failed]", args);
+        }
+    }
+    public void clear() => Console.Clear();
+
+    private void WriteLine(string prefix, object?[] args)
+    {
+        var indent = new string(' ', _groupLevel * 2);
+        Console.WriteLine(indent + prefix + " " + string.Join(" ", args.Select(a => a?.ToString() ?? "undefined")));
     }
 }
 
@@ -634,6 +845,8 @@ public class NavigatorHost
 
 public class LocationHost
 {
+    internal static LocationHost Instance { get; private set; } = new();
+    
     public string href { get; set; } = "upbrowser://local";
     public string protocol { get; set; } = "upbrowser:";
     public string hostname { get; set; } = "local";
@@ -651,11 +864,58 @@ public class LocationHost
 
 public class HistoryHost
 {
-    public int length => 0;
-    public int scrollRestoration { get; set; }
-    public void back() { }
-    public void forward() { }
-    public void go(int delta) { }
-    public void pushState(object? state, string title, string? url) { }
-    public void replaceState(object? state, string title, string? url) { }
+    private readonly List<object?> _stack = new();
+    private int _currentIndex = -1;
+
+    public int length => Math.Max(0, _stack.Count);
+    public object? state => _currentIndex >= 0 && _currentIndex < _stack.Count ? _stack[_currentIndex] : null;
+
+    public void back() { if (_currentIndex > 0) _currentIndex--; }
+    public void forward() { if (_currentIndex < _stack.Count - 1) _currentIndex++; }
+    public void go(int delta) { _currentIndex = Math.Max(0, Math.Min(_stack.Count - 1, _currentIndex + delta)); }
+    public void pushState(object? state, string title, string? url)
+    {
+        while (_stack.Count > _currentIndex + 1) _stack.RemoveAt(_stack.Count - 1);
+        _stack.Add(state);
+        _currentIndex = _stack.Count - 1;
+        if (!string.IsNullOrEmpty(url))
+        {
+            var loc = LocationHost.Instance;
+            loc.assign(url);
+        }
+    }
+    public void replaceState(object? state, string title, string? url)
+    {
+        if (_currentIndex >= 0 && _currentIndex < _stack.Count)
+            _stack[_currentIndex] = state;
+        if (!string.IsNullOrEmpty(url))
+        {
+            var loc = LocationHost.Instance;
+            loc.replace(url);
+        }
+    }
+}
+
+public class ScreenHost
+{
+    public int width => 1920;
+    public int height => 1080;
+    public int availWidth => 1920;
+    public int availHeight => 1040;
+    public int colorDepth => 24;
+    public int pixelDepth => 24;
+    public int top => 0;
+    public int left => 0;
+}
+
+public class StorageHost
+{
+    private readonly Dictionary<string, string> _data = new();
+
+    public string? getItem(string key) => _data.GetValueOrDefault(key);
+    public void setItem(string key, string value) => _data[key] = value;
+    public void removeItem(string key) => _data.Remove(key);
+    public void clear() => _data.Clear();
+    public string? key(int index) => index >= 0 && index < _data.Count ? _data.ElementAt(index).Key : null;
+    public int length => _data.Count;
 }

@@ -69,6 +69,7 @@ public class DocumentManager
                 try
                 {
                     var stylesheet = _cssParser.Parse(cssText);
+                    await ProcessImports(stylesheet, styleComputer, baseUrl);
                     styleComputer.AddStylesheet(stylesheet);
                 }
                 catch (Exception ex)
@@ -95,6 +96,7 @@ public class DocumentManager
                 using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
                 var cssText = await client.GetStringAsync(url);
                 var stylesheet = _cssParser.Parse(cssText);
+                await ProcessImports(stylesheet, styleComputer, url);
                 styleComputer.AddStylesheet(stylesheet);
             }
             catch (Exception ex)
@@ -104,10 +106,25 @@ public class DocumentManager
         }
     }
 
+    private async Task ProcessImports(object stylesheet, StyleComputer styleComputer, string? baseUrl)
+    {
+        // @import handling requires AngleSharp.Css.Dom types that may not be available
+        // External stylesheets are loaded via <link> elements instead
+        await Task.CompletedTask;
+    }
+
     private static string? ResolveUrl(string? baseUrl, string href)
     {
-        if (href.StartsWith("http://") || href.StartsWith("https://") || href.StartsWith("data:"))
+        if (string.IsNullOrEmpty(href)) return null;
+        if (href.StartsWith("http://") || href.StartsWith("https://") || href.StartsWith("data:") || href.StartsWith("blob:"))
             return href;
+
+        if (href.StartsWith("//"))
+        {
+            if (!string.IsNullOrEmpty(baseUrl) && baseUrl.StartsWith("https://"))
+                return "https:" + href;
+            return "http:" + href;
+        }
 
         if (baseUrl != null && (baseUrl.StartsWith("http://") || baseUrl.StartsWith("https://")))
         {

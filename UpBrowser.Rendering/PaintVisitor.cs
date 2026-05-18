@@ -13,17 +13,20 @@ public class PaintVisitor
     private ImageCache _imageCache;
     private float _contentOffsetY;
     private string[]? _fontFamilies;
+    private string? _baseUrl;
 
     public PaintVisitor(float contentOffsetY = 0,
         Dictionary<string, SKTypeface>? sharedTypefaceCache = null,
         ImageCache? sharedImageCache = null,
-        string[]? fontFamilies = null)
+        string[]? fontFamilies = null,
+        string? baseUrl = null)
     {
         _contentOffsetY = contentOffsetY;
         _defaultTypeface = FontHelper.GetChineseTypeface() ?? SKTypeface.Default;
         _typefaceCache = sharedTypefaceCache ?? new Dictionary<string, SKTypeface>();
         _imageCache = sharedImageCache ?? new ImageCache();
         _fontFamilies = fontFamilies;
+        _baseUrl = baseUrl;
     }
 
     private float TotalOffsetY => _contentOffsetY;
@@ -736,9 +739,12 @@ public class PaintVisitor
         var src = element.GetAttribute("src");
         if (string.IsNullOrEmpty(src)) return;
 
+        var resolvedSrc = ResolveImageUrl(src);
+        if (resolvedSrc == null) return;
+
         Task.Run(async () =>
         {
-            var image = await _imageCache.GetImageAsync(src);
+            var image = await _imageCache.GetImageAsync(resolvedSrc);
             if (image == null) return;
 
             var rect = new SKRect(box.ContentBox.Left, box.ContentBox.Top,
@@ -753,6 +759,26 @@ public class PaintVisitor
             op.Bounds = rect;
             _displayList.Add(op);
         });
+    }
+
+    private string? ResolveImageUrl(string url)
+    {
+        if (string.IsNullOrEmpty(url)) return null;
+        if (url.StartsWith("http://") || url.StartsWith("https://") || url.StartsWith("data:") || url.StartsWith("blob:"))
+            return url;
+        if (url.StartsWith("//"))
+        {
+            if (!string.IsNullOrEmpty(_baseUrl) && _baseUrl.StartsWith("https://"))
+                return "https:" + url;
+            return "http:" + url;
+        }
+        if (string.IsNullOrEmpty(_baseUrl)) return url;
+        try
+        {
+            var baseUri = new Uri(_baseUrl.EndsWith('/') ? _baseUrl : _baseUrl + '/');
+            return new Uri(baseUri, url).ToString();
+        }
+        catch { return url; }
     }
 
     private float GetPixelLengthFromStyle(Length length, float defaultValue)

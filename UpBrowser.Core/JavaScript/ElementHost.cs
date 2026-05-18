@@ -340,6 +340,9 @@ public class ElementHost
     {
         if (string.IsNullOrEmpty(evt.type)) return true;
 
+        // Capturing phase (not implemented yet, would go from root to target)
+        
+        // Target phase
         if (_eventCallbackIds.TryGetValue(evt.type, out var cbIds))
         {
             var engine = JavaScriptEngine.Current;
@@ -349,6 +352,8 @@ public class ElementHost
                 {
                     try
                     {
+                        evt.currentTarget = this;
+                        evt.eventPhase = 2; // AT_TARGET
                         engine.InvokeCallbackWith(cbId, evt);
                     }
                     catch { }
@@ -356,6 +361,19 @@ public class ElementHost
             }
         }
 
+        // Bubbling phase
+        if (evt.bubbles)
+        {
+            var parent = _element.ParentElement;
+            if (parent != null)
+            {
+                var parentHost = new ElementHost(parent);
+                evt.eventPhase = 3; // BUBBLING_PHASE
+                parentHost.DispatchEvent(evt);
+            }
+        }
+
+        // Check for inline event handler
         var attrName = "on" + evt.type;
         var attr = _element.GetAttribute(attrName);
         if (!string.IsNullOrEmpty(attr))
@@ -679,6 +697,112 @@ public class ElementHost
     }
 
     public void animate() { }
+
+    public string? slot
+    {
+        get => _element.GetAttribute("slot");
+        set => _element.SetAttribute("slot", value);
+    }
+
+    public bool spellcheck
+    {
+        get => _element.GetAttribute("spellcheck") == "true";
+        set => _element.SetAttribute("spellcheck", value ? "true" : "false");
+    }
+
+    public string? translate
+    {
+        get => _element.GetAttribute("translate");
+        set => _element.SetAttribute("translate", value);
+    }
+
+    public void attachShadow(object? mode) { }
+
+    public object? shadowRoot => null;
+
+    public bool assignedSlot => false;
+
+    public int nodeType => 1;
+
+    public string? nodeValue { get; set; }
+
+    public void toggleAttribute(string name)
+    {
+        if (_element.HasAttribute(name))
+            _element.RemoveAttribute(name);
+        else
+            _element.SetAttribute(name, "");
+    }
+
+    public object? getAttributeNode(string name) => null;
+
+    public object? getAttributeNodeNS(string ns, string name) => null;
+
+    public object? setAttributeNode(object attr) => null;
+
+    public object? setAttributeNodeNS(object attr) => null;
+
+    public object? removeAttributeNode(object attr) => null;
+
+    public void normalize()
+    {
+        // Merge adjacent text nodes
+        var newChildren = new List<Node>();
+        TextNode? lastText = null;
+        foreach (var child in _element.Children)
+        {
+            if (child is TextNode tn)
+            {
+                if (lastText != null)
+                {
+                    lastText.Data += tn.Data;
+                }
+                else
+                {
+                    lastText = tn;
+                    newChildren.Add(tn);
+                }
+            }
+            else
+            {
+                lastText = null;
+                newChildren.Add(child);
+            }
+        }
+        _element.Children.Clear();
+        foreach (var child in newChildren)
+            _element.AppendChild(child);
+    }
+
+    public bool isDefaultNamespace(string ns) => false;
+
+    public string? lookupNamespaceURI(string prefix) => null;
+
+    public string? lookupPrefix(string ns) => null;
+
+    public bool isEqualNode(object? other)
+    {
+        if (other is ElementHost host)
+            return _element.TagName == host.NativeElement.TagName;
+        return false;
+    }
+
+    public bool isSameNode(object? other)
+    {
+        if (other is ElementHost host)
+            return _element == host.NativeElement;
+        return false;
+    }
+
+    public int compareDocumentPosition(object? other) => 0;
+
+    public object? getRootNode(object? options) => null;
+
+    public void setPointerCapture(int pointerId) { }
+
+    public void releasePointerCapture(int pointerId) { }
+
+    public bool hasPointerCapture(int pointerId) => false;
 }
 
 public class TextNodeWrapper
@@ -694,13 +818,20 @@ public class TextNodeWrapper
 
 public class ScriptEvent
 {
-    public string type { get; }
+    public string type { get; set; }
     public ElementHost? target { get; }
     public ElementHost? currentTarget { get; set; }
     public bool bubbles { get; set; } = true;
     public bool cancelable { get; set; } = true;
     public bool DefaultPrevented { get; private set; }
     public long timeStamp { get; }
+    public int eventPhase { get; set; }
+    public object? detail { get; set; }
+    public bool composed { get; set; } = false;
+    public bool isTrusted { get; } = true;
+    public string? returnValue { get; set; }
+    public string? srcElement => target?.ToString();
+    public bool cancelBubble { get => !bubbles; set => bubbles = !value; }
 
     public ScriptEvent(string type, ElementHost? target)
     {
@@ -712,6 +843,26 @@ public class ScriptEvent
     public void preventDefault() => DefaultPrevented = true;
     public void stopPropagation() => bubbles = false;
     public void stopImmediatePropagation() => bubbles = false;
+    public void initEvent(string type, bool bubbles = true, bool cancelable = true)
+    {
+        this.type = type;
+        this.bubbles = bubbles;
+        this.cancelable = cancelable;
+    }
+    public void initUIEvent(string type, bool bubbles = true, bool cancelable = true, object? view = null, int detail = 0)
+    {
+        this.type = type;
+        this.bubbles = bubbles;
+        this.cancelable = cancelable;
+        this.detail = detail;
+    }
+    public void initMouseEvent(string type, bool bubbles = true, bool cancelable = true, object? view = null, int detail = 0, int screenX = 0, int screenY = 0, int clientX = 0, int clientY = 0, bool ctrlKey = false, bool altKey = false, bool shiftKey = false, bool metaKey = false, int button = 0, object? relatedTarget = null)
+    {
+        this.type = type;
+        this.bubbles = bubbles;
+        this.cancelable = cancelable;
+        this.detail = detail;
+    }
 }
 
 public class DomRect

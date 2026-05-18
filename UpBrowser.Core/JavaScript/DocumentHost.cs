@@ -124,7 +124,12 @@ public class DocumentHost
     public ElementHost createElement(string tagName)
     {
         var el = new HtmlElement(tagName);
-        _document.DocumentElement?.AppendChild(el);
+        return new ElementHost(el);
+    }
+
+    public ElementHost createElementNS(string? ns, string tagName)
+    {
+        var el = new HtmlElement(tagName) { NamespaceUri = ns };
         return new ElementHost(el);
     }
 
@@ -136,7 +141,18 @@ public class DocumentHost
     public object? createComment(string data) =>
         new TextNodeWrapper(new TextNode(data));
 
-    public object? createDocumentFragment() => null;
+    public object? createDocumentFragment()
+    {
+        return new DocumentFragmentHost(new DocumentFragment());
+    }
+
+    public object? createCDATASection(string data) => null;
+
+    public object? createProcessingInstruction(string target, string data) => null;
+
+    public object? createAttribute(string name) => new AttributeHost(name);
+
+    public object? createAttributeNS(string? ns, string name) => new AttributeHost(name, ns);
 
     public ElementHost? getElementByClassName(string className) =>
         getElementsByClassName(className).FirstOrDefault() as ElementHost;
@@ -145,12 +161,132 @@ public class DocumentHost
 
     public string? write(string text)
     {
+        if (_document.Body != null && !string.IsNullOrEmpty(text))
+        {
+            var nodes = HtmlParser.ParseFragment(text, "body");
+            foreach (var node in nodes)
+            {
+                _document.Body.AppendChild(node);
+            }
+            var engine = JavaScriptEngine.Current;
+            engine?.MarkDirty();
+        }
         return null;
     }
 
     public string? writeln(string text)
     {
-        return null;
+        return write(text + "\n");
+    }
+
+    public string? elementFromPoint(float x, float y) => null;
+
+    public string? elementsFromPoint(float x, float y) => null;
+
+    public string? getSelection() => null;
+
+    public ElementHost? activeElement => null;
+
+    public string readyState => "complete";
+
+    public string domain
+    {
+        get => _document.Url;
+        set { }
+    }
+
+    public string referrer => "";
+
+    public string lastModified => DateTime.Now.ToString();
+
+    public string? inputEncoding => "UTF-8";
+
+    public string? charset => "UTF-8";
+
+    public string? defaultCharset => "UTF-8";
+
+    public string? dir => "ltr";
+
+    public string? visibilityState => "visible";
+
+    public bool hidden => false;
+
+    public void addEventListener(string type, object callback) { }
+
+    public void removeEventListener(string type, object callback) { }
+
+    public void dispatchEvent(ScriptEvent evt) { }
+
+    public bool fullscreenEnabled() => false;
+
+    public bool exitFullscreen() => false;
+
+    public string? currentScript => null;
+
+    public string? styleSheets => null;
+
+    public string? fonts => null;
+
+    public object getComputedStyle(ElementHost element)
+    {
+        var computedStyle = element.NativeElement.ComputedStyle;
+        if (computedStyle == null)
+            return new ComputedStyleHost(new Dictionary<string, string>());
+
+        var props = new Dictionary<string, string>
+        {
+            ["width"] = computedStyle.Width.ToString(),
+            ["height"] = computedStyle.Height.ToString(),
+            ["display"] = computedStyle.Display.ToString().ToLowerInvariant(),
+            ["position"] = computedStyle.Position.ToString().ToLowerInvariant(),
+            ["float"] = computedStyle.Float.ToString().ToLowerInvariant(),
+            ["clear"] = computedStyle.Clear.ToString().ToLowerInvariant(),
+            ["color"] = $"rgb({computedStyle.Color.Red}, {computedStyle.Color.Green}, {computedStyle.Color.Blue})",
+            ["font-family"] = computedStyle.FontFamily ?? "",
+            ["font-size"] = $"{computedStyle.FontSize}px",
+            ["font-weight"] = computedStyle.FontWeight.ToString(),
+            ["font-style"] = computedStyle.FontStyle.ToString().ToLowerInvariant(),
+            ["line-height"] = computedStyle.LineHeight.ToString(),
+            ["text-align"] = computedStyle.TextAlign.ToString().ToLowerInvariant(),
+            ["text-decoration"] = computedStyle.TextDecoration.ToString().ToLowerInvariant(),
+            ["white-space"] = computedStyle.WhiteSpace.ToString().ToLowerInvariant(),
+            ["visibility"] = computedStyle.Visibility.ToString().ToLowerInvariant(),
+            ["overflow"] = computedStyle.Overflow.ToString().ToLowerInvariant(),
+            ["opacity"] = computedStyle.Opacity.ToString(),
+            ["z-index"] = computedStyle.ZIndex?.ToString() ?? "auto",
+            ["background-color"] = computedStyle.BackgroundColor.HasValue
+                ? $"rgba({computedStyle.BackgroundColor.Value.Red}, {computedStyle.BackgroundColor.Value.Green}, {computedStyle.BackgroundColor.Value.Blue}, {computedStyle.BackgroundColor.Value.Alpha / 255f})"
+                : "transparent",
+            ["margin-top"] = computedStyle.MarginTop.ToString(),
+            ["margin-right"] = computedStyle.MarginRight.ToString(),
+            ["margin-bottom"] = computedStyle.MarginBottom.ToString(),
+            ["margin-left"] = computedStyle.MarginLeft.ToString(),
+            ["padding-top"] = computedStyle.PaddingTop.ToString(),
+            ["padding-right"] = computedStyle.PaddingRight.ToString(),
+            ["padding-bottom"] = computedStyle.PaddingBottom.ToString(),
+            ["padding-left"] = computedStyle.PaddingLeft.ToString(),
+            ["border-top-width"] = $"{computedStyle.BorderTopWidth}px",
+            ["border-right-width"] = $"{computedStyle.BorderRightWidth}px",
+            ["border-bottom-width"] = $"{computedStyle.BorderBottomWidth}px",
+            ["border-left-width"] = $"{computedStyle.BorderLeftWidth}px",
+            ["flex-direction"] = computedStyle.FlexDirection.ToString().ToLowerInvariant(),
+            ["flex-wrap"] = computedStyle.FlexWrap.ToString().ToLowerInvariant(),
+            ["justify-content"] = computedStyle.JustifyContent.ToString().ToLowerInvariant(),
+            ["align-items"] = computedStyle.AlignItems.ToString().ToLowerInvariant()
+        };
+
+        return new ComputedStyleHost(props);
+    }
+
+    public object? createEvent(string type)
+    {
+        return type?.ToLowerInvariant() switch
+        {
+            "customevent" => new ScriptEvent("Custom", null),
+            "mouseevent" => new ScriptEvent("Mouse", null),
+            "keyevent" => new ScriptEvent("Key", null),
+            _ => new ScriptEvent(type ?? "Event", null)
+        };
     }
 
     // ===== Private helpers =====
@@ -236,84 +372,7 @@ public class DocumentHost
             return el.HasClass(selector[1..]);
         return el.TagName.Equals(selector, StringComparison.OrdinalIgnoreCase);
     }
-
-    public object getComputedStyle(ElementHost element)
-    {
-        var computedStyle = element.NativeElement.ComputedStyle;
-        if (computedStyle == null)
-            return new ComputedStyleHost(new Dictionary<string, string>());
-
-        var props = new Dictionary<string, string>
-        {
-            ["width"] = computedStyle.Width.ToString(),
-            ["height"] = computedStyle.Height.ToString(),
-            ["display"] = computedStyle.Display.ToString().ToLowerInvariant(),
-            ["position"] = computedStyle.Position.ToString().ToLowerInvariant(),
-            ["float"] = computedStyle.Float.ToString().ToLowerInvariant(),
-            ["clear"] = computedStyle.Clear.ToString().ToLowerInvariant(),
-            ["color"] = $"rgb({computedStyle.Color.Red}, {computedStyle.Color.Green}, {computedStyle.Color.Blue})",
-            ["font-family"] = computedStyle.FontFamily ?? "",
-            ["font-size"] = $"{computedStyle.FontSize}px",
-            ["font-weight"] = computedStyle.FontWeight.ToString(),
-            ["font-style"] = computedStyle.FontStyle.ToString().ToLowerInvariant(),
-            ["line-height"] = computedStyle.LineHeight.ToString(),
-            ["text-align"] = computedStyle.TextAlign.ToString().ToLowerInvariant(),
-            ["text-decoration"] = computedStyle.TextDecoration.ToString().ToLowerInvariant(),
-            ["white-space"] = computedStyle.WhiteSpace.ToString().ToLowerInvariant(),
-            ["visibility"] = computedStyle.Visibility.ToString().ToLowerInvariant(),
-            ["overflow"] = computedStyle.Overflow.ToString().ToLowerInvariant(),
-            ["opacity"] = computedStyle.Opacity.ToString(),
-            ["z-index"] = computedStyle.ZIndex?.ToString() ?? "auto",
-            ["background-color"] = computedStyle.BackgroundColor.HasValue
-                ? $"rgba({computedStyle.BackgroundColor.Value.Red}, {computedStyle.BackgroundColor.Value.Green}, {computedStyle.BackgroundColor.Value.Blue}, {computedStyle.BackgroundColor.Value.Alpha / 255f})"
-                : "transparent",
-            ["margin-top"] = computedStyle.MarginTop.ToString(),
-            ["margin-right"] = computedStyle.MarginRight.ToString(),
-            ["margin-bottom"] = computedStyle.MarginBottom.ToString(),
-            ["margin-left"] = computedStyle.MarginLeft.ToString(),
-            ["padding-top"] = computedStyle.PaddingTop.ToString(),
-            ["padding-right"] = computedStyle.PaddingRight.ToString(),
-            ["padding-bottom"] = computedStyle.PaddingBottom.ToString(),
-            ["padding-left"] = computedStyle.PaddingLeft.ToString(),
-            ["border-top-width"] = $"{computedStyle.BorderTopWidth}px",
-            ["border-right-width"] = $"{computedStyle.BorderRightWidth}px",
-            ["border-bottom-width"] = $"{computedStyle.BorderBottomWidth}px",
-            ["border-left-width"] = $"{computedStyle.BorderLeftWidth}px",
-            ["flex-direction"] = computedStyle.FlexDirection.ToString().ToLowerInvariant(),
-            ["flex-wrap"] = computedStyle.FlexWrap.ToString().ToLowerInvariant(),
-            ["justify-content"] = computedStyle.JustifyContent.ToString().ToLowerInvariant(),
-            ["align-items"] = computedStyle.AlignItems.ToString().ToLowerInvariant()
-        };
-
-        return new ComputedStyleHost(props);
-    }
-
-    public object? createEvent(string type)
-    {
-        return type?.ToLowerInvariant() switch
-        {
-            "customevent" => new ScriptEvent("Custom", null),
-            "mouseevent" => new ScriptEvent("Mouse", null),
-            "keyevent" => new ScriptEvent("Key", null),
-            _ => new ScriptEvent(type ?? "Event", null)
-        };
-    }
-
-    public string? getSelection() => null;
-
-    public ElementHost? activeElement => null;
-
-    public string readyState => "complete";
-
-    public string domain
-    {
-        get => _document.Url;
-        set { }
-    }
-
-    public string referrer => "";
-
-    public string lastModified => DateTime.Now.ToString();
+}
 
 public class ComputedStyleHost
 {
@@ -327,5 +386,30 @@ public class ComputedStyleHost
     public string? getProperty(string name)
     {
         return _properties.GetValueOrDefault(name?.ToLowerInvariant());
+    }
+}
+
+public class DocumentFragmentHost
+{
+    private readonly DocumentFragment _fragment;
+
+    public DocumentFragmentHost(DocumentFragment fragment) => _fragment = fragment;
+
+    public object? querySelector(string selector) => null;
+    public object[] querySelectorAll(string selector) => Array.Empty<object>();
+    public object[] children => Array.Empty<object>();
+    public int childElementCount => 0;
+}
+
+public class AttributeHost
+{
+    public string name { get; }
+    public string? value { get; set; }
+    public string? namespaceUri { get; }
+
+    public AttributeHost(string name, string? ns = null)
+    {
+        this.name = name;
+        this.namespaceUri = ns;
     }
 }
