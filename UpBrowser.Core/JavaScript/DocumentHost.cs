@@ -314,7 +314,6 @@ public class DocumentHost
     public string referrer => "";
 
     public string lastModified => DateTime.Now.ToString();
-}
 
 public class ComputedStyleHost
 {
