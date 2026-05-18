@@ -14,6 +14,7 @@ public class PaintVisitor
     private float _contentOffsetY;
     private string[]? _fontFamilies;
     private string? _baseUrl;
+    private Core.Dom.Element? _focusedElement;
 
     public PaintVisitor(float contentOffsetY = 0,
         Dictionary<string, SKTypeface>? sharedTypefaceCache = null,
@@ -28,6 +29,8 @@ public class PaintVisitor
         _fontFamilies = fontFamilies;
         _baseUrl = baseUrl;
     }
+
+    public void SetFocusedElement(Core.Dom.Element? element) => _focusedElement = element;
 
     private float TotalOffsetY => _contentOffsetY;
     private float TotalOffsetX => 0;
@@ -485,6 +488,24 @@ public class PaintVisitor
 
     private void DrawElementContent(Element element, LayoutBox box, ComputedStyle style)
     {
+        if (element.TagName.Equals("INPUT", StringComparison.OrdinalIgnoreCase))
+        {
+            DrawInputElement(element, box, style);
+            return;
+        }
+
+        if (element.TagName.Equals("TEXTAREA", StringComparison.OrdinalIgnoreCase))
+        {
+            DrawInputElement(element, box, style);
+            return;
+        }
+
+        if (element.TagName.Equals("SELECT", StringComparison.OrdinalIgnoreCase))
+        {
+            DrawSelectElement(element, box, style);
+            return;
+        }
+
         if (element.TagName.Equals("BUTTON", StringComparison.OrdinalIgnoreCase))
         {
             string buttonText = GetButtonText(element);
@@ -679,9 +700,145 @@ public class PaintVisitor
         return "Button";
     }
 
+    private void DrawInputElement(Element element, LayoutBox box, ComputedStyle style)
+    {
+        string? value = element.Value;
+        string? placeholder = element.GetAttribute("placeholder");
+        string? inputType = element.InputType?.ToLowerInvariant();
+        bool isPassword = inputType == "password";
+        bool readOnly = element.HasAttribute("readonly");
+
+        string displayText;
+        bool showPlaceholder = false;
+
+        if (!string.IsNullOrEmpty(value))
+        {
+            displayText = isPassword ? new string('●', value.Length) : value;
+        }
+        else if (!string.IsNullOrEmpty(placeholder))
+        {
+            displayText = placeholder;
+            showPlaceholder = true;
+        }
+        else
+        {
+            return;
+        }
+
+        float fontSize = style.FontSize > 0 ? style.FontSize : 14;
+        float textWidth = MeasureTextWidth(displayText, fontSize, style.FontFamily);
+        var contentBox = box.ContentBox;
+
+        float textX = contentBox.Left + 2;
+        float textY = contentBox.Top + fontSize * 0.85f;
+
+        SKColor textColor = showPlaceholder
+            ? new SKColor(160, 160, 160)
+            : (style.Color.Alpha > 0 ? style.Color : SKColors.Black);
+
+        if (textWidth > contentBox.Width - 4)
+        {
+            textWidth = contentBox.Width - 4;
+        }
+
+        var op = PaintOpPool.GetDrawTextOp();
+        op.Text = displayText;
+        op.X = textX;
+        op.Y = textY + TotalOffsetY;
+        op.Color = textColor;
+        op.FontSize = fontSize;
+        op.FontFamily = style.FontFamily ?? "Arial";
+        op.FontWeight = style.FontWeight;
+        op.Underline = false;
+        op.LineThrough = false;
+        op.Bounds = new SKRect(textX, contentBox.Top + TotalOffsetY, textX + textWidth, contentBox.Bottom + TotalOffsetY);
+        _displayList.Add(op);
+
+        // Draw cursor when focused
+        if (_focusedElement == element)
+        {
+            float cursorX = textX + Math.Min(textWidth, contentBox.Width - 4);
+            float cursorTop = contentBox.Top + TotalOffsetY + 2;
+            float cursorBottom = contentBox.Bottom + TotalOffsetY - 2;
+
+            var cursorOp = PaintOpPool.GetDrawLineOp();
+            cursorOp.X1 = cursorX;
+            cursorOp.Y1 = cursorTop;
+            cursorOp.X2 = cursorX;
+            cursorOp.Y2 = cursorBottom;
+            cursorOp.Color = new SKColor(0, 0, 0);
+            cursorOp.StrokeWidth = 1.5f;
+            cursorOp.Bounds = new SKRect(cursorX - 1, cursorTop, cursorX + 1, cursorBottom);
+            _displayList.Add(cursorOp);
+        }
+    }
+
+    private void DrawSelectElement(Element element, LayoutBox box, ComputedStyle style)
+    {
+        string displayText = "Select...";
+        foreach (var child in element.Children)
+        {
+            if (child is Element childEl && childEl.TagName == "OPTION")
+            {
+                var selected = childEl.HasAttribute("selected");
+                if (selected || string.IsNullOrEmpty(displayText) || displayText == "Select...")
+                {
+                    var optText = childEl.TextContent?.Trim();
+                    if (!string.IsNullOrEmpty(optText))
+                        displayText = optText;
+                    if (selected) break;
+                }
+            }
+        }
+
+        float fontSize = style.FontSize > 0 ? style.FontSize : 14;
+        float textWidth = MeasureTextWidth(displayText, fontSize, style.FontFamily);
+        var contentBox = box.ContentBox;
+
+        float textX = contentBox.Left + 4;
+        float textY = contentBox.Top + fontSize * 0.85f;
+
+        var op = PaintOpPool.GetDrawTextOp();
+        op.Text = displayText;
+        op.X = textX;
+        op.Y = textY + TotalOffsetY;
+        op.Color = style.Color.Alpha > 0 ? style.Color : SKColors.Black;
+        op.FontSize = fontSize;
+        op.FontFamily = style.FontFamily ?? "Arial";
+        op.Bounds = new SKRect(textX, contentBox.Top + TotalOffsetY, textX + textWidth, contentBox.Bottom + TotalOffsetY);
+        _displayList.Add(op);
+
+        // Draw dropdown arrow
+        float arrowSize = 6;
+        float arrowX = contentBox.Right - 16;
+        float arrowY = contentBox.Top + (contentBox.Height - arrowSize) / 2 + TotalOffsetY;
+        var arrowPath = new SKPath();
+        arrowPath.MoveTo(arrowX, arrowY);
+        arrowPath.LineTo(arrowX + arrowSize, arrowY);
+        arrowPath.LineTo(arrowX + arrowSize / 2, arrowY + arrowSize);
+        arrowPath.Close();
+
+        var arrowOp = PaintOpPool.GetDrawPathOp();
+        arrowOp.Path = arrowPath;
+        arrowOp.FillPaint = new SKPaint
+        {
+            Color = new SKColor(120, 120, 120),
+            Style = SKPaintStyle.Fill,
+            IsAntialias = true
+        };
+        arrowOp.Bounds = new SKRect(arrowX, arrowY, arrowX + arrowSize, arrowY + arrowSize);
+        _displayList.Add(arrowOp);
+    }
+
     private float MeasureTextWidth(string text, float fontSize, string? fontFamily)
     {
         if (string.IsNullOrEmpty(text)) return 0;
+
+        if (Core.Layout.TextMeasurer.Instance != null)
+        {
+            return Core.Layout.TextMeasurer.Instance.MeasureText(text, fontFamily ?? "Arial", fontSize);
+        }
+
         float avgCharWidth = fontSize * 0.55f;
         return text.Length * avgCharWidth;
     }

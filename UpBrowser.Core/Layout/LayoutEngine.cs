@@ -104,20 +104,20 @@ public class LayoutEngine
 
         bool isAutoMarginLeft = style.MarginLeft is AutoLength;
         bool isAutoMarginRight = style.MarginRight is AutoLength;
-        float marginLeft = isAutoMarginLeft ? 0 : style.MarginLeft is PixelLength ml ? ml.Value : 0;
-        float marginRight = isAutoMarginRight ? 0 : style.MarginRight is PixelLength mr ? mr.Value : 0;
-        float marginTop = style.MarginTop is PixelLength mt ? mt.Value : 0;
-        float marginBottom = style.MarginBottom is PixelLength mb ? mb.Value : 0;
+        float marginLeft = isAutoMarginLeft ? 0 : Length.ToPixelsOrDefault(style.MarginLeft);
+        float marginRight = isAutoMarginRight ? 0 : Length.ToPixelsOrDefault(style.MarginRight);
+        float marginTop = Length.ToPixelsOrDefault(style.MarginTop);
+        float marginBottom = Length.ToPixelsOrDefault(style.MarginBottom);
 
         float borderLeft = style.BorderLeftWidth;
         float borderRight = style.BorderRightWidth;
         float borderTop = style.BorderTopWidth;
         float borderBottom = style.BorderBottomWidth;
 
-        float paddingLeft = style.PaddingLeft is PixelLength pl ? pl.Value : 0;
-        float paddingRight = style.PaddingRight is PixelLength pr ? pr.Value : 0;
-        float paddingTop = style.PaddingTop is PixelLength pt ? pt.Value : 0;
-        float paddingBottom = style.PaddingBottom is PixelLength pb ? pb.Value : 0;
+        float paddingLeft = Length.ToPixelsOrDefault(style.PaddingLeft);
+        float paddingRight = Length.ToPixelsOrDefault(style.PaddingRight);
+        float paddingTop = Length.ToPixelsOrDefault(style.PaddingTop);
+        float paddingBottom = Length.ToPixelsOrDefault(style.PaddingBottom);
 
         float contentWidth = width;
         float contentHeight = float.IsNaN(elementHeight) ? 0 : elementHeight;
@@ -188,8 +188,8 @@ public class LayoutEngine
 
         float childX = box.ContentBox.Left;
         float childY = box.ContentBox.Top;
-        float childPaddingLeft = style.PaddingLeft is PixelLength cpl ? cpl.Value : 0;
-        float childPaddingRight = style.PaddingRight is PixelLength cpr ? cpr.Value : 0;
+        float childPaddingLeft = Length.ToPixelsOrDefault(style.PaddingLeft);
+        float childPaddingRight = Length.ToPixelsOrDefault(style.PaddingRight);
         float childAvailableWidth = Math.Max(0, box.ContentBox.Width - childPaddingLeft - childPaddingRight);
 
         switch (style.Display)
@@ -360,8 +360,8 @@ public class LayoutEngine
                 var childStyle = childElement.ComputedStyle;
                 if (childStyle == null) continue;
 
-                float marginTop = childStyle.MarginTop is PixelLength mt ? mt.Value : 0;
-                float marginBottom = childStyle.MarginBottom is PixelLength mb ? mb.Value : 0;
+                float marginTop = Length.ToPixelsOrDefault(childStyle.MarginTop);
+                float marginBottom = Length.ToPixelsOrDefault(childStyle.MarginBottom);
 
                 float actualMarginTop = Math.Max(marginTop, collapsedMarginBottom);
                 currentY += actualMarginTop;
@@ -464,9 +464,8 @@ public class LayoutEngine
             var childStyle = floatElem.ComputedStyle;
             if (childStyle == null) continue;
 
-            float marginTop = childStyle.MarginTop is PixelLength mt ? mt.Value : 0;
-            float marginLeft = childStyle.MarginLeft is PixelLength ml ? ml.Value : 0;
-            floatY += marginTop;
+            float marginTop = Length.ToPixelsOrDefault(childStyle.MarginTop);
+            float marginLeft = Length.ToPixelsOrDefault(childStyle.MarginLeft);
 
             float elemWidth = 0;
             if (childStyle.Width is PixelLength w) elemWidth = w.Value;
@@ -489,8 +488,8 @@ public class LayoutEngine
             var childStyle = floatElem.ComputedStyle;
             if (childStyle == null) continue;
 
-            float marginTop = childStyle.MarginTop is PixelLength mt ? mt.Value : 0;
-            float marginRight = childStyle.MarginRight is PixelLength mr ? mr.Value : 0;
+            float marginTop = Length.ToPixelsOrDefault(childStyle.MarginTop);
+            float marginRight = Length.ToPixelsOrDefault(childStyle.MarginRight);
             floatRightY += marginTop;
 
             float elemWidth = 0;
@@ -719,9 +718,9 @@ public class LayoutEngine
         }
 
         float newContentBottom = y + totalHeight;
-        float pdBottom = style.PaddingBottom is PixelLength pb ? pb.Value : 0;
+        float pdBottom = Length.ToPixelsOrDefault(style.PaddingBottom);
         float bdBottom = style.BorderBottomWidth;
-        float mgBottom = style.MarginBottom is PixelLength mb ? mb.Value : 0;
+        float mgBottom = Length.ToPixelsOrDefault(style.MarginBottom);
 
         box.ContentBox = new SKRect(x, y, x + availableWidth, newContentBottom);
         box.PaddingBox = new SKRect(box.PaddingBox.Left, box.PaddingBox.Top, box.PaddingBox.Right, newContentBottom + pdBottom);
@@ -767,6 +766,13 @@ public class LayoutEngine
 
     private float MeasureTextWidth(string text, float fontSize, string? fontFamily)
     {
+        if (string.IsNullOrEmpty(text)) return 0;
+
+        if (TextMeasurer.Instance != null)
+        {
+            return TextMeasurer.Instance.MeasureText(text, fontFamily ?? "Arial", fontSize);
+        }
+
         float avgCharWidth = fontSize * 0.55f;
         return text.Length * avgCharWidth;
     }
@@ -845,10 +851,10 @@ public class LayoutEngine
                 Shrink = flexShrink,
                 Min = minWidth,
                 Max = maxWidth,
-                MarginLeft = childStyle.MarginLeft is PixelLength ml ? ml.Value : 0,
-                MarginRight = childStyle.MarginRight is PixelLength mr ? mr.Value : 0,
-                MarginTop = childStyle.MarginTop is PixelLength mt ? mt.Value : 0,
-                MarginBottom = childStyle.MarginBottom is PixelLength mb ? mb.Value : 0
+                MarginLeft = Length.ToPixelsOrDefault(childStyle.MarginLeft),
+                MarginRight = Length.ToPixelsOrDefault(childStyle.MarginRight),
+                MarginTop = Length.ToPixelsOrDefault(childStyle.MarginTop),
+                MarginBottom = Length.ToPixelsOrDefault(childStyle.MarginBottom)
             });
         }
 
@@ -1099,10 +1105,10 @@ public class LayoutEngine
 
         if (containingBlock == null) return;
 
-        float marginLeft = style.MarginLeft is PixelLength ml ? ml.Value : 0;
-        float marginRight = style.MarginRight is PixelLength mr ? mr.Value : 0;
-        float marginTop = style.MarginTop is PixelLength mt ? mt.Value : 0;
-        float marginBottom = style.MarginBottom is PixelLength mb ? mb.Value : 0;
+        float marginLeft = Length.ToPixelsOrDefault(style.MarginLeft);
+        float marginRight = Length.ToPixelsOrDefault(style.MarginRight);
+        float marginTop = Length.ToPixelsOrDefault(style.MarginTop);
+        float marginBottom = Length.ToPixelsOrDefault(style.MarginBottom);
 
         float width = box.ContentBox.Width;
         if (style.Width is PixelLength wl) width = wl.Value;

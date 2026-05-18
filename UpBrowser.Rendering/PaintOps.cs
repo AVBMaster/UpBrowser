@@ -182,13 +182,6 @@ public class DrawTextOp : PaintOp
     {
         if (string.IsNullOrEmpty(Text)) return;
 
-        using var typeface = GetTypeface();
-        using var font = new SKFont(typeface, FontSize)
-        {
-            Edging = SKFontEdging.SubpixelAntialias,
-            Subpixel = true,
-            Hinting = SKFontHinting.Normal
-        };
         using var paint = new SKPaint
         {
             Color = Color,
@@ -197,20 +190,24 @@ public class DrawTextOp : PaintOp
         };
 
         float x = X;
+        bool needsAlignment = TextAlign == TextAlignType.Center || TextAlign == TextAlignType.End || TextAlign == TextAlignType.Right;
+
+        float totalWidth;
+        if (needsAlignment)
+        {
+            totalWidth = MeasureTextWithFallback(canvas, paint, x, Y, dryRun: true);
+        }
+        else
+        {
+            totalWidth = 0;
+        }
+
         if (TextAlign == TextAlignType.Center)
-        {
-            float width = font.MeasureText(Text);
-            x -= width / 2;
-        }
+            x -= totalWidth / 2;
         else if (TextAlign == TextAlignType.End || TextAlign == TextAlignType.Right)
-        {
-            float width = font.MeasureText(Text);
-            x -= width;
-        }
+            x -= totalWidth;
 
-        canvas.DrawText(Text, x, Y, font, paint);
-
-        float textWidth = font.MeasureText(Text);
+        float actualWidth = MeasureTextWithFallback(canvas, paint, x, Y, dryRun: false);
 
         if (Underline)
         {
@@ -222,7 +219,7 @@ public class DrawTextOp : PaintOp
                 Style = SKPaintStyle.Stroke,
                 IsAntialias = true
             };
-            canvas.DrawLine(x, underlineY, x + textWidth, underlineY, underlinePaint);
+            canvas.DrawLine(x, underlineY, x + actualWidth, underlineY, underlinePaint);
         }
 
         if (LineThrough)
@@ -235,8 +232,108 @@ public class DrawTextOp : PaintOp
                 Style = SKPaintStyle.Stroke,
                 IsAntialias = true
             };
-            canvas.DrawLine(x, strikeY, x + textWidth, strikeY, strikePaint);
+            canvas.DrawLine(x, strikeY, x + actualWidth, strikeY, strikePaint);
         }
+    }
+
+    private float MeasureTextWithFallback(SKCanvas canvas, SKPaint paint, float x, float y, bool dryRun)
+    {
+        if (string.IsNullOrEmpty(Text)) return 0;
+
+        var text = Text;
+        int len = text.Length;
+        float currentX = x;
+
+        // Initialize with first character's typeface so the first run starts at index 0
+        int runStart = 0;
+        SKTypeface currentTypeface = GetTypefaceForChar(text[0]);
+
+        for (int i = 1; i <= len; i++)
+        {
+            if (i < len)
+            {
+                char c = text[i];
+                SKTypeface neededTypeface = GetTypefaceForChar(c);
+
+                if (neededTypeface != currentTypeface)
+                {
+                    // Flush current run: draw text[runStart..i] with currentTypeface
+                    string run = text[runStart..i];
+                    using var font = new SKFont(currentTypeface, FontSize)
+                    {
+                        Edging = SKFontEdging.SubpixelAntialias,
+                        Subpixel = true,
+                        Hinting = SKFontHinting.Normal
+                    };
+                    float runWidth = font.MeasureText(run);
+                    if (!dryRun)
+                        canvas.DrawText(run, currentX, y, font, paint);
+                    currentX += runWidth;
+
+                    currentTypeface = neededTypeface;
+                    runStart = i;
+                }
+            }
+            else
+            {
+                // End of string: flush remaining run
+                string run = text[runStart..i];
+                using var font = new SKFont(currentTypeface, FontSize)
+                {
+                    Edging = SKFontEdging.SubpixelAntialias,
+                    Subpixel = true,
+                    Hinting = SKFontHinting.Normal
+                };
+                float runWidth = font.MeasureText(run);
+                if (!dryRun)
+                    canvas.DrawText(run, currentX, y, font, paint);
+                currentX += runWidth;
+            }
+        }
+
+        return currentX - x;
+    }
+
+    private SKTypeface GetTypefaceForChar(char c)
+    {
+        int codePoint = c;
+        bool isCjk = (c >= 0x4E00 && c <= 0x9FFF) || (c >= 0x3400 && c <= 0x4DBF) ||
+                     (c >= 0x20000 && c <= 0x2A6DF) || (c >= 0x2B740 && c <= 0x2B81F) ||
+                     (c >= 0x2B820 && c <= 0x2CEAF) || (c >= 0x3000 && c <= 0x303F) ||
+                     (c >= 0xFF00 && c <= 0xFFEF);
+        bool isEmoji = c >= 0x2600;
+        bool isSpecialSymbol = (c >= 0x2000 && c <= 0x206F) || (c >= 0x2100 && c <= 0x27BF) ||
+                               (c >= 0x2800 && c <= 0x28FF) || c == 0x00A0 || c == 0x00A9 ||
+                               c == 0x00AE || (c >= 0x2190 && c <= 0x21FF) ||
+                               (c >= 0x2200 && c <= 0x22FF) || (c >= 0x2300 && c <= 0x23FF);
+
+        // First try matching from requested font family
+        if (!string.IsNullOrEmpty(FontFamily))
+        {
+            var fontName = FontFamily.Split(',')[0].Trim().Trim('"', '\'');
+            var families = GetFontFamilies();
+            var index = Array.IndexOf(families, fontName);
+            if (index >= 0)
+            {
+                var style = SKFontManager.Default.GetFontStyles(index);
+                var tf = style.CreateTypeface(0);
+                if (tf != null && tf.ContainsGlyph(codePoint))
+                    return tf;
+            }
+        }
+
+        if (isCjk)
+            return GetCachedChineseTypeface();
+        if (isEmoji)
+            return GetCachedEmojiTypeface() ?? GetCachedChineseTypeface();
+        if (isSpecialSymbol)
+            return GetCachedDefaultTypeface();
+
+        var defaultTf = GetCachedDefaultTypeface();
+        if (defaultTf.ContainsGlyph(codePoint))
+            return defaultTf;
+
+        return GetCachedChineseTypeface();
     }
 
     private static SKTypeface? _cachedChineseTypeface;
@@ -451,7 +548,10 @@ public class DrawTextOp : PaintOp
     {
         foreach (char c in text)
         {
-            if (c >= 0x2600 || c == 0x200D)
+            if ((c >= 0x2600 && c <= 0x27BF) || c == 0x200D || c == 0xFE0F ||
+                (c >= 0x1F000 && c <= 0x1FFFF) || (c >= 0x2300 && c <= 0x23FF) ||
+                c == 0x2934 || c == 0x2935 || (c >= 0x2B00 && c <= 0x2BFF) ||
+                c == 0x3030 || c == 0x303D || c == 0x3297 || c == 0x3299)
                 return true;
         }
         return false;

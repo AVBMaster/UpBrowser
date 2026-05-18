@@ -35,7 +35,7 @@ public class CssParser
             if (string.IsNullOrEmpty(selectorPart)) continue;
 
             var selectors = ParseSelectors(selectorPart);
-            var properties = ParseProperties(bodyPart);
+            var (properties, importantProps) = ParsePropertiesWithImportance(bodyPart);
 
             foreach (var selector in selectors)
             {
@@ -43,7 +43,8 @@ public class CssParser
                 {
                     Selector = selector,
                     Specificity = CalculateSpecificity(selector),
-                    Properties = new Dictionary<string, string>(properties)
+                    Properties = new Dictionary<string, string>(properties),
+                    ImportantProperties = new HashSet<string>(importantProps, StringComparer.OrdinalIgnoreCase)
                 };
                 stylesheet.Rules.Add(rule);
             }
@@ -88,9 +89,10 @@ public class CssParser
         return selectors;
     }
 
-    private Dictionary<string, string> ParseProperties(string body)
+    public (Dictionary<string, string> properties, HashSet<string> importantProps) ParsePropertiesWithImportance(string body)
     {
         var properties = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var importantProps = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var declarations = body.Split(';', StringSplitOptions.RemoveEmptyEntries);
 
         foreach (var decl in declarations)
@@ -100,11 +102,21 @@ public class CssParser
             {
                 var name = match.Groups[1].Value.ToLowerInvariant();
                 var value = match.Groups[2].Value.Trim();
+                if (value.EndsWith("!important", StringComparison.OrdinalIgnoreCase))
+                {
+                    value = value[..^"!important".Length].Trim();
+                    importantProps.Add(name);
+                }
                 properties[name] = value;
             }
         }
 
-        return properties;
+        return (properties, importantProps);
+    }
+
+    private Dictionary<string, string> ParseProperties(string body)
+    {
+        return ParsePropertiesWithImportance(body).properties;
     }
 
     private (int a, int b, int c, int d) CalculateSpecificity(string selector)
@@ -219,7 +231,9 @@ public class CssRule
     public string Selector { get; set; } = string.Empty;
     public (int a, int b, int c, int d) Specificity { get; set; }
     public Dictionary<string, string> Properties { get; set; } = new();
-    public bool IsImportant { get; set; }
+    public HashSet<string> ImportantProperties { get; set; } = new();
+
+    public bool IsPropertyImportant(string prop) => ImportantProperties.Contains(prop);
 }
 
 public class CssSelector

@@ -55,6 +55,15 @@ public abstract class Length
             "large" => 18, "x-large" => 24, "xx-large" => 32, _ => 16
         };
     }
+
+    public static float ToPixelsOrDefault(Length length, float defaultValue = 0)
+    {
+        if (length is PixelLength p) return p.Value;
+        if (length is EmLength e) return e.Value * 16;
+        if (length is RemLength r) return r.Value * 16;
+        if (length is PercentLength perc) return perc.Value * 100;
+        return defaultValue;
+    }
 }
 
 public class AutoLength : Length
@@ -212,6 +221,14 @@ public class ComputedStyle
     public Length RowGap { get; set; } = new PixelLength(0);
     public Length ColumnGap { get; set; } = new PixelLength(0);
 
+    public float OutlineWidth { get; set; }
+    public SKColor OutlineColor { get; set; } = SKColors.Black;
+    public BorderStyle OutlineStyle { get; set; } = BorderStyle.None;
+    public string TableLayout { get; set; } = "auto";
+    public string CaptionSide { get; set; } = "top";
+    public string EmptyCells { get; set; } = "show";
+    public string? Content { get; set; }
+
     public float GetWidth(float viewportWidth, float rootFontSize)
     {
         if (Width is AutoLength) return float.NaN;
@@ -252,7 +269,10 @@ public class ComputedStyle
             Transform = Transform, Transition = Transition, Animation = Animation,
             PointerEvents = PointerEvents, UserSelect = UserSelect, Direction = Direction,
             LetterSpacing = LetterSpacing, WordSpacing = WordSpacing, TextIndent = TextIndent, TextTransform = TextTransform,
-            RowGap = RowGap, ColumnGap = ColumnGap
+            RowGap = RowGap, ColumnGap = ColumnGap,
+            OutlineWidth = OutlineWidth, OutlineColor = OutlineColor, OutlineStyle = OutlineStyle,
+            TableLayout = TableLayout, CaptionSide = CaptionSide, EmptyCells = EmptyCells,
+            Content = Content
         };
     }
 
@@ -307,19 +327,28 @@ public class BoxDimensions
     {
         return new BoxDimensions
         {
-            MarginTop = style.MarginTop is PixelLength p ? p.Value : 0,
-            MarginRight = style.MarginRight is PixelLength r ? r.Value : 0,
-            MarginBottom = style.MarginBottom is PixelLength b ? b.Value : 0,
-            MarginLeft = style.MarginLeft is PixelLength l ? l.Value : 0,
+            MarginTop = GetPixelFromLength(style.MarginTop),
+            MarginRight = GetPixelFromLength(style.MarginRight),
+            MarginBottom = GetPixelFromLength(style.MarginBottom),
+            MarginLeft = GetPixelFromLength(style.MarginLeft),
             BorderTopWidth = style.BorderTopWidth,
             BorderRightWidth = style.BorderRightWidth,
             BorderBottomWidth = style.BorderBottomWidth,
             BorderLeftWidth = style.BorderLeftWidth,
-            PaddingTop = style.PaddingTop is PixelLength pt ? pt.Value : 0,
-            PaddingRight = style.PaddingRight is PixelLength pr ? pr.Value : 0,
-            PaddingBottom = style.PaddingBottom is PixelLength pb ? pb.Value : 0,
-            PaddingLeft = style.PaddingLeft is PixelLength pl ? pl.Value : 0
+            PaddingTop = GetPixelFromLength(style.PaddingTop),
+            PaddingRight = GetPixelFromLength(style.PaddingRight),
+            PaddingBottom = GetPixelFromLength(style.PaddingBottom),
+            PaddingLeft = GetPixelFromLength(style.PaddingLeft)
         };
+    }
+
+    private static float GetPixelFromLength(Length length)
+    {
+        if (length is PixelLength p) return p.Value;
+        if (length is EmLength e) return e.Value * 16;
+        if (length is RemLength r) return r.Value * 16;
+        if (length is PercentLength perc) return perc.Value * 100;
+        return 0;
     }
 
     public float TotalWidth => MarginLeft + BorderLeftWidth + PaddingLeft + MarginRight + BorderRightWidth + PaddingRight;

@@ -104,6 +104,9 @@ public class BrowserApp : IDisposable
 
     public BrowserApp(int logicalWidth, int logicalHeight)
     {
+        // Wire up SkiaSharp-based text measurement for accurate layout
+        TextMeasurer.Instance = new Core.Layout.SkiaTextMeasurer();
+
         // Cache font families once at startup (avoids O(SKFontManager) enumeration per frame)
         _fontFamilies ??= SkiaSharp.SKFontManager.Default.FontFamilies.ToArray();
 
@@ -823,6 +826,7 @@ var winWindow = PlatformFactory.CreateWindowsWindow(physicalWidth, physicalHeigh
         _displayList.Clear();
 
         _cachedPaintVisitor = new PaintVisitor(_contentOffset, _sharedTypefaceCache, _sharedImageCache, _fontFamilies, _currentBaseUrl);
+        _cachedPaintVisitor.SetFocusedElement(_focusedElement);
         _cachedPaintVisitor.VisitDocument(_currentLoad.Document);
         _displayList = _cachedPaintVisitor.GetDisplayList();
         _displayList.SortByZIndex();

@@ -93,14 +93,14 @@ public class CascadeResolver
             {
                 if (_matcher.Matches(rule, element))
                 {
-                    var priority = new CascadePriority(
-                        importance: false,
-                        origin: CascadeOrigin.Author,
-                        treeOrder: treeOrder
-                    );
-
                     foreach (var prop in rule.Properties)
                     {
+                        bool isImportant = rule.IsPropertyImportant(prop.Key);
+                        var priority = new CascadePriority(
+                            importance: isImportant,
+                            origin: CascadeOrigin.Author,
+                            treeOrder: treeOrder
+                        );
                         _cascadeMap.Insert(prop.Key, prop.Value, priority);
                     }
                 }
@@ -259,6 +259,36 @@ public class CascadeResolver
             case "animation": style.Animation = value; break;
             case "pointer-events": style.PointerEvents = value; break;
             case "user-select": style.UserSelect = value; break;
+            case "text-indent":
+                if (Length.TryParse(value, out var ti))
+                    style.TextIndent = ti.ToPixels(0, 0, 0, 0);
+                break;
+            case "letter-spacing":
+                if (value == "normal") style.LetterSpacing = 0;
+                else if (Length.TryParse(value, out var ls))
+                    style.LetterSpacing = ls.ToPixels(0, 0, 0, 0);
+                break;
+            case "word-spacing":
+                if (value == "normal") style.WordSpacing = 0;
+                else if (Length.TryParse(value, out var ws))
+                    style.WordSpacing = ws.ToPixels(0, 0, 0, 0);
+                break;
+            case "direction": style.Direction = value.ToLowerInvariant() == "rtl" ? "rtl" : "ltr"; break;
+            case "text-transform": style.TextTransform = value.ToLowerInvariant(); break;
+            case "font":
+                ParseFontShorthand(value, style);
+                break;
+            case "outline": ParseOutlineShorthand(value, style); break;
+            case "outline-width":
+                if (float.TryParse(value.Replace("px", ""), out var ow))
+                    style.OutlineWidth = ow;
+                break;
+            case "outline-color": style.OutlineColor = ColorParser.Parse(value); break;
+            case "outline-style": style.OutlineStyle = ParseBorderStyleValue(value); break;
+            case "table-layout": style.TableLayout = value.ToLowerInvariant() == "fixed" ? "fixed" : "auto"; break;
+            case "caption-side": style.CaptionSide = value.ToLowerInvariant() == "bottom" ? "bottom" : "top"; break;
+            case "empty-cells": style.EmptyCells = value.ToLowerInvariant() == "hide" ? "hide" : "show"; break;
+            case "content": style.Content = value; break;
         }
     }
 
@@ -285,6 +315,9 @@ public class CascadeResolver
         child.WordSpacing = parent.WordSpacing;
         child.TextIndent = parent.TextIndent;
         child.TextTransform = parent.TextTransform;
+        child.Direction = parent.Direction;
+        child.CaptionSide = parent.CaptionSide;
+        child.EmptyCells = parent.EmptyCells;
     }
 
     private void ApplyUserAgentStyles(ComputedStyle style, string tagName)
@@ -364,6 +397,18 @@ public class CascadeResolver
         dest.Transform = src.Transform;
         dest.Transition = src.Transition;
         dest.Animation = src.Animation;
+        dest.Direction = src.Direction;
+        dest.LetterSpacing = src.LetterSpacing;
+        dest.WordSpacing = src.WordSpacing;
+        dest.TextIndent = src.TextIndent;
+        dest.TextTransform = src.TextTransform;
+        dest.OutlineWidth = src.OutlineWidth;
+        dest.OutlineColor = src.OutlineColor;
+        dest.OutlineStyle = src.OutlineStyle;
+        dest.TableLayout = src.TableLayout;
+        dest.CaptionSide = src.CaptionSide;
+        dest.EmptyCells = src.EmptyCells;
+        dest.Content = src.Content;
     }
 
     // ── Parsing helpers (delegated to specialized parsers) ──
@@ -822,6 +867,72 @@ public class CascadeResolver
                 style.ListStyleType = ParseListStyleType(part);
             else if (lower.StartsWith("url("))
                 style.ListStyleImage = ParseUrl(part);
+        }
+    }
+
+    private void ParseFontShorthand(string value, ComputedStyle style)
+    {
+        var parts = value.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        int i = 0;
+
+        while (i < parts.Length)
+        {
+            var lower = parts[i].ToLowerInvariant();
+            if (lower is "normal" or "italic" or "oblique")
+            {
+                if (lower == "italic" || lower == "oblique") style.FontStyle = FontStyleType.Italic;
+                i++;
+            }
+            else if (lower is "bold" or "bolder" or "lighter" ||
+                     lower is "100" or "200" or "300" or "400" or "500" or "600" or "700" or "800" or "900")
+            {
+                style.FontWeight = ParseFontWeight(parts[i]);
+                i++;
+            }
+            else break;
+        }
+
+        if (i < parts.Length && (parts[i].EndsWith("px") || parts[i].EndsWith("em") || parts[i].EndsWith("rem") ||
+            parts[i].EndsWith("%") || parts[i] is "xx-small" or "x-small" or "small" or "medium" or
+            "large" or "x-large" or "xx-large"))
+        {
+            style.FontSize = Length.ParseFontSize(parts[i], style.FontSize);
+            i++;
+        }
+
+        if (i < parts.Length && parts[i] == "/")
+        {
+            i++;
+            if (i < parts.Length && float.TryParse(parts[i], out var lh))
+                style.LineHeight = lh / style.FontSize;
+            i++;
+        }
+
+        if (i < parts.Length)
+        {
+            var family = string.Join(" ", parts.Skip(i));
+            style.FontFamily = family.Trim().Trim('"', '\'');
+        }
+    }
+
+    private void ParseOutlineShorthand(string value, ComputedStyle style)
+    {
+        var parts = value.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        foreach (var part in parts)
+        {
+            if (part.EndsWith("px"))
+            {
+                if (float.TryParse(part.Replace("px", ""), out var w))
+                    style.OutlineWidth = w;
+            }
+            else if (part is "solid" or "dashed" or "dotted" or "double" or "none")
+            {
+                style.OutlineStyle = ParseBorderStyleValue(part);
+            }
+            else
+            {
+                style.OutlineColor = ColorParser.Parse(part);
+            }
         }
     }
 
