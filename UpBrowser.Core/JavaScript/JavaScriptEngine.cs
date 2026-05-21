@@ -65,6 +65,37 @@ public class JavaScriptEngine : IDisposable
             var globalThis = this;
             var self = this;
 
+            // Stub DOM objects
+            var document = {
+                createElement: function(tag) { return {}; },
+                getElementById: function(id) { return null; },
+                getElementsByTagName: function(tag) { return []; },
+                createTextNode: function(text) { return {}; },
+                querySelector: function(sel) { return null; },
+                querySelectorAll: function(sel) { return []; },
+                body: null,
+                head: null,
+                documentElement: null
+            };
+            var navigator = {
+                userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                cookieEnabled: true,
+                platform: 'Win32',
+                appName: 'Netscape',
+                appVersion: '5.0',
+                language: 'zh-CN'
+            };
+            var location = { href: '', protocol: 'https:', host: '', hostname: '', port: '', pathname: '/', search: '', hash: '', assign: function(u) {}, replace: function(u) {}, reload: function() {} };
+            var history = { length: 0, state: null, back: function() {}, forward: function() {}, go: function(d) {}, pushState: function(s,t,u) {}, replaceState: function(s,t,u) {} };
+            var screen = { width: 1920, height: 1080, availWidth: 1920, availHeight: 1040, colorDepth: 24, pixelDepth: 24 };
+            var localStorage = { getItem: function(k) { return null; }, setItem: function(k,v) {}, removeItem: function(k) {}, clear: function() {}, length: 0 };
+            var sessionStorage = { getItem: function(k) { return null; }, setItem: function(k,v) {}, removeItem: function(k) {}, clear: function() {}, length: 0 };
+            window.define = function() {};
+            window.define.amd = {};
+            window.F = { _setMod: function() {}, _fileMap: function() {}, module: function() {}, addLog: function() {} };
+            window.$ = function(sel) { return { on: function() {}, off: function() {}, val: function() { return ''; }, html: function() { return ''; }, text: function() { return ''; }, attr: function() { return ''; }, data: function() { return {}; }, addClass: function() {}, removeClass: function() {}, toggleClass: function() {}, css: function() {}, show: function() {}, hide: function() {}, fadeIn: function() {}, fadeOut: function() {}, ajax: function() {}, get: function() {}, post: function() {}, Deferred: function() { return { resolve: function() {}, reject: function() {}, promise: function() {} }; }, extend: function() { return {}; }, each: function() {}, map: function() {} }; };
+            window.jQuery = window.$;
+
             function setTimeout(fn, ms) {
                 var id = __g_store(fn);
                 return __upbrowser.setTimeout(id, ms || 0);
@@ -84,7 +115,7 @@ public class JavaScriptEngine : IDisposable
             function decodeURIComponent(str) { return __upbrowser.decodeURIComponent(str); }
             function encodeURI(str) { return __upbrowser.encodeURI(str); }
             function encodeURIComponent(str) { return __upbrowser.encodeURIComponent(str); }
-            function parseInt(s, r) { return __upbrowser.parseInt(s, r); }
+            function parseInt(s, r) { return __upbrowser.parseInt(s, r === undefined ? 10 : r); }
             function parseFloat(s) { return __upbrowser.parseFloat(s); }
             function isNaN(v) { return __upbrowser.isNaN(v); }
             function isFinite(v) { return __upbrowser.isFinite(v); }
@@ -113,40 +144,24 @@ public class JavaScriptEngine : IDisposable
                 return __upbrowser.createURLSearchParams(query || '');
             }
 
-            var window = this;
-            var globalThis = this;
-            var self = this;
-            var document = document;
-            var navigator = navigator;
-            var location = location;
-            var history = history;
-            var screen = screen;
-            var localStorage = localStorage;
-            var sessionStorage = sessionStorage;
 
-            Object.defineProperty(window, 'innerWidth', { get: function() { return __upbrowser.innerWidth(); } });
-            Object.defineProperty(window, 'innerHeight', { get: function() { return __upbrowser.innerHeight(); } });
-            Object.defineProperty(window, 'outerWidth', { get: function() { return __upbrowser.innerWidth(); } });
-            Object.defineProperty(window, 'outerHeight', { get: function() { return __upbrowser.innerHeight(); } });
-            Object.defineProperty(window, 'devicePixelRatio', { get: function() { return __upbrowser.devicePixelRatio(); } });
-            Object.defineProperty(window, 'pageXOffset', { get: function() { return __upbrowser.scrollX(); } });
-            Object.defineProperty(window, 'pageYOffset', { get: function() { return __upbrowser.scrollY(); } });
-            Object.defineProperty(window, 'scrollX', { get: function() { return __upbrowser.scrollX(); } });
-            Object.defineProperty(window, 'scrollY', { get: function() { return __upbrowser.scrollY(); } });
+Object.defineProperty(this, 'addEventListener', { value: function(type, cb) { /* no-op */ } });
+            Object.defineProperty(this, 'removeEventListener', { value: function(type, cb) { /* no-op */ } });
+            Object.defineProperty(this, 'dispatchEvent', { value: function(evt) { return true; } });
+            this.name = '';
+this.opera = undefined;
+            this.performance = { timing: {}, navigation: {}, now: function() { return 0; } };
+        ");
 
-            window.scrollTo = function(x, y) { __upbrowser.scrollTo(x || 0, y || 0); };
-            window.scrollBy = function(x, y) { __upbrowser.scrollBy(x || 0, y || 0); };
-            window.scroll = window.scrollTo;
-            window.getComputedStyle = function(el) { return document.getComputedStyle(el); };
-            window.matchMedia = function(query) { return { matches: true, media: query, addEventListener: function(){}, removeEventListener: function(){} }; };
+        _engine.EmbedHostObject("__win", new WindowHost(this));
+        _engine.EmbedHostObject("navigator", new NavigatorHost());
+        _engine.EmbedHostObject("location", new LocationHost());
+        _engine.EmbedHostObject("history", new HistoryHost());
+        _engine.EmbedHostObject("screen", new ScreenHost());
+        _engine.EmbedHostObject("localStorage", new StorageHost());
+        _engine.EmbedHostObject("sessionStorage", new StorageHost());
 
-            function CustomEvent(type, detail) {
-                var evt = document.createEvent('customevent');
-                evt.type = type;
-                if (detail) evt.detail = detail;
-                return evt;
-            }
-
+        _engine.Execute(@"
             if (typeof Promise !== 'undefined') {
                 if (!Promise.allSettled) {
                     Promise.allSettled = function(promises) {
@@ -174,15 +189,7 @@ public class JavaScriptEngine : IDisposable
                     };
                 }
             }
-        ");
-
-        _engine.EmbedHostObject("__win", new WindowHost(this));
-        _engine.EmbedHostObject("navigator", new NavigatorHost());
-        _engine.EmbedHostObject("location", new LocationHost());
-        _engine.EmbedHostObject("history", new HistoryHost());
-        _engine.EmbedHostObject("screen", new ScreenHost());
-        _engine.EmbedHostObject("localStorage", new StorageHost());
-        _engine.EmbedHostObject("sessionStorage", new StorageHost());
+");
     }
 
     public void LoadDocument(DomDocument document)
@@ -192,7 +199,28 @@ public class JavaScriptEngine : IDisposable
 
         if (_engine != null)
         {
-            _engine.EmbedHostObject("document", _documentHost);
+            _engine.EmbedHostObject("_document", _documentHost);
+            _engine.Execute(@"
+                (function() {
+                    var overrides = {};
+                    document = new Proxy(_document, {
+                        get: function(t, p) {
+                            if (p === 'then' || p === 'toJSON') return undefined;
+                            if (p in overrides) return overrides[p];
+                            var v = t[p];
+                            if (typeof v === 'function' && v.call) {
+                                return function() { return v.apply(t, arguments); };
+                            }
+                            return v;
+                        },
+                        set: function(t, p, v) {
+                            try { t[p] = v; }
+                            catch(e) { overrides[p] = v; }
+                            return true;
+                        }
+                    });
+                })();
+            ");
         }
 
         MarkDirty();
@@ -502,7 +530,7 @@ public class JavaScriptEngine : IDisposable
                         var json = JsonSerializer.Serialize(resp, _jsonOpts);
                         _engine?.Execute($"__g_invoke({cbs.resolveId}, JSON.parse('{EscapeJsString(json)}'))");
                     }
-                    else
+else
                     {
                         _engine?.Execute($"__g_invoke({cbs.rejectId}, '{EscapeJsString(result.Error ?? "Unknown error")}')");
                     }
@@ -683,10 +711,11 @@ public class UpBrowserBuiltins
 
     public string decodeURI(string str) => Uri.UnescapeDataString(str);
     public string encodeURI(string str) => Uri.EscapeDataString(str);
-    public int parseInt(string s, int radix)
+    public int parseInt(string s, int? radix)
     {
-        try { return Convert.ToInt32(s, radix); }
-        catch { return int.TryParse(s, out var r) ? r : 0; }
+        var r = radix ?? 10;
+        try { return Convert.ToInt32(s, r); }
+        catch { return int.TryParse(s, out var result) ? result : 0; }
     }
     public double parseFloat(string s) => double.TryParse(s, out var r) ? r : double.NaN;
     public bool isNaN(object? v)
@@ -841,6 +870,11 @@ public class NavigatorHost
     public string[] languages => new[] { "zh-CN", "en" };
     public bool cookieEnabled => true;
     public bool onLine => true;
+    public bool javaEnabled() => false;
+    public object[] mimeTypes => Array.Empty<object>();
+    public object[] plugins => Array.Empty<object>();
+    public int maxTouchPoints => 0;
+    public int hardwareConcurrency => 4;
 }
 
 public class LocationHost

@@ -9,12 +9,14 @@ public class DocumentManager
 {
     private static readonly Stylesheet _uaStylesheet;
     private static readonly string _defaultHtml;
+    private static readonly string _localHtml;
     private static readonly CssParser _cssParser = new();
 
     static DocumentManager()
     {
         _uaStylesheet = _cssParser.Parse(GetUserAgentStylesStatic());
         _defaultHtml = BuildDefaultHtml();
+        _localHtml = BuildLocalHtml();
     }
 
     public async Task<DocumentLoadResult> LoadHtmlAsync(string html, string? baseUrl = null)
@@ -278,11 +280,111 @@ public class DocumentManager
     private static string BuildDefaultHtml()
     {
         return @"<html><head>
-    <title>UpBrowser</title>
+    <title>New Tab</title>
+    <style>
+        body { margin: 0; padding: 0; background: #1a1a2e; font-family: 'Microsoft YaHei', Arial, sans-serif; }
+        .container { width: 600px; margin: 0 auto; text-align: center; }
+        .logo { margin-top: 100px; margin-bottom: 30px; }
+        .logo-title { font-size: 48px; color: #e94560; font-weight: bold; margin: 0; }
+        .logo-sub { font-size: 14px; color: #8899aa; letter-spacing: 4px; margin-top: 8px; }
+        .search-box { width: 100%; padding: 14px 20px; font-size: 16px; border: 2px solid #333;
+            border-radius: 25px; background: #16213e; color: #fff; outline: none; box-sizing: border-box; }
+        .links { margin-top: 40px; }
+        .link-row { margin-bottom: 16px; }
+        .link-item { display: inline-block; width: 90px; height: 90px; margin: 0 8px; vertical-align: top;
+            border-radius: 14px; background: #16213e; border: 1px solid #333; text-decoration: none; }
+        .link-icon { font-size: 32px; color: #e94560; margin-top: 18px; }
+        .link-name { font-size: 12px; color: #8899aa; margin-top: 6px; }
+        .footer { margin-top: 50px; margin-bottom: 30px; }
+        .footer a { color: #8899aa; text-decoration: none; padding: 8px 16px; border: 1px solid #333;
+            border-radius: 16px; display: inline-block; font-size: 13px; }
+    </style>
 </head>
-<body style=""background: #f5f5f5; margin: 0; padding: 20px; font-family: Arial, sans-serif;"">
+<body>
+    <div class=""container"">
+        <div class=""logo"">
+            <div class=""logo-title"">UpBrowser</div>
+            <div class=""logo-sub"">WEB BROWSER</div>
+        </div>
+
+        <div style=""width: 600px; margin: 0 auto;"">
+            <input id=""searchbox"" type=""text"" placeholder=""Search or enter URL..."" class=""search-box"">
+        </div>
+
+        <div class=""links"">
+            <div class=""link-row"">
+                <a href=""https://www.baidu.com"" class=""link-item"">
+                    <div class=""link-icon"">B</div>
+                    <div class=""link-name"">Baidu</div>
+                </a>
+                <a href=""https://www.google.com"" class=""link-item"">
+                    <div class=""link-icon"">G</div>
+                    <div class=""link-name"">Google</div>
+                </a>
+                <a href=""https://github.com"" class=""link-item"">
+                    <div class=""link-icon"">G</div>
+                    <div class=""link-name"">GitHub</div>
+                </a>
+                <a href=""https://zh.wikipedia.org"" class=""link-item"">
+                    <div class=""link-icon"">W</div>
+                    <div class=""link-name"">Wiki</div>
+                </a>
+            </div>
+            <div class=""link-row"">
+                <a href=""https://www.bilibili.com"" class=""link-item"">
+                    <div class=""link-icon"">B</div>
+                    <div class=""link-name"">Bilibili</div>
+                </a>
+                <a href=""https://www.zhihu.com"" class=""link-item"">
+                    <div class=""link-icon"">Z</div>
+                    <div class=""link-name"">Zhihu</div>
+                </a>
+                <a href=""https://www.taobao.com"" class=""link-item"">
+                    <div class=""link-icon"">T</div>
+                    <div class=""link-name"">Taobao</div>
+                </a>
+                <a href=""https://weibo.com"" class=""link-item"">
+                    <div class=""link-icon"">W</div>
+                    <div class=""link-name"">Weibo</div>
+                </a>
+            </div>
+        </div>
+
+        <div class=""footer"">
+            <a href=""upbrowser://local"">Test Page</a>
+        </div>
+    </div>
+
+    <script>
+        var box = document.getElementById('searchbox');
+        if (box) {
+            box.addEventListener('keydown', function(e) {
+                if (e.key === 'Enter') {
+                    var q = box.value;
+                    if (!q) return;
+                    if (q.indexOf('.') >= 0 && q.indexOf(' ') < 0) {
+                        window.location = 'https://' + q;
+                    } else {
+                        window.location = 'https://www.baidu.com/s?wd=' + encodeURIComponent(q);
+                    }
+                }
+            });
+        }
+    </script>
+</body></html>";
+    }
+
+    public static string LocalHtml => _localHtml;
+
+    private static string BuildLocalHtml()
+    {
+        return @"<html><head>
+    <title>UpBrowser - Test Page</title>
+</head>
+<body style=""background: #f5f5f5; margin: 0; padding: 20px; font-family: 'Microsoft YaHei', Arial, sans-serif;"">
     <h1 id=""title"" style=""color: #333; font-size: 32px; margin: 0 0 20px 0;"">Hello World</h1>
-    <p style=""color: #666; font-size: 16px; line-height: 1.5;"">This is a test paragraph with some text content.</p>
+    <p style=""color: #666; font-size: 16px; line-height: 1.5;"">This is a test paragraph with some text content to verify layout, rendering and Chinese support.</p>
+    <p style=""color: #666; font-size: 16px; line-height: 1.5;"">这是一个测试段落，用于验证中文显示是否正常。</p>
     <div style=""background: #ffeb3b; padding: 20px; border: 2px solid #f44336; margin: 20px 0; border-radius: 8px;"">
         <h2 style=""color: #333; margin: 0 0 10px 0;"">Box Model Test</h2>
         <p style=""color: #555;"">This div has margin, border, padding, and content.</p>
