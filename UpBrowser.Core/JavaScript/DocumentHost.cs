@@ -70,8 +70,6 @@ public class DocumentHost
         set => _document.Title = value;
     }
 
-    public LocationHost location => LocationHost.Instance;
-
     public string URL => _document.Url;
     public string documentURI => _document.Url;
     public string? baseURI => _document.Url;
@@ -225,15 +223,9 @@ public class DocumentHost
 
     public string? currentScript => null;
 
-    public object[] scripts => getElementsByTagName("script");
-
-    public object? all => null;
-
     public string? styleSheets => null;
 
     public string? fonts => null;
-
-    public object? implementation => new { hasFeature = new Func<string, string, bool>((f, v) => false) };
 
     public object getComputedStyle(ElementHost element)
     {

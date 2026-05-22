@@ -11,8 +11,6 @@ public static class FormElements
         {
             case "input":
                 style.Display = DisplayType.InlineBlock;
-                style.Width = new PixelLength(200);
-                style.Height = new PixelLength(32);
                 style.BorderTopWidth = 1;
                 style.BorderRightWidth = 1;
                 style.BorderBottomWidth = 1;
