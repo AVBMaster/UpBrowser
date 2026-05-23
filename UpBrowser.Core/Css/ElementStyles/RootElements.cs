@@ -9,7 +9,6 @@ public static class RootElements
     {
         switch (tagName)
         {
-            // 根元素
             case "html":
                 style.Display = DisplayType.Block;
                 style.MarginTop = new PixelLength(0);
@@ -18,7 +17,8 @@ public static class RootElements
                 style.MarginRight = new PixelLength(0);
                 style.FontSize = 16;
                 style.LineHeight = 1.2f;
-                style.BackgroundColor = SKColors.White;
+                // 透明背景，让 body 背景透出
+                style.BackgroundColor = null;
                 break;
 
             case "body":
@@ -34,7 +34,6 @@ public static class RootElements
                 style.FontFamily = "Arial, sans-serif";
                 break;
 
-            // 元数据元素 - 不显示
             case "head":
                 style.Display = DisplayType.None;
                 break;
@@ -63,7 +62,6 @@ public static class RootElements
                 style.Display = DisplayType.None;
                 break;
 
-            // 其他根级元素
             case "noscript":
                 style.Display = DisplayType.Block;
                 break;
@@ -72,7 +70,6 @@ public static class RootElements
                 style.Display = DisplayType.None;
                 break;
 
-            // DOCTYPE 声明（虚拟元素）
             case "doctype":
                 style.Display = DisplayType.None;
                 break;

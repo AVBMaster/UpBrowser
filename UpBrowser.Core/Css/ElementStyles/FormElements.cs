@@ -96,47 +96,34 @@ public static class FormElements
 
             case "button":
                 style.Display = DisplayType.InlineBlock;
-                style.BoxSizing = BoxSizingType.BorderBox;  // 修复问题6
-
-                // 边框
-                style.BorderTopWidth = 2;
-                style.BorderRightWidth = 2;
-                style.BorderBottomWidth = 2;
-                style.BorderLeftWidth = 2;
-                style.BorderTopStyle = BorderStyle.Solid;
-                style.BorderRightStyle = BorderStyle.Solid;
-                style.BorderBottomStyle = BorderStyle.Solid;
-                style.BorderLeftStyle = BorderStyle.Solid;
-                style.BorderTopColor = SKColor.Parse("#767676");
-                style.BorderRightColor = SKColor.Parse("#767676");
-                style.BorderBottomColor = SKColor.Parse("#767676");
-                style.BorderLeftColor = SKColor.Parse("#767676");
-
-                // 内边距 - 与 Chromium 一致
-                style.PaddingTop = new PixelLength(1);
-                style.PaddingBottom = new PixelLength(1);
-                style.PaddingLeft = new PixelLength(6);
-                style.PaddingRight = new PixelLength(6);
-
+                style.BoxSizing = BoxSizingType.BorderBox;
+                // 边框设为0（与Edge一致）
+                style.BorderTopWidth = 0;
+                style.BorderRightWidth = 0;
+                style.BorderBottomWidth = 0;
+                style.BorderLeftWidth = 0;
+                // 内边距
+                style.PaddingTop = new PixelLength(6);
+                style.PaddingBottom = new PixelLength(6);
+                style.PaddingLeft = new PixelLength(12);
+                style.PaddingRight = new PixelLength(12);
                 // 背景色
-                style.BackgroundColor = SKColor.Parse("#EFEFEF");
-
+                style.BackgroundColor = SKColor.Parse("#2196F3");
                 // 文字样式
-                style.Color = SKColor.Parse("#000000");
-                style.FontSize = 13.3333f;
+                style.Color = SKColors.White;
+                style.FontSize = 14;
                 style.FontWeight = FontWeight.Normal;
                 style.FontFamily = "Arial, sans-serif";
                 style.TextAlign = TextAlignType.Center;
                 style.LineHeight = 1.2f;
-
-                // 其他
                 style.Cursor = "pointer";
                 style.WhiteSpace = WhiteSpaceMode.Nowrap;
-                style.BorderTopLeftRadius = 2;
-                style.BorderTopRightRadius = 2;
-                style.BorderBottomLeftRadius = 2;
-                style.BorderBottomRightRadius = 2;
+                style.BorderTopLeftRadius = 4;
+                style.BorderTopRightRadius = 4;
+                style.BorderBottomLeftRadius = 4;
+                style.BorderBottomRightRadius = 4;
                 break;
+
             case "fieldset":
                 style.Display = DisplayType.Block;
                 style.MarginTop = new PixelLength(16);

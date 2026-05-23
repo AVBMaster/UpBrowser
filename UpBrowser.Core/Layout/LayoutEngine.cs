@@ -278,6 +278,28 @@ public class LayoutEngine
         if (style.Position == PositionType.Absolute)
             LayoutAbsolute(element, box, parentBox);
 
+        // 修复绝对定位元素的内容撑开尺寸
+        if (style.Position == PositionType.Absolute)
+        {
+            float maxChildRight = 0, maxChildBottom = 0;
+            foreach (var child in box.Children)
+            {
+                if (child.MarginBox.Right > maxChildRight) maxChildRight = child.MarginBox.Right;
+                if (child.MarginBox.Bottom > maxChildBottom) maxChildBottom = child.MarginBox.Bottom;
+            }
+            if (maxChildRight > box.ContentBox.Width || maxChildBottom > box.ContentBox.Height)
+            {
+                float newWidth = Math.Max(box.ContentBox.Width, maxChildRight - box.ContentBox.Left);
+                float newHeight = Math.Max(box.ContentBox.Height, maxChildBottom - box.ContentBox.Top);
+                box.ContentBox = new SKRect(box.ContentBox.Left, box.ContentBox.Top, box.ContentBox.Left + newWidth, box.ContentBox.Top + newHeight);
+                box.PaddingBox = new SKRect(box.PaddingBox.Left, box.PaddingBox.Top, box.PaddingBox.Left + newWidth, box.PaddingBox.Top + newHeight);
+                box.BorderBox = new SKRect(box.BorderBox.Left, box.BorderBox.Top, box.BorderBox.Left + newWidth, box.BorderBox.Top + newHeight);
+                box.MarginBox = new SKRect(box.MarginBox.Left, box.MarginBox.Top, box.MarginBox.Left + newWidth, box.MarginBox.Top + newHeight);
+                // 重新应用绝对定位偏移
+                LayoutAbsolute(element, box, parentBox);
+            }
+        }
+
         return box;
     }
 
@@ -372,7 +394,7 @@ public class LayoutEngine
                         {
                             Text = text,
                             Width = textWidth,
-                            Height = inlineFontSize,
+                            Height = lineHeight,
                             IsText = true,
                             Node = firstTextNode,
                             Color = childStyle.Color.Alpha > 0 ? childStyle.Color : style.Color,
@@ -422,12 +444,13 @@ public class LayoutEngine
                     if (!string.IsNullOrEmpty(text))
                     {
                         float textWidth = MeasureTextWidth(text, fontSize, style.FontFamily);
+                        float lineHeightPx = (style.LineHeight) * fontSize;
                         box.LineRuns ??= new List<InlineRun>();
                         box.LineRuns.Add(new InlineRun
                         {
                             Text = text,
                             Width = textWidth,
-                            Height = fontSize,
+                            Height = lineHeightPx,
                             IsText = true,
                             Node = textNode,
                             Color = style.Color,
@@ -524,10 +547,10 @@ public class LayoutEngine
                     float padLeft = GetPixelLength(childStyle.PaddingLeft, 10);
                     float padRight = GetPixelLength(childStyle.PaddingRight, 10);
 
-                    float borderTop = childStyle.BorderTopWidth > 0 ? childStyle.BorderTopWidth : 2;
-                    float borderBottom = childStyle.BorderBottomWidth > 0 ? childStyle.BorderBottomWidth : 2;
-                    float borderLeft = childStyle.BorderLeftWidth > 0 ? childStyle.BorderLeftWidth : 2;
-                    float borderRight = childStyle.BorderRightWidth > 0 ? childStyle.BorderRightWidth : 2;
+                    float borderTop = childStyle.BorderTopWidth > 0 ? childStyle.BorderTopWidth : 0;
+                    float borderBottom = childStyle.BorderBottomWidth > 0 ? childStyle.BorderBottomWidth : 0;
+                    float borderLeft = childStyle.BorderLeftWidth > 0 ? childStyle.BorderLeftWidth : 0;
+                    float borderRight = childStyle.BorderRightWidth > 0 ? childStyle.BorderRightWidth : 0;
 
                     float contentWidth = textWidth + padLeft + padRight;
                     float contentHeight = (btnFontSize * btnLineHeightValue) + padTop + padBottom;
@@ -1083,7 +1106,7 @@ public class LayoutEngine
         // 如果宽度未指定，且左右都指定了，则通过左右计算宽度
         if (float.IsNaN(width) && !float.IsNaN(left) && !float.IsNaN(right))
             width = containingBlock.ContentBox.Width - left - right;
-        // 否则默认为内容宽度（这里简化为0，实际应根据子元素计算）
+        // 否则默认为内容宽度（基于子元素内容，会在 CreateLayoutBox 中再次调整）
         if (float.IsNaN(width))
             width = 0;
 
