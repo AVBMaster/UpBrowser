@@ -58,10 +58,27 @@ public abstract class Length
 
     public static float ToPixelsOrDefault(Length length, float defaultValue = 0)
     {
+        // 保持向后兼容：默认参数 defaultValue 作为参考值（对于 em、% 等）
+        // 如果没有提供参考值，使用合理的回退值（根字体 16px，视口宽度 100px 作为百分比回退）
+        if (length == null) return defaultValue;
         if (length is PixelLength p) return p.Value;
-        if (length is EmLength e) return e.Value * 16;
-        if (length is RemLength r) return r.Value * 16;
-        if (length is PercentLength perc) return perc.Value * 100;
+        if (length is EmLength e)
+        {
+            var reference = defaultValue > 0 ? defaultValue : 16f;
+            return e.Value * reference;
+        }
+        if (length is RemLength r)
+        {
+            // rem 相对于根字体大小，默认根字体 16px
+            var root = defaultValue > 0 ? defaultValue : 16f;
+            return r.Value * root;
+        }
+        if (length is PercentLength perc)
+        {
+            // 百分比需要一个参考值，如果提供则按参考值计算，否则退回到 0（不假定任意宽度）
+            var reference = defaultValue > 0 ? defaultValue : 0f;
+            return perc.Value * reference;
+        }
         return defaultValue;
     }
 }
@@ -327,28 +344,34 @@ public class BoxDimensions
     {
         return new BoxDimensions
         {
-            MarginTop = GetPixelFromLength(style.MarginTop),
-            MarginRight = GetPixelFromLength(style.MarginRight),
-            MarginBottom = GetPixelFromLength(style.MarginBottom),
-            MarginLeft = GetPixelFromLength(style.MarginLeft),
+            MarginTop = GetPixelFromLength(style.MarginTop, 16f, 16f, 0, 0),
+            MarginRight = GetPixelFromLength(style.MarginRight, 16f, 16f, 0, 0),
+            MarginBottom = GetPixelFromLength(style.MarginBottom, 16f, 16f, 0, 0),
+            MarginLeft = GetPixelFromLength(style.MarginLeft, 16f, 16f, 0, 0),
             BorderTopWidth = style.BorderTopWidth,
             BorderRightWidth = style.BorderRightWidth,
             BorderBottomWidth = style.BorderBottomWidth,
             BorderLeftWidth = style.BorderLeftWidth,
-            PaddingTop = GetPixelFromLength(style.PaddingTop),
-            PaddingRight = GetPixelFromLength(style.PaddingRight),
-            PaddingBottom = GetPixelFromLength(style.PaddingBottom),
-            PaddingLeft = GetPixelFromLength(style.PaddingLeft)
+            PaddingTop = GetPixelFromLength(style.PaddingTop, 16f, 16f, 0, 0),
+            PaddingRight = GetPixelFromLength(style.PaddingRight, 16f, 16f, 0, 0),
+            PaddingBottom = GetPixelFromLength(style.PaddingBottom, 16f, 16f, 0, 0),
+            PaddingLeft = GetPixelFromLength(style.PaddingLeft, 16f, 16f, 0, 0)
         };
     }
 
-    private static float GetPixelFromLength(Length length)
+    private static float GetPixelFromLength(Length length, float reference, float rootFontSize, float viewportWidth, float viewportHeight)
     {
-        if (length is PixelLength p) return p.Value;
-        if (length is EmLength e) return e.Value * 16;
-        if (length is RemLength r) return r.Value * 16;
-        if (length is PercentLength perc) return perc.Value * 100;
-        return 0;
+        if (length == null) return 0;
+        try
+        {
+            var px = length.ToPixels(reference, rootFontSize, viewportWidth, viewportHeight);
+            if (!float.IsNaN(px)) return px;
+        }
+        catch
+        {
+            // ignore and fallback
+        }
+        return Length.ToPixelsOrDefault(length, reference > 0 ? reference : rootFontSize);
     }
 
     public float TotalWidth => MarginLeft + BorderLeftWidth + PaddingLeft + MarginRight + BorderRightWidth + PaddingRight;

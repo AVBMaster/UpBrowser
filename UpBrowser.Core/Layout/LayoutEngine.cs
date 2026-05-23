@@ -96,6 +96,7 @@ public class LayoutEngine
             return null;
 
         var box = new LayoutBox();
+        // 使用 style.FontSize 作为参考（用于 em），并使用视口宽高用于百分比/vw/vh
         box.Dimensions = BoxDimensions.FromStyle(style);
 
         float width = CalculateWidth(element, availableWidth);
@@ -104,20 +105,20 @@ public class LayoutEngine
 
         bool isAutoMarginLeft = style.MarginLeft is AutoLength;
         bool isAutoMarginRight = style.MarginRight is AutoLength;
-        float marginLeft = isAutoMarginLeft ? 0 : Length.ToPixelsOrDefault(style.MarginLeft);
-        float marginRight = isAutoMarginRight ? 0 : Length.ToPixelsOrDefault(style.MarginRight);
-        float marginTop = Length.ToPixelsOrDefault(style.MarginTop);
-        float marginBottom = Length.ToPixelsOrDefault(style.MarginBottom);
+        float marginLeft = isAutoMarginLeft ? 0 : style.MarginLeft.ToPixels(style.FontSize, _rootFontSize, _viewportWidth, _viewportHeight);
+        float marginRight = isAutoMarginRight ? 0 : style.MarginRight.ToPixels(style.FontSize, _rootFontSize, _viewportWidth, _viewportHeight);
+        float marginTop = style.MarginTop.ToPixels(style.FontSize, _rootFontSize, _viewportWidth, _viewportHeight);
+        float marginBottom = style.MarginBottom.ToPixels(style.FontSize, _rootFontSize, _viewportWidth, _viewportHeight);
 
         float borderLeft = style.BorderLeftWidth;
         float borderRight = style.BorderRightWidth;
         float borderTop = style.BorderTopWidth;
         float borderBottom = style.BorderBottomWidth;
 
-        float paddingLeft = Length.ToPixelsOrDefault(style.PaddingLeft);
-        float paddingRight = Length.ToPixelsOrDefault(style.PaddingRight);
-        float paddingTop = Length.ToPixelsOrDefault(style.PaddingTop);
-        float paddingBottom = Length.ToPixelsOrDefault(style.PaddingBottom);
+        float paddingLeft = style.PaddingLeft.ToPixels(style.FontSize, _rootFontSize, _viewportWidth, _viewportHeight);
+        float paddingRight = style.PaddingRight.ToPixels(style.FontSize, _rootFontSize, _viewportWidth, _viewportHeight);
+        float paddingTop = style.PaddingTop.ToPixels(style.FontSize, _rootFontSize, _viewportWidth, _viewportHeight);
+        float paddingBottom = style.PaddingBottom.ToPixels(style.FontSize, _rootFontSize, _viewportWidth, _viewportHeight);
 
         float contentWidth = width;
         float contentHeight = float.IsNaN(elementHeight) ? 0 : elementHeight;
@@ -188,8 +189,8 @@ public class LayoutEngine
 
         float childX = box.ContentBox.Left;
         float childY = box.ContentBox.Top;
-        float childPaddingLeft = Length.ToPixelsOrDefault(style.PaddingLeft);
-        float childPaddingRight = Length.ToPixelsOrDefault(style.PaddingRight);
+        float childPaddingLeft = style.PaddingLeft.ToPixels(style.FontSize, _rootFontSize, _viewportWidth, _viewportHeight);
+        float childPaddingRight = style.PaddingRight.ToPixels(style.FontSize, _rootFontSize, _viewportWidth, _viewportHeight);
         float childAvailableWidth = Math.Max(0, box.ContentBox.Width - childPaddingLeft - childPaddingRight);
 
         switch (style.Display)
@@ -288,6 +289,10 @@ public class LayoutEngine
             return w.Value;
         if (style.Width is PercentLength wp)
             return wp.Value * availableWidth;
+        if (style.Width is EmLength em)
+            return em.Value * style.FontSize;
+        if (style.Width is RemLength rem)
+            return rem.Value * _rootFontSize;
         if (style.Width is AutoLength)
             return availableWidth;
 
@@ -300,6 +305,10 @@ public class LayoutEngine
             return h.Value;
         if (style.Height is PercentLength hp)
             return hp.Value * (parentHeight > 0 ? parentHeight : _viewportHeight);
+        if (style.Height is EmLength em)
+            return em.Value * style.FontSize;
+        if (style.Height is RemLength rem)
+            return rem.Value * _rootFontSize;
         if (style.Height is AutoLength || style.Height is null)
             return float.NaN;
 
@@ -328,6 +337,7 @@ public class LayoutEngine
 
                 if (childStyle.Position == PositionType.Absolute)
                 {
+                    // 对绝对定位元素，传入 containing block 的尺寸作为参考
                     var childBox = CreateLayoutBox(childElement, 0, 0, availableWidth, box);
                     if (childBox != null) box.Children.Add(childBox);
                     continue;
@@ -360,8 +370,8 @@ public class LayoutEngine
                 var childStyle = childElement.ComputedStyle;
                 if (childStyle == null) continue;
 
-                float marginTop = Length.ToPixelsOrDefault(childStyle.MarginTop);
-                float marginBottom = Length.ToPixelsOrDefault(childStyle.MarginBottom);
+                float marginTop = childStyle.MarginTop.ToPixels(childStyle.FontSize, _rootFontSize, _viewportWidth, _viewportHeight);
+                float marginBottom = childStyle.MarginBottom.ToPixels(childStyle.FontSize, _rootFontSize, _viewportWidth, _viewportHeight);
 
                 float actualMarginTop = Math.Max(marginTop, collapsedMarginBottom);
                 currentY += actualMarginTop;
@@ -383,7 +393,7 @@ public class LayoutEngine
                     if (!string.IsNullOrEmpty(text) && firstTextNode != null)
                     {
                         float inlineFontSize = childStyle.FontSize > 0 ? childStyle.FontSize : fontSize;
-                        float textWidth = text.Length * inlineFontSize * 0.55f;
+                        float textWidth = MeasureTextWidth(text, inlineFontSize, childStyle.FontFamily ?? style.FontFamily);
 
                         box.LineRuns ??= new List<InlineRun>();
                         box.LineRuns.Add(new InlineRun
@@ -439,7 +449,7 @@ public class LayoutEngine
                     var text = textNode.TextContent ?? "";
                     if (!string.IsNullOrEmpty(text))
                     {
-                        float textWidth = text.Length * fontSize * 0.55f;
+                        float textWidth = MeasureTextWidth(text, fontSize, style.FontFamily);
 
                         box.LineRuns ??= new List<InlineRun>();
                         box.LineRuns.Add(new InlineRun
@@ -459,13 +469,13 @@ public class LayoutEngine
         }
 
         float floatY = y;
-        foreach (var floatElem in floatLeftElements)
+            foreach (var floatElem in floatLeftElements)
         {
             var childStyle = floatElem.ComputedStyle;
             if (childStyle == null) continue;
 
-            float marginTop = Length.ToPixelsOrDefault(childStyle.MarginTop);
-            float marginLeft = Length.ToPixelsOrDefault(childStyle.MarginLeft);
+                float marginTop = childStyle.MarginTop.ToPixels(childStyle.FontSize, _rootFontSize, _viewportWidth, _viewportHeight);
+                float marginLeft = childStyle.MarginLeft.ToPixels(childStyle.FontSize, _rootFontSize, _viewportWidth, _viewportHeight);
 
             float elemWidth = 0;
             if (childStyle.Width is PixelLength w) elemWidth = w.Value;
@@ -488,8 +498,8 @@ public class LayoutEngine
             var childStyle = floatElem.ComputedStyle;
             if (childStyle == null) continue;
 
-            float marginTop = Length.ToPixelsOrDefault(childStyle.MarginTop);
-            float marginRight = Length.ToPixelsOrDefault(childStyle.MarginRight);
+            float marginTop = childStyle.MarginTop.ToPixels(childStyle.FontSize, _rootFontSize, _viewportWidth, _viewportHeight);
+            float marginRight = childStyle.MarginRight.ToPixels(childStyle.FontSize, _rootFontSize, _viewportWidth, _viewportHeight);
             floatRightY += marginTop;
 
             float elemWidth = 0;
@@ -718,9 +728,9 @@ public class LayoutEngine
         }
 
         float newContentBottom = y + totalHeight;
-        float pdBottom = Length.ToPixelsOrDefault(style.PaddingBottom);
+        float pdBottom = style.PaddingBottom.ToPixels(style.FontSize, _rootFontSize, _viewportWidth, _viewportHeight);
         float bdBottom = style.BorderBottomWidth;
-        float mgBottom = Length.ToPixelsOrDefault(style.MarginBottom);
+        float mgBottom = style.MarginBottom.ToPixels(style.FontSize, _rootFontSize, _viewportWidth, _viewportHeight);
 
         box.ContentBox = new SKRect(x, y, x + availableWidth, newContentBottom);
         box.PaddingBox = new SKRect(box.PaddingBox.Left, box.PaddingBox.Top, box.PaddingBox.Right, newContentBottom + pdBottom);
@@ -768,13 +778,24 @@ public class LayoutEngine
     {
         if (string.IsNullOrEmpty(text)) return 0;
 
-        if (TextMeasurer.Instance != null)
+        try
         {
-            return TextMeasurer.Instance.MeasureText(text, fontFamily ?? "Arial", fontSize);
+            if (TextMeasurer.Instance != null)
+            {
+                return TextMeasurer.Instance.MeasureText(text, fontFamily ?? "Arial", fontSize);
+            }
+        }
+        catch
+        {
+            // 忽略并回退到本地估算
         }
 
+        // 更保守的平均字符宽度估算（考虑中文与拉丁字符差异）
         float avgCharWidth = fontSize * 0.55f;
-        return text.Length * avgCharWidth;
+        int asciiCount = text.Count(c => c < 128);
+        int nonAscii = text.Length - asciiCount;
+        float est = asciiCount * avgCharWidth + nonAscii * (fontSize * 0.9f);
+        return est;
     }
 
     private float CalculateInlineElementWidth(Element element, float defaultFontSize)
@@ -786,7 +807,11 @@ public class LayoutEngine
         if (style.Width is PixelLength pw)
             width = pw.Value;
         else if (style.Width is PercentLength pwp)
-            width = pwp.Value * 100;
+            width = pwp.Value * defaultFontSize * 10; // fallback estimate if no available width provided
+        else if (style.Width is EmLength em)
+            width = em.Value * defaultFontSize;
+        else if (style.Width is RemLength rem)
+            width = rem.Value * _rootFontSize;
         return width;
     }
 
@@ -1091,57 +1116,97 @@ public class LayoutEngine
     {
         var style = element.ComputedStyle;
         if (style == null) return;
-
-        LayoutBox? containingBlock = parentBox;
-        if (style.Position == PositionType.Fixed)
+        // 寻找 containing block：最近的定位祖先（position != static 且已布局）
+        LayoutBox? containingBlock = null;
+        var ancestor = element.ParentElement;
+        while (ancestor != null)
         {
-            float vpWidth = viewportWidth > 0 ? viewportWidth : _viewportWidth;
-            float vpHeight = viewportHeight > 0 ? viewportHeight : _viewportHeight;
-            containingBlock = new LayoutBox
+            if (ancestor.LayoutBox != null && ancestor.ComputedStyle != null && ancestor.ComputedStyle.Position != PositionType.Static)
             {
-                ContentBox = new SKRect(0, 0, vpWidth, vpHeight)
-            };
+                containingBlock = ancestor.LayoutBox;
+                break;
+            }
+            ancestor = ancestor.ParentElement;
         }
 
-        if (containingBlock == null) return;
+        if (containingBlock == null)
+        {
+            if (style.Position == PositionType.Fixed)
+            {
+                float vpWidth = viewportWidth > 0 ? viewportWidth : _viewportWidth;
+                float vpHeight = viewportHeight > 0 ? viewportHeight : _viewportHeight;
+                containingBlock = new LayoutBox { ContentBox = new SKRect(0, 0, vpWidth, vpHeight) };
+            }
+            else
+            {
+                // 回退到父 box 或视口
+                containingBlock = parentBox ?? new LayoutBox { ContentBox = new SKRect(0, 0, _viewportWidth, _viewportHeight) };
+            }
+        }
 
-        float marginLeft = Length.ToPixelsOrDefault(style.MarginLeft);
-        float marginRight = Length.ToPixelsOrDefault(style.MarginRight);
-        float marginTop = Length.ToPixelsOrDefault(style.MarginTop);
-        float marginBottom = Length.ToPixelsOrDefault(style.MarginBottom);
-
-        float width = box.ContentBox.Width;
-        if (style.Width is PixelLength wl) width = wl.Value;
-        else if (style.Width is PercentLength wp) width = wp.Value * containingBlock.ContentBox.Width;
-
-        float height = box.ContentBox.Height;
-        if (style.Height is PixelLength hl) height = hl.Value;
-        else if (style.Height is PercentLength hp) height = hp.Value * containingBlock.ContentBox.Height;
+        float marginLeft = style.MarginLeft.ToPixels(style.FontSize, _rootFontSize, _viewportWidth, _viewportHeight);
+        float marginRight = style.MarginRight.ToPixels(style.FontSize, _rootFontSize, _viewportWidth, _viewportHeight);
+        float marginTop = style.MarginTop.ToPixels(style.FontSize, _rootFontSize, _viewportWidth, _viewportHeight);
+        float marginBottom = style.MarginBottom.ToPixels(style.FontSize, _rootFontSize, _viewportWidth, _viewportHeight);
 
         float cbLeft = containingBlock.ContentBox.Left;
         float cbTop = containingBlock.ContentBox.Top;
         float cbRight = containingBlock.ContentBox.Right;
         float cbBottom = containingBlock.ContentBox.Bottom;
 
-        float left = 0, top = 0;
+        float width = box.ContentBox.Width;
+        if (style.Width is PixelLength wl) width = wl.Value;
+        else if (style.Width is PercentLength wp) width = wp.Value * containingBlock.ContentBox.Width;
+        else if (style.Width is EmLength wem) width = wem.Value * style.FontSize;
+        else if (style.Width is RemLength wrem) width = wrem.Value * _rootFontSize;
 
-        if (style.Left is PixelLength sl) left = sl.Value + marginLeft;
-        else if (style.Left is PercentLength spl) left = spl.Value * containingBlock.ContentBox.Width + marginLeft;
+        float height = box.ContentBox.Height;
+        if (style.Height is PixelLength hl) height = hl.Value;
+        else if (style.Height is PercentLength hp) height = hp.Value * containingBlock.ContentBox.Height;
+        else if (style.Height is EmLength hem) height = hem.Value * style.FontSize;
+        else if (style.Height is RemLength hrem) height = hrem.Value * _rootFontSize;
 
-        if (style.Top is PixelLength st) top = st.Value + marginTop;
-        else if (style.Top is PercentLength spt) top = spt.Value * containingBlock.ContentBox.Height + marginTop;
+        float left = float.NaN, top = float.NaN;
 
-        if (style.Right is PixelLength sr && style.Left == null)
+        if (!(style.Left is AutoLength) && style.Left != null)
         {
-            float rightOffset = sr.Value + marginRight;
+            if (style.Left is PixelLength sl) left = sl.Value + marginLeft;
+            else if (style.Left is PercentLength spl) left = spl.Value * containingBlock.ContentBox.Width + marginLeft;
+            else if (style.Left is EmLength slem) left = slem.Value * style.FontSize + marginLeft;
+            else if (style.Left is RemLength slrem) left = slrem.Value * _rootFontSize + marginLeft;
+        }
+
+        if (!(style.Top is AutoLength) && style.Top != null)
+        {
+            if (style.Top is PixelLength st) top = st.Value + marginTop;
+            else if (style.Top is PercentLength spt) top = spt.Value * containingBlock.ContentBox.Height + marginTop;
+            else if (style.Top is EmLength stem) top = stem.Value * style.FontSize + marginTop;
+            else if (style.Top is RemLength strem) top = strem.Value * _rootFontSize + marginTop;
+        }
+
+        if (float.IsNaN(left) && style.Right != null && !(style.Right is AutoLength))
+        {
+            float rightOffset = 0;
+            if (style.Right is PixelLength sr) rightOffset = sr.Value + marginRight;
+            else if (style.Right is PercentLength spr) rightOffset = spr.Value * containingBlock.ContentBox.Width + marginRight;
+            else if (style.Right is EmLength srem) rightOffset = srem.Value * style.FontSize + marginRight;
+            else if (style.Right is RemLength srr) rightOffset = srr.Value * _rootFontSize + marginRight;
             left = cbRight - rightOffset - width;
         }
 
-        if (style.Bottom is PixelLength sb && style.Top == null)
+        if (float.IsNaN(top) && style.Bottom != null && !(style.Bottom is AutoLength))
         {
-            float bottomOffset = sb.Value + marginBottom;
+            float bottomOffset = 0;
+            if (style.Bottom is PixelLength sb) bottomOffset = sb.Value + marginBottom;
+            else if (style.Bottom is PercentLength sbp) bottomOffset = sbp.Value * containingBlock.ContentBox.Height + marginBottom;
+            else if (style.Bottom is EmLength sbe) bottomOffset = sbe.Value * style.FontSize + marginBottom;
+            else if (style.Bottom is RemLength sbr) bottomOffset = sbr.Value * _rootFontSize + marginBottom;
             top = cbBottom - bottomOffset - height;
         }
+
+        // 如果仍然未指定 left/top，则放在包含块的起点加 margin
+        if (float.IsNaN(left)) left = cbLeft + marginLeft;
+        if (float.IsNaN(top)) top = cbTop + marginTop;
 
         box.MarginBox = new SKRect(cbLeft + left, cbTop + top,
                                   cbLeft + left + width + marginRight,

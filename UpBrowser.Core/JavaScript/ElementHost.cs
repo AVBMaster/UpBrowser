@@ -291,6 +291,87 @@ public class ElementHost
         return $"{{\"top\":{box.BorderBox.Top},\"right\":{box.BorderBox.Right},\"bottom\":{box.BorderBox.Bottom},\"left\":{box.BorderBox.Left},\"width\":{box.BorderBox.Width},\"height\":{box.BorderBox.Height}}}";
     }
 
+    // Layout dimension properties
+    public float offsetWidth 
+    {
+        get 
+        {
+            var box = _element.LayoutBox;
+            if (box == null) return 0;
+            return box.BorderBox.Width;
+        }
+    }
+
+    public float offsetHeight 
+    {
+        get 
+        {
+            var box = _element.LayoutBox;
+            if (box == null) return 0;
+            return box.BorderBox.Height;
+        }
+    }
+
+    public float clientWidth 
+    {
+        get 
+        {
+            var box = _element.LayoutBox;
+            if (box == null) return 0;
+            return box.ContentBox.Width;
+        }
+    }
+
+    public float clientHeight 
+    {
+        get 
+        {
+            var box = _element.LayoutBox;
+            if (box == null) return 0;
+            return box.ContentBox.Height;
+        }
+    }
+
+    public float scrollWidth 
+    {
+        get 
+        {
+            var box = _element.LayoutBox;
+            if (box == null) return 0;
+            return box.ContentBox.Width;
+        }
+    }
+
+    public float scrollHeight 
+    {
+        get 
+        {
+            var box = _element.LayoutBox;
+            if (box == null) return 0;
+            return box.ContentBox.Height;
+        }
+    }
+
+    public float offsetTop 
+    {
+        get 
+        {
+            var box = _element.LayoutBox;
+            if (box == null) return 0;
+            return box.BorderBox.Top;
+        }
+    }
+
+    public float offsetLeft 
+    {
+        get 
+        {
+            var box = _element.LayoutBox;
+            if (box == null) return 0;
+            return box.BorderBox.Left;
+        }
+    }
+
     public object[] classListValues => _element.ClassList.Select(c => (object)c).ToArray();
 
     public bool classList_contains(string className) => _element.HasClass(className);
