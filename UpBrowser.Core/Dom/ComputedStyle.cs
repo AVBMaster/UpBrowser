@@ -400,6 +400,29 @@ public class LayoutBox
     public List<InlineRun>? LineRuns { get; set; }
     public bool IsFloating { get; set; }
     public FloatType Float { get; set; }
+
+    // 返回对齐到设备像素的边界矩形（由渲染器在绘制时调用）
+    public SKRect AlignToDevice(SKCanvas canvas)
+    {
+        try
+        {
+            var m = canvas.TotalMatrix;
+            float sx = MathF.Abs(m.ScaleX);
+            float sy = MathF.Abs(m.ScaleY);
+            if (sx <= 0) sx = 1f;
+            if (sy <= 0) sy = 1f;
+
+            float left = MathF.Round(MarginBox.Left * sx) / sx;
+            float top = MathF.Round(MarginBox.Top * sy) / sy;
+            float right = MathF.Round(MarginBox.Right * sx) / sx;
+            float bottom = MathF.Round(MarginBox.Bottom * sy) / sy;
+            return new SKRect(left, top, right, bottom);
+        }
+        catch
+        {
+            return MarginBox;
+        }
+    }
 }
 
 public class InlineRun

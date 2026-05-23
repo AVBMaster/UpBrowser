@@ -51,6 +51,18 @@ public class DocumentManager
             Console.WriteLine($"[CSS] Error computing styles: {ex.Message}");
         }
 
+        try
+        {
+            // Perform layout so elements have LayoutBox populated before any scripts query sizes
+            var layoutEngine = new UpBrowser.Core.Layout.LayoutEngine();
+            // Use a reasonable default viewport (matches debug output innerWidth/innerHeight)
+            layoutEngine.Layout(doc, 1024, 768);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[Layout] Error during layout: {ex.Message}");
+        }
+
         return new DocumentLoadResult(doc, angleSharpDoc);
     }
 

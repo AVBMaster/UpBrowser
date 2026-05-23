@@ -9,6 +9,48 @@ public abstract class PaintOp
     public int ZIndex { get; set; }
     public abstract void Execute(SKCanvas canvas);
     public virtual void Reset() { Bounds = default; ZIndex = 0; }
+
+    protected static (float scaleX, float scaleY) GetCanvasScale(SKCanvas canvas)
+    {
+        try
+        {
+            var m = canvas.TotalMatrix;
+            // SKMatrix has ScaleX/ScaleY fields
+            float sx = MathF.Abs(m.ScaleX);
+            float sy = MathF.Abs(m.ScaleY);
+            if (sx <= 0) sx = 1f;
+            if (sy <= 0) sy = 1f;
+            return (sx, sy);
+        }
+        catch
+        {
+            return (1f, 1f);
+        }
+    }
+
+    protected static float SnapToDevice(float v, float scale)
+    {
+        if (scale <= 0) return v;
+        return MathF.Round(v * scale) / scale;
+    }
+
+    protected static SKRect AlignRectToDevice(SKRect r, SKCanvas canvas)
+    {
+        var (sx, sy) = GetCanvasScale(canvas);
+        var left = SnapToDevice(r.Left, sx);
+        var top = SnapToDevice(r.Top, sy);
+        var right = SnapToDevice(r.Right, sx);
+        var bottom = SnapToDevice(r.Bottom, sy);
+        // Ensure non-negative width/height
+        if (right < left) right = left;
+        if (bottom < top) bottom = top;
+        return new SKRect(left, top, right, bottom);
+    }
+
+    public void AlignBounds(SKCanvas canvas)
+    {
+        Bounds = AlignRectToDevice(Bounds, canvas);
+    }
 }
 
 public class DrawRectOp : PaintOp
@@ -54,7 +96,8 @@ public class DrawRectOp : PaintOp
     private void ExecuteWithRoundRect(SKCanvas canvas, bool hasFill, bool hasBorder)
     {
         using var borderPath = new SKPath();
-        borderPath.AddRoundRect(Rect, BorderRadius, BorderRadius);
+        var aligned = AlignRectToDevice(Rect, canvas);
+        borderPath.AddRoundRect(aligned, BorderRadius, BorderRadius);
 
         if (hasBorder)
         {
@@ -94,6 +137,7 @@ public class DrawRectOp : PaintOp
 
     private void ExecuteWithFlatRect(SKCanvas canvas, bool hasFill, bool hasBorder)
     {
+        var alignedRect = AlignRectToDevice(Rect, canvas);
         if (hasFill)
         {
             using var paint = new SKPaint
@@ -102,7 +146,7 @@ public class DrawRectOp : PaintOp
                 Style = SKPaintStyle.Fill,
                 IsAntialias = true
             };
-            canvas.DrawRect(Rect, paint);
+            canvas.DrawRect(alignedRect, paint);
         }
 
         if (hasBorder)
@@ -114,7 +158,8 @@ public class DrawRectOp : PaintOp
                     Color = BorderTopColor,
                     Style = SKPaintStyle.Fill
                 };
-                canvas.DrawRect(Rect.Left, Rect.Top, Rect.Width, BorderTopWidth, paint);
+                var r = new SKRect(alignedRect.Left, alignedRect.Top, alignedRect.Right, alignedRect.Bottom);
+                canvas.DrawRect(r.Left, r.Top, r.Width, BorderTopWidth, paint);
             }
 
             if (BorderBottomWidth > 0)
@@ -124,7 +169,8 @@ public class DrawRectOp : PaintOp
                     Color = BorderBottomColor,
                     Style = SKPaintStyle.Fill
                 };
-                canvas.DrawRect(Rect.Left, Rect.Bottom - BorderBottomWidth, Rect.Width, BorderBottomWidth, paint);
+                var r2 = new SKRect(alignedRect.Left, alignedRect.Top, alignedRect.Right, alignedRect.Bottom);
+                canvas.DrawRect(r2.Left, r2.Bottom - BorderBottomWidth, r2.Width, BorderBottomWidth, paint);
             }
 
             if (BorderLeftWidth > 0)
@@ -134,7 +180,7 @@ public class DrawRectOp : PaintOp
                     Color = BorderLeftColor,
                     Style = SKPaintStyle.Fill
                 };
-                canvas.DrawRect(Rect.Left, Rect.Top, BorderLeftWidth, Rect.Height, paint);
+                canvas.DrawRect(alignedRect.Left, alignedRect.Top, BorderLeftWidth, alignedRect.Height, paint);
             }
 
             if (BorderRightWidth > 0)
@@ -144,7 +190,7 @@ public class DrawRectOp : PaintOp
                     Color = BorderRightColor,
                     Style = SKPaintStyle.Fill
                 };
-                canvas.DrawRect(Rect.Right - BorderRightWidth, Rect.Top, BorderRightWidth, Rect.Height, paint);
+                canvas.DrawRect(alignedRect.Right - BorderRightWidth, alignedRect.Top, BorderRightWidth, alignedRect.Height, paint);
             }
         }
     }
@@ -207,11 +253,15 @@ public class DrawTextOp : PaintOp
         else if (TextAlign == TextAlignType.End || TextAlign == TextAlignType.Right)
             x -= totalWidth;
 
-        float actualWidth = MeasureTextWithFallback(canvas, paint, x, Y, dryRun: false);
+        // Snap coordinates to device pixels to reduce subpixel differences
+        var (sx, sy) = GetCanvasScale(canvas);
+        float drawX = SnapToDevice(x, sx);
+        float drawY = SnapToDevice(Y, sy);
+        float actualWidth = MeasureTextWithFallback(canvas, paint, drawX, drawY, dryRun: false);
 
         if (Underline)
         {
-            float underlineY = Y + 2;
+            float underlineY = drawY + 2;
             using var underlinePaint = new SKPaint
             {
                 Color = Color,
@@ -219,7 +269,7 @@ public class DrawTextOp : PaintOp
                 Style = SKPaintStyle.Stroke,
                 IsAntialias = true
             };
-            canvas.DrawLine(x, underlineY, x + actualWidth, underlineY, underlinePaint);
+            canvas.DrawLine(drawX, underlineY, drawX + actualWidth, underlineY, underlinePaint);
         }
 
         if (LineThrough)
@@ -989,6 +1039,14 @@ public class DisplayList
     {
         for (int i = 0; i < _ops.Count; i++)
         {
+            try
+            {
+                _ops[i].AlignBounds(canvas);
+            }
+            catch
+            {
+                // ignore alignment errors
+            }
             _ops[i].Execute(canvas);
         }
     }
