@@ -17,7 +17,7 @@ public class DocumentManager
         _defaultHtml = BuildDefaultHtml();
     }
 
-    public async Task<DocumentLoadResult> LoadHtmlAsync(string html, string? baseUrl = null)
+    public async Task<DocumentLoadResult> LoadHtmlAsync(string html, string? baseUrl = null, float viewportWidth = 1024f, float viewportHeight = 768f, float dpiScale = 1.0f)
     {
         var config = Configuration.Default;
         var context = BrowsingContext.New(config);
@@ -55,8 +55,8 @@ public class DocumentManager
         {
             // Perform layout so elements have LayoutBox populated before any scripts query sizes
             var layoutEngine = new UpBrowser.Core.Layout.LayoutEngine();
-            // Use a reasonable default viewport (matches debug output innerWidth/innerHeight)
-            layoutEngine.Layout(doc, 1024, 768);
+            // Use provided viewport (CSS pixels). dpiScale is managed by the renderer for drawing.
+            layoutEngine.Layout(doc, viewportWidth, viewportHeight);
         }
         catch (Exception ex)
         {

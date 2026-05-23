@@ -230,52 +230,97 @@ public class DocumentHost
     public object getComputedStyle(ElementHost element)
     {
         var computedStyle = element.NativeElement.ComputedStyle;
+        Dictionary<string, string> props;
         if (computedStyle == null)
-            return new ComputedStyleHost(new Dictionary<string, string>());
-
-        var props = new Dictionary<string, string>
         {
-            ["width"] = computedStyle.Width.ToString(),
-            ["height"] = computedStyle.Height.ToString(),
-            ["display"] = computedStyle.Display.ToString().ToLowerInvariant(),
-            ["position"] = computedStyle.Position.ToString().ToLowerInvariant(),
-            ["float"] = computedStyle.Float.ToString().ToLowerInvariant(),
-            ["clear"] = computedStyle.Clear.ToString().ToLowerInvariant(),
-            ["color"] = $"rgb({computedStyle.Color.Red}, {computedStyle.Color.Green}, {computedStyle.Color.Blue})",
-            ["font-family"] = computedStyle.FontFamily ?? "",
-            ["font-size"] = $"{computedStyle.FontSize}px",
-            ["font-weight"] = computedStyle.FontWeight.ToString(),
-            ["font-style"] = computedStyle.FontStyle.ToString().ToLowerInvariant(),
-            ["line-height"] = computedStyle.LineHeight.ToString(),
-            ["text-align"] = computedStyle.TextAlign.ToString().ToLowerInvariant(),
-            ["text-decoration"] = computedStyle.TextDecoration.ToString().ToLowerInvariant(),
-            ["white-space"] = computedStyle.WhiteSpace.ToString().ToLowerInvariant(),
-            ["visibility"] = computedStyle.Visibility.ToString().ToLowerInvariant(),
-            ["overflow"] = computedStyle.Overflow.ToString().ToLowerInvariant(),
-            ["opacity"] = computedStyle.Opacity.ToString(),
-            ["z-index"] = computedStyle.ZIndex?.ToString() ?? "auto",
-            ["background-color"] = computedStyle.BackgroundColor.HasValue
-                ? $"rgba({computedStyle.BackgroundColor.Value.Red}, {computedStyle.BackgroundColor.Value.Green}, {computedStyle.BackgroundColor.Value.Blue}, {computedStyle.BackgroundColor.Value.Alpha / 255f})"
-                : "transparent",
-            ["margin-top"] = computedStyle.MarginTop.ToString(),
-            ["margin-right"] = computedStyle.MarginRight.ToString(),
-            ["margin-bottom"] = computedStyle.MarginBottom.ToString(),
-            ["margin-left"] = computedStyle.MarginLeft.ToString(),
-            ["padding-top"] = computedStyle.PaddingTop.ToString(),
-            ["padding-right"] = computedStyle.PaddingRight.ToString(),
-            ["padding-bottom"] = computedStyle.PaddingBottom.ToString(),
-            ["padding-left"] = computedStyle.PaddingLeft.ToString(),
-            ["border-top-width"] = $"{computedStyle.BorderTopWidth}px",
-            ["border-right-width"] = $"{computedStyle.BorderRightWidth}px",
-            ["border-bottom-width"] = $"{computedStyle.BorderBottomWidth}px",
-            ["border-left-width"] = $"{computedStyle.BorderLeftWidth}px",
-            ["flex-direction"] = computedStyle.FlexDirection.ToString().ToLowerInvariant(),
-            ["flex-wrap"] = computedStyle.FlexWrap.ToString().ToLowerInvariant(),
-            ["justify-content"] = computedStyle.JustifyContent.ToString().ToLowerInvariant(),
-            ["align-items"] = computedStyle.AlignItems.ToString().ToLowerInvariant()
-        };
+            // Provide reasonable UA defaults so scripts inspecting computed styles do not get undefined
+            props = CreateDefaultComputedStyleForElement(element);
+        }
+        else
+        {
+            props = new Dictionary<string, string>
+            {
+                ["width"] = computedStyle.Width.ToString(),
+                ["height"] = computedStyle.Height.ToString(),
+                ["display"] = computedStyle.Display.ToString().ToLowerInvariant(),
+                ["position"] = computedStyle.Position.ToString().ToLowerInvariant(),
+                ["float"] = computedStyle.Float.ToString().ToLowerInvariant(),
+                ["clear"] = computedStyle.Clear.ToString().ToLowerInvariant(),
+                ["color"] = $"rgb({computedStyle.Color.Red}, {computedStyle.Color.Green}, {computedStyle.Color.Blue})",
+                ["font-family"] = computedStyle.FontFamily ?? "",
+                ["font-size"] = $"{computedStyle.FontSize}px",
+                ["font-weight"] = computedStyle.FontWeight.ToString(),
+                ["font-style"] = computedStyle.FontStyle.ToString().ToLowerInvariant(),
+                ["line-height"] = computedStyle.LineHeight.ToString(),
+                ["text-align"] = computedStyle.TextAlign.ToString().ToLowerInvariant(),
+                ["text-decoration"] = computedStyle.TextDecoration.ToString().ToLowerInvariant(),
+                ["white-space"] = computedStyle.WhiteSpace.ToString().ToLowerInvariant(),
+                ["visibility"] = computedStyle.Visibility.ToString().ToLowerInvariant(),
+                ["overflow"] = computedStyle.Overflow.ToString().ToLowerInvariant(),
+                ["opacity"] = computedStyle.Opacity.ToString(),
+                ["z-index"] = computedStyle.ZIndex?.ToString() ?? "auto",
+                ["background-color"] = computedStyle.BackgroundColor.HasValue
+                    ? $"rgba({computedStyle.BackgroundColor.Value.Red}, {computedStyle.BackgroundColor.Value.Green}, {computedStyle.BackgroundColor.Value.Blue}, {computedStyle.BackgroundColor.Value.Alpha / 255f})"
+                    : "transparent",
+                ["margin-top"] = computedStyle.MarginTop.ToString(),
+                ["margin-right"] = computedStyle.MarginRight.ToString(),
+                ["margin-bottom"] = computedStyle.MarginBottom.ToString(),
+                ["margin-left"] = computedStyle.MarginLeft.ToString(),
+                ["padding-top"] = computedStyle.PaddingTop.ToString(),
+                ["padding-right"] = computedStyle.PaddingRight.ToString(),
+                ["padding-bottom"] = computedStyle.PaddingBottom.ToString(),
+                ["padding-left"] = computedStyle.PaddingLeft.ToString(),
+                ["border-top-width"] = $"{computedStyle.BorderTopWidth}px",
+                ["border-right-width"] = $"{computedStyle.BorderRightWidth}px",
+                ["border-bottom-width"] = $"{computedStyle.BorderBottomWidth}px",
+                ["border-left-width"] = $"{computedStyle.BorderLeftWidth}px",
+                ["flex-direction"] = computedStyle.FlexDirection.ToString().ToLowerInvariant(),
+                ["flex-wrap"] = computedStyle.FlexWrap.ToString().ToLowerInvariant(),
+                ["justify-content"] = computedStyle.JustifyContent.ToString().ToLowerInvariant(),
+                ["align-items"] = computedStyle.AlignItems.ToString().ToLowerInvariant()
+            };
+        }
 
         return new ComputedStyleHost(props);
+    }
+
+    private static Dictionary<string, string> CreateDefaultComputedStyleForElement(ElementHost element)
+    {
+        // Basic UA defaults to avoid undefined values when computed style is not available yet
+        var tag = element.NativeElement.TagName?.ToLowerInvariant() ?? "";
+        var blockElements = new HashSet<string>{"div","p","h1","h2","h3","h4","h5","h6","ul","ol","li","table","header","footer","section","article","nav","body"};
+        var display = blockElements.Contains(tag) ? "block" : "inline";
+
+        var d = new Dictionary<string, string>
+        {
+            ["display"] = display,
+            ["position"] = "static",
+            ["box-sizing"] = "content-box",
+            ["width"] = "auto",
+            ["height"] = "auto",
+            ["color"] = "rgb(0, 0, 0)",
+            ["font-family"] = "Arial, sans-serif",
+            ["font-size"] = "16px",
+            ["line-height"] = "16",
+            ["text-align"] = "start",
+            ["visibility"] = "visible",
+            ["overflow"] = "visible",
+            ["opacity"] = "1",
+            ["background-color"] = "transparent",
+            ["margin-top"] = "0",
+            ["margin-right"] = "0",
+            ["margin-bottom"] = "0",
+            ["margin-left"] = "0",
+            ["padding-top"] = "0",
+            ["padding-right"] = "0",
+            ["padding-bottom"] = "0",
+            ["padding-left"] = "0",
+            ["border-top-width"] = "0px",
+            ["border-right-width"] = "0px",
+            ["border-bottom-width"] = "0px",
+            ["border-left-width"] = "0px",
+        };
+        return d;
     }
 
     public object? createEvent(string type)
@@ -380,13 +425,45 @@ public class ComputedStyleHost
 
     public ComputedStyleHost(Dictionary<string, string> properties)
     {
-        _properties = properties;
+        _properties = properties ?? new Dictionary<string, string>();
     }
 
-    public string? getProperty(string name)
+    public string? getProperty(string name) => getPropertyValue(name);
+
+    public string? getPropertyValue(string name)
     {
-        return _properties.GetValueOrDefault(name?.ToLowerInvariant());
+        if (string.IsNullOrEmpty(name)) return null;
+        return _properties.GetValueOrDefault(name.ToLowerInvariant());
     }
+
+    // Common camelCase shortcuts for JS consumers
+    public string? width => getPropertyValue("width");
+    public string? height => getPropertyValue("height");
+    public string? display => getPropertyValue("display");
+    public string? position => getPropertyValue("position");
+    public string? color => getPropertyValue("color");
+    public string? fontFamily => getPropertyValue("font-family");
+    public string? fontSize => getPropertyValue("font-size");
+    public string? fontWeight => getPropertyValue("font-weight");
+    public string? fontStyle => getPropertyValue("font-style");
+    public string? lineHeight => getPropertyValue("line-height");
+    public string? textAlign => getPropertyValue("text-align");
+    public string? visibility => getPropertyValue("visibility");
+    public string? overflow => getPropertyValue("overflow");
+    public string? opacity => getPropertyValue("opacity");
+    public string? backgroundColor => getPropertyValue("background-color");
+    public string? marginTop => getPropertyValue("margin-top");
+    public string? marginRight => getPropertyValue("margin-right");
+    public string? marginBottom => getPropertyValue("margin-bottom");
+    public string? marginLeft => getPropertyValue("margin-left");
+    public string? paddingTop => getPropertyValue("padding-top");
+    public string? paddingRight => getPropertyValue("padding-right");
+    public string? paddingBottom => getPropertyValue("padding-bottom");
+    public string? paddingLeft => getPropertyValue("padding-left");
+    public string? borderTopWidth => getPropertyValue("border-top-width");
+    public string? borderRightWidth => getPropertyValue("border-right-width");
+    public string? borderBottomWidth => getPropertyValue("border-bottom-width");
+    public string? borderLeftWidth => getPropertyValue("border-left-width");
 }
 
 public class DocumentFragmentHost

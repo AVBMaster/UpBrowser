@@ -284,11 +284,32 @@ public class ElementHost
     {
     }
 
-    public string? getBoundingClientRect()
+    public object? getBoundingClientRect()
     {
         var box = _element.LayoutBox;
-        if (box == null) return null;
-        return $"{{\"top\":{box.BorderBox.Top},\"right\":{box.BorderBox.Right},\"bottom\":{box.BorderBox.Bottom},\"left\":{box.BorderBox.Left},\"width\":{box.BorderBox.Width},\"height\":{box.BorderBox.Height}}}";
+        if (box == null)
+        {
+            // Return zeros instead of null so JS callers can safely call properties/toFixed
+            return new Dictionary<string, double>
+            {
+                ["top"] = 0,
+                ["right"] = 0,
+                ["bottom"] = 0,
+                ["left"] = 0,
+                ["width"] = 0,
+                ["height"] = 0
+            };
+        }
+
+        return new Dictionary<string, double>
+        {
+            ["top"] = box.BorderBox.Top,
+            ["right"] = box.BorderBox.Right,
+            ["bottom"] = box.BorderBox.Bottom,
+            ["left"] = box.BorderBox.Left,
+            ["width"] = box.BorderBox.Width,
+            ["height"] = box.BorderBox.Height
+        };
     }
 
     // Layout dimension properties

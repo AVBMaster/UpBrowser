@@ -706,13 +706,18 @@ var winWindow = PlatformFactory.CreateWindowsWindow(physicalWidth, physicalHeigh
         _sharedTypefaceCache.Clear();
 
         // Parse HTML on background thread
+        // Capture current viewport and dpi so layout during load uses correct CSS pixel size
+        var (pw_cap, ph_cap) = _window.GetClientSize();
+        float viewportWidthCss_cap = pw_cap / _dpiScale;
+        float viewportHeightCss_cap = ph_cap / _dpiScale;
+
         Task.Run(async () =>
         {
             DocumentManager.DocumentLoadResult? loadResult = null;
             try
             {
                 var docManager = new DocumentManager();
-                loadResult = await docManager.LoadHtmlAsync(html, baseUrl);
+                loadResult = await docManager.LoadHtmlAsync(html, baseUrl, viewportWidthCss_cap, viewportHeightCss_cap, _dpiScale);
             }
             catch (Exception ex)
             {
@@ -726,7 +731,7 @@ var winWindow = PlatformFactory.CreateWindowsWindow(physicalWidth, physicalHeigh
                 try
                 {
                     var docManager = new DocumentManager();
-                    loadResult = await docManager.LoadHtmlAsync(errorHtml, baseUrl);
+                    loadResult = await docManager.LoadHtmlAsync(errorHtml, baseUrl, viewportWidthCss_cap, viewportHeightCss_cap, _dpiScale);
                 }
                 catch { return; }
             }
