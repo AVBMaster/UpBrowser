@@ -22,7 +22,7 @@ public class MacWindow : IWindow
     public Action<Key>? OnKeyDown { get; set; }
     public Action<float, float>? OnMouseMove { get; set; }
     public Action<float, float, bool>? OnMouseClick { get; set; }
-    public Action<double>? OnMouseWheel { get; set; }
+    public Action<double, double>? OnMouseWheel { get; set; }  // 修改为双参数
     public Action<float>? OnDpiChanged { get; set; }
     public Action? OnSetFocus { get; set; }
     public Action? OnKillFocus { get; set; }

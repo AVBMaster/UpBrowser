@@ -39,23 +39,21 @@ public class LayoutDevTool
     {
         var indent = new string(' ', depth * 2);
         var style = element.ComputedStyle;
-        var display = style?.Display.ToString().ToLowerInvariant() ?? "none";
-        var pos = style?.Position.ToString().ToLowerInvariant() ?? "static";
-        string boxSizing = "content-box";
-        if (style != null)
-        {
-            boxSizing = style.BoxSizing == BoxSizingType.BorderBox ? "border-box" : "content-box";
-        }
+        // 修复问题5：使用 ToCssString 格式化 display
+        var display = style?.Display.ToCssString() ?? "none";
+        var pos = style?.Position.ToCssString() ?? "static";
+        string boxSizing = style?.BoxSizing.ToCssString() ?? "content-box";
 
         _sb.AppendLine($"{indent}├─ <{element.TagName}> id=\"{element.Id ?? ""}\" class=\"{element.ClassName ?? ""}\"");
         _sb.AppendLine($"{indent}│  display={display}, position={pos}, boxSizing={boxSizing}");
 
         if (style != null)
         {
-            _sb.AppendLine($"{indent}│  width={style.Width} height={style.Height}");
-            _sb.AppendLine($"{indent}│  margin={FormatLength(style.MarginTop)}/{FormatLength(style.MarginRight)}/{FormatLength(style.MarginBottom)}/{FormatLength(style.MarginLeft)}");
-            _sb.AppendLine($"{indent}│  padding={FormatLength(style.PaddingTop)}/{FormatLength(style.PaddingRight)}/{FormatLength(style.PaddingBottom)}/{FormatLength(style.PaddingLeft)}");
-            var lineH = style.LineHeight == 1.2f ? "normal" : $"{style.LineHeight}px";
+            // 修复问题8：输出计算后的像素值
+            _sb.AppendLine($"{indent}│  width={FormatLength(style.Width, style)} height={FormatLength(style.Height, style)}");
+            _sb.AppendLine($"{indent}│  margin={FormatLength(style.MarginTop, style)}/{FormatLength(style.MarginRight, style)}/{FormatLength(style.MarginBottom, style)}/{FormatLength(style.MarginLeft, style)}");
+            _sb.AppendLine($"{indent}│  padding={FormatLength(style.PaddingTop, style)}/{FormatLength(style.PaddingRight, style)}/{FormatLength(style.PaddingBottom, style)}/{FormatLength(style.PaddingLeft, style)}");
+            var lineH = style.LineHeight == 1.2f ? "normal" : $"{style.LineHeight:F1}";
             _sb.AppendLine($"{indent}│  lineHeight={lineH}");
         }
 
@@ -152,9 +150,13 @@ public class LayoutDevTool
         return $"L={rect.Left:F1}, T={rect.Top:F1}, R={rect.Right:F1}, B={rect.Bottom:F1} (W={rect.Width:F1}, H={rect.Height:F1})";
     }
 
-    private static string FormatLength(Length? length)
+    // 修复问题8：增加 style 参数以获取计算后的像素值
+    private static string FormatLength(Length? length, ComputedStyle? style = null, float reference = 16f)
     {
-        return length?.ToCssString() ?? "0px";
+        if (length == null) return "0px";
+        if (style != null)
+            return style.FormatComputedLength(length, reference);
+        return length.ToCssString();
     }
 
     private void Indent() => _sb.Append("  ");

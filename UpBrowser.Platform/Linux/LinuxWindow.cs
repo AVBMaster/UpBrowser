@@ -26,7 +26,7 @@ public class LinuxWindow : IWindow
     public Action<Key>? OnKeyDown { get; set; }
     public Action<float, float>? OnMouseMove { get; set; }
     public Action<float, float, bool>? OnMouseClick { get; set; }
-    public Action<double>? OnMouseWheel { get; set; }
+    public Action<double, double>? OnMouseWheel { get; set; }  // 修改为双参数
     public Action<float>? OnDpiChanged { get; set; }
     public Action? OnSetFocus { get; set; }
     public Action? OnKillFocus { get; set; }
@@ -77,10 +77,14 @@ public class LinuxWindow : IWindow
                     case 4: // ButtonPress
                         var bx = (float)xevent.xbutton.x;
                         var by = (float)xevent.xbutton.y;
-                        if (xevent.xbutton.button == 4)
-                            OnMouseWheel?.Invoke(-1.0);
-                        else if (xevent.xbutton.button == 5)
-                            OnMouseWheel?.Invoke(1.0);
+                        if (xevent.xbutton.button == 4)      // 滚轮向上
+                            OnMouseWheel?.Invoke(0, -1.0);
+                        else if (xevent.xbutton.button == 5) // 滚轮向下
+                            OnMouseWheel?.Invoke(0, 1.0);
+                        else if (xevent.xbutton.button == 6) // 水平向左（某些设备）
+                            OnMouseWheel?.Invoke(-1.0, 0);
+                        else if (xevent.xbutton.button == 7) // 水平向右
+                            OnMouseWheel?.Invoke(1.0, 0);
                         else
                             OnMouseClick?.Invoke(bx, by, xevent.xbutton.button == 1);
                         break;

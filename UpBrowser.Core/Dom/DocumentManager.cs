@@ -53,10 +53,8 @@ public class DocumentManager
 
         try
         {
-            // Perform layout so elements have LayoutBox populated before any scripts query sizes
             var layoutEngine = new UpBrowser.Core.Layout.LayoutEngine();
-            // Use provided viewport (CSS pixels). dpiScale is managed by the renderer for drawing.
-            layoutEngine.Layout(doc, viewportWidth, viewportHeight);
+            layoutEngine.Layout(doc, viewportWidth, viewportHeight, dpiScale);
         }
         catch (Exception ex)
         {
@@ -71,7 +69,6 @@ public class DocumentManager
     private async Task LoadStylesFromHtml(AngleSharp.Dom.IDocument angleSharpDoc, StyleComputer styleComputer, string? baseUrl)
     {
         var elements = angleSharpDoc.All;
-
         var styleElements = elements.Where(e => e.LocalName?.ToLowerInvariant() == "style");
         foreach (var styleElement in styleElements)
         {
@@ -99,10 +96,8 @@ public class DocumentManager
         {
             var href = link.GetAttribute("href");
             if (string.IsNullOrEmpty(href)) continue;
-
             var url = ResolveUrl(baseUrl, href);
             if (url == null) continue;
-
             try
             {
                 using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
@@ -120,8 +115,6 @@ public class DocumentManager
 
     private async Task ProcessImports(object stylesheet, StyleComputer styleComputer, string? baseUrl)
     {
-        // @import handling requires AngleSharp.Css.Dom types that may not be available
-        // External stylesheets are loaded via <link> elements instead
         await Task.CompletedTask;
     }
 
@@ -130,14 +123,12 @@ public class DocumentManager
         if (string.IsNullOrEmpty(href)) return null;
         if (href.StartsWith("http://") || href.StartsWith("https://") || href.StartsWith("data:") || href.StartsWith("blob:"))
             return href;
-
         if (href.StartsWith("//"))
         {
             if (!string.IsNullOrEmpty(baseUrl) && baseUrl.StartsWith("https://"))
                 return "https:" + href;
             return "http:" + href;
         }
-
         if (baseUrl != null && (baseUrl.StartsWith("http://") || baseUrl.StartsWith("https://")))
         {
             try
@@ -151,13 +142,15 @@ public class DocumentManager
                 return null;
             }
         }
-
         return null;
     }
 
     private void ConvertHtmlToDom(AngleSharp.Dom.IElement source, Document target)
     {
         if (source == null) return;
+        var htmlElement = new HtmlElement("html");
+        target.DocumentElement = htmlElement;
+        target.AppendChild(htmlElement);
 
         foreach (var child in source.ChildNodes)
         {
@@ -166,48 +159,44 @@ public class DocumentManager
                 if (child is AngleSharp.Dom.IElement childElement)
                 {
                     var element = new HtmlElement(childElement.LocalName);
-
                     foreach (var attr in childElement.Attributes)
                     {
                         if (!string.IsNullOrEmpty(attr.Name))
                             element.Attributes[attr.Name] = attr.Value ?? "";
                     }
-
                     if (childElement.HasAttribute("style"))
                     {
                         var props = _cssParser.ParseInlineStyle(childElement.GetAttribute("style") ?? "");
                         foreach (var prop in props)
                             element.Style[prop.Key] = prop.Value;
                     }
-
                     var tagName = childElement.LocalName?.ToLowerInvariant();
-
-                    if (tagName == "html")
+                    if (tagName == "html") { }
+                    else if (tagName == "head")
                     {
-                        target.DocumentElement = element;
+                        target.Head = element;
+                        htmlElement.AppendChild(element);
                         ConvertElementChildren(childElement, element);
                     }
                     else if (tagName == "body")
                     {
                         target.Body = element;
-                        if (target.DocumentElement == null)
-                            target.DocumentElement = element;
-                        ConvertElementChildren(childElement, element);
-                    }
-                    else if (tagName == "head")
-                    {
-                        target.Head = element;
+                        htmlElement.AppendChild(element);
                         ConvertElementChildren(childElement, element);
                     }
                     else if (tagName == "title")
                     {
                         target.Title = childElement.TextContent ?? "";
+                        if (target.Head != null)
+                        {
+                            var titleElem = new HtmlElement("title");
+                            titleElem.AppendChild(new TextNode(childElement.TextContent ?? ""));
+                            target.Head.AppendChild(titleElem);
+                        }
                     }
                     else
                     {
-                        if (target.DocumentElement == null)
-                            target.DocumentElement = element;
-                        target.AppendChild(element);
+                        htmlElement.AppendChild(element);
                         ConvertElementChildren(childElement, element);
                     }
                 }
@@ -215,7 +204,7 @@ public class DocumentManager
                 {
                     var text = NormalizeTextContent(child.TextContent ?? "");
                     if (!string.IsNullOrWhiteSpace(text))
-                        target.AppendChild(new TextNode(text));
+                        htmlElement.AppendChild(new TextNode(text));
                 }
             }
             catch (Exception ex)
@@ -228,7 +217,6 @@ public class DocumentManager
     private void ConvertElementChildren(AngleSharp.Dom.INode source, Element target)
     {
         if (source == null || target == null) return;
-
         foreach (var child in source.ChildNodes)
         {
             try
@@ -236,20 +224,17 @@ public class DocumentManager
                 if (child is AngleSharp.Dom.IElement childElement)
                 {
                     var element = new HtmlElement(childElement.LocalName);
-
                     foreach (var attr in childElement.Attributes)
                     {
                         if (!string.IsNullOrEmpty(attr.Name))
                             element.Attributes[attr.Name] = attr.Value ?? "";
                     }
-
                     if (childElement.HasAttribute("style"))
                     {
                         var props = _cssParser.ParseInlineStyle(childElement.GetAttribute("style") ?? "");
                         foreach (var prop in props)
                             element.Style[prop.Key] = prop.Value;
                     }
-
                     target.AppendChild(element);
                     ConvertElementChildren(childElement, element);
                 }
@@ -319,7 +304,6 @@ public class DocumentManager
     <div style='position: relative; height: 100px; margin-top: 20px; background: #fff3e0;'>
         <div style='position: absolute; top: 10px; right: 10px; background: #ff5722; color: white; padding: 5px 10px;'>Absolute Position</div>
     </div>
-
 <script>
 (function() {
     var allLines = [];
@@ -359,7 +343,6 @@ public class DocumentManager
 
     traverse(document.documentElement, 0);
     allLines.push(""========== 报告结束 =========="");
-
     console.log(allLines.join(""\n""));
 })();
 </script></body>

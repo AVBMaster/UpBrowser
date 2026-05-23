@@ -28,7 +28,6 @@ public class ScrollManager
     private float _viewportWidth;
     private float _viewportHeight;
 
-    // 参考 ScrollViewer：正确设置 Content/Viewport/MaxScroll
     public void UpdateScroll(float contentWidth, float contentHeight, float viewportWidth, float viewportHeight)
     {
         ContentWidth = contentWidth;
@@ -46,7 +45,6 @@ public class ScrollManager
         ScrollY = Math.Max(0, Math.Min(ScrollY, MaxScrollY));
     }
 
-    // 兼容旧调用：只更新高度
     public void UpdateScroll(float contentHeight, float viewportHeight)
     {
         UpdateScroll(ContentWidth, contentHeight, ViewportWidth, viewportHeight);
@@ -63,11 +61,8 @@ public class ScrollManager
         ScrollY = Math.Max(0, Math.Min(y, MaxScrollY));
     }
 
-    // 参考 ScrollViewer.OnMouseWheel：delta 正数=向上滚动
     public void ScrollBy(float delta)
     {
-        // Windows WM_MOUSEWHEEL: delta正数=滚轮向上滚动
-        // 我们希望向上滚动时内容向下移动，所以ScrollY减小
         float scrollAmount = -delta / 120.0f * 40.0f;
         ScrollTo(ScrollY + scrollAmount);
     }

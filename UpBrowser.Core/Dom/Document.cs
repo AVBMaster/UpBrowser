@@ -1,8 +1,20 @@
+using SkiaSharp;
+
 namespace UpBrowser.Core.Dom;
 
 public class Document : Node
 {
-    public Element? DocumentElement { get; set; }
+    private Element? _documentElement;
+    public Element? DocumentElement
+    {
+        get => _documentElement;
+        set
+        {
+            _documentElement = value;
+            if (value != null && !Children.Contains(value))
+                AppendChild(value);
+        }
+    }
     public Element? Body { get; set; }
     public Element? Head { get; set; }
     public string Title { get; set; } = string.Empty;
@@ -110,7 +122,7 @@ public abstract class Element : Node
 
     public Element(string tagName) : base(tagName.ToUpperInvariant())
     {
-        TagName = tagName;
+        TagName = tagName.ToUpperInvariant();
     }
 
     public override NodeType NodeType => NodeType.Element;
@@ -159,6 +171,122 @@ public abstract class Element : Node
     public int SelectionStart { get; set; }
     public int SelectionEnd { get; set; }
     public bool IsFocused { get; set; }
+
+    // ===== 新增标准 DOM 布局属性（修复问题1、2） =====
+
+    /// <summary>
+    /// 标准 DOM API: getBoundingClientRect()
+    /// 对 inline 元素聚合所有子文本片段的边界
+    /// </summary>
+    public SKRect GetBoundingClientRect()
+    {
+        if (LayoutBox != null && LayoutBox.BorderBox.Width > 0 && LayoutBox.BorderBox.Height > 0)
+        {
+            return LayoutBox.BorderBox;
+        }
+
+        var rect = new SKRect(0, 0, 0, 0);
+        bool first = true;
+
+        if (LayoutBox?.LineRuns != null)
+        {
+            foreach (var run in LayoutBox.LineRuns)
+            {
+                if (run.Width > 0 || run.Height > 0)
+                {
+                    var runRect = new SKRect(run.X, 0, run.X + run.Width, run.Height);
+                    rect = first ? runRect : SKRect.Union(rect, runRect);
+                    first = false;
+                }
+            }
+        }
+
+        foreach (var child in Children.OfType<Element>())
+        {
+            var childRect = child.GetBoundingClientRect();
+            if (childRect.Width > 0 || childRect.Height > 0)
+            {
+                rect = first ? childRect : SKRect.Union(rect, childRect);
+                first = false;
+            }
+        }
+
+        return rect;
+    }
+
+    /// <summary>
+    /// offsetParent: 最近的定位祖先或特殊元素
+    /// </summary>
+    public Element? OffsetParent
+    {
+        get
+        {
+            var parent = ParentElement;
+            while (parent != null)
+            {
+                var pos = parent.ComputedStyle?.Position;
+                if (pos != PositionType.Static ||
+                    parent.TagName is "TD" or "TH" or "TABLE" or "BODY")
+                    return parent;
+                parent = parent.ParentElement;
+            }
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// offsetTop: 相对于 offsetParent 的顶部偏移
+    /// </summary>
+    public float OffsetTop
+    {
+        get
+        {
+            if (LayoutBox == null) return 0;
+            var myTop = LayoutBox.BorderBox.Top;
+            var parentTop = OffsetParent?.LayoutBox?.BorderBox.Top ?? 0;
+            return myTop - parentTop;
+        }
+    }
+
+    /// <summary>
+    /// offsetLeft: 相对于 offsetParent 的左侧偏移
+    /// </summary>
+    public float OffsetLeft
+    {
+        get
+        {
+            if (LayoutBox == null) return 0;
+            var myLeft = LayoutBox.BorderBox.Left;
+            var parentLeft = OffsetParent?.LayoutBox?.BorderBox.Left ?? 0;
+            return myLeft - parentLeft;
+        }
+    }
+
+    /// <summary>
+    /// offsetWidth: 包含 border + padding + content
+    /// </summary>
+    public float OffsetWidth => LayoutBox?.BorderBox.Width ?? 0;
+
+    /// <summary>
+    /// offsetHeight: 包含 border + padding + content
+    /// </summary>
+    public float OffsetHeight => LayoutBox?.BorderBox.Height ?? 0;
+
+    /// <summary>
+    /// clientWidth: 包含 padding + content (不含 border)
+    /// </summary>
+    public float ClientWidth => LayoutBox?.PaddingBox.Width ?? 0;
+
+    /// <summary>
+    /// clientHeight: 包含 padding + content (不含 border)
+    /// </summary>
+    public float ClientHeight => LayoutBox?.PaddingBox.Height ?? 0;
+
+    /// <summary>
+    /// scrollWidth/Height: 内容溢出尺寸
+    /// </summary>
+    public float ScrollWidth => Math.Max(ClientWidth, LayoutBox?.ContentBox.Width ?? 0);
+    public float ScrollHeight => Math.Max(ClientHeight, LayoutBox?.ContentBox.Height ?? 0);
 }
 
 public class TextNode : Node

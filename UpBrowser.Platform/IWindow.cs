@@ -14,7 +14,10 @@ public interface IWindow : IDisposable
     Action<Key>? OnKeyDown { get; set; }
     Action<float, float>? OnMouseMove { get; set; }
     Action<float, float, bool>? OnMouseClick { get; set; }
-    Action<double>? OnMouseWheel { get; set; }
+    /// <summary>
+    /// 滚动事件参数: deltaX (水平), deltaY (垂直)
+    /// </summary>
+    Action<double, double>? OnMouseWheel { get; set; }
     Action<float>? OnDpiChanged { get; set; }
     Action? OnSetFocus { get; set; }
     Action? OnKillFocus { get; set; }

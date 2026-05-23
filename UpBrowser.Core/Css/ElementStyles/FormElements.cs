@@ -96,6 +96,7 @@ public static class FormElements
 
             case "button":
                 style.Display = DisplayType.InlineBlock;
+                style.BoxSizing = BoxSizingType.BorderBox;  // 修复问题6
 
                 // 边框
                 style.BorderTopWidth = 2;

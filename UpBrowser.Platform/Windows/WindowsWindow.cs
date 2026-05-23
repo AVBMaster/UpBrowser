@@ -10,7 +10,7 @@ public class WindowsWindow : IWindow
     private bool _disposed;
     private bool _isRunning;
     private Action<double>? _onFrame;
-    private Action<double>? _onMouseWheel;
+    private Action<double, double>? _onMouseWheel;
     private Action<Key>? _onKeyDown;
     private DateTime _lastFrameTime;
     private int _width;
@@ -62,7 +62,7 @@ public class WindowsWindow : IWindow
         set => _onMouseClick = value;
     }
 
-    public Action<double>? OnMouseWheel
+    public Action<double, double>? OnMouseWheel
     {
         get => _onMouseWheel;
         set => _onMouseWheel = value;
@@ -222,7 +222,6 @@ public class WindowsWindow : IWindow
 
         _imeHandler = new WindowsImeHandler(_hwnd);
 
-        // Initially detach IME context (no input target yet)
         _detachedImeContext = Imm32Interop.ImmAssociateContext(_hwnd, IntPtr.Zero);
         _imeContextDetached = true;
 
@@ -241,15 +240,12 @@ public class WindowsWindow : IWindow
 
             case NativeWindow.WM_PAINT:
                 {
-                    // 必须调用 BeginPaint/EndPaint 来验证更新区域，
-                    // 否则 Windows 会无限生成 WM_PAINT 消息导致 CPU 100%
                     NativeWindow.BeginPaint(hWnd, out var ps);
                     NativeWindow.EndPaint(hWnd, ref ps);
                     return IntPtr.Zero;
                 }
 
             case NativeWindow.WM_ERASEBKGND:
-                // 返回 1 表示已擦除背景，禁止 DefWindowProc 擦除（避免闪烁）
                 return new IntPtr(1);
 
             case NativeWindow.WM_NCPAINT:
@@ -295,7 +291,14 @@ public class WindowsWindow : IWindow
             case NativeWindow.WM_MOUSEWHEEL:
                 {
                     int rawDelta = (int)((short)((wParam.ToInt64() >> 16) & 0xFFFF));
-                    _onMouseWheel?.Invoke(rawDelta);
+                    _onMouseWheel?.Invoke(0, rawDelta);
+                    return IntPtr.Zero;
+                }
+
+            case 0x020E: // WM_MOUSEHWHEEL
+                {
+                    int rawDelta = (int)((short)((wParam.ToInt64() >> 16) & 0xFFFF));
+                    _onMouseWheel?.Invoke(rawDelta, 0);
                     return IntPtr.Zero;
                 }
 
@@ -447,7 +450,6 @@ public class WindowsWindow : IWindow
         NativeWindow.MSG msg;
         while (_isRunning)
         {
-            // 一次性处理完所有待处理消息，减少循环次数
             bool hasMessage = false;
             while (NativeWindow.PeekMessageW(out msg, IntPtr.Zero, 0, 0, 1))
             {
@@ -473,8 +475,6 @@ public class WindowsWindow : IWindow
                 }
                 else if (!hasMessage)
                 {
-                    // 精确计算剩余帧预算时间，线程在此长时间休眠（非自旋）
-                    // 帧率为 60fps，空转时约休眠 15ms，CPU 占用接近 0
                     var elapsed = (DateTime.Now - _lastFrameTime).TotalMilliseconds;
                     int sleepMs = Math.Max(1, (int)(16.5 - elapsed));
                     if (sleepMs > 0)

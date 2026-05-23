@@ -50,15 +50,19 @@ public abstract class Length
         if (value.EndsWith("%") && float.TryParse(value[..^2], out var pct)) return pct / 100f * parentFontSize;
         return value.ToLowerInvariant() switch
         {
-            "xx-small" => 10, "x-small" => 12, "small" => 14, "medium" => 16,
-            "large" => 18, "x-large" => 24, "xx-large" => 32, _ => 16
+            "xx-small" => 10,
+            "x-small" => 12,
+            "small" => 14,
+            "medium" => 16,
+            "large" => 18,
+            "x-large" => 24,
+            "xx-large" => 32,
+            _ => 16
         };
     }
 
     public static float ToPixelsOrDefault(Length length, float defaultValue = 0)
     {
-        // 保持向后兼容：默认参数 defaultValue 作为参考值（对于 em、% 等）
-        // 如果没有提供参考值，使用合理的回退值（根字体 16px，视口宽度 100px 作为百分比回退）
         if (length == null) return defaultValue;
         if (length is PixelLength p) return p.Value;
         if (length is EmLength e)
@@ -68,13 +72,11 @@ public abstract class Length
         }
         if (length is RemLength r)
         {
-            // rem 相对于根字体大小，默认根字体 16px
             var root = defaultValue > 0 ? defaultValue : 16f;
             return r.Value * root;
         }
         if (length is PercentLength perc)
         {
-            // 百分比需要一个参考值，如果提供则按参考值计算，否则退回到 0（不假定任意宽度）
             var reference = defaultValue > 0 ? defaultValue : 0f;
             return perc.Value * reference;
         }
@@ -262,37 +264,127 @@ public class ComputedStyle
         return Height.ToPixels(viewportHeight, rootFontSize, 0, viewportHeight);
     }
 
+    /// <summary>
+    /// 获取计算后的像素值（用于 getComputedStyle）
+    /// </summary>
+    public float GetComputedPixel(Length length, float reference = 16f, float rootFontSize = 16f,
+        float viewportWidth = 0, float viewportHeight = 0)
+    {
+        if (length is PixelLength p) return p.Value;
+        if (length is AutoLength) return float.NaN;
+        return length.ToPixels(reference, rootFontSize, viewportWidth, viewportHeight);
+    }
+
+    /// <summary>
+    /// 格式化长度为 CSS 像素字符串
+    /// </summary>
+    public string FormatComputedLength(Length length, float reference = 16f)
+    {
+        var px = GetComputedPixel(length, reference, FontSize, 0, 0);
+        if (float.IsNaN(px)) return "auto";
+        return $"{px:F1}px";
+    }
+
     public ComputedStyle Clone()
     {
         return new ComputedStyle
         {
-            Width = Width, Height = Height, Top = Top, Left = Left, Right = Right, Bottom = Bottom,
-            MarginTop = MarginTop, MarginRight = MarginRight, MarginBottom = MarginBottom, MarginLeft = MarginLeft,
-            PaddingTop = PaddingTop, PaddingRight = PaddingRight, PaddingBottom = PaddingBottom, PaddingLeft = PaddingLeft,
-            BorderTopWidth = BorderTopWidth, BorderRightWidth = BorderRightWidth, BorderBottomWidth = BorderBottomWidth, BorderLeftWidth = BorderLeftWidth,
-            BorderTopColor = BorderTopColor, BorderRightColor = BorderRightColor, BorderBottomColor = BorderBottomColor, BorderLeftColor = BorderLeftColor,
-            BorderTopStyle = BorderTopStyle, BorderRightStyle = BorderRightStyle, BorderBottomStyle = BorderBottomStyle, BorderLeftStyle = BorderLeftStyle,
-            BorderTopLeftRadius = BorderTopLeftRadius, BorderTopRightRadius = BorderTopRightRadius, BorderBottomRightRadius = BorderBottomRightRadius, BorderBottomLeftRadius = BorderBottomLeftRadius,
-            Display = Display, Position = Position, Float = Float, Clear = Clear,
-            FontFamily = FontFamily, FontSize = FontSize, FontWeight = FontWeight, FontStyle = FontStyle, LineHeight = LineHeight,
-            Color = Color, BackgroundColor = BackgroundColor, BackgroundImage = BackgroundImage,
-            BackgroundPositionX = BackgroundPositionX, BackgroundPositionY = BackgroundPositionY,
-            BackgroundRepeat = BackgroundRepeat, BackgroundAttachment = BackgroundAttachment,
-            TextAlign = TextAlign, TextDecoration = TextDecoration, VerticalAlign = VerticalAlign, WhiteSpace = WhiteSpace,
-            Overflow = Overflow, OverflowX = OverflowX, OverflowY = OverflowY, Visibility = Visibility,
-            ZIndex = ZIndex, Cursor = Cursor, Opacity = Opacity, BoxShadow = BoxShadow,
-            BackgroundSize = BackgroundSize, BackgroundSizeWidth = BackgroundSizeWidth, BackgroundSizeHeight = BackgroundSizeHeight,
-            FlexDirection = FlexDirection, FlexWrap = FlexWrap, FlexGrow = FlexGrow, FlexShrink = FlexShrink, FlexBasis = FlexBasis,
-            JustifyContent = JustifyContent, AlignItems = AlignItems, AlignSelf = AlignSelf,
-            MinWidth = MinWidth, MaxWidth = MaxWidth, MinHeight = MinHeight, MaxHeight = MaxHeight,
-            BoxSizing = BoxSizing, BorderCollapse = BorderCollapse,
-            ListStyleType = ListStyleType, ListStyleImage = ListStyleImage, ListStylePosition = ListStylePosition,
-            Transform = Transform, Transition = Transition, Animation = Animation,
-            PointerEvents = PointerEvents, UserSelect = UserSelect, Direction = Direction,
-            LetterSpacing = LetterSpacing, WordSpacing = WordSpacing, TextIndent = TextIndent, TextTransform = TextTransform,
-            RowGap = RowGap, ColumnGap = ColumnGap,
-            OutlineWidth = OutlineWidth, OutlineColor = OutlineColor, OutlineStyle = OutlineStyle,
-            TableLayout = TableLayout, CaptionSide = CaptionSide, EmptyCells = EmptyCells,
+            Width = Width,
+            Height = Height,
+            Top = Top,
+            Left = Left,
+            Right = Right,
+            Bottom = Bottom,
+            MarginTop = MarginTop,
+            MarginRight = MarginRight,
+            MarginBottom = MarginBottom,
+            MarginLeft = MarginLeft,
+            PaddingTop = PaddingTop,
+            PaddingRight = PaddingRight,
+            PaddingBottom = PaddingBottom,
+            PaddingLeft = PaddingLeft,
+            BorderTopWidth = BorderTopWidth,
+            BorderRightWidth = BorderRightWidth,
+            BorderBottomWidth = BorderBottomWidth,
+            BorderLeftWidth = BorderLeftWidth,
+            BorderTopColor = BorderTopColor,
+            BorderRightColor = BorderRightColor,
+            BorderBottomColor = BorderBottomColor,
+            BorderLeftColor = BorderLeftColor,
+            BorderTopStyle = BorderTopStyle,
+            BorderRightStyle = BorderRightStyle,
+            BorderBottomStyle = BorderBottomStyle,
+            BorderLeftStyle = BorderLeftStyle,
+            BorderTopLeftRadius = BorderTopLeftRadius,
+            BorderTopRightRadius = BorderTopRightRadius,
+            BorderBottomRightRadius = BorderBottomRightRadius,
+            BorderBottomLeftRadius = BorderBottomLeftRadius,
+            Display = Display,
+            Position = Position,
+            Float = Float,
+            Clear = Clear,
+            FontFamily = FontFamily,
+            FontSize = FontSize,
+            FontWeight = FontWeight,
+            FontStyle = FontStyle,
+            LineHeight = LineHeight,
+            Color = Color,
+            BackgroundColor = BackgroundColor,
+            BackgroundImage = BackgroundImage,
+            BackgroundPositionX = BackgroundPositionX,
+            BackgroundPositionY = BackgroundPositionY,
+            BackgroundRepeat = BackgroundRepeat,
+            BackgroundAttachment = BackgroundAttachment,
+            TextAlign = TextAlign,
+            TextDecoration = TextDecoration,
+            VerticalAlign = VerticalAlign,
+            WhiteSpace = WhiteSpace,
+            Overflow = Overflow,
+            OverflowX = OverflowX,
+            OverflowY = OverflowY,
+            Visibility = Visibility,
+            ZIndex = ZIndex,
+            Cursor = Cursor,
+            Opacity = Opacity,
+            BoxShadow = BoxShadow,
+            BackgroundSize = BackgroundSize,
+            BackgroundSizeWidth = BackgroundSizeWidth,
+            BackgroundSizeHeight = BackgroundSizeHeight,
+            FlexDirection = FlexDirection,
+            FlexWrap = FlexWrap,
+            FlexGrow = FlexGrow,
+            FlexShrink = FlexShrink,
+            FlexBasis = FlexBasis,
+            JustifyContent = JustifyContent,
+            AlignItems = AlignItems,
+            AlignSelf = AlignSelf,
+            MinWidth = MinWidth,
+            MaxWidth = MaxWidth,
+            MinHeight = MinHeight,
+            MaxHeight = MaxHeight,
+            BoxSizing = BoxSizing,
+            BorderCollapse = BorderCollapse,
+            ListStyleType = ListStyleType,
+            ListStyleImage = ListStyleImage,
+            ListStylePosition = ListStylePosition,
+            Transform = Transform,
+            Transition = Transition,
+            Animation = Animation,
+            PointerEvents = PointerEvents,
+            UserSelect = UserSelect,
+            Direction = Direction,
+            LetterSpacing = LetterSpacing,
+            WordSpacing = WordSpacing,
+            TextIndent = TextIndent,
+            TextTransform = TextTransform,
+            RowGap = RowGap,
+            ColumnGap = ColumnGap,
+            OutlineWidth = OutlineWidth,
+            OutlineColor = OutlineColor,
+            OutlineStyle = OutlineStyle,
+            TableLayout = TableLayout,
+            CaptionSide = CaptionSide,
+            EmptyCells = EmptyCells,
             Content = Content
         };
     }
@@ -421,7 +513,6 @@ public class LayoutBox
     public bool IsFloating { get; set; }
     public FloatType Float { get; set; }
 
-    // 返回对齐到设备像素的边界矩形（由渲染器在绘制时调用）
     public SKRect AlignToDevice(SKCanvas canvas)
     {
         try
@@ -479,4 +570,38 @@ public class PaintContext
     public LineBox CurrentLine { get; set; } = new();
     public float MaxLineHeight { get; set; } = 16;
     public bool NeedsNewLine { get; set; }
+}
+
+// ===== 新增 CSS 枚举格式化器（修复问题5） =====
+public static class CssEnumFormatter
+{
+    public static string ToCssString(this DisplayType display) => display switch
+    {
+        DisplayType.InlineBlock => "inline-block",
+        DisplayType.InlineFlex => "inline-flex",
+        DisplayType.ListItem => "list-item",
+        DisplayType.TableRowGroup => "table-row-group",
+        DisplayType.TableHeaderGroup => "table-header-group",
+        DisplayType.TableFooterGroup => "table-footer-group",
+        DisplayType.TableColumnGroup => "table-column-group",
+        DisplayType.TableCaption => "table-caption",
+        _ => display.ToString().ToLowerInvariant()
+    };
+
+    public static string ToCssString(this BoxSizingType boxSizing) => boxSizing switch
+    {
+        BoxSizingType.ContentBox => "content-box",
+        BoxSizingType.BorderBox => "border-box",
+        _ => boxSizing.ToString().ToLowerInvariant()
+    };
+
+    public static string ToCssString(this PositionType position) => position switch
+    {
+        _ => position.ToString().ToLowerInvariant()
+    };
+
+    public static string ToCssString(this BorderStyle style) => style switch
+    {
+        _ => style.ToString().ToLowerInvariant()
+    };
 }

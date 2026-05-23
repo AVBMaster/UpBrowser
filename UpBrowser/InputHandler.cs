@@ -18,6 +18,10 @@ public class InputHandler
     private float _pageThumbDragStartY;
     private float _pageThumbDragStartScroll;
 
+    private bool _pageThumbXDragging;
+    private float _pageThumbDragStartX;
+    private float _pageThumbDragStartScrollX;
+
     public bool NeedsRedraw { get; set; } = true;
 
     public Action<float, float>? OnDomClick { get; set; }
@@ -50,8 +54,6 @@ public class InputHandler
         _window.OnKeyDown = OnKeyDown;
         _window.OnMouseWheel = OnMouseWheel;
         _window.OnImeChar = OnImeChar;
-
-        // IME target is centrally managed via OnImeTargetChanged
         _chrome.OnUrlBarFocus = () => { };
         _chrome.OnUrlBarBlur = () => { };
     }
@@ -75,94 +77,141 @@ public class InputHandler
         if (isDown)
         {
             _mouseDown = true;
-
             if (OnDialogClick?.Invoke(logicalX, logicalY) == true)
             {
                 NeedsRedraw = true;
                 return;
             }
-
             bool handled = _chrome.HandleMouseClick(logicalX, logicalY);
-
             if (!handled)
                 handled = OnDevToolsClick?.Invoke(logicalX, logicalY, false) ?? false;
-
             NeedsRedraw = true;
-
             if (!handled)
-                {
-                    if (!HandleScrollbarClick(logicalX, logicalY))
-                    {
-                        OnDomClick?.Invoke(logicalX, logicalY);
-                    }
-                }
+            {
+                if (!HandleScrollbarClick(logicalX, logicalY))
+                    OnDomClick?.Invoke(logicalX, logicalY);
+            }
         }
         else
         {
             _mouseDown = false;
             _pageThumbDragging = false;
+            _pageThumbXDragging = false;
         }
-
         if (isDown)
             OnImeTargetChanged?.Invoke();
     }
 
-    // Handles scrollbar clicks: thumb drag or track click (page up/down)
     private bool HandleScrollbarClick(float logicalX, float logicalY)
     {
         float statusBarHeight = _chrome.GetStatusBarHeight();
         float viewportHeight = _window.Height / _dpiScale - _contentOffset - statusBarHeight;
+        float viewportWidth = _window.Width / _dpiScale;
 
-        if (!_scroll.CanScrollY) return false;
-
-        float scrollbarLeft = _window.Width / _dpiScale - ScrollManager.ScrollbarWidth;
-        if (logicalX < scrollbarLeft ||
-            logicalY < _contentOffset ||
-            logicalY > _contentOffset + viewportHeight)
-            return false;
-
-        float trackHeight = viewportHeight;
-        float thumbHeight = Math.Max(ScrollManager.ScrollbarMinThumbSize,
-            trackHeight * viewportHeight / _scroll.ContentHeight);
-        float maxScrollY = _scroll.ContentHeight - viewportHeight;
-        float thumbTop = maxScrollY > 0
-            ? (_scroll.ScrollY / maxScrollY) * (trackHeight - thumbHeight)
-            : 0;
-        float thumbEnd = thumbTop + thumbHeight;
-
-        // Check if clicking ON the thumb to start dragging
-        if (logicalY >= _contentOffset + thumbTop && logicalY <= _contentOffset + thumbEnd)
+        // 垂直滚动条
+        if (_scroll.CanScrollY)
         {
-            _pageThumbDragging = true;
-            _pageThumbDragStartY = logicalY;
-            _pageThumbDragStartScroll = _scroll.ScrollY;
-            return true;
+            float scrollbarLeft = _window.Width / _dpiScale - ScrollManager.ScrollbarWidth;
+            if (logicalX >= scrollbarLeft && logicalX <= scrollbarLeft + ScrollManager.ScrollbarWidth &&
+                logicalY >= _contentOffset && logicalY <= _contentOffset + viewportHeight)
+            {
+                float trackHeight = viewportHeight;
+                float thumbHeight = Math.Max(ScrollManager.ScrollbarMinThumbSize,
+                    trackHeight * viewportHeight / _scroll.ContentHeight);
+                float maxScrollY = _scroll.ContentHeight - viewportHeight;
+                float thumbTop = maxScrollY > 0
+                    ? (_scroll.ScrollY / maxScrollY) * (trackHeight - thumbHeight)
+                    : 0;
+                float thumbEnd = thumbTop + thumbHeight;
+
+                if (logicalY >= _contentOffset + thumbTop && logicalY <= _contentOffset + thumbEnd)
+                {
+                    _pageThumbDragging = true;
+                    _pageThumbDragStartY = logicalY;
+                    _pageThumbDragStartScroll = _scroll.ScrollY;
+                    return true;
+                }
+                else
+                {
+                    if (logicalY < _contentOffset + thumbTop)
+                        _scroll.PageUp();
+                    else
+                        _scroll.PageDown();
+                    return true;
+                }
+            }
         }
 
-        // Otherwise page up/down on track click
-        if (logicalY < _contentOffset + thumbTop)
-            _scroll.PageUp();
-        else
-            _scroll.PageDown();
-        return true;
+        // 水平滚动条
+        if (_scroll.CanScrollX)
+        {
+            float scrollbarTop = _window.Height / _dpiScale - statusBarHeight - ScrollManager.ScrollbarWidth;
+            if (logicalY >= scrollbarTop && logicalY <= scrollbarTop + ScrollManager.ScrollbarWidth &&
+                logicalX >= 0 && logicalX <= viewportWidth)
+            {
+                float trackWidth = viewportWidth;
+                float thumbWidth = Math.Max(ScrollManager.ScrollbarMinThumbSize,
+                    trackWidth * viewportWidth / _scroll.ContentWidth);
+                float maxScrollX = _scroll.ContentWidth - viewportWidth;
+                float thumbLeft = maxScrollX > 0
+                    ? (_scroll.ScrollX / maxScrollX) * (trackWidth - thumbWidth)
+                    : 0;
+                float thumbEnd = thumbLeft + thumbWidth;
+
+                if (logicalX >= thumbLeft && logicalX <= thumbEnd)
+                {
+                    _pageThumbXDragging = true;
+                    _pageThumbDragStartX = logicalX;
+                    _pageThumbDragStartScrollX = _scroll.ScrollX;
+                    return true;
+                }
+                else
+                {
+                    if (logicalX < thumbLeft)
+                        _scroll.ScrollBy(-viewportWidth * 0.9f, 0);
+                    else
+                        _scroll.ScrollBy(viewportWidth * 0.9f, 0);
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     public void UpdatePageThumbDrag()
     {
-        if (!_pageThumbDragging || !_mouseDown) return;
+        if (!_mouseDown) return;
 
-        float statusBarHeight = _chrome.GetStatusBarHeight();
-        float viewportHeight = _window.Height / _dpiScale - _contentOffset - statusBarHeight;
-        if (!_scroll.CanScrollY || viewportHeight <= 0) return;
+        if (_pageThumbDragging)
+        {
+            float statusBarHeight = _chrome.GetStatusBarHeight();
+            float viewportHeight = _window.Height / _dpiScale - _contentOffset - statusBarHeight;
+            if (!_scroll.CanScrollY || viewportHeight <= 0) return;
 
-        float trackHeight = viewportHeight;
-        float thumbHeight = Math.Max(ScrollManager.ScrollbarMinThumbSize,
-            trackHeight * viewportHeight / _scroll.ContentHeight);
-        float maxScrollY = _scroll.ContentHeight - viewportHeight;
-        if (maxScrollY <= 0) return;
+            float trackHeight = viewportHeight;
+            float thumbHeight = Math.Max(ScrollManager.ScrollbarMinThumbSize,
+                trackHeight * viewportHeight / _scroll.ContentHeight);
+            float maxScrollY = _scroll.ContentHeight - viewportHeight;
+            if (maxScrollY <= 0) return;
 
-        float delta = (_mouseY - _pageThumbDragStartY) / (trackHeight - thumbHeight) * maxScrollY;
-        _scroll.ScrollTo(_pageThumbDragStartScroll + delta);
+            float delta = (_mouseY - _pageThumbDragStartY) / (trackHeight - thumbHeight) * maxScrollY;
+            _scroll.ScrollTo(_pageThumbDragStartScroll + delta);
+        }
+
+        if (_pageThumbXDragging)
+        {
+            float statusBarHeight = _chrome.GetStatusBarHeight();
+            float viewportWidth = _window.Width / _dpiScale;
+            float trackWidth = viewportWidth;
+            float thumbWidth = Math.Max(ScrollManager.ScrollbarMinThumbSize,
+                trackWidth * viewportWidth / _scroll.ContentWidth);
+            float maxScrollX = _scroll.ContentWidth - viewportWidth;
+            if (maxScrollX <= 0) return;
+
+            float delta = (_mouseX - _pageThumbDragStartX) / (trackWidth - thumbWidth) * maxScrollX;
+            _scroll.ScrollTo(_pageThumbDragStartScrollX + delta, _scroll.ScrollY);
+        }
     }
 
     private bool OnKeyDownWithChar(char charCode, Key key)
@@ -263,23 +312,18 @@ public class InputHandler
             NeedsRedraw = true;
             return;
         }
-
         if (!_chrome.IsUrlBarFocused())
         {
             if (key == Key.F5)
-            {
                 _chrome.OnRefresh?.Invoke();
-            }
         }
         else if (key == Key.Tab)
-        {
             _chrome.NextTab();
-        }
     }
 
-    private void OnMouseWheel(double delta)
+    private void OnMouseWheel(double deltaX, double deltaY)
     {
-        if (OnDevToolsWheel != null && OnDevToolsWheel(delta, _mouseX, _mouseY))
+        if (OnDevToolsWheel != null && OnDevToolsWheel(deltaY, _mouseX, _mouseY))
         {
             NeedsRedraw = true;
             return;
@@ -287,7 +331,17 @@ public class InputHandler
 
         if (!_chrome.IsUrlBarFocused())
         {
-            _scroll.ScrollBy((float)delta);
+            // 检测Shift键以强制水平滚动（如果触控板没有水平事件）
+            bool shiftPressed = (GetKeyState(0x10) & 0x8000) != 0; // VK_SHIFT = 0x10
+            if (shiftPressed)
+                _scroll.ScrollBy((float)deltaY, 0);
+            else
+            {
+                if (Math.Abs(deltaX) > 0)
+                    _scroll.ScrollBy((float)deltaX, 0);
+                else
+                    _scroll.ScrollBy((float)deltaY);
+            }
             NeedsRedraw = true;
         }
     }
@@ -298,7 +352,6 @@ public class InputHandler
     public void HandleChar(char charCode)
     {
         if (charCode == '\0') return;
-
         if (OnDevToolsInput != null && !_chrome.IsUrlBarFocused())
         {
             if (OnDevToolsInput(charCode, Key.Unknown))
@@ -307,7 +360,6 @@ public class InputHandler
                 return;
             }
         }
-
         _chrome.HandleKeyPress(charCode, SKKey.None);
         NeedsRedraw = true;
     }
@@ -316,4 +368,7 @@ public class InputHandler
     {
         OnImeChar?.Invoke(charCode);
     }
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern short GetKeyState(int nVirtKey);
 }
