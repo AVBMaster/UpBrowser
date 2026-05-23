@@ -42,7 +42,6 @@ public abstract class Length
             return false;
         }
     }
-
     public static float ParseFontSize(string value, float parentFontSize)
     {
         if (value.EndsWith("px") && float.TryParse(value[..^2], out var px)) return px;
@@ -103,6 +102,7 @@ public class EmLength : Length
     public float Value { get; }
     public EmLength(float value) => Value = value;
     public override float ToPixels(float reference, float rootFontSize, float viewportWidth, float viewportHeight) => Value * reference;
+    public override string ToString() => $"{Value}em";
 }
 
 public class RemLength : Length
@@ -110,6 +110,7 @@ public class RemLength : Length
     public float Value { get; }
     public RemLength(float value) => Value = value;
     public override float ToPixels(float reference, float rootFontSize, float viewportWidth, float viewportHeight) => Value * rootFontSize;
+    public override string ToString() => $"{Value}rem";
 }
 
 public class PercentLength : Length
@@ -117,6 +118,7 @@ public class PercentLength : Length
     public float Value { get; }
     public PercentLength(float value) => Value = value;
     public override float ToPixels(float reference, float rootFontSize, float viewportWidth, float viewportHeight) => Value * reference;
+    public override string ToString() => $"{Value * 100}%";
 }
 
 public class VwLength : Length
@@ -124,6 +126,7 @@ public class VwLength : Length
     public float Value { get; }
     public VwLength(float value) => Value = value;
     public override float ToPixels(float reference, float rootFontSize, float viewportWidth, float viewportHeight) => Value * viewportWidth / 100f;
+    public override string ToString() => $"{Value}vw";
 }
 
 public class VhLength : Length
@@ -131,6 +134,7 @@ public class VhLength : Length
     public float Value { get; }
     public VhLength(float value) => Value = value;
     public override float ToPixels(float reference, float rootFontSize, float viewportWidth, float viewportHeight) => Value * viewportHeight / 100f;
+    public override string ToString() => $"{Value}vh";
 }
 
 public class ComputedStyle
@@ -178,7 +182,7 @@ public class ComputedStyle
     public float FontSize { get; set; } = 16;
     public FontWeight FontWeight { get; set; } = FontWeight.Normal;
     public FontStyleType FontStyle { get; set; } = FontStyleType.Normal;
-    public float LineHeight { get; set; } = 1.2f;
+    public float LineHeight { get; set; } = 1.5f;
 
     public SKColor Color { get; set; } = SKColors.Black;
     public SKColor? BackgroundColor { get; set; }
@@ -319,6 +323,22 @@ public enum BackgroundAttachment { Scroll, Fixed, Local }
 public enum BoxSizingType { ContentBox, BorderBox }
 public enum ListStyleType { Disc, Circle, Square, Decimal, DecimalLeadingZero, LowerRoman, UpperRoman, LowerAlpha, UpperAlpha, None }
 public enum ListStylePosition { Inside, Outside }
+
+public static class LengthExtensions
+{
+    public static string ToCssString(this Length? length)
+    {
+        if (length == null) return "0px";
+        try
+        {
+            return length.ToString();
+        }
+        catch
+        {
+            return "0px";
+        }
+    }
+}
 
 public enum BackgroundSizeType { Auto, Cover, Contain, Length }
 public record BoxShadowValue(SKColor Color, float OffsetX, float OffsetY, float BlurRadius, float Spread);

@@ -39,17 +39,24 @@ public class LayoutDevTool
     {
         var indent = new string(' ', depth * 2);
         var style = element.ComputedStyle;
-        var display = style?.Display.ToString() ?? "none";
-        var pos = style?.Position.ToString() ?? "static";
+        var display = style?.Display.ToString().ToLowerInvariant() ?? "none";
+        var pos = style?.Position.ToString().ToLowerInvariant() ?? "static";
+        string boxSizing = "content-box";
+        if (style != null)
+        {
+            boxSizing = style.BoxSizing == BoxSizingType.BorderBox ? "border-box" : "content-box";
+        }
 
         _sb.AppendLine($"{indent}├─ <{element.TagName}> id=\"{element.Id ?? ""}\" class=\"{element.ClassName ?? ""}\"");
-        _sb.AppendLine($"{indent}│  display={display} position={pos}");
+        _sb.AppendLine($"{indent}│  display={display}, position={pos}, boxSizing={boxSizing}");
 
         if (style != null)
         {
             _sb.AppendLine($"{indent}│  width={style.Width} height={style.Height}");
-            _sb.AppendLine($"{indent}│  margin={style.MarginTop},{style.MarginRight},{style.MarginBottom},{style.MarginLeft}");
-            _sb.AppendLine($"{indent}│  padding={style.PaddingTop},{style.PaddingRight},{style.PaddingBottom},{style.PaddingLeft}");
+            _sb.AppendLine($"{indent}│  margin={FormatLength(style.MarginTop)}/{FormatLength(style.MarginRight)}/{FormatLength(style.MarginBottom)}/{FormatLength(style.MarginLeft)}");
+            _sb.AppendLine($"{indent}│  padding={FormatLength(style.PaddingTop)}/{FormatLength(style.PaddingRight)}/{FormatLength(style.PaddingBottom)}/{FormatLength(style.PaddingLeft)}");
+            var lineH = style.LineHeight == 1.2f ? "normal" : $"{style.LineHeight}px";
+            _sb.AppendLine($"{indent}│  lineHeight={lineH}");
         }
 
         foreach (var child in element.Children)
@@ -143,6 +150,11 @@ public class LayoutDevTool
     private string FormatRect(SKRect rect)
     {
         return $"L={rect.Left:F1}, T={rect.Top:F1}, R={rect.Right:F1}, B={rect.Bottom:F1} (W={rect.Width:F1}, H={rect.Height:F1})";
+    }
+
+    private static string FormatLength(Length? length)
+    {
+        return length?.ToCssString() ?? "0px";
     }
 
     private void Indent() => _sb.Append("  ");

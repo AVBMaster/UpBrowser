@@ -240,6 +240,7 @@ public class DocumentHost
         {
             props = new Dictionary<string, string>
             {
+                    ["box-sizing"] = computedStyle.BoxSizing.ToString().ToLowerInvariant(),
                 ["width"] = computedStyle.Width.ToString(),
                 ["height"] = computedStyle.Height.ToString(),
                 ["display"] = computedStyle.Display.ToString().ToLowerInvariant(),
@@ -251,7 +252,7 @@ public class DocumentHost
                 ["font-size"] = $"{computedStyle.FontSize}px",
                 ["font-weight"] = computedStyle.FontWeight.ToString(),
                 ["font-style"] = computedStyle.FontStyle.ToString().ToLowerInvariant(),
-                ["line-height"] = computedStyle.LineHeight.ToString(),
+                ["line-height"] = computedStyle.LineHeight == 1.2f ? "normal" : computedStyle.LineHeight.ToString(),
                 ["text-align"] = computedStyle.TextAlign.ToString().ToLowerInvariant(),
                 ["text-decoration"] = computedStyle.TextDecoration.ToString().ToLowerInvariant(),
                 ["white-space"] = computedStyle.WhiteSpace.ToString().ToLowerInvariant(),
@@ -262,14 +263,14 @@ public class DocumentHost
                 ["background-color"] = computedStyle.BackgroundColor.HasValue
                     ? $"rgba({computedStyle.BackgroundColor.Value.Red}, {computedStyle.BackgroundColor.Value.Green}, {computedStyle.BackgroundColor.Value.Blue}, {computedStyle.BackgroundColor.Value.Alpha / 255f})"
                     : "transparent",
-                ["margin-top"] = computedStyle.MarginTop.ToString(),
-                ["margin-right"] = computedStyle.MarginRight.ToString(),
-                ["margin-bottom"] = computedStyle.MarginBottom.ToString(),
-                ["margin-left"] = computedStyle.MarginLeft.ToString(),
-                ["padding-top"] = computedStyle.PaddingTop.ToString(),
-                ["padding-right"] = computedStyle.PaddingRight.ToString(),
-                ["padding-bottom"] = computedStyle.PaddingBottom.ToString(),
-                ["padding-left"] = computedStyle.PaddingLeft.ToString(),
+                ["margin-top"] = computedStyle.MarginTop.ToCssString(),
+                ["margin-right"] = computedStyle.MarginRight.ToCssString(),
+                ["margin-bottom"] = computedStyle.MarginBottom.ToCssString(),
+                ["margin-left"] = computedStyle.MarginLeft.ToCssString(),
+                ["padding-top"] = computedStyle.PaddingTop.ToCssString(),
+                ["padding-right"] = computedStyle.PaddingRight.ToCssString(),
+                ["padding-bottom"] = computedStyle.PaddingBottom.ToCssString(),
+                ["padding-left"] = computedStyle.PaddingLeft.ToCssString(),
                 ["border-top-width"] = $"{computedStyle.BorderTopWidth}px",
                 ["border-right-width"] = $"{computedStyle.BorderRightWidth}px",
                 ["border-bottom-width"] = $"{computedStyle.BorderBottomWidth}px",
@@ -301,7 +302,7 @@ public class DocumentHost
             ["color"] = "rgb(0, 0, 0)",
             ["font-family"] = "Arial, sans-serif",
             ["font-size"] = "16px",
-            ["line-height"] = "16",
+            ["line-height"] = "normal",
             ["text-align"] = "start",
             ["visibility"] = "visible",
             ["overflow"] = "visible",
@@ -320,6 +321,28 @@ public class DocumentHost
             ["border-bottom-width"] = "0px",
             ["border-left-width"] = "0px",
         };
+
+        // UA defaults for specific elements to better match Chromium
+        if (tag == "body")
+        {
+            d["padding-top"] = "20px";
+            d["padding-right"] = "20px";
+            d["padding-bottom"] = "20px";
+            d["padding-left"] = "20px";
+            d["background-color"] = "rgb(245, 245, 245)";
+        }
+        else if (tag == "button")
+        {
+            d["display"] = "inline-block";
+            d["box-sizing"] = "border-box";
+            d["font-size"] = "14px";
+            d["padding-top"] = "10px";
+            d["padding-bottom"] = "10px";
+            d["padding-left"] = "20px";
+            d["padding-right"] = "20px";
+            d["background-color"] = "rgb(33, 150, 243)";
+            d["color"] = "rgb(255, 255, 255)";
+        }
         return d;
     }
 
@@ -441,6 +464,7 @@ public class ComputedStyleHost
     public string? height => getPropertyValue("height");
     public string? display => getPropertyValue("display");
     public string? position => getPropertyValue("position");
+    public string? boxSizing => getPropertyValue("box-sizing");
     public string? color => getPropertyValue("color");
     public string? fontFamily => getPropertyValue("font-family");
     public string? fontSize => getPropertyValue("font-size");
