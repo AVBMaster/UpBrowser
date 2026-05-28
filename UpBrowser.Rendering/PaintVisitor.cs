@@ -462,7 +462,7 @@ public class PaintVisitor
     {
         if (node is TextNode textNode)
         {
-            var text = textNode.TextContent?.Trim();
+            var text = textNode.TextContent ?? "";
             if (!string.IsNullOrEmpty(text))
                 sb.Append(text);
         }
@@ -826,7 +826,7 @@ public class PaintVisitor
             }
         }
 
-        if (box.LineRuns != null && (box.Lines == null || box.Lines.Count == 0))
+        else if (box.LineRuns != null)
         {
             float x = box.ContentBox.Left;
             float fontSize = box.LineRuns.FirstOrDefault()?.FontSize ?? 16;

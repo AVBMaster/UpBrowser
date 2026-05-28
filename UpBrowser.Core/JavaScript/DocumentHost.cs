@@ -240,17 +240,17 @@ public class DocumentHost
         {
             props = new Dictionary<string, string>
             {
-                    ["box-sizing"] = computedStyle.BoxSizing.ToString().ToLowerInvariant(),
+                    ["box-sizing"] = computedStyle.BoxSizing.ToCssString(),
                 ["width"] = computedStyle.Width.ToString(),
                 ["height"] = computedStyle.Height.ToString(),
-                ["display"] = computedStyle.Display.ToString().ToLowerInvariant(),
-                ["position"] = computedStyle.Position.ToString().ToLowerInvariant(),
+                ["display"] = computedStyle.Display.ToCssString(),
+                ["position"] = computedStyle.Position.ToCssString(),
                 ["float"] = computedStyle.Float.ToString().ToLowerInvariant(),
                 ["clear"] = computedStyle.Clear.ToString().ToLowerInvariant(),
                 ["color"] = $"rgb({computedStyle.Color.Red}, {computedStyle.Color.Green}, {computedStyle.Color.Blue})",
                 ["font-family"] = computedStyle.FontFamily ?? "",
                 ["font-size"] = $"{computedStyle.FontSize}px",
-                ["font-weight"] = computedStyle.FontWeight.ToString(),
+                ["font-weight"] = ((int)computedStyle.FontWeight).ToString(),
                 ["font-style"] = computedStyle.FontStyle.ToString().ToLowerInvariant(),
                 ["line-height"] = computedStyle.LineHeight == 1.2f ? "normal" : computedStyle.LineHeight.ToString(),
                 ["text-align"] = computedStyle.TextAlign.ToString().ToLowerInvariant(),

@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html>
+<head><style>
+body { font-family: Arial; font-size: 14px; margin: 8px; }
+.section { border: 1px solid #ccc; margin: 8px 0; padding: 8px; }
+h3 { margin: 4px 0; }
+
+.normal { white-space: normal; width: 200px; background: #f0f0f0; }
+.pre { white-space: pre; width: 200px; background: #ffe0e0; }
+.pre-wrap { white-space: pre-wrap; width: 200px; background: #e0ffe0; }
+.pre-line { white-space: pre-line; width: 200px; background: #e0e0ff; }
+.nowrap { white-space: nowrap; width: 200px; background: #fff0e0; }
+.break-all { word-break: break-all; width: 200px; background: #f0e0ff; }
+.overflow-break { overflow-wrap: break-word; width: 200px; background: #e0ffff; }
+.justify { text-align: justify; width: 200px; background: #ffe0f0; }
+
+.cjk { width: 150px; background: #f5f5f5; }
+.flex-container { display: flex; gap: 10px; width: 300px; background: #eee; padding: 5px; }
+.flex-item { background: #ddd; padding: 4px; }
+</style></head>
+<body>
+<h3>1. Normal wrapping</h3>
+<div class="section normal">This is a long English text that should wrap naturally at word boundaries within the 200px container.</div>
+
+<h3>2. white-space: pre</h3>
+<div class="section pre">Hello    world
+This has multiple   spaces.
+And
+newlines.</div>
+
+<h3>3. white-space: pre-wrap</h3>
+<div class="section pre-wrap">Hello    world
+This text    has spaces but should wrap at the container edge.</div>
+
+<h3>4. white-space: pre-line</h3>
+<div class="section pre-line">Hello    world
+Collapsed  spaces
+But preserved
+newlines.</div>
+
+<h3>5. white-space: nowrap</h3>
+<div class="section nowrap">This text should NOT wrap no matter how long it is.</div>
+
+<h3>6. word-break: break-all</h3>
+<div class="section break-all">Supercalifragilisticexpialidocious breaks at any character boundary.</div>
+
+<h3>7. overflow-wrap: break-word</h3>
+<div class="section overflow-break">Supercalifragilisticexpialidocious only breaks when necessary.</div>
+
+<h3>8. text-align: justify</h3>
+<div class="section justify">This is justified text that should be spread evenly across each line within the container width.</div>
+
+<h3>9. CJK text wrapping</h3>
+<div class="section cjk">这是一个中文测试文本，用于验证中文字符的逐字换行功能是否正常工作。</div>
+
+<h3>10. Flex with gap</h3>
+<div class="flex-container">
+  <div class="flex-item">Item 1</div>
+  <div class="flex-item">Item 2</div>
+  <div class="flex-item">Item 3</div>
+</div>
+</body>
+</html>

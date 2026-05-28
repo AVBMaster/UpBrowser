@@ -23,13 +23,61 @@ public class SkiaTextMeasurer : ITextMeasurer
         if (_widthCache.TryGetValue(key, out var cached))
             return cached;
 
-        var typeface = FontManager.GetOrCreateTypeface(fontFamily, weight);
-        using var skFont = new SKFont(typeface, fontSize);
+        var primaryTypeface = FontManager.GetOrCreateTypeface(fontFamily, weight);
 
-        var width = skFont.MeasureText(text);
+        // Fast path: if primary typeface supports all glyphs, use single measurement
+        // We optimistically measure and then verify: if the text is ASCII-only, we know it's fine
+        bool hasNonAscii = false;
+        for (int i = 0; i < text.Length; i++)
+        {
+            if (text[i] > 127) { hasNonAscii = true; break; }
+        }
 
-        CacheIfNeeded(_widthCache, key, width);
-        return width;
+        if (!hasNonAscii)
+        {
+            using var font = new SKFont(primaryTypeface, fontSize);
+            float width = font.MeasureText(text);
+            CacheIfNeeded(_widthCache, key, width);
+            return width;
+        }
+
+        // Slow path: split text into runs by glyph support for CJK/emoji fallback
+        float totalWidth = 0;
+        int runStart = 0;
+        SKTypeface currentTf = primaryTypeface;
+
+        for (int i = 0; i <= text.Length; i++)
+        {
+            if (i < text.Length)
+            {
+                char c = text[i];
+                SKTypeface neededTf = primaryTypeface.ContainsGlyph(c) ? primaryTypeface : FontManager.GetFallbackTypeface(c);
+
+                if (neededTf != currentTf)
+                {
+                    if (i > runStart)
+                    {
+                        string run = text.Substring(runStart, i - runStart);
+                        using var runFont = new SKFont(currentTf, fontSize);
+                        totalWidth += runFont.MeasureText(run);
+                    }
+                    currentTf = neededTf;
+                    runStart = i;
+                }
+            }
+            else
+            {
+                if (i > runStart)
+                {
+                    string run = text.Substring(runStart);
+                    using var runFont = new SKFont(currentTf, fontSize);
+                    totalWidth += runFont.MeasureText(run);
+                }
+            }
+        }
+
+        CacheIfNeeded(_widthCache, key, totalWidth);
+        return totalWidth;
     }
 
     public float MeasureTextAdvanced(string text, string fontFamily, float fontSize, FontWeight weight = FontWeight.Normal, FontStyleType style = FontStyleType.Normal)

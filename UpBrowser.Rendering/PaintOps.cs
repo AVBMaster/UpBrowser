@@ -1,3 +1,4 @@
+using System.Linq;
 using SkiaSharp;
 using UpBrowser.Core.Dom;
 
@@ -1031,7 +1032,9 @@ public class DisplayList
     public void SortByZIndex()
     {
         if (_isSorted) return;
-        _ops.Sort((a, b) => a.ZIndex.CompareTo(b.ZIndex));
+        // Use stable sort (OrderBy) so equal-ZIndex ops keep their original order.
+        // List<T>.Sort is unstable and can reorder background/foreground ops.
+        _ops = _ops.OrderBy(op => op.ZIndex).ToList();
         _isSorted = true;
     }
 

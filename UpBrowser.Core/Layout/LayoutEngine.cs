@@ -85,7 +85,7 @@ public class LayoutEngine
     {
         if (node is TextNode textNode)
         {
-            var text = textNode.TextContent?.Trim();
+            var text = textNode.TextContent ?? "";
             if (!string.IsNullOrEmpty(text))
                 sb.Append(text);
         }
@@ -479,7 +479,7 @@ public class LayoutEngine
         float currentY = y;
         var style = element.ComputedStyle;
         float fontSize = style?.FontSize ?? 16f;
-        float lineHeight = (style?.LineHeight ?? 1.2f) * fontSize;
+        float lineHeight = (style?.LineHeight ?? 1.5f) * fontSize;
 
         var floatLeftElements = new List<Element>();
         var floatRightElements = new List<Element>();
@@ -511,6 +511,12 @@ public class LayoutEngine
         }
 
         float collapsedMarginBottom = 0;
+        LineBox? inlineCurrentLine = null;
+        float inlineCurrentX = 0;
+        float inlineMaxHeightInLine = 0;
+
+        var (preserveSpaces, preserveNewlines, allowWrapping) = GetWhiteSpaceBehavior(style?.WhiteSpace ?? WhiteSpaceMode.Normal);
+
         foreach (var item in normalFlowElements)
         {
             if (item is Element childElement)
@@ -535,23 +541,116 @@ public class LayoutEngine
                             firstTextNode ??= tn;
                         }
                     }
-                    string text = textSb.ToString().Trim();
+                    string text = textSb.ToString();
+                    if (!preserveSpaces) text = text.Trim();
                     if (!string.IsNullOrEmpty(text) && firstTextNode != null)
                     {
                         float inlineFontSize = childStyle.FontSize > 0 ? childStyle.FontSize : fontSize;
-                        float textWidth = MeasureTextWidth(text, inlineFontSize, childStyle.FontFamily ?? style.FontFamily);
-                        box.LineRuns ??= new List<InlineRun>();
-                        box.LineRuns.Add(new InlineRun
+                        float inlineLineHeight = (childStyle.LineHeight > 0 ? childStyle.LineHeight : 1.5f) * inlineFontSize;
+
+                        if (inlineCurrentLine == null)
                         {
-                            Text = text,
-                            Width = textWidth,
-                            Height = lineHeight,
-                            IsText = true,
-                            Node = firstTextNode,
-                            Color = childStyle.Color.Alpha > 0 ? childStyle.Color : style.Color,
-                            FontSize = inlineFontSize,
-                            FontFamily = childStyle.FontFamily ?? style.FontFamily
-                        });
+                            inlineCurrentLine = new LineBox { Y = currentY, Baseline = currentY + inlineLineHeight * 0.85f, Height = inlineLineHeight };
+                            box.Lines ??= new List<LineBox>();
+                            box.Lines.Add(inlineCurrentLine);
+                            inlineCurrentX = x;
+                            inlineMaxHeightInLine = 0;
+                        }
+
+                        if (preserveSpaces)
+                        {
+                            // pre/pre-wrap: preserve original spacing, don't split by spaces
+                            float textWidth = MeasureTextWidth(text, inlineFontSize, childStyle.FontFamily ?? style?.FontFamily);
+                            if (allowWrapping && inlineCurrentX + textWidth > x + availableWidth - 0.01f && inlineCurrentX > x)
+                            {
+                                inlineCurrentLine.Height = inlineMaxHeightInLine > 0 ? inlineMaxHeightInLine : inlineLineHeight;
+                                currentY += inlineCurrentLine.Height;
+                                inlineCurrentLine = new LineBox { Y = currentY, Baseline = currentY + inlineLineHeight * 0.85f, Height = inlineLineHeight };
+                                box.Lines.Add(inlineCurrentLine);
+                                inlineCurrentX = x;
+                                inlineMaxHeightInLine = 0;
+                            }
+                            inlineCurrentLine.Runs.Add(new InlineRun
+                            {
+                                Text = text,
+                                Width = textWidth,
+                                Height = inlineLineHeight,
+                                IsText = true,
+                                Node = firstTextNode,
+                                Color = childStyle.Color.Alpha > 0 ? childStyle.Color : style?.Color ?? SKColors.Black,
+                                FontSize = inlineFontSize,
+                                FontFamily = childStyle.FontFamily ?? style?.FontFamily
+                            });
+                            inlineCurrentX += textWidth;
+                            if (inlineLineHeight > inlineMaxHeightInLine) inlineMaxHeightInLine = inlineLineHeight;
+                        }
+                        else
+                        {
+                            bool hasSpacesInline = text.Contains(' ');
+                            if (hasSpacesInline)
+                            {
+                                var words = text.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                                for (int wi = 0; wi < words.Length; wi++)
+                                {
+                                    bool isLastWord = (wi == words.Length - 1);
+                                    string token = isLastWord ? words[wi] : words[wi] + " ";
+                                    float tokenWidth = MeasureTextWidth(token, inlineFontSize, childStyle.FontFamily ?? style?.FontFamily);
+                                    if (allowWrapping && inlineCurrentX + tokenWidth > x + availableWidth - 0.01f && inlineCurrentX > x)
+                                    {
+                                        inlineCurrentLine.Height = inlineMaxHeightInLine > 0 ? inlineMaxHeightInLine : inlineLineHeight;
+                                        currentY += inlineCurrentLine.Height;
+                                        inlineCurrentLine = new LineBox { Y = currentY, Baseline = currentY + inlineLineHeight * 0.85f, Height = inlineLineHeight };
+                                        box.Lines.Add(inlineCurrentLine);
+                                        inlineCurrentX = x;
+                                        inlineMaxHeightInLine = 0;
+                                    }
+                                    inlineCurrentLine.Runs.Add(new InlineRun
+                                    {
+                                        Text = token,
+                                        Width = tokenWidth,
+                                        Height = inlineLineHeight,
+                                        IsText = true,
+                                        Node = firstTextNode,
+                                        Color = childStyle.Color.Alpha > 0 ? childStyle.Color : style?.Color ?? SKColors.Black,
+                                        FontSize = inlineFontSize,
+                                        FontFamily = childStyle.FontFamily ?? style?.FontFamily
+                                    });
+                                    inlineCurrentX += tokenWidth;
+                                    if (inlineLineHeight > inlineMaxHeightInLine) inlineMaxHeightInLine = inlineLineHeight;
+                                }
+                            }
+                            else
+                            {
+                                // CJK character-by-character wrapping
+                                foreach (char c in text)
+                                {
+                                    string chStr = c.ToString();
+                                    float charWidth = MeasureTextWidth(chStr, inlineFontSize, childStyle.FontFamily ?? style?.FontFamily);
+                                    if (allowWrapping && inlineCurrentLine.Runs.Count > 0 && inlineCurrentX + charWidth > x + availableWidth - 0.01f)
+                                    {
+                                        inlineCurrentLine.Height = inlineMaxHeightInLine > 0 ? inlineMaxHeightInLine : inlineLineHeight;
+                                        currentY += inlineCurrentLine.Height;
+                                        inlineCurrentLine = new LineBox { Y = currentY, Baseline = currentY + inlineLineHeight * 0.85f, Height = inlineLineHeight };
+                                        box.Lines.Add(inlineCurrentLine);
+                                        inlineCurrentX = x;
+                                        inlineMaxHeightInLine = 0;
+                                    }
+                                    inlineCurrentLine.Runs.Add(new InlineRun
+                                    {
+                                        Text = chStr,
+                                        Width = charWidth,
+                                        Height = inlineLineHeight,
+                                        IsText = true,
+                                        Node = firstTextNode,
+                                        Color = childStyle.Color.Alpha > 0 ? childStyle.Color : style?.Color ?? SKColors.Black,
+                                        FontSize = inlineFontSize,
+                                        FontFamily = childStyle.FontFamily ?? style?.FontFamily
+                                    });
+                                    inlineCurrentX += charWidth;
+                                    if (inlineLineHeight > inlineMaxHeightInLine) inlineMaxHeightInLine = inlineLineHeight;
+                                }
+                            }
+                        }
                     }
                     continue;
                 }
@@ -574,6 +673,15 @@ public class LayoutEngine
                     currentY = clearY;
                 }
 
+                if (inlineCurrentLine != null && inlineCurrentLine.Runs.Count > 0)
+                {
+                    inlineCurrentLine.Height = inlineMaxHeightInLine > 0 ? inlineMaxHeightInLine : lineHeight;
+                    currentY = inlineCurrentLine.Y + inlineCurrentLine.Height;
+                    inlineCurrentLine = null;
+                    inlineCurrentX = 0;
+                    inlineMaxHeightInLine = 0;
+                }
+
                 var childBox = CreateLayoutBox(childElement, x, currentY, availableWidth, box);
                 if (childBox != null)
                 {
@@ -590,24 +698,123 @@ public class LayoutEngine
                     var text = textNode.TextContent ?? "";
                     if (!string.IsNullOrEmpty(text))
                     {
-                        float textWidth = MeasureTextWidth(text, fontSize, style.FontFamily);
                         float lineHeightPx = style.LineHeight * fontSize;
-                        box.LineRuns ??= new List<InlineRun>();
-                        box.LineRuns.Add(new InlineRun
+
+                        if (inlineCurrentLine == null)
                         {
-                            Text = text,
-                            Width = textWidth,
-                            Height = lineHeightPx,
-                            IsText = true,
-                            Node = textNode,
-                            Color = style.Color,
-                            FontSize = fontSize,
-                            FontFamily = style.FontFamily
-                        });
+                            inlineCurrentLine = new LineBox { Y = currentY, Baseline = currentY + lineHeightPx * 0.85f, Height = lineHeightPx };
+                            box.Lines ??= new List<LineBox>();
+                            box.Lines.Add(inlineCurrentLine);
+                            inlineCurrentX = x;
+                            inlineMaxHeightInLine = 0;
+                        }
+
+                        if (preserveSpaces)
+                        {
+                            // pre/pre-wrap: preserve original spacing, don't split by spaces
+                            float textWidth = MeasureTextWidth(text, fontSize, style.FontFamily);
+                            if (allowWrapping && inlineCurrentX + textWidth > x + availableWidth - 0.01f && inlineCurrentX > x)
+                            {
+                                inlineCurrentLine.Height = inlineMaxHeightInLine > 0 ? inlineMaxHeightInLine : lineHeightPx;
+                                currentY += inlineCurrentLine.Height;
+                                inlineCurrentLine = new LineBox { Y = currentY, Baseline = currentY + lineHeightPx * 0.85f, Height = lineHeightPx };
+                                box.Lines.Add(inlineCurrentLine);
+                                inlineCurrentX = x;
+                                inlineMaxHeightInLine = 0;
+                            }
+                            inlineCurrentLine.Runs.Add(new InlineRun
+                            {
+                                Text = text,
+                                Width = textWidth,
+                                Height = lineHeightPx,
+                                IsText = true,
+                                Node = textNode,
+                                Color = style.Color,
+                                FontSize = fontSize,
+                                FontFamily = style.FontFamily
+                            });
+                            inlineCurrentX += textWidth;
+                            if (lineHeightPx > inlineMaxHeightInLine) inlineMaxHeightInLine = lineHeightPx;
+                        }
+                        else
+                        {
+                            bool hasSpacesText = text.Contains(' ');
+                            if (hasSpacesText)
+                            {
+                                var words = text.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                                for (int wi = 0; wi < words.Length; wi++)
+                                {
+                                    bool isLastWord = (wi == words.Length - 1);
+                                    string token = isLastWord ? words[wi] : words[wi] + " ";
+                                    float tokenWidth = MeasureTextWidth(token, fontSize, style.FontFamily);
+                                    if (allowWrapping && inlineCurrentX + tokenWidth > x + availableWidth - 0.01f && inlineCurrentX > x)
+                                    {
+                                        inlineCurrentLine.Height = inlineMaxHeightInLine > 0 ? inlineMaxHeightInLine : lineHeightPx;
+                                        currentY += inlineCurrentLine.Height;
+                                        inlineCurrentLine = new LineBox { Y = currentY, Baseline = currentY + lineHeightPx * 0.85f, Height = lineHeightPx };
+                                        box.Lines.Add(inlineCurrentLine);
+                                        inlineCurrentX = x;
+                                        inlineMaxHeightInLine = 0;
+                                    }
+                                    inlineCurrentLine.Runs.Add(new InlineRun
+                                    {
+                                        Text = token,
+                                        Width = tokenWidth,
+                                        Height = lineHeightPx,
+                                        IsText = true,
+                                        Node = textNode,
+                                        Color = style.Color,
+                                        FontSize = fontSize,
+                                        FontFamily = style.FontFamily
+                                    });
+                                    inlineCurrentX += tokenWidth;
+                                    if (lineHeightPx > inlineMaxHeightInLine) inlineMaxHeightInLine = lineHeightPx;
+                                }
+                            }
+                            else
+                            {
+                                // CJK character-by-character wrapping
+                                foreach (char c in text)
+                                {
+                                    string chStr = c.ToString();
+                                    float charWidth = MeasureTextWidth(chStr, fontSize, style.FontFamily);
+                                    if (allowWrapping && inlineCurrentLine.Runs.Count > 0 && inlineCurrentX + charWidth > x + availableWidth - 0.01f)
+                                    {
+                                        inlineCurrentLine.Height = inlineMaxHeightInLine > 0 ? inlineMaxHeightInLine : lineHeightPx;
+                                        currentY += inlineCurrentLine.Height;
+                                        inlineCurrentLine = new LineBox { Y = currentY, Baseline = currentY + lineHeightPx * 0.85f, Height = lineHeightPx };
+                                        box.Lines.Add(inlineCurrentLine);
+                                        inlineCurrentX = x;
+                                        inlineMaxHeightInLine = 0;
+                                    }
+                                    inlineCurrentLine.Runs.Add(new InlineRun
+                                    {
+                                        Text = chStr,
+                                        Width = charWidth,
+                                        Height = lineHeightPx,
+                                        IsText = true,
+                                        Node = textNode,
+                                        Color = style.Color,
+                                        FontSize = fontSize,
+                                        FontFamily = style.FontFamily
+                                    });
+                                    inlineCurrentX += charWidth;
+                                    if (lineHeightPx > inlineMaxHeightInLine) inlineMaxHeightInLine = lineHeightPx;
+                                }
+                            }
+                        }
                     }
                 }
             }
         }
+
+        if (inlineCurrentLine != null && inlineCurrentLine.Runs.Count > 0)
+        {
+            inlineCurrentLine.Height = inlineMaxHeightInLine > 0 ? inlineMaxHeightInLine : lineHeight;
+            currentY = inlineCurrentLine.Y + inlineCurrentLine.Height;
+        }
+
+        float inlineContentBottom = currentY;
 
         float floatY = y;
         foreach (var floatElem in floatLeftElements)
@@ -690,7 +897,7 @@ public class LayoutEngine
                     if (string.IsNullOrEmpty(btnText)) btnText = "Button";
 
                     float btnFontSize = childStyle.FontSize > 0 ? childStyle.FontSize : 13.3333f;
-                    float btnLineHeightValue = childStyle.LineHeight > 0 ? childStyle.LineHeight : 1.2f;
+                    float btnLineHeightValue = childStyle.LineHeight > 0 ? childStyle.LineHeight : 1.5f;
 
                     float textWidth = MeasureTextWidth(btnText, btnFontSize, childStyle.FontFamily);
                     float padLeft = childStyle.PaddingLeft.ToPixels(btnFontSize, _rootFontSize, _viewportWidth, _viewportHeight);
@@ -803,7 +1010,8 @@ public class LayoutEngine
                             firstTextNode ??= tn;
                         }
                     }
-                    string text = textSb.ToString().Trim();
+                    string text = textSb.ToString();
+                    if (!preserveSpaces) text = text.Trim();
                     if (!string.IsNullOrEmpty(text) && firstTextNode != null)
                     {
                         float inlineFontSize = childStyle.FontSize > 0 ? childStyle.FontSize : style.FontSize;
@@ -980,14 +1188,15 @@ public class LayoutEngine
                         LayoutTextCharacterByCharacter(segment, textNode, style, box, ref currentLine, ref currentX, ref currentY,
                             ref baseline, ref maxHeightInLine, x, availableWidth, lineHeight, false, false, false);
                     }
-                    else if (breakWord && segment.Contains(' '))
+                    else if (breakWord && segment.Contains(' ') && !preserveSpaces)
                     {
                         // overflow-wrap: break-word / word-break: break-word
                         // 先按空格分词，单词放不下时按字符拆分
                         var words = segment.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-                        foreach (var word in words)
+                        for (int wi = 0; wi < words.Length; wi++)
                         {
-                            string token = word + " ";
+                            bool isLast = (wi == words.Length - 1);
+                            string token = isLast ? words[wi] : words[wi] + " ";
                             float tokenWidth = MeasureTextWidth(token, style.FontSize, style.FontFamily);
                             if (currentX + tokenWidth > x + availableWidth - 0.01f && currentX > x && allowWrapping)
                             {
@@ -1016,21 +1225,32 @@ public class LayoutEngine
                     else
                     {
                         // 普通模式：按空格分词 (normal / pre-wrap) 或按字符拆分 (CJK)
-                        bool hasSpaces = segment.Contains(' ');
-                        if (hasSpaces)
+                        if (preserveSpaces)
                         {
-                            var words = segment.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-                            foreach (var word in words)
-                            {
-                                LayoutTextRun(word + " ", textNode, style, box, ref currentLine, ref currentX, ref currentY,
-                                    ref baseline, ref maxHeightInLine, x, availableWidth, lineHeight, !allowWrapping);
-                            }
+                            // pre/pre-wrap: 保留原始空白，不分词
+                            LayoutTextRun(segment, textNode, style, box, ref currentLine, ref currentX, ref currentY,
+                                ref baseline, ref maxHeightInLine, x, availableWidth, lineHeight, !allowWrapping);
                         }
                         else
                         {
-                            // CJK 字符逐字换行
-                            LayoutTextCharacterByCharacter(segment, textNode, style, box, ref currentLine, ref currentX, ref currentY,
-                                ref baseline, ref maxHeightInLine, x, availableWidth, lineHeight, !allowWrapping, false, false);
+                            bool hasSpaces = segment.Contains(' ');
+                            if (hasSpaces)
+                            {
+                                var words = segment.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                                for (int wi = 0; wi < words.Length; wi++)
+                                {
+                                    bool isLast = (wi == words.Length - 1);
+                                    string token = isLast ? words[wi] : words[wi] + " ";
+                                    LayoutTextRun(token, textNode, style, box, ref currentLine, ref currentX, ref currentY,
+                                        ref baseline, ref maxHeightInLine, x, availableWidth, lineHeight, !allowWrapping);
+                                }
+                            }
+                            else
+                            {
+                                // CJK 字符逐字换行
+                                LayoutTextCharacterByCharacter(segment, textNode, style, box, ref currentLine, ref currentX, ref currentY,
+                                    ref baseline, ref maxHeightInLine, x, availableWidth, lineHeight, !allowWrapping, false, false);
+                            }
                         }
                     }
                 }
@@ -1286,6 +1506,12 @@ public class LayoutEngine
         }
 
         float mainAxisSize = isRow ? containerWidth : containerHeight;
+        float mainGap = isRow
+            ? style.ColumnGap.ToPixels(style.FontSize, _rootFontSize, _viewportWidth, _viewportHeight)
+            : style.RowGap.ToPixels(style.FontSize, _rootFontSize, _viewportWidth, _viewportHeight);
+        float crossGap = isRow
+            ? style.RowGap.ToPixels(style.FontSize, _rootFontSize, _viewportWidth, _viewportHeight)
+            : style.ColumnGap.ToPixels(style.FontSize, _rootFontSize, _viewportWidth, _viewportHeight);
         var lines = new List<FlexLine>();
         if (isWrap)
             lines = WrapFlexItems(flexItems, mainAxisSize, isRow);
@@ -1310,12 +1536,15 @@ public class LayoutEngine
                 usedMain += item.ComputedMainSize + item.MarginLeft + item.MarginRight;
             }
             float remainingSpace = lineMainSize - usedMain;
+            float gapTotal = line.Items.Count > 1 ? mainGap * (line.Items.Count - 1) : 0;
+            remainingSpace -= gapTotal;
             float offset = 0;
             if (remainingSpace > 0 && totalGrow == 0)
                 offset = ApplyJustifyContent(style.JustifyContent, remainingSpace, line.Items.Count, isReverse);
             float mainPos = lineMainStart + offset;
             if (isReverse) mainPos = lineMainStart + lineMainSize - offset;
 
+            int itemIndex = 0;
             foreach (var item in line.Items)
             {
                 float itemMainSize = item.ComputedMainSize;
@@ -1338,16 +1567,23 @@ public class LayoutEngine
                     if (isRow)
                     {
                         mainPos += itemMainSize + item.MarginLeft + item.MarginRight;
+                        if (itemIndex < line.Items.Count - 1)
+                            mainPos += mainGap;
                         if (childBox.MarginBox.Height > maxCrossInLine)
                             maxCrossInLine = childBox.MarginBox.Height;
                     }
                     else
+                    {
                         mainPos += item.ComputedMainSize + item.MarginTop + item.MarginBottom;
+                        if (itemIndex < line.Items.Count - 1)
+                            mainPos += mainGap;
+                    }
                 }
+                itemIndex++;
             }
             if (isRow)
             {
-                currentCross += maxCrossInLine;
+                currentCross += maxCrossInLine + crossGap;
                 maxCrossInLine = 0;
             }
         }
