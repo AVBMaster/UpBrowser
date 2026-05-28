@@ -443,17 +443,27 @@ public class LayoutEngine
             }
             if (contentWidthFromContent > 0)
             {
-                float newContentWidth = Math.Min(contentWidthFromContent + paddingLeft + paddingRight, availableWidth);
-                float oldRight = box.ContentBox.Right;
-                float newRight = box.ContentBox.Left + newContentWidth;
-                float diff = oldRight - newRight;
-                if (diff > 0)
-                {
-                    box.ContentBox = new SKRect(box.ContentBox.Left, box.ContentBox.Top, box.ContentBox.Left + newContentWidth, box.ContentBox.Bottom);
-                    box.PaddingBox = new SKRect(box.PaddingBox.Left, box.PaddingBox.Top, box.PaddingBox.Right - diff, box.PaddingBox.Bottom);
-                    box.BorderBox = new SKRect(box.BorderBox.Left, box.BorderBox.Top, box.BorderBox.Right - diff, box.BorderBox.Bottom);
-                    box.MarginBox = new SKRect(box.MarginBox.Left, box.MarginBox.Top, box.MarginBox.Right - diff, box.MarginBox.Bottom);
-                }
+                // ContentBox holds only the content (text/children) — no padding.
+                // BorderBox includes padding + border around content.
+                // MarginBox = BorderBox + margin.
+                float newContentWidth = contentWidthFromContent;
+
+                // ContentBox.Right = ContentBox.Left + content width (text only)
+                float newContentRight = box.ContentBox.Left + newContentWidth;
+
+                // BorderBox.Right = BorderBox.Left + content + padding + border on both sides
+                float contentPlusPadding = newContentWidth + paddingLeft + paddingRight;
+                float borderTotal = contentPlusPadding + borderLeft + borderRight;
+                float newBorderRight = box.BorderBox.Left + borderTotal;
+
+                // MarginBox.Right = MarginBox.Left + borderTotal + margin on both sides
+                float marginTotal = marginLeft + marginRight;
+                float newMarginRight = box.MarginBox.Left + borderTotal + marginTotal;
+
+                box.ContentBox = new SKRect(box.ContentBox.Left, box.ContentBox.Top, newContentRight, box.ContentBox.Bottom);
+                box.PaddingBox = new SKRect(box.PaddingBox.Left, box.PaddingBox.Top, newContentRight, box.PaddingBox.Bottom);
+                box.BorderBox = new SKRect(box.BorderBox.Left, box.BorderBox.Top, newBorderRight, box.BorderBox.Bottom);
+                box.MarginBox = new SKRect(box.MarginBox.Left, box.MarginBox.Top, newMarginRight, box.MarginBox.Bottom);
             }
         }
 
