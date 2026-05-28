@@ -93,6 +93,34 @@ public class LayoutEngine
             CollectTextNodes(child, sb);
     }
 
+    private float GetAbsoluteWidth(ComputedStyle style, LayoutBox? containingBlock, float fontSize)
+    {
+        if (style.Width is PixelLength px) return px.Value;
+        if (style.Width is PercentLength pct && containingBlock != null)
+            return pct.Value * containingBlock.ContentBox.Width;
+        if (containingBlock != null && !(style.Left is AutoLength) && !(style.Right is AutoLength))
+        {
+            float left = Length.ToPixelsOrDefault(style.Left, fontSize);
+            float right = Length.ToPixelsOrDefault(style.Right, fontSize);
+            return containingBlock.ContentBox.Width - left - right;
+        }
+        return float.NaN;
+    }
+
+    private float GetAbsoluteHeight(ComputedStyle style, LayoutBox? containingBlock, float fontSize, float parentHeight)
+    {
+        if (style.Height is PixelLength px) return px.Value;
+        if (style.Height is PercentLength pct && containingBlock != null)
+            return pct.Value * containingBlock.ContentBox.Height;
+        if (containingBlock != null && !(style.Top is AutoLength) && !(style.Bottom is AutoLength))
+        {
+            float top = Length.ToPixelsOrDefault(style.Top, fontSize);
+            float bottom = Length.ToPixelsOrDefault(style.Bottom, fontSize);
+            return containingBlock.ContentBox.Height - top - bottom;
+        }
+        return float.NaN;
+    }
+
     private LayoutBox? CreateLayoutBox(Element element, float x, float y, float availableWidth, LayoutBox? parentBox)
     {
         var style = element.ComputedStyle;
@@ -132,7 +160,6 @@ public class LayoutEngine
             contentHeight = float.IsNaN(elementHeight) ? 0 : Math.Max(0, elementHeight - borderTop - borderBottom - paddingTop - paddingBottom);
         }
 
-        // 对于块级元素且 width:auto，确保内容宽度不超出包含块
         bool isBlockLevel = style.Display != DisplayType.Inline && style.Display != DisplayType.InlineFlex &&
                             style.Display != DisplayType.InlineBlock && style.Position != PositionType.Absolute;
         if (style.Width is AutoLength && isBlockLevel)
@@ -146,7 +173,6 @@ public class LayoutEngine
         if (parentBox == null && contentWidth + totalHorizontal > availableWidth)
             contentWidth = Math.Max(0, availableWidth - totalHorizontal);
 
-        // Auto-margin horizontal centering for block-level elements
         if (isBlockLevel && (isAutoMarginLeft || isAutoMarginRight))
         {
             float fixedHorizontal = borderLeft + paddingLeft + contentWidth + paddingRight + borderRight;
@@ -202,6 +228,158 @@ public class LayoutEngine
         float childPaddingRight = style.PaddingRight.ToPixels(style.FontSize, _rootFontSize, _viewportWidth, _viewportHeight);
         float childAvailableWidth = Math.Max(0, box.ContentBox.Width - childPaddingLeft - childPaddingRight);
 
+        // 绝对定位处理
+        if (style.Position == PositionType.Absolute)
+        {
+            LayoutBox? containingBlock = null;
+            var ancestor = element.ParentElement;
+            while (ancestor != null)
+            {
+                if (ancestor.LayoutBox != null && ancestor.ComputedStyle != null && ancestor.ComputedStyle.Position != PositionType.Static)
+                {
+                    containingBlock = ancestor.LayoutBox;
+                    break;
+                }
+                ancestor = ancestor.ParentElement;
+            }
+            if (containingBlock == null)
+                containingBlock = parentBox ?? new LayoutBox { ContentBox = new SKRect(0, 0, _viewportWidth, _viewportHeight) };
+
+            float absWidth = GetAbsoluteWidth(style, containingBlock, style.FontSize);
+            float absHeight = GetAbsoluteHeight(style, containingBlock, style.FontSize, containingBlock.ContentBox.Height);
+
+            float tmpWidth = float.IsNaN(absWidth) ? _viewportWidth : Math.Max(absWidth, 0);
+            float tmpHeight = float.IsNaN(absHeight) ? _viewportHeight : Math.Max(absHeight, 0);
+            var tmpBox = new LayoutBox
+            {
+                ContentBox = new SKRect(0, 0, tmpWidth, tmpHeight),
+                PaddingBox = new SKRect(0, 0, tmpWidth, tmpHeight),
+                BorderBox = new SKRect(0, 0, tmpWidth, tmpHeight),
+                MarginBox = new SKRect(0, 0, tmpWidth, tmpHeight)
+            };
+
+            float childStartY = 0;
+            LayoutBlockChildren(element, tmpBox, 0, ref childStartY, tmpWidth);
+            if (style.Display == DisplayType.Inline || style.Display == DisplayType.InlineBlock)
+                LayoutInlineChildren(element, tmpBox, 0, 0, tmpWidth);
+
+            AdjustBoxHeightFromContent(tmpBox);
+
+            float maxChildRight = 0;
+            foreach (var childBox in tmpBox.Children)
+                if (childBox.MarginBox.Right > maxChildRight)
+                    maxChildRight = childBox.MarginBox.Right;
+            float maxChildBottom = 0;
+            foreach (var childBox in tmpBox.Children)
+                if (childBox.MarginBox.Bottom > maxChildBottom)
+                    maxChildBottom = childBox.MarginBox.Bottom;
+            if (tmpBox.LineRuns != null && tmpBox.LineRuns.Count > 0)
+            {
+                float runsWidth = 0;
+                foreach (var run in tmpBox.LineRuns)
+                    runsWidth += run.Width;
+                maxChildRight = Math.Max(maxChildRight, runsWidth);
+                float runsHeight = 0;
+                foreach (var run in tmpBox.LineRuns)
+                    runsHeight = Math.Max(runsHeight, run.Height);
+                maxChildBottom = Math.Max(maxChildBottom, runsHeight);
+            }
+            if (tmpBox.Lines != null && tmpBox.Lines.Count > 0)
+            {
+                float linesWidth = 0;
+                foreach (var line in tmpBox.Lines)
+                    linesWidth = Math.Max(linesWidth, line.Width);
+                maxChildRight = Math.Max(maxChildRight, linesWidth);
+                maxChildBottom = Math.Max(maxChildBottom, tmpBox.Lines.Last().Y + tmpBox.Lines.Last().Height);
+            }
+
+            float finalWidth = float.IsNaN(absWidth) ? maxChildRight : absWidth;
+            float finalHeight = float.IsNaN(absHeight) ? maxChildBottom : absHeight;
+
+            var finalBox = LayoutAbsolute(element, finalHeight, finalWidth, containingBlock, parentBox);
+            element.LayoutBox = finalBox;
+
+            finalBox.Children.Clear();
+            foreach (var childBox in tmpBox.Children)
+            {
+                childBox.MarginBox = new SKRect(
+                    childBox.MarginBox.Left + finalBox.ContentBox.Left,
+                    childBox.MarginBox.Top + finalBox.ContentBox.Top,
+                    childBox.MarginBox.Right + finalBox.ContentBox.Left,
+                    childBox.MarginBox.Bottom + finalBox.ContentBox.Top);
+                childBox.BorderBox = new SKRect(
+                    childBox.BorderBox.Left + finalBox.ContentBox.Left,
+                    childBox.BorderBox.Top + finalBox.ContentBox.Top,
+                    childBox.BorderBox.Right + finalBox.ContentBox.Left,
+                    childBox.BorderBox.Bottom + finalBox.ContentBox.Top);
+                childBox.PaddingBox = new SKRect(
+                    childBox.PaddingBox.Left + finalBox.ContentBox.Left,
+                    childBox.PaddingBox.Top + finalBox.ContentBox.Top,
+                    childBox.PaddingBox.Right + finalBox.ContentBox.Left,
+                    childBox.PaddingBox.Bottom + finalBox.ContentBox.Top);
+                childBox.ContentBox = new SKRect(
+                    childBox.ContentBox.Left + finalBox.ContentBox.Left,
+                    childBox.ContentBox.Top + finalBox.ContentBox.Top,
+                    childBox.ContentBox.Right + finalBox.ContentBox.Left,
+                    childBox.ContentBox.Bottom + finalBox.ContentBox.Top);
+                finalBox.Children.Add(childBox);
+            }
+            if (tmpBox.LineRuns != null && tmpBox.LineRuns.Count > 0)
+            {
+                finalBox.LineRuns = new List<InlineRun>();
+                foreach (var run in tmpBox.LineRuns)
+                {
+                    finalBox.LineRuns.Add(new InlineRun
+                    {
+                        Text = run.Text,
+                        X = run.X + finalBox.ContentBox.Left,
+                        Width = run.Width,
+                        Height = run.Height,
+                        Baseline = run.Baseline + finalBox.ContentBox.Top,
+                        Node = run.Node,
+                        IsText = run.IsText,
+                        Color = run.Color,
+                        FontSize = run.FontSize,
+                        FontFamily = run.FontFamily
+                    });
+                }
+            }
+            if (tmpBox.Lines != null && tmpBox.Lines.Count > 0)
+            {
+                finalBox.Lines = new List<LineBox>();
+                foreach (var line in tmpBox.Lines)
+                {
+                    var newLine = new LineBox
+                    {
+                        X = line.X + finalBox.ContentBox.Left,
+                        Y = line.Y + finalBox.ContentBox.Top,
+                        Width = line.Width,
+                        Height = line.Height,
+                        Baseline = line.Baseline + finalBox.ContentBox.Top,
+                        TextAlignOffsetX = line.TextAlignOffsetX
+                    };
+                    foreach (var run in line.Runs)
+                    {
+                        newLine.Runs.Add(new InlineRun
+                        {
+                            Text = run.Text,
+                            X = run.X + finalBox.ContentBox.Left,
+                            Width = run.Width,
+                            Height = run.Height,
+                            Baseline = run.Baseline + finalBox.ContentBox.Top,
+                            Node = run.Node,
+                            IsText = run.IsText,
+                            Color = run.Color,
+                            FontSize = run.FontSize,
+                            FontFamily = run.FontFamily
+                        });
+                    }
+                    finalBox.Lines.Add(newLine);
+                }
+            }
+            return finalBox;
+        }
+
         switch (style.Display)
         {
             case DisplayType.Flex:
@@ -244,10 +422,8 @@ public class LayoutEngine
             {
                 float childrenMaxRight = box.ContentBox.Left;
                 foreach (var child in box.Children)
-                {
                     if (child.MarginBox.Right > childrenMaxRight)
                         childrenMaxRight = child.MarginBox.Right;
-                }
                 float childrenWidth = childrenMaxRight - box.ContentBox.Left;
                 if (childrenWidth > contentWidthFromContent)
                     contentWidthFromContent = childrenWidth;
@@ -272,31 +448,6 @@ public class LayoutEngine
                     box.BorderBox = new SKRect(box.BorderBox.Left, box.BorderBox.Top, box.BorderBox.Right - diff, box.BorderBox.Bottom);
                     box.MarginBox = new SKRect(box.MarginBox.Left, box.MarginBox.Top, box.MarginBox.Right - diff, box.MarginBox.Bottom);
                 }
-            }
-        }
-
-        if (style.Position == PositionType.Absolute)
-            LayoutAbsolute(element, box, parentBox);
-
-        // 修复绝对定位元素的内容撑开尺寸
-        if (style.Position == PositionType.Absolute)
-        {
-            float maxChildRight = 0, maxChildBottom = 0;
-            foreach (var child in box.Children)
-            {
-                if (child.MarginBox.Right > maxChildRight) maxChildRight = child.MarginBox.Right;
-                if (child.MarginBox.Bottom > maxChildBottom) maxChildBottom = child.MarginBox.Bottom;
-            }
-            if (maxChildRight > box.ContentBox.Width || maxChildBottom > box.ContentBox.Height)
-            {
-                float newWidth = Math.Max(box.ContentBox.Width, maxChildRight - box.ContentBox.Left);
-                float newHeight = Math.Max(box.ContentBox.Height, maxChildBottom - box.ContentBox.Top);
-                box.ContentBox = new SKRect(box.ContentBox.Left, box.ContentBox.Top, box.ContentBox.Left + newWidth, box.ContentBox.Top + newHeight);
-                box.PaddingBox = new SKRect(box.PaddingBox.Left, box.PaddingBox.Top, box.PaddingBox.Left + newWidth, box.PaddingBox.Top + newHeight);
-                box.BorderBox = new SKRect(box.BorderBox.Left, box.BorderBox.Top, box.BorderBox.Left + newWidth, box.BorderBox.Top + newHeight);
-                box.MarginBox = new SKRect(box.MarginBox.Left, box.MarginBox.Top, box.MarginBox.Left + newWidth, box.MarginBox.Top + newHeight);
-                // 重新应用绝对定位偏移
-                LayoutAbsolute(element, box, parentBox);
             }
         }
 
@@ -411,18 +562,14 @@ public class LayoutEngine
                     if (childStyle.Clear == ClearType.Left || childStyle.Clear == ClearType.Both)
                     {
                         foreach (var floatElem in floatLeftElements)
-                        {
                             if (floatElem.LayoutBox != null && floatElem.LayoutBox.MarginBox.Bottom > clearY)
                                 clearY = floatElem.LayoutBox.MarginBox.Bottom;
-                        }
                     }
                     if (childStyle.Clear == ClearType.Right || childStyle.Clear == ClearType.Both)
                     {
                         foreach (var floatElem in floatRightElements)
-                        {
                             if (floatElem.LayoutBox != null && floatElem.LayoutBox.MarginBox.Bottom > clearY)
                                 clearY = floatElem.LayoutBox.MarginBox.Bottom;
-                        }
                     }
                     currentY = clearY;
                 }
@@ -444,7 +591,7 @@ public class LayoutEngine
                     if (!string.IsNullOrEmpty(text))
                     {
                         float textWidth = MeasureTextWidth(text, fontSize, style.FontFamily);
-                        float lineHeightPx = (style.LineHeight) * fontSize;
+                        float lineHeightPx = style.LineHeight * fontSize;
                         box.LineRuns ??= new List<InlineRun>();
                         box.LineRuns.Add(new InlineRun
                         {
@@ -509,6 +656,7 @@ public class LayoutEngine
         y = currentY;
     }
 
+    // 修复后的内联布局方法：支持中文等无空格字符的换行
     private void LayoutInlineChildren(Element element, LayoutBox box, float x, float y, float availableWidth)
     {
         var style = element.ComputedStyle;
@@ -524,6 +672,9 @@ public class LayoutEngine
         box.Lines = new List<LineBox> { currentLine };
 
         bool isNowrap = style.WhiteSpace == WhiteSpaceMode.Nowrap;
+        var (preserveSpaces, preserveNewlines, allowWrapping) = GetWhiteSpaceBehavior(style.WhiteSpace);
+        bool breakAll = style.WordBreak == WordBreakMode.BreakAll;
+        bool breakWord = style.WordBreak == WordBreakMode.BreakWord || style.OverflowWrap == OverflowWrapMode.BreakWord || style.OverflowWrap == OverflowWrapMode.Anywhere;
 
         foreach (var child in element.Children)
         {
@@ -532,6 +683,7 @@ public class LayoutEngine
                 var childStyle = childElement.ComputedStyle;
                 if (childStyle == null || childStyle.Display == DisplayType.None) continue;
 
+                // 处理按钮
                 if (childElement.TagName.Equals("BUTTON", StringComparison.OrdinalIgnoreCase))
                 {
                     string btnText = GetButtonTextFromElement(childElement);
@@ -541,48 +693,39 @@ public class LayoutEngine
                     float btnLineHeightValue = childStyle.LineHeight > 0 ? childStyle.LineHeight : 1.2f;
 
                     float textWidth = MeasureTextWidth(btnText, btnFontSize, childStyle.FontFamily);
+                    float padLeft = childStyle.PaddingLeft.ToPixels(btnFontSize, _rootFontSize, _viewportWidth, _viewportHeight);
+                    float padRight = childStyle.PaddingRight.ToPixels(btnFontSize, _rootFontSize, _viewportWidth, _viewportHeight);
+                    float padTop = childStyle.PaddingTop.ToPixels(btnFontSize, _rootFontSize, _viewportWidth, _viewportHeight);
+                    float padBottom = childStyle.PaddingBottom.ToPixels(btnFontSize, _rootFontSize, _viewportWidth, _viewportHeight);
 
-                    float padTop = GetPixelLength(childStyle.PaddingTop, 4);
-                    float padBottom = GetPixelLength(childStyle.PaddingBottom, 4);
-                    float padLeft = GetPixelLength(childStyle.PaddingLeft, 10);
-                    float padRight = GetPixelLength(childStyle.PaddingRight, 10);
+                    float borderLeft = childStyle.BorderLeftWidth;
+                    float borderRight = childStyle.BorderRightWidth;
+                    float borderTop = childStyle.BorderTopWidth;
+                    float borderBottom = childStyle.BorderBottomWidth;
 
-                    float borderTop = childStyle.BorderTopWidth > 0 ? childStyle.BorderTopWidth : 0;
-                    float borderBottom = childStyle.BorderBottomWidth > 0 ? childStyle.BorderBottomWidth : 0;
-                    float borderLeft = childStyle.BorderLeftWidth > 0 ? childStyle.BorderLeftWidth : 0;
-                    float borderRight = childStyle.BorderRightWidth > 0 ? childStyle.BorderRightWidth : 0;
+                    float totalButtonWidth = textWidth + padLeft + padRight + borderLeft + borderRight;
+                    float totalButtonHeight = (btnFontSize * btnLineHeightValue) + padTop + padBottom + borderTop + borderBottom;
 
-                    float contentWidth = textWidth + padLeft + padRight;
-                    float contentHeight = (btnFontSize * btnLineHeightValue) + padTop + padBottom;
-
-                    float totalButtonWidth = contentWidth + borderLeft + borderRight;
-                    float totalButtonHeight = contentHeight + borderTop + borderBottom;
-
-                    float specifiedWidth = 0, specifiedHeight = 0;
                     if (childStyle.Width is PixelLength pw && pw.Value > 0)
-                        specifiedWidth = pw.Value;
+                    {
+                        if (childStyle.BoxSizing == BoxSizingType.BorderBox)
+                            totalButtonWidth = pw.Value;
+                        else
+                            totalButtonWidth = pw.Value + borderLeft + borderRight;
+                    }
                     if (childStyle.Height is PixelLength ph && ph.Value > 0)
-                        specifiedHeight = ph.Value;
-
-                    if (childStyle.BoxSizing == BoxSizingType.BorderBox)
                     {
-                        if (specifiedWidth > 0)
-                            totalButtonWidth = specifiedWidth;
-                        if (specifiedHeight > 0)
-                            totalButtonHeight = specifiedHeight;
-                    }
-                    else
-                    {
-                        if (specifiedWidth > 0)
-                            totalButtonWidth = specifiedWidth + borderLeft + borderRight;
-                        if (specifiedHeight > 0)
-                            totalButtonHeight = specifiedHeight + borderTop + borderBottom;
+                        if (childStyle.BoxSizing == BoxSizingType.BorderBox)
+                            totalButtonHeight = ph.Value;
+                        else
+                            totalButtonHeight = ph.Value + borderTop + borderBottom;
                     }
 
-                    totalButtonWidth = Math.Max(totalButtonWidth, 75);
-                    totalButtonHeight = Math.Max(totalButtonHeight, 28);
+                    totalButtonWidth = Math.Max(totalButtonWidth, 4);
+                    totalButtonHeight = Math.Max(totalButtonHeight, 4);
 
-                    if (!isNowrap && currentX + totalButtonWidth > x + availableWidth - 10 && currentX > x)
+                    // 换行判断
+                    if (allowWrapping && currentX + totalButtonWidth > x + availableWidth - 0.01f && currentX > x)
                     {
                         currentLine.Height = maxHeightInLine;
                         currentY += maxHeightInLine;
@@ -647,10 +790,112 @@ public class LayoutEngine
                     continue;
                 }
 
-                float childWidth = CalculateInlineElementWidth(childElement, style.FontSize);
-                float childHeight = childStyle.FontSize > 0 ? childStyle.FontSize * 1.2f : lineHeight;
+                // 处理内联元素（如 span），收集其内部文本
+                if (childStyle.Display == DisplayType.Inline || childStyle.Display == DisplayType.InlineBlock)
+                {
+                    var textSb = new StringBuilder();
+                    TextNode? firstTextNode = null;
+                    foreach (var c in childElement.Children)
+                    {
+                        if (c is TextNode tn)
+                        {
+                            textSb.Append(tn.TextContent);
+                            firstTextNode ??= tn;
+                        }
+                    }
+                    string text = textSb.ToString().Trim();
+                    if (!string.IsNullOrEmpty(text) && firstTextNode != null)
+                    {
+                        float inlineFontSize = childStyle.FontSize > 0 ? childStyle.FontSize : style.FontSize;
+                        float textWidth = MeasureTextWidth(text, inlineFontSize, childStyle.FontFamily ?? style.FontFamily);
+                        float textHeight = inlineFontSize;
+                        // 换行判断
+                        if (allowWrapping && currentX + textWidth > x + availableWidth - 0.01f && currentX > x)
+                        {
+                            currentLine.Height = maxHeightInLine;
+                            currentY += maxHeightInLine;
+                            baseline = currentY + lineHeight * 0.85f;
+                            currentX = x;
+                            maxHeightInLine = lineHeight;
+                            currentLine = new LineBox { Y = currentY, Baseline = baseline, Height = lineHeight };
+                            box.Lines.Add(currentLine);
+                        }
 
-                if (!isNowrap && currentX + childWidth > x + availableWidth && currentX > x)
+                        float oldX = currentX;
+                        var run = new InlineRun
+                        {
+                            Text = text,
+                            Width = textWidth,
+                            Height = textHeight,
+                            Baseline = baseline,
+                            IsText = true,
+                            Node = firstTextNode,
+                            Color = childStyle.Color,
+                            FontSize = inlineFontSize,
+                            FontFamily = childStyle.FontFamily ?? style.FontFamily
+                        };
+                        currentLine.Runs.Add(run);
+                        currentX += textWidth;
+
+                        if (textHeight > maxHeightInLine)
+                            maxHeightInLine = textHeight;
+
+                        // 为内联元素创建 LayoutBox
+                        var inlineBox = new LayoutBox
+                        {
+                            MarginBox = new SKRect(oldX, baseline - textHeight, oldX + textWidth, baseline),
+                            ContentBox = new SKRect(oldX, baseline - textHeight, oldX + textWidth, baseline),
+                            BorderBox = new SKRect(oldX, baseline - textHeight, oldX + textWidth, baseline),
+                            PaddingBox = new SKRect(oldX, baseline - textHeight, oldX + textWidth, baseline)
+                        };
+                        childElement.LayoutBox = inlineBox;
+                        box.Children.Add(inlineBox);
+                        inlineBox.Parent = box;
+                    }
+                    else
+                    {
+                        // 无文本的内联元素，给出占位大小
+                        float childWidth = CalculateInlineElementWidth(childElement, style.FontSize);
+                        float childHeight = childStyle.FontSize > 0 ? childStyle.FontSize * 1.2f : lineHeight;
+                        if (allowWrapping && currentX + childWidth > x + availableWidth - 0.01f && currentX > x)
+                        {
+                            currentLine.Height = maxHeightInLine;
+                            currentY += maxHeightInLine;
+                            baseline = currentY + lineHeight * 0.85f;
+                            currentX = x;
+                            maxHeightInLine = lineHeight;
+                            currentLine = new LineBox { Y = currentY, Baseline = baseline, Height = lineHeight };
+                            box.Lines.Add(currentLine);
+                        }
+                        var inlineBox = new LayoutBox();
+                        inlineBox.MarginBox = new SKRect(currentX, baseline - childHeight, currentX + childWidth, baseline);
+                        inlineBox.ContentBox = inlineBox.MarginBox;
+                        inlineBox.BorderBox = inlineBox.MarginBox;
+                        inlineBox.PaddingBox = inlineBox.MarginBox;
+                        childElement.LayoutBox = inlineBox;
+                        box.Children.Add(inlineBox);
+                        inlineBox.Parent = box;
+                        currentLine.Runs.Add(new InlineRun
+                        {
+                            Text = "",
+                            Width = childWidth,
+                            Height = childHeight,
+                            IsText = false,
+                            Node = childElement,
+                            Color = childStyle.Color,
+                            FontSize = childStyle.FontSize,
+                            FontFamily = childStyle.FontFamily
+                        });
+                        currentX += childWidth;
+                        if (childHeight > maxHeightInLine) maxHeightInLine = childHeight;
+                    }
+                    continue;
+                }
+
+                // 其他内联元素（br, wbr等）
+                float otherWidth = CalculateInlineElementWidth(childElement, style.FontSize);
+                float otherHeight = childStyle.FontSize > 0 ? childStyle.FontSize * 1.2f : lineHeight;
+                if (allowWrapping && currentX + otherWidth > x + availableWidth - 0.01f && currentX > x)
                 {
                     currentLine.Height = maxHeightInLine;
                     currentY += maxHeightInLine;
@@ -660,44 +905,134 @@ public class LayoutEngine
                     currentLine = new LineBox { Y = currentY, Baseline = baseline, Height = lineHeight };
                     box.Lines.Add(currentLine);
                 }
-
-                var inlineBox = new LayoutBox();
-                inlineBox.MarginBox = new SKRect(currentX, baseline - childHeight, currentX + childWidth, baseline);
-                inlineBox.ContentBox = inlineBox.MarginBox;
-                inlineBox.BorderBox = inlineBox.MarginBox;
-                inlineBox.PaddingBox = inlineBox.MarginBox;
-                childElement.LayoutBox = inlineBox;
-                box.Children.Add(inlineBox);
-                inlineBox.Parent = box;
-
+                var otherBox = new LayoutBox();
+                otherBox.MarginBox = new SKRect(currentX, baseline - otherHeight, currentX + otherWidth, baseline);
+                otherBox.ContentBox = otherBox.MarginBox;
+                otherBox.BorderBox = otherBox.MarginBox;
+                otherBox.PaddingBox = otherBox.MarginBox;
+                childElement.LayoutBox = otherBox;
+                box.Children.Add(otherBox);
+                otherBox.Parent = box;
                 currentLine.Runs.Add(new InlineRun
                 {
                     Text = "",
-                    Width = childWidth,
-                    Height = childHeight,
+                    Width = otherWidth,
+                    Height = otherHeight,
                     IsText = false,
                     Node = childElement,
                     Color = childStyle.Color,
                     FontSize = childStyle.FontSize,
                     FontFamily = childStyle.FontFamily
                 });
-
-                currentX += childWidth;
-                if (childHeight > maxHeightInLine) maxHeightInLine = childHeight;
+                currentX += otherWidth;
+                if (otherHeight > maxHeightInLine) maxHeightInLine = otherHeight;
             }
             else if (child is TextNode textNode)
             {
                 var text = textNode.TextContent ?? "";
                 if (string.IsNullOrWhiteSpace(text)) continue;
-                if (style.WhiteSpace == WhiteSpaceMode.Nowrap || style.WhiteSpace == WhiteSpaceMode.Pre)
+
+                // 白空间处理：根据 white-space 模式处理文本
+                List<string> textSegments;
+                if (preserveNewlines)
                 {
-                    LayoutTextRun(text, textNode, style, currentLine, ref currentX, ref currentY, ref baseline, ref maxHeightInLine, x, availableWidth, lineHeight, true);
+                    // pre/pre-wrap/pre-line: 保留换行符作为段落分隔
+                    textSegments = new List<string>();
+                    var lines = text.Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.None);
+                    foreach (var line in lines)
+                    {
+                        if (preserveSpaces)
+                            textSegments.Add(line);
+                        else
+                            textSegments.Add(NormalizeWhitespace(line));
+                    }
                 }
                 else
                 {
-                    var words = text.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-                    foreach (var word in words)
-                        LayoutTextRun(word + " ", textNode, style, currentLine, ref currentX, ref currentY, ref baseline, ref maxHeightInLine, x, availableWidth, lineHeight, false);
+                    textSegments = new List<string> { NormalizeWhitespace(text) };
+                }
+
+                bool firstSegment = true;
+                foreach (var segment in textSegments)
+                {
+                    if (string.IsNullOrEmpty(segment) && preserveNewlines && !firstSegment)
+                    {
+                        // pre/pre-wrap/pre-line 模式下，换行符产生新行
+                        if (allowWrapping || currentX > x)
+                        {
+                            currentLine.Height = maxHeightInLine;
+                            currentY += maxHeightInLine;
+                            baseline = currentY + lineHeight * 0.85f;
+                            currentX = x;
+                            maxHeightInLine = lineHeight;
+                            currentLine = new LineBox { Y = currentY, Baseline = baseline, Height = lineHeight };
+                            box.Lines.Add(currentLine);
+                        }
+                        firstSegment = false;
+                        continue;
+                    }
+                    firstSegment = false;
+                    if (string.IsNullOrEmpty(segment)) continue;
+
+                    if (breakAll)
+                    {
+                        // word-break: break-all - 允许在任何字符处断行
+                        LayoutTextCharacterByCharacter(segment, textNode, style, box, ref currentLine, ref currentX, ref currentY,
+                            ref baseline, ref maxHeightInLine, x, availableWidth, lineHeight, false, false, false);
+                    }
+                    else if (breakWord && segment.Contains(' '))
+                    {
+                        // overflow-wrap: break-word / word-break: break-word
+                        // 先按空格分词，单词放不下时按字符拆分
+                        var words = segment.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                        foreach (var word in words)
+                        {
+                            string token = word + " ";
+                            float tokenWidth = MeasureTextWidth(token, style.FontSize, style.FontFamily);
+                            if (currentX + tokenWidth > x + availableWidth - 0.01f && currentX > x && allowWrapping)
+                            {
+                                currentLine.Height = maxHeightInLine;
+                                currentY += maxHeightInLine;
+                                baseline = currentY + lineHeight * 0.85f;
+                                currentX = x;
+                                maxHeightInLine = lineHeight;
+                                currentLine = new LineBox { Y = currentY, Baseline = baseline, Height = lineHeight };
+                                box.Lines.Add(currentLine);
+                            }
+                            float remainingWidth = x + availableWidth - currentX;
+                            if (tokenWidth > remainingWidth && allowWrapping)
+                            {
+                                // 单词太长，按字符拆分
+                                LayoutTextCharacterByCharacter(token, textNode, style, box, ref currentLine, ref currentX, ref currentY,
+                                    ref baseline, ref maxHeightInLine, x, availableWidth, lineHeight, false, false, true);
+                            }
+                            else
+                            {
+                                LayoutTextRun(token, textNode, style, box, ref currentLine, ref currentX, ref currentY,
+                                    ref baseline, ref maxHeightInLine, x, availableWidth, lineHeight, !allowWrapping);
+                            }
+                        }
+                    }
+                    else
+                    {
+                        // 普通模式：按空格分词 (normal / pre-wrap) 或按字符拆分 (CJK)
+                        bool hasSpaces = segment.Contains(' ');
+                        if (hasSpaces)
+                        {
+                            var words = segment.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                            foreach (var word in words)
+                            {
+                                LayoutTextRun(word + " ", textNode, style, box, ref currentLine, ref currentX, ref currentY,
+                                    ref baseline, ref maxHeightInLine, x, availableWidth, lineHeight, !allowWrapping);
+                            }
+                        }
+                        else
+                        {
+                            // CJK 字符逐字换行
+                            LayoutTextCharacterByCharacter(segment, textNode, style, box, ref currentLine, ref currentX, ref currentY,
+                                ref baseline, ref maxHeightInLine, x, availableWidth, lineHeight, !allowWrapping, false, false);
+                        }
+                    }
                 }
             }
         }
@@ -720,23 +1055,30 @@ public class LayoutEngine
         box.MarginBox = new SKRect(box.MarginBox.Left, box.MarginBox.Top, box.MarginBox.Right, newContentBottom + pdBottom + bdBottom + mgBottom);
     }
 
-    private void LayoutTextRun(string text, TextNode textNode, ComputedStyle style, LineBox line,
-        ref float currentX, ref float currentY, ref float baseline, ref float maxHeightInLine,
+    // 修改后的 LayoutTextRun，增加 box 参数以便访问 Lines 集合
+    private void LayoutTextRun(string text, TextNode textNode, ComputedStyle style, LayoutBox box,
+        ref LineBox line, ref float currentX, ref float currentY, ref float baseline, ref float maxHeightInLine,
         float x, float availableWidth, float lineHeight, bool noWrap)
     {
         if (string.IsNullOrEmpty(text)) return;
         float fontSize = style.FontSize;
         float textWidth = MeasureTextWidth(text, fontSize, style.FontFamily);
         float textHeight = fontSize;
-        if (!noWrap && currentX + textWidth > x + availableWidth && currentX > x)
+
+        // 换行判断：如果当前行已有内容且加上当前 run 会超出宽度，则换行
+        // 如果当前行无内容但 run 本身宽度就超过可用宽度，也强制换行（允许单词内换行）
+        if (!noWrap && currentX + textWidth > x + availableWidth - 0.01f)
         {
+            // 完成当前行
             line.Height = maxHeightInLine;
             currentY += maxHeightInLine;
             baseline = currentY + lineHeight * 0.85f;
             currentX = x;
             maxHeightInLine = lineHeight;
             line = new LineBox { Y = currentY, Baseline = baseline, Height = lineHeight };
+            box.Lines.Add(line);
         }
+
         line.Runs.Add(new InlineRun
         {
             Text = text,
@@ -752,19 +1094,102 @@ public class LayoutEngine
         if (textHeight > maxHeightInLine) maxHeightInLine = textHeight;
     }
 
+    private string NormalizeWhitespace(string text)
+    {
+        // 将连续空白字符折叠为单个空格（CSS normal 模式）
+        var sb = new StringBuilder();
+        bool lastWasSpace = false;
+        foreach (char c in text)
+        {
+            if (char.IsWhiteSpace(c))
+            {
+                if (!lastWasSpace)
+                {
+                    sb.Append(' ');
+                    lastWasSpace = true;
+                }
+            }
+            else
+            {
+                sb.Append(c);
+                lastWasSpace = false;
+            }
+        }
+        return sb.ToString();
+    }
+
+    private void LayoutTextCharacterByCharacter(string text, TextNode textNode, ComputedStyle style, LayoutBox box,
+        ref LineBox line, ref float currentX, ref float currentY, ref float baseline, ref float maxHeightInLine,
+        float x, float availableWidth, float lineHeight, bool noWrap, bool forceBreakAll, bool breakLongWords)
+    {
+        if (string.IsNullOrEmpty(text)) return;
+        var chars = text.ToCharArray();
+        var currentLineChars = new List<char>();
+        float currentLineWidth = 0;
+
+        foreach (char c in chars)
+        {
+            string chStr = c.ToString();
+            float charWidth = MeasureTextWidth(chStr, style.FontSize, style.FontFamily);
+
+            bool shouldBreak = false;
+            if (!noWrap && currentLineChars.Count > 0)
+            {
+                if (breakLongWords)
+                {
+                    // overflow-wrap: break-word 模式 - 只在单词内换行
+                    shouldBreak = currentX + currentLineWidth + charWidth > x + availableWidth - 0.01f;
+                }
+                else
+                {
+                    // word-break: break-all 或 CJK 模式 - 允许在任何字符处断行
+                    shouldBreak = currentX + currentLineWidth + charWidth > x + availableWidth - 0.01f;
+                }
+            }
+
+            if (shouldBreak)
+            {
+                string runText = new string(currentLineChars.ToArray());
+                LayoutTextRun(runText, textNode, style, box, ref line, ref currentX, ref currentY,
+                    ref baseline, ref maxHeightInLine, x, availableWidth, lineHeight, false);
+                currentLineChars.Clear();
+                currentLineWidth = 0;
+            }
+
+            currentLineChars.Add(c);
+            currentLineWidth += charWidth;
+        }
+
+        if (currentLineChars.Count > 0)
+        {
+            string runText = new string(currentLineChars.ToArray());
+            LayoutTextRun(runText, textNode, style, box, ref line, ref currentX, ref currentY,
+                ref baseline, ref maxHeightInLine, x, availableWidth, lineHeight, noWrap);
+        }
+    }
+
     private float MeasureTextWidth(string text, float fontSize, string? fontFamily)
     {
         if (string.IsNullOrEmpty(text)) return 0;
-        try
-        {
-            if (TextMeasurer.Instance != null)
-                return TextMeasurer.Instance.MeasureText(text, fontFamily ?? "Arial", fontSize);
-        }
-        catch { }
-        float avgCharWidth = fontSize * 0.55f;
+        if (TextMeasurer.Instance != null)
+            return TextMeasurer.Instance.MeasureText(text, fontFamily ?? "Arial", fontSize);
+        // 后备估算
+        float avgCharWidth = fontSize * 0.45f;
         int asciiCount = text.Count(c => c < 128);
         int nonAscii = text.Length - asciiCount;
-        return asciiCount * avgCharWidth + nonAscii * (fontSize * 0.9f);
+        return asciiCount * avgCharWidth + nonAscii * (fontSize * 0.7f);
+    }
+
+    private (bool preserveSpaces, bool preserveNewlines, bool allowWrapping) GetWhiteSpaceBehavior(WhiteSpaceMode ws)
+    {
+        return ws switch
+        {
+            WhiteSpaceMode.Pre => (true, true, false),
+            WhiteSpaceMode.PreWrap => (true, true, true),
+            WhiteSpaceMode.PreLine => (false, true, true),
+            WhiteSpaceMode.Nowrap => (false, false, false),
+            _ => (false, false, true)
+        };
     }
 
     private float CalculateInlineElementWidth(Element element, float defaultFontSize)
@@ -781,16 +1206,39 @@ public class LayoutEngine
     private void ApplyTextAlign(LayoutBox box, TextAlignType textAlign, float x, float availableWidth)
     {
         if (textAlign == TextAlignType.Start || textAlign == TextAlignType.Left) return;
-        foreach (var line in box.Lines)
+        if (box.Lines == null) return;
+
+        bool isLastLine = false;
+        for (int i = 0; i < box.Lines.Count; i++)
         {
+            var line = box.Lines[i];
+            isLastLine = (i == box.Lines.Count - 1);
+
             float lineWidth = 0;
             if (line.Runs != null)
                 foreach (var run in line.Runs) lineWidth += run.Width;
+
             float offset = 0;
             if (textAlign == TextAlignType.Center)
                 offset = (availableWidth - lineWidth) / 2;
             else if (textAlign == TextAlignType.Right)
                 offset = availableWidth - lineWidth;
+            else if (textAlign == TextAlignType.Justify)
+            {
+                if (!isLastLine && line.Runs != null && line.Runs.Count > 1)
+                {
+                    float extraSpace = availableWidth - lineWidth;
+                    float spacePerRun = extraSpace / (line.Runs.Count - 1);
+                    float accumulated = 0;
+                    for (int j = 0; j < line.Runs.Count; j++)
+                    {
+                        line.Runs[j].X = accumulated;
+                        accumulated += line.Runs[j].Width;
+                        if (j < line.Runs.Count - 1)
+                            accumulated += spacePerRun;
+                    }
+                }
+            }
             line.TextAlignOffsetX = offset;
         }
     }
@@ -1031,37 +1479,11 @@ public class LayoutEngine
         public float MainSize { get; set; }
     }
 
-    private void LayoutAbsolute(Element element, LayoutBox box, LayoutBox? parentBox, float viewportWidth = 0, float viewportHeight = 0)
+    private LayoutBox LayoutAbsolute(Element element, float finalHeight, float finalWidth, LayoutBox containingBlock, LayoutBox? parentBox)
     {
         var style = element.ComputedStyle;
-        if (style == null) return;
+        if (style == null) return new LayoutBox();
 
-        // 寻找 containing block
-        LayoutBox? containingBlock = null;
-        var ancestor = element.ParentElement;
-        while (ancestor != null)
-        {
-            if (ancestor.LayoutBox != null && ancestor.ComputedStyle != null && ancestor.ComputedStyle.Position != PositionType.Static)
-            {
-                containingBlock = ancestor.LayoutBox;
-                break;
-            }
-            ancestor = ancestor.ParentElement;
-        }
-
-        if (containingBlock == null)
-        {
-            if (style.Position == PositionType.Fixed)
-            {
-                float vpWidth = viewportWidth > 0 ? viewportWidth : _viewportWidth;
-                float vpHeight = viewportHeight > 0 ? viewportHeight : _viewportHeight;
-                containingBlock = new LayoutBox { ContentBox = new SKRect(0, 0, vpWidth, vpHeight) };
-            }
-            else
-                containingBlock = parentBox ?? new LayoutBox { ContentBox = new SKRect(0, 0, _viewportWidth, _viewportHeight) };
-        }
-
-        // 解析长度
         float left = float.NaN, right = float.NaN, top = float.NaN, bottom = float.NaN;
         if (!(style.Left is AutoLength) && style.Left != null)
         {
@@ -1092,45 +1514,11 @@ public class LayoutEngine
             else if (style.Bottom is RemLength sbr) bottom = sbr.Value * _rootFontSize;
         }
 
-        // 确定宽度
-        float width = float.NaN;
-        if (style.Width is PixelLength wl)
-            width = wl.Value;
-        else if (style.Width is PercentLength wp)
-            width = wp.Value * containingBlock.ContentBox.Width;
-        else if (style.Width is EmLength wem)
-            width = wem.Value * style.FontSize;
-        else if (style.Width is RemLength wrem)
-            width = wrem.Value * _rootFontSize;
-
-        // 如果宽度未指定，且左右都指定了，则通过左右计算宽度
-        if (float.IsNaN(width) && !float.IsNaN(left) && !float.IsNaN(right))
-            width = containingBlock.ContentBox.Width - left - right;
-        // 否则默认为内容宽度（基于子元素内容，会在 CreateLayoutBox 中再次调整）
-        if (float.IsNaN(width))
-            width = 0;
-
-        // 确定高度
-        float height = float.NaN;
-        if (style.Height is PixelLength hl)
-            height = hl.Value;
-        else if (style.Height is PercentLength hp)
-            height = hp.Value * containingBlock.ContentBox.Height;
-        else if (style.Height is EmLength hem)
-            height = hem.Value * style.FontSize;
-        else if (style.Height is RemLength hrem)
-            height = hrem.Value * _rootFontSize;
-        if (float.IsNaN(height) && !float.IsNaN(top) && !float.IsNaN(bottom))
-            height = containingBlock.ContentBox.Height - top - bottom;
-        if (float.IsNaN(height))
-            height = 0;
-
-        // 计算最终位置
         float finalLeft;
         if (!float.IsNaN(left))
             finalLeft = containingBlock.ContentBox.Left + left;
         else if (!float.IsNaN(right))
-            finalLeft = containingBlock.ContentBox.Right - right - width;
+            finalLeft = containingBlock.ContentBox.Right - right - finalWidth;
         else
             finalLeft = containingBlock.ContentBox.Left;
 
@@ -1138,11 +1526,10 @@ public class LayoutEngine
         if (!float.IsNaN(top))
             finalTop = containingBlock.ContentBox.Top + top;
         else if (!float.IsNaN(bottom))
-            finalTop = containingBlock.ContentBox.Bottom - bottom - height;
+            finalTop = containingBlock.ContentBox.Bottom - bottom - finalHeight;
         else
             finalTop = containingBlock.ContentBox.Top;
 
-        // 加上 margin
         float marginLeft = style.MarginLeft.ToPixels(style.FontSize, _rootFontSize, _viewportWidth, _viewportHeight);
         float marginTop = style.MarginTop.ToPixels(style.FontSize, _rootFontSize, _viewportWidth, _viewportHeight);
         float marginRight = style.MarginRight.ToPixels(style.FontSize, _rootFontSize, _viewportWidth, _viewportHeight);
@@ -1151,17 +1538,18 @@ public class LayoutEngine
         finalLeft += marginLeft;
         finalTop += marginTop;
 
-        // 设置矩形
-        box.MarginBox = new SKRect(finalLeft, finalTop, finalLeft + width + marginRight, finalTop + height + marginBottom);
-        box.BorderBox = new SKRect(finalLeft, finalTop, finalLeft + width, finalTop + height);
+        var box = new LayoutBox();
+        box.MarginBox = new SKRect(finalLeft, finalTop, finalLeft + finalWidth + marginRight, finalTop + finalHeight + marginBottom);
+        box.BorderBox = new SKRect(finalLeft, finalTop, finalLeft + finalWidth, finalTop + finalHeight);
         box.PaddingBox = box.BorderBox;
-        box.ContentBox = new SKRect(finalLeft, finalTop, finalLeft + width, finalTop + height);
+        box.ContentBox = new SKRect(finalLeft, finalTop, finalLeft + finalWidth, finalTop + finalHeight);
 
-        // 取整
         box.MarginBox = LayoutMath.RoundRect(box.MarginBox, _dpiScale);
         box.BorderBox = LayoutMath.RoundRect(box.BorderBox, _dpiScale);
         box.PaddingBox = LayoutMath.RoundRect(box.PaddingBox, _dpiScale);
         box.ContentBox = LayoutMath.RoundRect(box.ContentBox, _dpiScale);
+
+        return box;
     }
 
     private void LayoutTable(Element element, LayoutBox box, float x, float y, float availableWidth)
@@ -1200,8 +1588,7 @@ public class LayoutEngine
         {
             float lastY = 0;
             foreach (var run in box.LineRuns)
-                if (run.Width > 0)
-                    lastY = Math.Max(lastY, run.Height);
+                lastY = Math.Max(lastY, run.Height);
             if (box.ContentBox.Top + lastY > maxBottom)
                 maxBottom = box.ContentBox.Top + lastY;
         }

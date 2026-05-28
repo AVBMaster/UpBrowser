@@ -213,6 +213,8 @@ public class CascadeResolver
             case "text-decoration": style.TextDecoration = ParseTextDecoration(value); break;
             case "vertical-align": style.VerticalAlign = ParseVerticalAlign(value); break;
             case "white-space": style.WhiteSpace = ParseWhiteSpace(value); break;
+            case "word-break": style.WordBreak = ParseWordBreak(value); break;
+            case "overflow-wrap": case "word-wrap": style.OverflowWrap = ParseOverflowWrap(value); break;
             case "visibility": style.Visibility = ParseVisibility(value); break;
             case "overflow":
                 var overflow = ParseOverflow(value);
@@ -308,6 +310,8 @@ public class CascadeResolver
         child.LineHeight = parent.LineHeight;
         child.TextAlign = parent.TextAlign;
         child.WhiteSpace = parent.WhiteSpace;
+        child.WordBreak = parent.WordBreak;
+        child.OverflowWrap = parent.OverflowWrap;
         child.Visibility = parent.Visibility;
         child.Cursor = parent.Cursor;
         child.Direction = parent.Direction;
@@ -357,6 +361,8 @@ public class CascadeResolver
         dest.TextDecoration = src.TextDecoration;
         dest.VerticalAlign = src.VerticalAlign;
         dest.WhiteSpace = src.WhiteSpace;
+        dest.WordBreak = src.WordBreak;
+        dest.OverflowWrap = src.OverflowWrap;
         dest.Visibility = src.Visibility;
         dest.Overflow = src.Overflow;
         dest.OverflowX = src.OverflowX; dest.OverflowY = src.OverflowY;
@@ -531,6 +537,20 @@ public class CascadeResolver
         "pre-wrap" => WhiteSpaceMode.PreWrap,
         "pre-line" => WhiteSpaceMode.PreLine,
         _ => WhiteSpaceMode.Normal
+    };
+
+    private WordBreakMode ParseWordBreak(string value) => value.ToLowerInvariant() switch
+    {
+        "break-all" => WordBreakMode.BreakAll,
+        "break-word" => WordBreakMode.BreakWord,
+        _ => WordBreakMode.Normal
+    };
+
+    private OverflowWrapMode ParseOverflowWrap(string value) => value.ToLowerInvariant() switch
+    {
+        "break-word" => OverflowWrapMode.BreakWord,
+        "anywhere" => OverflowWrapMode.Anywhere,
+        _ => OverflowWrapMode.Normal
     };
 
     private VisibilityType ParseVisibility(string value) => value.ToLowerInvariant() switch

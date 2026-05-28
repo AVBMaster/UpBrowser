@@ -343,9 +343,10 @@ public class PaintVisitor
 
     private void DrawElementBorder(Element element, LayoutBox box, ComputedStyle style, SKRect borderRect)
     {
-        if (style.BorderTopWidth <= 0 && style.BorderRightWidth <= 0 && style.BorderBottomWidth <= 0 && style.BorderLeftWidth <= 0)
-            return;
+        // 按钮不绘制边框（已在 FormElements 中设为零，此处再确保一下）
         if (element.TagName.Equals("BUTTON", StringComparison.OrdinalIgnoreCase))
+            return;
+        if (style.BorderTopWidth <= 0 && style.BorderRightWidth <= 0 && style.BorderBottomWidth <= 0 && style.BorderLeftWidth <= 0)
             return;
 
         float tl = style.BorderTopLeftRadius, tr = style.BorderTopRightRadius, br = style.BorderBottomRightRadius, bl = style.BorderBottomLeftRadius;
@@ -489,15 +490,15 @@ public class PaintVisitor
         float btnFontSize = style.FontSize > 0 ? style.FontSize : 13.3333f;
         float btnLineHeightValue = style.LineHeight > 0 ? style.LineHeight : 1.2f;
 
-        float borderTopWidth = style.BorderTopWidth > 0 ? style.BorderTopWidth : 2;
-        float borderBottomWidth = style.BorderBottomWidth > 0 ? style.BorderBottomWidth : 2;
-        float borderLeftWidth = style.BorderLeftWidth > 0 ? style.BorderLeftWidth : 2;
-        float borderRightWidth = style.BorderRightWidth > 0 ? style.BorderRightWidth : 2;
+        float borderTopWidth = style.BorderTopWidth;
+        float borderBottomWidth = style.BorderBottomWidth;
+        float borderLeftWidth = style.BorderLeftWidth;
+        float borderRightWidth = style.BorderRightWidth;
 
-        float padTop = GetPixelLengthFromStyle(style.PaddingTop, 4);
-        float padBottom = GetPixelLengthFromStyle(style.PaddingBottom, 4);
-        float padLeft = GetPixelLengthFromStyle(style.PaddingLeft, 10);
-        float padRight = GetPixelLengthFromStyle(style.PaddingRight, 10);
+        float padTop = GetPixelLengthFromStyle(style.PaddingTop, 6);
+        float padBottom = GetPixelLengthFromStyle(style.PaddingBottom, 6);
+        float padLeft = GetPixelLengthFromStyle(style.PaddingLeft, 12);
+        float padRight = GetPixelLengthFromStyle(style.PaddingRight, 12);
 
         var bgRect = new SKRect(
             borderBox.Left + TotalOffsetX,
@@ -506,11 +507,11 @@ public class PaintVisitor
             borderBox.Bottom + TotalOffsetY
         );
 
-        SKColor btnBgColor = style.BackgroundColor.HasValue && style.BackgroundColor.Value.Alpha > 0 ? style.BackgroundColor.Value : SKColor.Parse("#EFEFEF");
-        SKColor btnBorderColor = style.BorderTopColor.Alpha > 0 ? style.BorderTopColor : SKColor.Parse("#767676");
+        SKColor btnBgColor = style.BackgroundColor.HasValue && style.BackgroundColor.Value.Alpha > 0 ? style.BackgroundColor.Value : SKColor.Parse("#2196F3");
+        SKColor btnBorderColor = style.BorderTopColor.Alpha > 0 ? style.BorderTopColor : btnBgColor;
         float borderRadius = Math.Max(style.BorderTopLeftRadius, Math.Max(style.BorderTopRightRadius,
             Math.Max(style.BorderBottomLeftRadius, style.BorderBottomRightRadius)));
-        if (borderRadius <= 0) borderRadius = 2;
+        if (borderRadius <= 0) borderRadius = 4;
 
         if (borderRadius > 0)
         {
@@ -521,11 +522,14 @@ public class PaintVisitor
             bgOp.Bounds = bgRect;
             _displayList.Add(bgOp);
 
-            var borderOp = PaintOpPool.GetDrawPathOp();
-            borderOp.Path = path;
-            borderOp.StrokePaint = new SKPaint { Color = btnBorderColor, Style = SKPaintStyle.Stroke, StrokeWidth = borderTopWidth, IsAntialias = true };
-            borderOp.Bounds = bgRect;
-            _displayList.Add(borderOp);
+            if (borderTopWidth > 0)
+            {
+                var borderOp = PaintOpPool.GetDrawPathOp();
+                borderOp.Path = path;
+                borderOp.StrokePaint = new SKPaint { Color = btnBorderColor, Style = SKPaintStyle.Stroke, StrokeWidth = borderTopWidth, IsAntialias = true };
+                borderOp.Bounds = bgRect;
+                _displayList.Add(borderOp);
+            }
         }
         else
         {
@@ -535,21 +539,28 @@ public class PaintVisitor
             bgOp.Bounds = bgRect;
             _displayList.Add(bgOp);
 
-            var borderOp = PaintOpPool.GetDrawRectOp();
-            borderOp.Rect = bgRect;
-            borderOp.BorderTopWidth = borderTopWidth;
-            borderOp.BorderBottomWidth = borderBottomWidth;
-            borderOp.BorderLeftWidth = borderLeftWidth;
-            borderOp.BorderRightWidth = borderRightWidth;
-            borderOp.BorderTopColor = btnBorderColor;
-            borderOp.BorderBottomColor = btnBorderColor;
-            borderOp.BorderLeftColor = btnBorderColor;
-            borderOp.BorderRightColor = btnBorderColor;
-            borderOp.Bounds = bgRect;
-            _displayList.Add(borderOp);
+            if (borderTopWidth > 0)
+            {
+                var borderOp = PaintOpPool.GetDrawRectOp();
+                borderOp.Rect = bgRect;
+                borderOp.BorderTopWidth = borderTopWidth;
+                borderOp.BorderBottomWidth = borderBottomWidth;
+                borderOp.BorderLeftWidth = borderLeftWidth;
+                borderOp.BorderRightWidth = borderRightWidth;
+                borderOp.BorderTopColor = btnBorderColor;
+                borderOp.BorderBottomColor = btnBorderColor;
+                borderOp.BorderLeftColor = btnBorderColor;
+                borderOp.BorderRightColor = btnBorderColor;
+                borderOp.Bounds = bgRect;
+                _displayList.Add(borderOp);
+            }
         }
 
-        float textWidth = MeasureTextWidth(buttonText, btnFontSize, style.FontFamily);
+        // 精确测量文本宽度
+        float textWidth = Core.Layout.TextMeasurer.Instance?.MeasureText(buttonText, style.FontFamily ?? "Arial", btnFontSize) ?? 0;
+        float maxContentWidth = bgRect.Width - padLeft - padRight - borderLeftWidth - borderRightWidth;
+        if (textWidth > maxContentWidth) textWidth = maxContentWidth;
+
         float contentLeft = bgRect.Left + borderLeftWidth + padLeft;
         float contentTop = bgRect.Top + borderTopWidth + padTop;
         float contentRight = bgRect.Right - borderRightWidth - padRight;

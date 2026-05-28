@@ -107,7 +107,7 @@ public class BrowserApp : IDisposable
         // Wire up SkiaSharp-based text measurement for accurate layout
         TextMeasurer.Instance = new Core.Layout.SkiaTextMeasurer();
 
-        // Cache font families once at startup (avoids O(SKFontManager) enumeration per frame)
+        // Cache font families once at startup (avoids O(SKFontManager enumeration per frame)
         _fontFamilies ??= SkiaSharp.SKFontManager.Default.FontFamilies.ToArray();
 
         _dpiScale = PlatformFactory.GetDpiScale();
@@ -116,7 +116,7 @@ public class BrowserApp : IDisposable
         int physicalWidth = (int)(logicalWidth * _dpiScale);
         int physicalHeight = (int)(logicalHeight * _dpiScale);
 
-var winWindow = PlatformFactory.CreateWindowsWindow(physicalWidth, physicalHeight, "UpBrowser");
+        var winWindow = PlatformFactory.CreateWindowsWindow(physicalWidth, physicalHeight, "UpBrowser");
         _window = winWindow ?? throw new InvalidOperationException("Failed to create window");
         _docManager = new DocumentManager();
         _chrome = new ChromeRenderer();
@@ -446,7 +446,7 @@ var winWindow = PlatformFactory.CreateWindowsWindow(physicalWidth, physicalHeigh
             _input.NeedsRedraw = true;
 
             int currentTabIndex = _chrome.ActiveTabIndex;
-            
+
             // 保存当前标签页状态
             if (_lastActiveTabIndex >= 0 && _currentLoad != null)
             {
@@ -522,7 +522,7 @@ var winWindow = PlatformFactory.CreateWindowsWindow(physicalWidth, physicalHeigh
         if (_currentLoad == null) return;
 
         var angleDoc = _currentLoad.AngleSharpDoc;
-        
+
         // First pass: collect all script elements
         var scriptElements = angleDoc.All.Where(e =>
             e.LocalName?.ToLowerInvariant() == "script").ToList();
@@ -904,6 +904,10 @@ var winWindow = PlatformFactory.CreateWindowsWindow(physicalWidth, physicalHeigh
             _skiaRenderer.Resize(windowWidth, windowHeight);
             _lastWindowWidth = windowWidth;
             _lastWindowHeight = windowHeight;
+            _skiaRenderer.InvalidatePageCache();
+            // 清除文本测量缓存，确保重新测量所有文本宽度，支持动态换行
+            (TextMeasurer.Instance as SkiaTextMeasurer)?.ClearCache();
+            _pendingRelayout = true;
         }
 
         float contentViewportHeight = windowHeight - _contentOffset - _chrome.GetStatusBarHeight() - currentDevToolsHeight;

@@ -97,11 +97,15 @@ public static class FormElements
             case "button":
                 style.Display = DisplayType.InlineBlock;
                 style.BoxSizing = BoxSizingType.BorderBox;
-                // 边框设为0（与Edge一致）
+                // 边框清零（与 Edge 一致）
                 style.BorderTopWidth = 0;
                 style.BorderRightWidth = 0;
                 style.BorderBottomWidth = 0;
                 style.BorderLeftWidth = 0;
+                style.BorderTopStyle = BorderStyle.None;
+                style.BorderRightStyle = BorderStyle.None;
+                style.BorderBottomStyle = BorderStyle.None;
+                style.BorderLeftStyle = BorderStyle.None;
                 // 内边距
                 style.PaddingTop = new PixelLength(6);
                 style.PaddingBottom = new PixelLength(6);

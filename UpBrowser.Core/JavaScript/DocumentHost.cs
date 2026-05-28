@@ -256,6 +256,8 @@ public class DocumentHost
                 ["text-align"] = computedStyle.TextAlign.ToString().ToLowerInvariant(),
                 ["text-decoration"] = computedStyle.TextDecoration.ToString().ToLowerInvariant(),
                 ["white-space"] = computedStyle.WhiteSpace.ToString().ToLowerInvariant(),
+                ["word-break"] = computedStyle.WordBreak.ToString().ToLowerInvariant(),
+                ["overflow-wrap"] = computedStyle.OverflowWrap.ToString().ToLowerInvariant(),
                 ["visibility"] = computedStyle.Visibility.ToString().ToLowerInvariant(),
                 ["overflow"] = computedStyle.Overflow.ToString().ToLowerInvariant(),
                 ["opacity"] = computedStyle.Opacity.ToString(),

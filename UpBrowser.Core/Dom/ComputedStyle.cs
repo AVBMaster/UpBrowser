@@ -198,6 +198,8 @@ public class ComputedStyle
     public TextDecorationType TextDecoration { get; set; } = TextDecorationType.None;
     public VerticalAlignType VerticalAlign { get; set; } = VerticalAlignType.Baseline;
     public WhiteSpaceMode WhiteSpace { get; set; } = WhiteSpaceMode.Normal;
+    public WordBreakMode WordBreak { get; set; } = WordBreakMode.Normal;
+    public OverflowWrapMode OverflowWrap { get; set; } = OverflowWrapMode.Normal;
 
     public OverflowType Overflow { get; set; } = OverflowType.Visible;
     public OverflowType OverflowX { get; set; } = OverflowType.Visible;
@@ -339,6 +341,8 @@ public class ComputedStyle
             TextDecoration = TextDecoration,
             VerticalAlign = VerticalAlign,
             WhiteSpace = WhiteSpace,
+            WordBreak = WordBreak,
+            OverflowWrap = OverflowWrap,
             Overflow = Overflow,
             OverflowX = OverflowX,
             OverflowY = OverflowY,
@@ -403,6 +407,8 @@ public enum TextAlignType { Start, End, Left, Right, Center, Justify }
 public enum TextDecorationType { None, Underline, Overline, LineThrough }
 public enum VerticalAlignType { Baseline, Top, Middle, Bottom, Sub, Super, TextTop, TextBottom, Inherit }
 public enum WhiteSpaceMode { Normal, Nowrap, Pre, PreWrap, PreLine }
+public enum WordBreakMode { Normal, BreakAll, BreakWord }
+public enum OverflowWrapMode { Normal, BreakWord, Anywhere }
 public enum OverflowType { Visible, Hidden, Scroll, Auto }
 public enum VisibilityType { Visible, Hidden, Collapse }
 public enum FlexDirectionType { Row, RowReverse, Column, ColumnReverse }
