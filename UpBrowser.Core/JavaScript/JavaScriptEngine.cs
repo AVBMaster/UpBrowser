@@ -57,8 +57,20 @@ public class JavaScriptEngine : IDisposable
 
         _engine.Evaluate(JsCallbackStore.JsSetup);
 
+        // Embed ALL host objects BEFORE the setup script that references them
         _engine.EmbedHostObject("console", new ConsoleHost());
         _engine.EmbedHostObject("__upbrowser", new UpBrowserBuiltins(this));
+        _engine.EmbedHostObject("__win", new WindowHost(this));
+        _engine.EmbedHostObject("navigator", new NavigatorHost());
+        _engine.EmbedHostObject("location", new LocationHost());
+        _engine.EmbedHostObject("history", new HistoryHost());
+        _engine.EmbedHostObject("screen", new ScreenHost());
+        _engine.EmbedHostObject("localStorage", new StorageHost());
+        _engine.EmbedHostObject("sessionStorage", new StorageHost());
+
+        // Embed a minimal stub document so 'var document = document;' resolves correctly
+        // Real document is set later via LoadDocument()
+        _engine.EmbedHostObject("document", new Dictionary<string, object?>());
 
         _engine.Execute(@"
             var window = this;
@@ -116,13 +128,15 @@ public class JavaScriptEngine : IDisposable
             var window = this;
             var globalThis = this;
             var self = this;
-            var document = document;
-            var navigator = navigator;
-            var location = location;
-            var history = history;
-            var screen = screen;
-            var localStorage = localStorage;
-            var sessionStorage = sessionStorage;
+            // Use direct property assignment instead of 'var' to avoid creating shadowing bindings
+            // that would prevent subsequent EmbedHostObject calls from taking effect.
+            window.document = document;
+            window.navigator = navigator;
+            window.location = location;
+            window.history = history;
+            window.screen = screen;
+            window.localStorage = localStorage;
+            window.sessionStorage = sessionStorage;
 
             Object.defineProperty(window, 'innerWidth', { get: function() { return __upbrowser.innerWidth(); } });
             Object.defineProperty(window, 'innerHeight', { get: function() { return __upbrowser.innerHeight(); } });
@@ -175,14 +189,6 @@ public class JavaScriptEngine : IDisposable
                 }
             }
         ");
-
-        _engine.EmbedHostObject("__win", new WindowHost(this));
-        _engine.EmbedHostObject("navigator", new NavigatorHost());
-        _engine.EmbedHostObject("location", new LocationHost());
-        _engine.EmbedHostObject("history", new HistoryHost());
-        _engine.EmbedHostObject("screen", new ScreenHost());
-        _engine.EmbedHostObject("localStorage", new StorageHost());
-        _engine.EmbedHostObject("sessionStorage", new StorageHost());
     }
 
     public void LoadDocument(DomDocument document)
@@ -192,10 +198,54 @@ public class JavaScriptEngine : IDisposable
 
         if (_engine != null)
         {
+            // Clear old JS callbacks to prevent memory leak across page navigations
+            ClearState();
+
             _engine.EmbedHostObject("document", _documentHost);
         }
 
         MarkDirty();
+    }
+
+    public void ClearState()
+    {
+        if (_engine == null) return;
+
+        // Clear all stored callbacks from __g_cbs to prevent memory leaks
+        try { _engine.Evaluate("__g_cbs = {}; __g_cbid = 0;"); }
+        catch { }
+
+        // Clear all timers
+        lock (_timersLock)
+        {
+            foreach (var info in _timers.Values)
+                RemoveCallback(info.CallbackId);
+            _timers.Clear();
+        }
+
+        // Clear all fetch callbacks
+        lock (_fetchLock)
+        {
+            foreach (var cbs in _fetchCallbacks.Values)
+            {
+                RemoveCallback(cbs.resolveId);
+                RemoveCallback(cbs.rejectId);
+            }
+            _fetchCallbacks.Clear();
+            _fetchResults.Clear();
+        }
+
+        // Reset ConsoleHost counters and timers
+        if (_engine != null)
+        {
+            try
+            {
+                var console = _engine.Evaluate("console");
+                if (console is ConsoleHost ch)
+                    ch.Reset();
+            }
+            catch { }
+        }
     }
 
     public void Execute(string code)
@@ -683,10 +733,11 @@ public class UpBrowserBuiltins
 
     public string decodeURI(string str) => Uri.UnescapeDataString(str);
     public string encodeURI(string str) => Uri.EscapeDataString(str);
-    public int parseInt(string s, int radix)
+    public int parseInt(string s, object? radix = null)
     {
-        try { return Convert.ToInt32(s, radix); }
-        catch { return int.TryParse(s, out var r) ? r : 0; }
+        var r = radix is int ri ? ri : 10;
+        try { return Convert.ToInt32(s, r); }
+        catch { return int.TryParse(s, out var res) ? res : 0; }
     }
     public double parseFloat(string s) => double.TryParse(s, out var r) ? r : double.NaN;
     public bool isNaN(object? v)
@@ -822,6 +873,13 @@ public class ConsoleHost
             WriteLine("[JS Assertion Failed]", args);
         }
     }
+    public void Reset()
+    {
+        _counters.Clear();
+        _timers.Clear();
+        _groupLevel = 0;
+    }
+
     public void clear() => Console.Clear();
 
     private void WriteLine(string prefix, object?[] args)

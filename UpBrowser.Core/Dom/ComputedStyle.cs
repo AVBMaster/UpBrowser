@@ -19,9 +19,41 @@ public abstract class Length
             return new RemLength(float.Parse(value[..^2]));
         if (value.EndsWith("%"))
             return new PercentLength(float.Parse(value[..^2]) / 100f);
+        if (value.EndsWith("cqw"))
+            return new VwLength(float.Parse(value[..^3]));
+        if (value.EndsWith("cqh"))
+            return new VhLength(float.Parse(value[..^3]));
+        if (value.EndsWith("cqi"))
+            return new VwLength(float.Parse(value[..^3]));
+        if (value.EndsWith("cqb"))
+            return new VhLength(float.Parse(value[..^3]));
+        if (value.EndsWith("cqmin"))
+            return new VwLength(float.Parse(value[..^5]));
+        if (value.EndsWith("cqmax"))
+            return new VwLength(float.Parse(value[..^5]));
+        if (value.EndsWith("dvw"))
+            return new VwLength(float.Parse(value[..^3]));
+        if (value.EndsWith("dvh"))
+            return new VhLength(float.Parse(value[..^3]));
+        if (value.EndsWith("svw"))
+            return new VwLength(float.Parse(value[..^3]));
+        if (value.EndsWith("svh"))
+            return new VhLength(float.Parse(value[..^3]));
+        if (value.EndsWith("lvw"))
+            return new VwLength(float.Parse(value[..^3]));
+        if (value.EndsWith("lvh"))
+            return new VhLength(float.Parse(value[..^3]));
+        if (value.EndsWith("vmin"))
+            return new VwLength(float.Parse(value[..^4]));
+        if (value.EndsWith("vmax"))
+            return new VwLength(float.Parse(value[..^4]));
         if (value.EndsWith("vw"))
             return new VwLength(float.Parse(value[..^2]));
         if (value.EndsWith("vh"))
+            return new VhLength(float.Parse(value[..^2]));
+        if (value.EndsWith("vi"))
+            return new VwLength(float.Parse(value[..^2]));
+        if (value.EndsWith("vb"))
             return new VhLength(float.Parse(value[..^2]));
         if (value == "0")
             return new PixelLength(0);
