@@ -614,6 +614,20 @@ public class ChromeRenderer : IImeSupport
         OnNavigate?.Invoke(url);
     }
 
+    /// <summary>
+    /// Update the displayed URL in the URL bar and tab without triggering a navigation.
+    /// Used to reflect the effective URL after HTTP redirects.
+    /// </summary>
+    public void UpdateUrl(string url)
+    {
+        _currentUrl = url;
+        if (_activeTabIndex >= 0 && _activeTabIndex < _tabs.Count)
+        {
+            _tabs[_activeTabIndex].Url = url;
+        }
+        _urlBarText = "";
+    }
+
     public void GoBack()
     {
         if (_historyIndex > 0)

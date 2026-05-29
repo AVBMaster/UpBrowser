@@ -10,12 +10,13 @@ public class PaintVisitor
 {
     private readonly DisplayList _displayList = new();
     private SKTypeface _defaultTypeface = SKTypeface.Default;
-    private Dictionary<string, SKTypeface> _typefaceCache;
+    private Dictionary<string, SKTypeface> _typefaceCache;     // cached typefaces per family:weight
     private ImageCache _imageCache;
     private float _contentOffsetY;
     private string[]? _fontFamilies;
     private string? _baseUrl;
     private Core.Dom.Element? _focusedElement;
+    private SKRect? _selectionRect;
 
     public PaintVisitor(float contentOffsetY = 0,
         Dictionary<string, SKTypeface>? sharedTypefaceCache = null,
@@ -32,6 +33,7 @@ public class PaintVisitor
     }
 
     public void SetFocusedElement(Core.Dom.Element? element) => _focusedElement = element;
+    public void SetSelectionRect(SKRect? rect) => _selectionRect = rect;
     private float TotalOffsetY => _contentOffsetY;
     private float TotalOffsetX => 0;
 
@@ -705,7 +707,7 @@ public class PaintVisitor
         var text = textNode.TextContent;
         if (string.IsNullOrEmpty(text)) return;
         var contentBox = box.ContentBox;
-        float y = contentBox.Top + (parentStyle?.FontSize ?? 16);
+        float y = contentBox.Top + (parentStyle?.FontSize ?? 16) + TotalOffsetY;
         var textColor = parentStyle?.Color ?? SKColors.Black;
         if (parentStyle != null && parentStyle.Opacity < 1.0f)
             textColor = textColor.WithAlpha((byte)(textColor.Alpha * parentStyle.Opacity));
@@ -720,7 +722,26 @@ public class PaintVisitor
         op.TextAlign = parentStyle?.TextAlign ?? TextAlignType.Start;
         op.Underline = parentStyle?.TextDecoration == TextDecorationType.Underline;
         op.LineThrough = parentStyle?.TextDecoration == TextDecorationType.LineThrough;
-        op.Bounds = new SKRect(contentBox.Left, contentBox.Top, contentBox.Right, contentBox.Bottom);
+        op.Bounds = new SKRect(contentBox.Left, contentBox.Top + TotalOffsetY, contentBox.Right, contentBox.Bottom + TotalOffsetY);
+
+        // Add selection highlight clipped to the overlapping region
+        if (_selectionRect.HasValue && op.Bounds.IntersectsWith(_selectionRect.Value))
+        {
+            var intersect = SKRect.Intersect(op.Bounds, _selectionRect.Value);
+            if (intersect.Width > 0 && intersect.Height > 0)
+            {
+                var highlightOp = PaintOpPool.GetDrawRectOp();
+                highlightOp.Rect = intersect;
+                highlightOp.FillColor = new SKColor(0x1A, 0x73, 0xE8, 0x40);
+                highlightOp.BorderTopWidth = 0;
+                highlightOp.BorderBottomWidth = 0;
+                highlightOp.BorderLeftWidth = 0;
+                highlightOp.BorderRightWidth = 0;
+                highlightOp.Bounds = intersect;
+                _displayList.Add(highlightOp);
+            }
+        }
+
         _displayList.Add(op);
     }
 
@@ -818,6 +839,21 @@ public class PaintVisitor
                         op.Underline = parentStyle?.TextDecoration == TextDecorationType.Underline;
                         op.LineThrough = parentStyle?.TextDecoration == TextDecorationType.LineThrough;
                         op.Bounds = new SKRect(currentX + lineOffsetX, lineY, currentX + run.Width + lineOffsetX, lineY + line.Height);
+
+                        // Add selection highlight if this text overlaps with selection
+                        if (_selectionRect.HasValue && op.Bounds.IntersectsWith(_selectionRect.Value))
+                        {
+                            var highlightOp = PaintOpPool.GetDrawRectOp();
+                            highlightOp.Rect = op.Bounds;
+                            highlightOp.FillColor = new SKColor(0x1A, 0x73, 0xE8, 0x40);
+                            highlightOp.BorderTopWidth = 0;
+                            highlightOp.BorderBottomWidth = 0;
+                            highlightOp.BorderLeftWidth = 0;
+                            highlightOp.BorderRightWidth = 0;
+                            highlightOp.Bounds = op.Bounds;
+                            _displayList.Add(highlightOp);
+                        }
+
                         _displayList.Add(op);
                     }
                     currentX += run.Width;
@@ -847,6 +883,21 @@ public class PaintVisitor
                     op.Underline = parentStyle?.TextDecoration == TextDecorationType.Underline;
                     op.LineThrough = parentStyle?.TextDecoration == TextDecorationType.LineThrough;
                     op.Bounds = new SKRect(x, boxTop, x + run.Width, boxTop + run.Height);
+
+                    // Add selection highlight if this text overlaps with selection
+                    if (_selectionRect.HasValue && op.Bounds.IntersectsWith(_selectionRect.Value))
+                    {
+                        var highlightOp = PaintOpPool.GetDrawRectOp();
+                        highlightOp.Rect = op.Bounds;
+                        highlightOp.FillColor = new SKColor(0x1A, 0x73, 0xE8, 0x40);
+                        highlightOp.BorderTopWidth = 0;
+                        highlightOp.BorderBottomWidth = 0;
+                        highlightOp.BorderLeftWidth = 0;
+                        highlightOp.BorderRightWidth = 0;
+                        highlightOp.Bounds = op.Bounds;
+                        _displayList.Add(highlightOp);
+                    }
+
                     _displayList.Add(op);
                 }
                 x += run.Width;

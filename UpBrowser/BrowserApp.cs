@@ -102,6 +102,12 @@ public class BrowserApp : IDisposable
     private readonly PageInputImeHost _pageInputImeHost;
     private const float ScrollbarDragThreshold = 5;
 
+    // Text selection support
+    private bool _isSelecting;
+    private SKPoint _selectionStart;
+    private SKPoint _selectionEnd;
+    private bool _hasSelection;
+
     public BrowserApp(int logicalWidth, int logicalHeight)
     {
         // Wire up SkiaSharp-based text measurement for accurate layout
@@ -130,13 +136,6 @@ public class BrowserApp : IDisposable
         _pageInputImeHost = new PageInputImeHost(this);
         _contentOffset = _chrome.GetContentOffset();
         _input = new InputHandler(_chrome, _scroll, _window, _dpiScale);
-        _input.OnDomClick = HandleDomClick;
-        _input.OnDevToolsKey = () =>
-        {
-            _devTools.Toggle();
-            _input.NeedsRedraw = true;
-        };
-
         _input.OnDomClick = HandleDomClick;
         _input.OnDevToolsKey = () =>
         {
@@ -179,6 +178,47 @@ public class BrowserApp : IDisposable
         _input.OnSelectAll = PerformSelectAll;
 
         _jsEngine.ShowDialog = ShowDialog;
+
+        // Wire LocationHost navigation callback
+        if (_jsEngine.LocationHost != null)
+        {
+            _jsEngine.LocationHost.OnNavigate = (url) =>
+            {
+                Console.WriteLine($"Location navigate to: {url}");
+                _eventLoop.PostTask(() =>
+                {
+                    if (!string.IsNullOrWhiteSpace(url))
+                        _chrome.NavigateToUrl(url);
+                });
+            };
+            _jsEngine.LocationHost.OnReload = () =>
+            {
+                _eventLoop.PostTask(() => _chrome.OnRefresh?.Invoke());
+            };
+        }
+
+        // Wire window property delegates to real values
+        if (_jsEngine.Builtins != null)
+        {
+            _jsEngine.Builtins.GetInnerWidth = () => (int)(_window.GetClientSize().width / _dpiScale);
+            _jsEngine.Builtins.GetInnerHeight = () => (int)(_window.GetClientSize().height / _dpiScale);
+            _jsEngine.Builtins.GetDevicePixelRatio = () => _dpiScale;
+            _jsEngine.Builtins.GetScrollX = () => (int)_scroll.ScrollX;
+            _jsEngine.Builtins.GetScrollY = () => (int)_scroll.ScrollY;
+            _jsEngine.Builtins.OnScrollTo = (x, y) => _scroll.ScrollTo(x, y);
+            _jsEngine.Builtins.OnScrollBy = (x, y) => _scroll.ScrollBy(x, y);
+        }
+
+        // Wire DOM keyboard events
+        _input.OnDomKeyDown = (charCode, key, repeat) => HandleDomKeyDown(charCode, key, repeat);
+        _input.OnDomKeyUp = (charCode, key, repeat) => HandleDomKeyUp(charCode, key, repeat);
+        _input.OnDomChar = (charCode) => HandleDomChar(charCode);
+
+        // Wire DOM mouse events
+        _input.OnDomMouseMove = (x, y) => HandleDomMouseMove(x, y);
+        _input.OnDomMouseDown = (x, y, isDown) => { /* handled via OnDomClick */ };
+        _input.OnDomMouseUp = (x, y, isDown) => HandleDomMouseUp(x, y);
+
         _input.OnDialogClick = (x, y) =>
         {
             if (!_dialogActive) return false;
@@ -665,7 +705,11 @@ public class BrowserApp : IDisposable
 
     private void NavigateToHttp(string url)
     {
-        if (_isNavigating) return;
+        if (_isNavigating)
+        {
+            // Allow new navigation even if previous one is stuck
+            _isNavigating = false;
+        }
         _isNavigating = true;
         _chrome.SetLoadingState(true);
         _input.NeedsRedraw = true;
@@ -685,7 +729,16 @@ public class BrowserApp : IDisposable
                 response.EnsureSuccessStatusCode();
                 var webHtml = await response.Content.ReadAsStringAsync();
 
-                _eventLoop.PostTask(() => LoadAndRenderHtml(webHtml, url));
+                // Use final URL after any redirects as the base URL for relative links
+                var finalUrl = response.RequestMessage?.RequestUri?.ToString() ?? url;
+
+                // Update URL bar to reflect the final URL (e.g. https://baidu.com → https://www.baidu.com)
+                _eventLoop.PostTask(() =>
+                {
+                    var savedUrl = finalUrl;
+                    _chrome.UpdateUrl(savedUrl);  // update the chrome URL display
+                    LoadAndRenderHtml(webHtml, savedUrl);
+                });
             }
             catch (TaskCanceledException)
             {
@@ -704,6 +757,9 @@ public class BrowserApp : IDisposable
         _currentBaseUrl = baseUrl;
         _sharedImageCache.Clear();
         _sharedTypefaceCache.Clear();
+        _hasSelection = false;
+        _isSelecting = false;
+        _hoveredElement = null;
 
         // Parse HTML on background thread
         // Capture current viewport and dpi so layout during load uses correct CSS pixel size
@@ -832,6 +888,15 @@ public class BrowserApp : IDisposable
 
         _cachedPaintVisitor = new PaintVisitor(_contentOffset, _sharedTypefaceCache, _sharedImageCache, _fontFamilies, _currentBaseUrl);
         _cachedPaintVisitor.SetFocusedElement(_focusedElement);
+        if (_hasSelection)
+        {
+            var selRect = new SKRect(
+                Math.Min(_selectionStart.X, _selectionEnd.X),
+                Math.Min(_selectionStart.Y, _selectionEnd.Y),
+                Math.Max(_selectionStart.X, _selectionEnd.X),
+                Math.Max(_selectionStart.Y, _selectionEnd.Y));
+            _cachedPaintVisitor.SetSelectionRect(selRect);
+        }
         _cachedPaintVisitor.VisitDocument(_currentLoad.Document);
         _displayList = _cachedPaintVisitor.GetDisplayList();
         _displayList.SortByZIndex();
@@ -912,7 +977,7 @@ public class BrowserApp : IDisposable
 
         float contentViewportHeight = windowHeight - _contentOffset - _chrome.GetStatusBarHeight() - currentDevToolsHeight;
 
-        if (sizeChanged || windowWidth != _lastLayoutWidth || _pendingRelayout || devToolsChanged)
+        if (sizeChanged || windowWidth != _lastLayoutWidth || _pendingRelayout || devToolsChanged || _input.NeedsRedraw)
         {
             _lastLayoutWidth = windowWidth;
 
@@ -1042,28 +1107,402 @@ public class BrowserApp : IDisposable
     {
         if (_currentLoad == null) return;
 
+        float docX = x + _scroll.ScrollX;
         float adjustedY = y - _contentOffset + _scroll.ScrollY;
-        var element = HitTest(_currentLoad.Document, x, adjustedY);
+        var element = HitTest(_currentLoad.Document, docX, adjustedY);
+        Console.WriteLine($"[Click] HitTest found: {element?.TagName} at ({docX:F1},{adjustedY:F1})");
         if (element != null)
         {
-            _jsEngine.DispatchEvent(element, "click");
+            bool shouldProceed = _jsEngine.DispatchEvent(element, "click");
 
+            // Dispatch focus/blur when focused element changes
             if (element.IsFormElement)
             {
-                _focusedElement = element;
-                _window.UpdateImeCompositionWindow();
+                if (_focusedElement != element)
+                {
+                    if (_focusedElement != null)
+                        _jsEngine.DispatchEvent(_focusedElement, "blur");
+                    _focusedElement = element;
+                    _jsEngine.DispatchEvent(element, "focus");
+                    _window.UpdateImeCompositionWindow();
+                    _hasSelection = false;
+                }
             }
             else
             {
-                _focusedElement = null;
+                if (_focusedElement != null)
+                {
+                    _jsEngine.DispatchEvent(_focusedElement, "blur");
+                    _focusedElement = null;
+                }
+
+                // Start text selection on non-interactive elements
+                if (shouldProceed && !IsInteractiveElement(element))
+                {
+                    _isSelecting = true;
+                    // Selection coordinates in display-list space (window coords at scroll=0):
+                    // DL_X = x + scrollX, DL_Y = y + scrollY
+                    _selectionStart = new SKPoint(x + _scroll.ScrollX, y + _scroll.ScrollY);
+                    _selectionEnd = _selectionStart;
+                    _hasSelection = false;
+                }
+                else
+                {
+                    _hasSelection = false;
+                }
             }
+
+            if (shouldProceed)
+                NavigateForLinkClick(element);
         }
         else
         {
-            _focusedElement = null;
+            if (_focusedElement != null)
+            {
+                _jsEngine.DispatchEvent(_focusedElement, "blur");
+                _focusedElement = null;
+            }
+            _hasSelection = false;
         }
         UpdateImeTarget();
     }
+
+    private static bool IsInteractiveElement(Core.Dom.Element element)
+    {
+        return element.TagName is "A" or "BUTTON" or "INPUT" or "TEXTAREA" or "SELECT"
+            || element.GetAttribute("onclick") != null
+            || element.GetAttribute("role") == "button";
+    }
+
+    private void NavigateForLinkClick(Core.Dom.Element element)
+    {
+        // Walk up the element tree to find an <a> tag
+        var current = element;
+        while (current != null)
+        {
+            if (current.TagName == "A")
+            {
+                var href = current.GetAttribute("href");
+                if (!string.IsNullOrWhiteSpace(href))
+                {
+                    var url = href;
+                    // Resolve relative URLs against current base URL
+                    if (!url.Contains("://") && !url.StartsWith("//") && !string.IsNullOrEmpty(_currentBaseUrl))
+                    {
+                        try
+                        {
+                            var baseUri = new Uri(_currentBaseUrl.EndsWith('/') ? _currentBaseUrl : _currentBaseUrl + '/');
+                            url = new Uri(baseUri, url).ToString();
+                        }
+                        catch { }
+                    }
+                    else if (url.StartsWith("//"))
+                    {
+                        // Protocol-relative URL
+                        try
+                        {
+                            var baseUri = new Uri(_currentBaseUrl ?? "https://example.com");
+                            url = baseUri.Scheme + ":" + url;
+                        }
+                        catch { }
+                    }
+
+                    Console.WriteLine($"Link click navigating to: {url}");
+                    _chrome.NavigateToUrl(url);
+                    return;
+                }
+            }
+
+            // Check target="_blank" on anchor or area
+            var target = current.GetAttribute("target");
+            if (target == "_blank")
+            {
+                var href = current.GetAttribute("href");
+                if (!string.IsNullOrWhiteSpace(href))
+                {
+                    Console.WriteLine($"New tab link: {href}");
+                    // For now, navigate in same tab
+                    var url = href;
+                    if (!url.Contains("://") && !string.IsNullOrEmpty(_currentBaseUrl))
+                    {
+                        try
+                        {
+                            var baseUri = new Uri(_currentBaseUrl.EndsWith('/') ? _currentBaseUrl : _currentBaseUrl + '/');
+                            url = new Uri(baseUri, url).ToString();
+                        }
+                        catch { }
+                    }
+                    _chrome.NavigateToUrl(url);
+                    return;
+                }
+            }
+
+            current = current.ParentElement;
+        }
+    }
+
+    #region DOM Event Handlers
+
+    private Core.Dom.Element? _hoveredElement;
+
+    private void HandleDomKeyDown(char charCode, Key key, bool repeat)
+    {
+        if (_currentLoad == null) return;
+
+        var target = _focusedElement ?? _currentLoad.Document.Body ?? _currentLoad.Document.DocumentElement;
+        if (target == null) return;
+
+        var keyStr = KeyToJsKey(charCode, key);
+        var codeStr = KeyToJsCode(key);
+
+        var host = _jsEngine.GetElementHost(target);
+        var evt = new ScriptEvent("keydown", host)
+        {
+            key = keyStr,
+            code = codeStr,
+            ctrlKey = IsCtrlPressed(),
+            shiftKey = IsShiftPressed(),
+            altKey = IsAltPressed(),
+            repeat = repeat,
+            keyCode = (int)key,
+            which = (int)key,
+            bubbles = true,
+            cancelable = true
+        };
+        _jsEngine.DispatchEvent(target, evt);
+    }
+
+    private void HandleDomKeyUp(char charCode, Key key, bool repeat)
+    {
+        if (_currentLoad == null) return;
+
+        var target = _focusedElement ?? _currentLoad.Document.Body ?? _currentLoad.Document.DocumentElement;
+        if (target == null) return;
+
+        var keyStr = KeyToJsKey(charCode, key);
+        var codeStr = KeyToJsCode(key);
+
+        var host = _jsEngine.GetElementHost(target);
+        var evt = new ScriptEvent("keyup", host)
+        {
+            key = keyStr,
+            code = codeStr,
+            ctrlKey = IsCtrlPressed(),
+            shiftKey = IsShiftPressed(),
+            altKey = IsAltPressed(),
+            repeat = repeat,
+            keyCode = (int)key,
+            which = (int)key,
+            bubbles = true,
+            cancelable = true
+        };
+        _jsEngine.DispatchEvent(target, evt);
+    }
+
+    private void HandleDomChar(char charCode)
+    {
+        if (_currentLoad == null || charCode == '\0' || charCode < 32) return;
+
+        var target = _focusedElement ?? _currentLoad.Document.Body ?? _currentLoad.Document.DocumentElement;
+        if (target == null) return;
+
+        var keyStr = new string(charCode, 1);
+
+        var host = _jsEngine.GetElementHost(target);
+        var evt = new ScriptEvent("keypress", host)
+        {
+            key = keyStr,
+            code = keyStr,
+            ctrlKey = IsCtrlPressed(),
+            shiftKey = IsShiftPressed(),
+            altKey = IsAltPressed(),
+            keyCode = charCode,
+            which = charCode,
+            bubbles = true,
+            cancelable = true
+        };
+        _jsEngine.DispatchEvent(target, evt);
+    }
+
+    private void HandleDomMouseMove(float x, float y)
+    {
+        if (_currentLoad == null) return;
+
+        float docX = x + _scroll.ScrollX;
+        float adjustedY = y - _contentOffset + _scroll.ScrollY;
+        var element = HitTest(_currentLoad.Document, docX, adjustedY);
+
+        // Update text selection during drag
+        if (_isSelecting)
+        {
+            _selectionEnd = new SKPoint(x + _scroll.ScrollX, y + _scroll.ScrollY);
+            _hasSelection = true;
+            _input.NeedsRedraw = true;
+        }
+
+        // Track hovered element for mouseover/mouseout
+        if (element != _hoveredElement)
+        {
+            if (_hoveredElement != null)
+            {
+                var outHost = _jsEngine.GetElementHost(_hoveredElement);
+                var outEvt = new ScriptEvent("mouseout", outHost)
+                {
+                    clientX = x,
+                    clientY = y,
+                    relatedTarget = element != null ? _jsEngine.GetElementHost(element) : null,
+                    bubbles = true,
+                    cancelable = true
+                };
+                _jsEngine.DispatchEvent(_hoveredElement, outEvt);
+            }
+            if (element != null)
+            {
+                var overHost = _jsEngine.GetElementHost(element);
+                var overEvt = new ScriptEvent("mouseover", overHost)
+                {
+                    clientX = x,
+                    clientY = y,
+                    relatedTarget = _hoveredElement != null ? _jsEngine.GetElementHost(_hoveredElement) : null,
+                    bubbles = true,
+                    cancelable = true
+                };
+                _jsEngine.DispatchEvent(element, overEvt);
+            }
+            _hoveredElement = element;
+        }
+
+        if (element != null)
+        {
+            var moveHost = _jsEngine.GetElementHost(element);
+            var moveEvt = new ScriptEvent("mousemove", moveHost)
+            {
+                clientX = x,
+                clientY = y,
+                bubbles = true,
+                cancelable = true
+            };
+            _jsEngine.DispatchEvent(element, moveEvt);
+        }
+    }
+
+    private void HandleDomMouseUp(float x, float y)
+    {
+        if (_isSelecting)
+        {
+            _isSelecting = false;
+            if (_hasSelection)
+            {
+                // Finalize selection
+                _input.NeedsRedraw = true;
+            }
+        }
+    }
+
+    public string GetSelectedText()
+    {
+        if (!_hasSelection || _currentLoad == null) return "";
+
+        float minX = Math.Min(_selectionStart.X, _selectionEnd.X);
+        float minY = Math.Min(_selectionStart.Y, _selectionEnd.Y);
+        float maxX = Math.Max(_selectionStart.X, _selectionEnd.X);
+        float maxY = Math.Max(_selectionStart.Y, _selectionEnd.Y);
+        var selRect = new SKRect(minX, minY, maxX, maxY);
+
+        var sb = new System.Text.StringBuilder();
+        CollectSelectedText(_currentLoad.Document.DocumentElement, selRect, sb);
+        return sb.ToString();
+    }
+
+    private static void CollectSelectedText(Core.Dom.Element? element, SKRect selRect, System.Text.StringBuilder sb)
+    {
+        if (element == null) return;
+        var box = element.LayoutBox;
+        if (box != null)
+        {
+            var contentRect = new SKRect(box.ContentBox.Left, box.ContentBox.Top,
+                                          box.ContentBox.Right, box.ContentBox.Bottom);
+            if (contentRect.IntersectsWith(selRect))
+            {
+                // Collect text from child text nodes
+                foreach (var child in element.Children)
+                {
+                    if (child is Core.Dom.TextNode textNode && textNode.TextContent != null)
+                    {
+                        if (sb.Length > 0 && !char.IsWhiteSpace(sb[^1]))
+                            sb.Append(' ');
+                        sb.Append(textNode.TextContent);
+                    }
+                }
+            }
+        }
+        foreach (var child in element.Children.OfType<Core.Dom.Element>())
+        {
+            CollectSelectedText(child, selRect, sb);
+        }
+    }
+
+    private static string KeyToJsKey(char charCode, Key key)
+    {
+        if (charCode != '\0' && charCode >= 32) return new string(charCode, 1);
+        return key switch
+        {
+            Key.Enter => "Enter",
+            Key.Escape => "Escape",
+            Key.Tab => "Tab",
+            Key.Backspace => "Backspace",
+            Key.Delete => "Delete",
+            Key.Left => "ArrowLeft",
+            Key.Up => "ArrowUp",
+            Key.Right => "ArrowRight",
+            Key.Down => "ArrowDown",
+            Key.Home => "Home",
+            Key.End => "End",
+            Key.PageUp => "PageUp",
+            Key.PageDown => "PageDown",
+            Key.Space => " ",
+            Key.F1 => "F1", Key.F2 => "F2", Key.F3 => "F3", Key.F4 => "F4",
+            Key.F5 => "F5", Key.F6 => "F6", Key.F7 => "F7", Key.F8 => "F8",
+            Key.F9 => "F9", Key.F10 => "F10", Key.F11 => "F11", Key.F12 => "F12",
+            >= Key.A and <= Key.Z => ((char)(int)key).ToString(),
+            _ => "Unidentified"
+        };
+    }
+
+    private static string KeyToJsCode(Key key)
+    {
+        return key switch
+        {
+            Key.Enter => "Enter",
+            Key.Escape => "Escape",
+            Key.Tab => "Tab",
+            Key.Backspace => "Backspace",
+            Key.Delete => "Delete",
+            Key.Left => "ArrowLeft",
+            Key.Up => "ArrowUp",
+            Key.Right => "ArrowRight",
+            Key.Down => "ArrowDown",
+            Key.Home => "Home",
+            Key.End => "End",
+            Key.PageUp => "PageUp",
+            Key.PageDown => "PageDown",
+            Key.Space => "Space",
+            Key.F1 => "F1", Key.F2 => "F2", Key.F3 => "F3", Key.F4 => "F4",
+            Key.F5 => "F5", Key.F6 => "F6", Key.F7 => "F7", Key.F8 => "F8",
+            Key.F9 => "F9", Key.F10 => "F10", Key.F11 => "F11", Key.F12 => "F12",
+            >= Key.A and <= Key.Z => "Key" + (char)(int)key,
+            _ => ""
+        };
+    }
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern short GetKeyState(int nVirtKey);
+
+    private static bool IsCtrlPressed() => (GetKeyState(0x11) & 0x8000) != 0;
+    private static bool IsShiftPressed() => (GetKeyState(0x10) & 0x8000) != 0;
+    private static bool IsAltPressed() => (GetKeyState(0x12) & 0x8000) != 0;
+
+    #endregion
 
     private bool DevToolsHandleInput(char c, Key key)
     {
@@ -1115,6 +1554,12 @@ public class BrowserApp : IDisposable
             string url = _chrome.GetCurrentUrl() ?? "";
             if (!string.IsNullOrEmpty(url))
                 ClipboardHelper.SetText(url);
+        }
+        else
+        {
+            string sel = GetSelectedText();
+            if (!string.IsNullOrEmpty(sel))
+                ClipboardHelper.SetText(sel);
         }
     }
 

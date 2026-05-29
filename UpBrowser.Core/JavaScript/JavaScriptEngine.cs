@@ -23,9 +23,15 @@ public class JavaScriptEngine : IDisposable
 
     private int _nextCbId = 1;
     private readonly object _cbLock = new();
+    private LocationHost? _locationHost;
+    private UpBrowserBuiltins? _builtins;
 
     [ThreadStatic]
-    internal static JavaScriptEngine? Current;
+    public static JavaScriptEngine? Current;
+
+    public LocationHost? LocationHost => _locationHost;
+    public UpBrowserBuiltins? Builtins => _builtins;
+    public DocumentHost? DocumentHost => _documentHost;
 
     public event Action? OnDomChanged;
     public Func<string, string?, string?>? ShowDialog { get; set; }
@@ -59,11 +65,13 @@ public class JavaScriptEngine : IDisposable
 
         // Embed ALL host objects BEFORE the setup script that references them
         _engine.EmbedHostObject("console", new ConsoleHost());
-        _engine.EmbedHostObject("__upbrowser", new UpBrowserBuiltins(this));
+        _builtins = new UpBrowserBuiltins(this);
+        _engine.EmbedHostObject("__upbrowser", _builtins);
         _engine.EmbedHostObject("__win", new WindowHost(this));
         _engine.EmbedHostObject("navigator", new NavigatorHost());
-        _engine.EmbedHostObject("location", new LocationHost());
-        _engine.EmbedHostObject("history", new HistoryHost());
+        _locationHost = new LocationHost();
+        _engine.EmbedHostObject("location", _locationHost);
+        _engine.EmbedHostObject("history", new HistoryHost(_locationHost));
         _engine.EmbedHostObject("screen", new ScreenHost());
         _engine.EmbedHostObject("localStorage", new StorageHost());
         _engine.EmbedHostObject("sessionStorage", new StorageHost());
@@ -125,18 +133,8 @@ public class JavaScriptEngine : IDisposable
                 return __upbrowser.createURLSearchParams(query || '');
             }
 
-            var window = this;
-            var globalThis = this;
-            var self = this;
-            // Use direct property assignment instead of 'var' to avoid creating shadowing bindings
-            // that would prevent subsequent EmbedHostObject calls from taking effect.
-            window.document = document;
-            window.navigator = navigator;
-            window.location = location;
-            window.history = history;
-            window.screen = screen;
-            window.localStorage = localStorage;
-            window.sessionStorage = sessionStorage;
+            // window is the global object (= this), and EmbedHostObject sets properties
+            // directly on the global object, so window[name] === name automatically.
 
             Object.defineProperty(window, 'innerWidth', { get: function() { return __upbrowser.innerWidth(); } });
             Object.defineProperty(window, 'innerHeight', { get: function() { return __upbrowser.innerHeight(); } });
@@ -152,7 +150,11 @@ public class JavaScriptEngine : IDisposable
             window.scrollBy = function(x, y) { __upbrowser.scrollBy(x || 0, y || 0); };
             window.scroll = window.scrollTo;
             window.getComputedStyle = function(el) { return document.getComputedStyle(el); };
-            window.matchMedia = function(query) { return { matches: true, media: query, addEventListener: function(){}, removeEventListener: function(){} }; };
+            window.matchMedia = function(query) { return { matches: true, media: query, addEventListener: function(){}, removeEventListener: function(){} }};
+            window.open = function(url, name, features) {
+                if (url) location.href = url;
+                return window;
+            };
 
             function CustomEvent(type, detail) {
                 var evt = document.createEvent('customevent');
@@ -318,11 +320,35 @@ public class JavaScriptEngine : IDisposable
         return new ElementHost(element);
     }
 
-    public void DispatchEvent(DomElement element, string eventType)
+    public bool DispatchEvent(DomElement element, string eventType)
     {
-        var targetHost = new ElementHost(element);
-        var evt = new ScriptEvent(eventType, targetHost);
-        targetHost.DispatchEvent(evt);
+        var previous = Current;
+        Current = this;
+        try
+        {
+            var targetHost = new ElementHost(element);
+            var evt = new ScriptEvent(eventType, targetHost);
+            return targetHost.DispatchEvent(evt);
+        }
+        finally
+        {
+            Current = previous;
+        }
+    }
+
+    public bool DispatchEvent(DomElement element, ScriptEvent evt)
+    {
+        var previous = Current;
+        Current = this;
+        try
+        {
+            var targetHost = new ElementHost(element);
+            return targetHost.DispatchEvent(evt);
+        }
+        finally
+        {
+            Current = previous;
+        }
     }
 
     internal int StoreCallbackRef(object callback)
@@ -442,11 +468,20 @@ public class JavaScriptEngine : IDisposable
 
     private void InvokeTimer(int timerId)
     {
+        int? cbId;
+        lock (_timersLock)
+        {
+            if (_timers.TryGetValue(timerId, out var info))
+                cbId = info.CallbackId;
+            else
+                cbId = null;
+        }
+        if (cbId == null) return;
         Current = this;
         try
         {
             if (_engine != null)
-                _engine.Evaluate($"__g_invoke({timerId})");
+                _engine.Evaluate($"__g_invoke({cbId})");
         }
         catch (Exception ex)
         {
@@ -660,13 +695,21 @@ public class UpBrowserBuiltins
     public string unescape(string str) => System.Net.WebUtility.UrlDecode(str);
     public string atob(string str) => System.Text.Encoding.UTF8.GetString(System.Convert.FromBase64String(str));
     public string btoa(string str) => System.Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(str));
-    public int innerWidth() => 1024;
-    public int innerHeight() => 768;
-    public double devicePixelRatio() => 1.0;
-    public int scrollX() => 0;
-    public int scrollY() => 0;
-    public void scrollTo(int x, int y) { }
-    public void scrollBy(int x, int y) { }
+    public Func<int>? GetInnerWidth { get; set; }
+    public Func<int>? GetInnerHeight { get; set; }
+    public Func<double>? GetDevicePixelRatio { get; set; }
+    public Func<int>? GetScrollX { get; set; }
+    public Func<int>? GetScrollY { get; set; }
+    public Action<int, int>? OnScrollTo { get; set; }
+    public Action<int, int>? OnScrollBy { get; set; }
+
+    public int innerWidth() => GetInnerWidth?.Invoke() ?? 1024;
+    public int innerHeight() => GetInnerHeight?.Invoke() ?? 768;
+    public double devicePixelRatio() => GetDevicePixelRatio?.Invoke() ?? 1.0;
+    public int scrollX() => GetScrollX?.Invoke() ?? 0;
+    public int scrollY() => GetScrollY?.Invoke() ?? 0;
+    public void scrollTo(int x, int y) { OnScrollTo?.Invoke(x, y); }
+    public void scrollBy(int x, int y) { OnScrollBy?.Invoke(x, y); }
     public XMLHttpRequestHost createXMLHttpRequest() => new XMLHttpRequestHost(_engine);
     public URLHost createURL(string url, string? baseUrl) => new URLHost(url, baseUrl);
     public URLSearchParamsHost createURLSearchParams(string query) => new URLSearchParamsHost(query);
@@ -903,7 +946,8 @@ public class NavigatorHost
 
 public class LocationHost
 {
-    internal static LocationHost Instance { get; private set; } = new();
+    public Action<string>? OnNavigate { get; set; }
+    public Action? OnReload { get; set; }
     
     public string href { get; set; } = "upbrowser://local";
     public string protocol { get; set; } = "upbrowser:";
@@ -915,15 +959,29 @@ public class LocationHost
     public string hash { get; set; } = "";
     public string origin { get; set; } = "upbrowser://local";
 
-    public void assign(string url) { href = url; }
-    public void replace(string url) { href = url; }
-    public void reload() { }
+    public void assign(string url)
+    {
+        href = url;
+        OnNavigate?.Invoke(url);
+    }
+    public void replace(string url)
+    {
+        href = url;
+        OnNavigate?.Invoke(url);
+    }
+    public void reload()
+    {
+        OnReload?.Invoke();
+    }
 }
 
 public class HistoryHost
 {
     private readonly List<object?> _stack = new();
     private int _currentIndex = -1;
+    private readonly LocationHost _location;
+
+    public HistoryHost(LocationHost location) => _location = location;
 
     public int length => Math.Max(0, _stack.Count);
     public object? state => _currentIndex >= 0 && _currentIndex < _stack.Count ? _stack[_currentIndex] : null;
@@ -938,8 +996,7 @@ public class HistoryHost
         _currentIndex = _stack.Count - 1;
         if (!string.IsNullOrEmpty(url))
         {
-            var loc = LocationHost.Instance;
-            loc.assign(url);
+            _location.assign(url);
         }
     }
     public void replaceState(object? state, string title, string? url)
@@ -948,8 +1005,7 @@ public class HistoryHost
             _stack[_currentIndex] = state;
         if (!string.IsNullOrEmpty(url))
         {
-            var loc = LocationHost.Instance;
-            loc.replace(url);
+            _location.replace(url);
         }
     }
 }

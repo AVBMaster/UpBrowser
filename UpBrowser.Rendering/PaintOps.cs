@@ -1073,7 +1073,8 @@ public class DisplayList
     {
         if (_ops.Count <= 100) return;
         _spatialGrid ??= new SpatialGrid();
-        _spatialGrid.Build(_ops);
+        // Snapshot to prevent collection-modified exception if _ops is modified during enumeration
+        _spatialGrid.Build(_ops.ToList());
     }
 
     public int Count => _ops.Count;

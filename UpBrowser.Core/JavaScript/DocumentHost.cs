@@ -22,6 +22,8 @@ public class DocumentHost
         }
     }
 
+    private readonly Dictionary<string, List<int>> _eventCallbackIds = new();
+
     public DocumentHost(Document document)
     {
         _document = document;
@@ -211,11 +213,63 @@ public class DocumentHost
 
     public bool hidden => false;
 
-    public void addEventListener(string type, object callback) { }
+    public void addEventListener(string type, object callback)
+    {
+        var engine = JavaScriptEngine.Current;
+        if (engine == null) return;
 
-    public void removeEventListener(string type, object callback) { }
+        var cbId = engine.StoreCallbackRef(callback);
+        if (!_eventCallbackIds.TryGetValue(type, out var list))
+        {
+            list = new List<int>();
+            _eventCallbackIds[type] = list;
+        }
+        if (!list.Contains(cbId))
+            list.Add(cbId);
+    }
 
-    public void dispatchEvent(ScriptEvent evt) { }
+    public void removeEventListener(string type, object callback)
+    {
+        if (_eventCallbackIds.TryGetValue(type, out var list))
+        {
+            var engine = JavaScriptEngine.Current;
+            foreach (var cbId in list.ToList())
+            {
+                engine?.RemoveCallback(cbId);
+            }
+            list.Clear();
+        }
+    }
+
+    public void dispatchEvent(ScriptEvent evt)
+    {
+        var engine = JavaScriptEngine.Current;
+        if (engine == null) return;
+
+        if (_eventCallbackIds.TryGetValue(evt.type, out var cbIds))
+        {
+            foreach (var cbId in cbIds.ToList())
+            {
+                try
+                {
+                    engine.InvokeCallbackWith(cbId, evt);
+                }
+                catch { }
+            }
+        }
+
+        // Check for inline event handler on document
+        if (_document.DocumentElement != null)
+        {
+            var attrName = "on" + evt.type;
+            var attr = _document.DocumentElement.GetAttribute(attrName);
+            if (!string.IsNullOrEmpty(attr))
+            {
+                try { engine.Evaluate(attr); }
+                catch { }
+            }
+        }
+    }
 
     public bool fullscreenEnabled() => false;
 

@@ -473,6 +473,20 @@ public class ElementHost
                 evt.eventPhase = 3; // BUBBLING_PHASE
                 parentHost.DispatchEvent(evt);
             }
+            else if (_element.Parent is Core.Dom.Document)
+            {
+                // Dispatch to document when bubbling reaches root element
+                var engine = JavaScriptEngine.Current;
+                if (engine?.DocumentHost != null)
+                {
+                    try
+                    {
+                        evt.eventPhase = 3;
+                        engine.DocumentHost.dispatchEvent(evt);
+                    }
+                    catch { }
+                }
+            }
         }
 
         // Check for inline event handler
@@ -935,6 +949,34 @@ public class ScriptEvent
     public string? srcElement => target?.ToString();
     public bool cancelBubble { get => !bubbles; set => bubbles = !value; }
 
+    // Keyboard event properties
+    public string? key { get; set; }
+    public string? code { get; set; }
+    public bool ctrlKey { get; set; }
+    public bool shiftKey { get; set; }
+    public bool altKey { get; set; }
+    public bool metaKey { get; set; }
+    public bool repeat { get; set; }
+    public bool isComposing { get; set; }
+    public int keyCode { get; set; }
+    public int which { get; set; }
+    public bool charCode { get; set; }
+
+    // Mouse event properties
+    public double clientX { get; set; }
+    public double clientY { get; set; }
+    public double screenX { get; set; }
+    public double screenY { get; set; }
+    public int button { get; set; }
+    public int buttons { get; set; }
+    public ElementHost? relatedTarget { get; set; }
+
+    // Wheel event properties
+    public double deltaX { get; set; }
+    public double deltaY { get; set; }
+    public double deltaZ { get; set; }
+    public int deltaMode { get; set; }
+
     public ScriptEvent(string type, ElementHost? target)
     {
         this.type = type;
@@ -964,6 +1006,15 @@ public class ScriptEvent
         this.bubbles = bubbles;
         this.cancelable = cancelable;
         this.detail = detail;
+        this.screenX = screenX;
+        this.screenY = screenY;
+        this.clientX = clientX;
+        this.clientY = clientY;
+        this.ctrlKey = ctrlKey;
+        this.altKey = altKey;
+        this.shiftKey = shiftKey;
+        this.metaKey = metaKey;
+        this.button = button;
     }
 }
 

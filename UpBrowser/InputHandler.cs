@@ -25,6 +25,12 @@ public class InputHandler
     public bool NeedsRedraw { get; set; } = true;
 
     public Action<float, float>? OnDomClick { get; set; }
+    public Action<float, float>? OnDomMouseMove { get; set; }
+    public Action<float, float, bool>? OnDomMouseDown { get; set; }
+    public Action<float, float, bool>? OnDomMouseUp { get; set; }
+    public Action<char, Key, bool>? OnDomKeyDown { get; set; }
+    public Action<char, Key, bool>? OnDomKeyUp { get; set; }
+    public Action<char>? OnDomChar { get; set; }
     public Action? OnDevToolsKey { get; set; }
     public Func<char, Key, bool>? OnDevToolsInput { get; set; }
     public Func<float, float, bool, bool>? OnDevToolsClick { get; set; }
@@ -65,6 +71,7 @@ public class InputHandler
         _mouseX = logicalX;
         _mouseY = logicalY;
         _chrome.HandleMouseMove(logicalX, logicalY);
+        OnDomMouseMove?.Invoke(logicalX, logicalY);
     }
 
     private void OnMouseClick(float x, float y, bool isDown)
@@ -77,6 +84,7 @@ public class InputHandler
         if (isDown)
         {
             _mouseDown = true;
+            OnDomMouseDown?.Invoke(logicalX, logicalY, false);
             if (OnDialogClick?.Invoke(logicalX, logicalY) == true)
             {
                 NeedsRedraw = true;
@@ -97,6 +105,7 @@ public class InputHandler
             _mouseDown = false;
             _pageThumbDragging = false;
             _pageThumbXDragging = false;
+            OnDomMouseUp?.Invoke(logicalX, logicalY, false);
         }
         if (isDown)
             OnImeTargetChanged?.Invoke();
@@ -233,6 +242,10 @@ public class InputHandler
             if (charCode == 24) { OnCut?.Invoke(); NeedsRedraw = true; return true; }
             if (charCode == 26) { return true; }
 
+            // Dispatch keydown and keypress to DOM
+            OnDomKeyDown?.Invoke(charCode, key, false);
+            OnDomChar?.Invoke(charCode);
+
             _chrome.HandleKeyPress(charCode, SKKey.None);
             NeedsRedraw = true;
             return true;
@@ -255,12 +268,16 @@ public class InputHandler
             _ => SKKey.None
         };
 
+        // Dispatch keydown to DOM before Chrome handles it
+        OnDomKeyDown?.Invoke(charCode, key, false);
+
         bool handledByChrome = _chrome.HandleKeyPress(charCode, chromeKey);
         NeedsRedraw = true;
 
         if (handledByChrome)
         {
             OnImeTargetChanged?.Invoke();
+            OnDomKeyUp?.Invoke(charCode, key, false);
             return true;
         }
 
@@ -271,41 +288,54 @@ public class InputHandler
         {
             case Key.Tab:
                 _chrome.NextTab();
+                OnDomKeyUp?.Invoke(charCode, key, false);
                 return true;
             case Key.F5:
                 _chrome.OnRefresh?.Invoke();
+                OnDomKeyUp?.Invoke(charCode, key, false);
                 return true;
             case Key.PageUp:
                 _scroll.PageUp();
+                OnDomKeyUp?.Invoke(charCode, key, false);
                 return true;
             case Key.PageDown:
                 _scroll.PageDown();
+                OnDomKeyUp?.Invoke(charCode, key, false);
                 return true;
             case Key.Home:
                 _scroll.ScrollHome();
+                OnDomKeyUp?.Invoke(charCode, key, false);
                 return true;
             case Key.End:
                 _scroll.ScrollEnd();
+                OnDomKeyUp?.Invoke(charCode, key, false);
                 return true;
             case Key.Up:
                 _scroll.ScrollBy(0, -40);
+                OnDomKeyUp?.Invoke(charCode, key, false);
                 return true;
             case Key.Down:
                 _scroll.ScrollBy(0, 40);
+                OnDomKeyUp?.Invoke(charCode, key, false);
                 return true;
             case Key.Left:
                 _scroll.ScrollBy(-40, 0);
+                OnDomKeyUp?.Invoke(charCode, key, false);
                 return true;
             case Key.Right:
                 _scroll.ScrollBy(40, 0);
+                OnDomKeyUp?.Invoke(charCode, key, false);
                 return true;
             default:
+                OnDomKeyUp?.Invoke(charCode, key, false);
                 return false;
         }
     }
 
     private void OnKeyDown(Key key)
     {
+        OnDomKeyDown?.Invoke('\0', key, false);
+
         if (key == Key.F12)
         {
             OnDevToolsKey?.Invoke();
@@ -319,6 +349,8 @@ public class InputHandler
         }
         else if (key == Key.Tab)
             _chrome.NextTab();
+
+        OnDomKeyUp?.Invoke('\0', key, false);
     }
 
     private void OnMouseWheel(double deltaX, double deltaY)
