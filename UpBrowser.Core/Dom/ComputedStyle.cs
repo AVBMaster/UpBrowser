@@ -266,8 +266,21 @@ public class ComputedStyle
     public ListStylePosition ListStylePosition { get; set; } = ListStylePosition.Outside;
 
     public string? Transform { get; set; }
+    public string? TransformOrigin { get; set; } = "50% 50% 0";
     public string? Transition { get; set; }
+    public string? TransitionDelay { get; set; }
+    public string? TransitionDuration { get; set; }
+    public string? TransitionProperty { get; set; }
+    public string? TransitionTimingFunction { get; set; }
     public string? Animation { get; set; }
+    public string? AnimationName { get; set; }
+    public string? AnimationDuration { get; set; }
+    public string? AnimationTimingFunction { get; set; }
+    public string? AnimationDelay { get; set; }
+    public string? AnimationIterationCount { get; set; }
+    public string? AnimationDirection { get; set; }
+    public string? AnimationFillMode { get; set; }
+    public string? AnimationPlayState { get; set; }
     public string? PointerEvents { get; set; } = "auto";
     public string? UserSelect { get; set; } = "auto";
     public string Direction { get; set; } = "ltr";
@@ -275,16 +288,120 @@ public class ComputedStyle
     public float WordSpacing { get; set; }
     public float TextIndent { get; set; }
     public string TextTransform { get; set; } = "none";
+    public TextOverflowType TextOverflow { get; set; } = TextOverflowType.Clip;
+    public List<TextShadowValue> TextShadow { get; set; } = new();
+    public TextDecorationLineType TextDecorationLine { get; set; } = TextDecorationLineType.None;
+    public TextDecorationStyleType TextDecorationStyle { get; set; } = TextDecorationStyleType.Solid;
+    public SKColor TextDecorationColor { get; set; } = SKColors.Black;
+    public float TextDecorationThickness { get; set; }
+    public float TextUnderlineOffset { get; set; }
+    public string TextEmphasis { get; set; } = "none";
+    public string TextEmphasisColor { get; set; } = "currentcolor";
+    public string TextEmphasisStyle { get; set; } = "none";
+
     public Length RowGap { get; set; } = new PixelLength(0);
     public Length ColumnGap { get; set; } = new PixelLength(0);
 
     public float OutlineWidth { get; set; }
     public SKColor OutlineColor { get; set; } = SKColors.Black;
     public BorderStyle OutlineStyle { get; set; } = BorderStyle.None;
+    public float OutlineOffset { get; set; }
     public string TableLayout { get; set; } = "auto";
     public string CaptionSide { get; set; } = "top";
     public string EmptyCells { get; set; } = "show";
     public string? Content { get; set; }
+    public string CounterIncrement { get; set; } = "none";
+    public string CounterReset { get; set; } = "none";
+    public string CounterSet { get; set; } = "none";
+    public string Quotes { get; set; } = "auto";
+
+    public int Order { get; set; }
+    public float AspectRatio { get; set; }
+    public ObjectFitType ObjectFit { get; set; } = ObjectFitType.Fill;
+    public Length? ObjectPositionX { get; set; }
+    public Length? ObjectPositionY { get; set; }
+    public string FlexFlow { get; set; } = "row nowrap";
+    public string AlignContent { get; set; } = "stretch";
+    public string JustifyItems { get; set; } = "legacy";
+    public string JustifySelf { get; set; } = "auto";
+    public string PlaceContent { get; set; } = "normal";
+    public string PlaceItems { get; set; } = "normal";
+    public string PlaceSelf { get; set; } = "auto";
+
+    public string? GridTemplateColumns { get; set; }
+    public string? GridTemplateRows { get; set; }
+    public string? GridTemplateAreas { get; set; }
+    public string? GridAutoColumns { get; set; } = "auto";
+    public string? GridAutoRows { get; set; } = "auto";
+    public GridAutoFlowType GridAutoFlow { get; set; } = GridAutoFlowType.Row;
+    public string? GridColumnStart { get; set; }
+    public string? GridColumnEnd { get; set; }
+    public string? GridRowStart { get; set; }
+    public string? GridRowEnd { get; set; }
+    public string? GridColumn { get; set; }
+    public string? GridRow { get; set; }
+    public string? GridArea { get; set; }
+    public string? Grid { get; set; }
+
+    public string BackgroundClip { get; set; } = "border-box";
+    public string BackgroundOrigin { get; set; } = "padding-box";
+    public BackgroundBlendModeType BackgroundBlendMode { get; set; } = BackgroundBlendModeType.Normal;
+
+    public WritingModeType WritingMode { get; set; } = WritingModeType.HorizontalTb;
+    public HyphensType Hyphens { get; set; } = HyphensType.None;
+    public float TabSize { get; set; } = 8;
+    public ScrollBehaviorType ScrollBehavior { get; set; } = ScrollBehaviorType.Auto;
+    public OverscrollBehaviorType OverscrollBehavior { get; set; } = OverscrollBehaviorType.Auto;
+    public OverscrollBehaviorType OverscrollBehaviorX { get; set; } = OverscrollBehaviorType.Auto;
+    public OverscrollBehaviorType OverscrollBehaviorY { get; set; } = OverscrollBehaviorType.Auto;
+    public OverflowAnchorType OverflowAnchor { get; set; } = OverflowAnchorType.Auto;
+    public ContainType Contain { get; set; } = ContainType.None;
+    public ContentVisibilityType ContentVisibility { get; set; } = ContentVisibilityType.Visible;
+    public string WillChange { get; set; } = "auto";
+    public SKColor? AccentColor { get; set; }
+    public SKColor? CaretColor { get; set; }
+    public string ColorScheme { get; set; } = "normal";
+    public ForcedColorAdjustType ForcedColorAdjust { get; set; } = ForcedColorAdjustType.Auto;
+    public ImageRenderingType ImageRendering { get; set; } = ImageRenderingType.Auto;
+    public IsolationType Isolation { get; set; } = IsolationType.Auto;
+    public MixBlendModeType MixBlendMode { get; set; } = MixBlendModeType.Normal;
+    public string? Filter { get; set; }
+    public string? BackdropFilter { get; set; }
+    public string? ClipPath { get; set; }
+    public string? Mask { get; set; }
+    public string? MaskImage { get; set; }
+    public string? MaskClip { get; set; }
+    public string? MaskComposite { get; set; }
+    public string? MaskMode { get; set; }
+    public string? MaskOrigin { get; set; }
+    public string? MaskPosition { get; set; }
+    public string? MaskRepeat { get; set; }
+    public string? MaskSize { get; set; }
+    public LineBreakType LineBreak { get; set; } = LineBreakType.Auto;
+    public TextJustifyType TextJustify { get; set; } = TextJustifyType.Auto;
+    public ResizeType Resize { get; set; } = ResizeType.None;
+    public string? HangingPunctuation { get; set; } = "none";
+    public string? RubyAlign { get; set; } = "space-around";
+    public string RubyPosition { get; set; } = "over";
+    public float BorderSpacing { get; set; }
+    public string? BorderImageSource { get; set; }
+    public string BorderImageSlice { get; set; } = "100%";
+    public string BorderImageWidth { get; set; } = "1";
+    public string BorderImageRepeat { get; set; } = "stretch";
+    public string BorderImageOutset { get; set; } = "0";
+    public float Zoom { get; set; } = 1;
+    public int Orphans { get; set; } = 2;
+    public int Widows { get; set; } = 2;
+    public string FontVariant { get; set; } = "normal";
+    public string FontKerning { get; set; } = "auto";
+    public string FontStretch { get; set; } = "normal";
+    public string FontSynthesis { get; set; } = "weight style";
+    public string FontOpticalSizing { get; set; } = "auto";
+    public string FontVariationSettings { get; set; } = "normal";
+    public string FontFeatureSettings { get; set; } = "normal";
+    public float FontSizeAdjust { get; set; }
+    public string TextRendering { get; set; } = "auto";
+    public string UnicodeBidi { get; set; } = "normal";
 
     public float GetWidth(float viewportWidth, float rootFontSize)
     {
@@ -323,105 +440,85 @@ public class ComputedStyle
     {
         return new ComputedStyle
         {
-            Width = Width,
-            Height = Height,
-            Top = Top,
-            Left = Left,
-            Right = Right,
-            Bottom = Bottom,
-            MarginTop = MarginTop,
-            MarginRight = MarginRight,
-            MarginBottom = MarginBottom,
-            MarginLeft = MarginLeft,
-            PaddingTop = PaddingTop,
-            PaddingRight = PaddingRight,
-            PaddingBottom = PaddingBottom,
-            PaddingLeft = PaddingLeft,
-            BorderTopWidth = BorderTopWidth,
-            BorderRightWidth = BorderRightWidth,
-            BorderBottomWidth = BorderBottomWidth,
-            BorderLeftWidth = BorderLeftWidth,
-            BorderTopColor = BorderTopColor,
-            BorderRightColor = BorderRightColor,
-            BorderBottomColor = BorderBottomColor,
-            BorderLeftColor = BorderLeftColor,
-            BorderTopStyle = BorderTopStyle,
-            BorderRightStyle = BorderRightStyle,
-            BorderBottomStyle = BorderBottomStyle,
-            BorderLeftStyle = BorderLeftStyle,
-            BorderTopLeftRadius = BorderTopLeftRadius,
-            BorderTopRightRadius = BorderTopRightRadius,
-            BorderBottomRightRadius = BorderBottomRightRadius,
-            BorderBottomLeftRadius = BorderBottomLeftRadius,
-            Display = Display,
-            Position = Position,
-            Float = Float,
-            Clear = Clear,
-            FontFamily = FontFamily,
-            FontSize = FontSize,
-            FontWeight = FontWeight,
-            FontStyle = FontStyle,
-            LineHeight = LineHeight,
-            Color = Color,
-            BackgroundColor = BackgroundColor,
-            BackgroundImage = BackgroundImage,
-            BackgroundPositionX = BackgroundPositionX,
-            BackgroundPositionY = BackgroundPositionY,
-            BackgroundRepeat = BackgroundRepeat,
-            BackgroundAttachment = BackgroundAttachment,
-            TextAlign = TextAlign,
-            TextDecoration = TextDecoration,
-            VerticalAlign = VerticalAlign,
-            WhiteSpace = WhiteSpace,
-            WordBreak = WordBreak,
-            OverflowWrap = OverflowWrap,
-            Overflow = Overflow,
-            OverflowX = OverflowX,
-            OverflowY = OverflowY,
-            Visibility = Visibility,
-            ZIndex = ZIndex,
-            Cursor = Cursor,
-            Opacity = Opacity,
-            BoxShadow = BoxShadow,
-            BackgroundSize = BackgroundSize,
-            BackgroundSizeWidth = BackgroundSizeWidth,
-            BackgroundSizeHeight = BackgroundSizeHeight,
-            FlexDirection = FlexDirection,
-            FlexWrap = FlexWrap,
-            FlexGrow = FlexGrow,
-            FlexShrink = FlexShrink,
-            FlexBasis = FlexBasis,
-            JustifyContent = JustifyContent,
-            AlignItems = AlignItems,
-            AlignSelf = AlignSelf,
-            MinWidth = MinWidth,
-            MaxWidth = MaxWidth,
-            MinHeight = MinHeight,
-            MaxHeight = MaxHeight,
-            BoxSizing = BoxSizing,
-            BorderCollapse = BorderCollapse,
-            ListStyleType = ListStyleType,
-            ListStyleImage = ListStyleImage,
-            ListStylePosition = ListStylePosition,
-            Transform = Transform,
-            Transition = Transition,
-            Animation = Animation,
-            PointerEvents = PointerEvents,
-            UserSelect = UserSelect,
-            Direction = Direction,
-            LetterSpacing = LetterSpacing,
-            WordSpacing = WordSpacing,
-            TextIndent = TextIndent,
-            TextTransform = TextTransform,
-            RowGap = RowGap,
-            ColumnGap = ColumnGap,
-            OutlineWidth = OutlineWidth,
-            OutlineColor = OutlineColor,
-            OutlineStyle = OutlineStyle,
-            TableLayout = TableLayout,
-            CaptionSide = CaptionSide,
-            EmptyCells = EmptyCells,
-            Content = Content
+            Width = Width, Height = Height,
+            Top = Top, Left = Left, Right = Right, Bottom = Bottom,
+            MarginTop = MarginTop, MarginRight = MarginRight, MarginBottom = MarginBottom, MarginLeft = MarginLeft,
+            PaddingTop = PaddingTop, PaddingRight = PaddingRight, PaddingBottom = PaddingBottom, PaddingLeft = PaddingLeft,
+            BorderTopWidth = BorderTopWidth, BorderRightWidth = BorderRightWidth,
+            BorderBottomWidth = BorderBottomWidth, BorderLeftWidth = BorderLeftWidth,
+            BorderTopColor = BorderTopColor, BorderRightColor = BorderRightColor,
+            BorderBottomColor = BorderBottomColor, BorderLeftColor = BorderLeftColor,
+            BorderTopStyle = BorderTopStyle, BorderRightStyle = BorderRightStyle,
+            BorderBottomStyle = BorderBottomStyle, BorderLeftStyle = BorderLeftStyle,
+            BorderTopLeftRadius = BorderTopLeftRadius, BorderTopRightRadius = BorderTopRightRadius,
+            BorderBottomRightRadius = BorderBottomRightRadius, BorderBottomLeftRadius = BorderBottomLeftRadius,
+            Display = Display, Position = Position, Float = Float, Clear = Clear,
+            FontFamily = FontFamily, FontSize = FontSize, FontWeight = FontWeight,
+            FontStyle = FontStyle, LineHeight = LineHeight,
+            Color = Color, BackgroundColor = BackgroundColor, BackgroundImage = BackgroundImage,
+            BackgroundPositionX = BackgroundPositionX, BackgroundPositionY = BackgroundPositionY,
+            BackgroundRepeat = BackgroundRepeat, BackgroundAttachment = BackgroundAttachment,
+            TextAlign = TextAlign, TextDecoration = TextDecoration, VerticalAlign = VerticalAlign,
+            WhiteSpace = WhiteSpace, WordBreak = WordBreak, OverflowWrap = OverflowWrap,
+            Overflow = Overflow, OverflowX = OverflowX, OverflowY = OverflowY,
+            Visibility = Visibility, ZIndex = ZIndex, Cursor = Cursor, Opacity = Opacity,
+            BoxShadow = BoxShadow, BackgroundSize = BackgroundSize,
+            BackgroundSizeWidth = BackgroundSizeWidth, BackgroundSizeHeight = BackgroundSizeHeight,
+            FlexDirection = FlexDirection, FlexWrap = FlexWrap, FlexGrow = FlexGrow,
+            FlexShrink = FlexShrink, FlexBasis = FlexBasis, JustifyContent = JustifyContent,
+            AlignItems = AlignItems, AlignSelf = AlignSelf,
+            MinWidth = MinWidth, MaxWidth = MaxWidth, MinHeight = MinHeight, MaxHeight = MaxHeight,
+            BoxSizing = BoxSizing, BorderCollapse = BorderCollapse,
+            ListStyleType = ListStyleType, ListStyleImage = ListStyleImage, ListStylePosition = ListStylePosition,
+            Transform = Transform, TransformOrigin = TransformOrigin,
+            Transition = Transition, TransitionDelay = TransitionDelay, TransitionDuration = TransitionDuration,
+            TransitionProperty = TransitionProperty, TransitionTimingFunction = TransitionTimingFunction,
+            Animation = Animation, AnimationName = AnimationName, AnimationDuration = AnimationDuration,
+            AnimationTimingFunction = AnimationTimingFunction, AnimationDelay = AnimationDelay,
+            AnimationIterationCount = AnimationIterationCount, AnimationDirection = AnimationDirection,
+            AnimationFillMode = AnimationFillMode, AnimationPlayState = AnimationPlayState,
+            PointerEvents = PointerEvents, UserSelect = UserSelect,
+            Direction = Direction, LetterSpacing = LetterSpacing, WordSpacing = WordSpacing,
+            TextIndent = TextIndent, TextTransform = TextTransform,
+            TextOverflow = TextOverflow, TextShadow = TextShadow,
+            TextDecorationLine = TextDecorationLine, TextDecorationStyle = TextDecorationStyle,
+            TextDecorationColor = TextDecorationColor, TextDecorationThickness = TextDecorationThickness,
+            TextUnderlineOffset = TextUnderlineOffset,
+            TextEmphasis = TextEmphasis, TextEmphasisColor = TextEmphasisColor, TextEmphasisStyle = TextEmphasisStyle,
+            RowGap = RowGap, ColumnGap = ColumnGap,
+            OutlineWidth = OutlineWidth, OutlineColor = OutlineColor, OutlineStyle = OutlineStyle, OutlineOffset = OutlineOffset,
+            TableLayout = TableLayout, CaptionSide = CaptionSide, EmptyCells = EmptyCells, Content = Content,
+            CounterIncrement = CounterIncrement, CounterReset = CounterReset, CounterSet = CounterSet, Quotes = Quotes,
+            Order = Order, AspectRatio = AspectRatio, ObjectFit = ObjectFit,
+            ObjectPositionX = ObjectPositionX, ObjectPositionY = ObjectPositionY,
+            FlexFlow = FlexFlow, AlignContent = AlignContent, JustifyItems = JustifyItems, JustifySelf = JustifySelf,
+            PlaceContent = PlaceContent, PlaceItems = PlaceItems, PlaceSelf = PlaceSelf,
+            GridTemplateColumns = GridTemplateColumns, GridTemplateRows = GridTemplateRows, GridTemplateAreas = GridTemplateAreas,
+            GridAutoColumns = GridAutoColumns, GridAutoRows = GridAutoRows, GridAutoFlow = GridAutoFlow,
+            GridColumnStart = GridColumnStart, GridColumnEnd = GridColumnEnd,
+            GridRowStart = GridRowStart, GridRowEnd = GridRowEnd,
+            GridColumn = GridColumn, GridRow = GridRow, GridArea = GridArea, Grid = Grid,
+            BackgroundClip = BackgroundClip, BackgroundOrigin = BackgroundOrigin, BackgroundBlendMode = BackgroundBlendMode,
+            WritingMode = WritingMode, Hyphens = Hyphens, TabSize = TabSize,
+            ScrollBehavior = ScrollBehavior, OverscrollBehavior = OverscrollBehavior,
+            OverscrollBehaviorX = OverscrollBehaviorX, OverscrollBehaviorY = OverscrollBehaviorY,
+            OverflowAnchor = OverflowAnchor, Contain = Contain, ContentVisibility = ContentVisibility,
+            WillChange = WillChange, AccentColor = AccentColor, CaretColor = CaretColor,
+            ColorScheme = ColorScheme, ForcedColorAdjust = ForcedColorAdjust,
+            ImageRendering = ImageRendering, Isolation = Isolation, MixBlendMode = MixBlendMode,
+            Filter = Filter, BackdropFilter = BackdropFilter, ClipPath = ClipPath,
+            Mask = Mask, MaskImage = MaskImage, MaskClip = MaskClip, MaskComposite = MaskComposite,
+            MaskMode = MaskMode, MaskOrigin = MaskOrigin, MaskPosition = MaskPosition,
+            MaskRepeat = MaskRepeat, MaskSize = MaskSize,
+            LineBreak = LineBreak, TextJustify = TextJustify, Resize = Resize,
+            HangingPunctuation = HangingPunctuation, RubyAlign = RubyAlign, RubyPosition = RubyPosition,
+            BorderSpacing = BorderSpacing, Zoom = Zoom, Orphans = Orphans, Widows = Widows,
+            BorderImageSource = BorderImageSource, BorderImageSlice = BorderImageSlice,
+            BorderImageWidth = BorderImageWidth, BorderImageRepeat = BorderImageRepeat, BorderImageOutset = BorderImageOutset,
+            FontVariant = FontVariant, FontKerning = FontKerning, FontStretch = FontStretch,
+            FontSynthesis = FontSynthesis, FontOpticalSizing = FontOpticalSizing,
+            FontVariationSettings = FontVariationSettings, FontFeatureSettings = FontFeatureSettings,
+            FontSizeAdjust = FontSizeAdjust, TextRendering = TextRendering, UnicodeBidi = UnicodeBidi
         };
     }
 
@@ -471,7 +568,33 @@ public static class LengthExtensions
 }
 
 public enum BackgroundSizeType { Auto, Cover, Contain, Length }
-public record BoxShadowValue(SKColor Color, float OffsetX, float OffsetY, float BlurRadius, float Spread);
+public enum ObjectFitType { Fill, Contain, Cover, None, ScaleDown }
+public enum OverflowAnchorType { Auto, None }
+public enum ContainType { None, Strict, Content, Layout, Paint, Size }
+public enum ContentVisibilityType { Visible, Auto, Hidden }
+public enum ScrollBehaviorType { Auto, Smooth }
+public enum OverscrollBehaviorType { Auto, Contain, None }
+public enum ImageRenderingType { Auto, CrispEdges, Pixelated }
+public enum IsolationType { Auto, Isolate }
+public enum MixBlendModeType { Normal, Multiply, Screen, Overlay, Darken, Lighten, ColorDodge, ColorBurn, HardLight, SoftLight, Difference, Exclusion, Hue, Saturation, Color, Luminosity }
+public enum LineBreakType { Auto, Loose, Normal, Strict, Anywhere }
+public enum TextJustifyType { Auto, InterWord, InterCharacter, None }
+public enum HyphensType { None, Manual, Auto }
+public enum WritingModeType { HorizontalTb, VerticalRl, VerticalLr }
+public enum ResizeType { None, Both, Horizontal, Vertical }
+public enum ForcedColorAdjustType { Auto, None }
+public enum TextOverflowType { Clip, Ellipsis }
+public enum ColorSchemeType { Normal, Light, Dark, Only }
+public enum BackgroundClipType { BorderBox, PaddingBox, ContentBox, Text }
+public enum BackgroundOriginType { PaddingBox, BorderBox, ContentBox }
+public enum BackgroundBlendModeType { Normal, Multiply, Screen, Overlay, Darken, Lighten, ColorDodge, ColorBurn, HardLight, SoftLight, Difference, Exclusion, Hue, Saturation, Color, Luminosity }
+public enum TextDecorationLineType { None, Underline, Overline, LineThrough }
+public enum TextDecorationStyleType { Solid, Double, Dotted, Dashed, Wavy }
+public enum GridAutoFlowType { Row, Column, Dense }
+public enum ZoomType { Normal, Reset }
+
+public record BoxShadowValue(SKColor Color, float OffsetX, float OffsetY, float BlurRadius, float Spread, bool Inset = false);
+public record TextShadowValue(SKColor Color, float OffsetX, float OffsetY, float BlurRadius);
 
 public class BoxDimensions
 {

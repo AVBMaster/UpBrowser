@@ -211,6 +211,7 @@ public class DrawTextOp : PaintOp
     public float? MaxWidth { get; set; }
     public bool Underline { get; set; }
     public bool LineThrough { get; set; }
+    public List<TextShadowValue>? TextShadows { get; set; }
 
     public override void Reset()
     {
@@ -224,6 +225,7 @@ public class DrawTextOp : PaintOp
         TextAlign = TextAlignType.Start;
         MaxWidth = null;
         Underline = LineThrough = false;
+        TextShadows = null;
     }
 
     public override void Execute(SKCanvas canvas)
@@ -238,6 +240,25 @@ public class DrawTextOp : PaintOp
         };
 
         float x = X;
+
+        // Draw text shadows before main text
+        if (TextShadows != null && TextShadows.Count > 0)
+        {
+            var (scaleX, scaleY) = GetCanvasScale(canvas);
+            foreach (var shadow in TextShadows)
+            {
+                using var shadowPaint = new SKPaint
+                {
+                    Color = shadow.Color,
+                    Style = SKPaintStyle.Fill,
+                    IsAntialias = true,
+                    ImageFilter = shadow.BlurRadius > 0 ? SKImageFilter.CreateBlur(shadow.BlurRadius, shadow.BlurRadius) : null
+                };
+                float shadowX = SnapToDevice(x + shadow.OffsetX, scaleX);
+                float shadowY = SnapToDevice(Y + shadow.OffsetY, scaleY);
+                canvas.DrawText(Text, shadowX, shadowY, shadowPaint);
+            }
+        }
         bool needsAlignment = TextAlign == TextAlignType.Center || TextAlign == TextAlignType.End || TextAlign == TextAlignType.Right;
 
         float totalWidth;
@@ -667,14 +688,38 @@ public class DrawImageOp : PaintOp
     {
         if (Image == null) return;
 
-        var dest = Fit switch
+        SKRect dest;
+        switch (Fit)
         {
-            ImageFit.Cover => CalculateCoverRect(Image.Width, Image.Height, DestRect),
-            ImageFit.Contain => CalculateContainRect(Image.Width, Image.Height, DestRect),
-            _ => DestRect
-        };
+            case ImageFit.Fill:
+                dest = DestRect;
+                break;
+            case ImageFit.Cover:
+                dest = CalculateCoverRect(Image.Width, Image.Height, DestRect);
+                break;
+            case ImageFit.Contain:
+                dest = CalculateContainRect(Image.Width, Image.Height, DestRect);
+                break;
+            case ImageFit.ScaleDown:
+                var containDest = CalculateContainRect(Image.Width, Image.Height, DestRect);
+                var noneDest = CalculateNoneRect(Image.Width, Image.Height, DestRect);
+                dest = containDest.Width * containDest.Height < noneDest.Width * noneDest.Height ? containDest : noneDest;
+                break;
+            default:
+                dest = CalculateNoneRect(Image.Width, Image.Height, DestRect);
+                break;
+        }
 
         canvas.DrawImage(Image, SourceRect, dest);
+    }
+
+    private SKRect CalculateNoneRect(float srcW, float srcH, SKRect dest)
+    {
+        float w = Math.Min(srcW, dest.Width);
+        float h = Math.Min(srcH, dest.Height);
+        float x = dest.Left + (dest.Width - w) / 2;
+        float y = dest.Top + (dest.Height - h) / 2;
+        return new SKRect(x, y, x + w, y + h);
     }
 
     private SKRect CalculateCoverRect(float srcW, float srcH, SKRect dest)
@@ -838,6 +883,7 @@ public class DrawShadowOp : PaintOp
     public float BlurRadius { get; set; }
     public float OffsetX { get; set; }
     public float OffsetY { get; set; }
+    public bool Inset { get; set; }
 
     public override void Reset()
     {
@@ -846,6 +892,7 @@ public class DrawShadowOp : PaintOp
         Path = new();
         Color = default;
         BlurRadius = OffsetX = OffsetY = 0;
+        Inset = false;
     }
 
     public override void Execute(SKCanvas canvas)
@@ -857,6 +904,15 @@ public class DrawShadowOp : PaintOp
             ImageFilter = SKImageFilter.CreateBlur(BlurRadius, BlurRadius)
         };
 
+        if (Inset)
+        {
+            canvas.Save();
+            canvas.Translate(OffsetX, OffsetY);
+            canvas.DrawPath(Path, paint);
+            canvas.Restore();
+            return;
+        }
+
         canvas.Save();
         canvas.Translate(OffsetX, OffsetY);
         canvas.DrawPath(Path, paint);
@@ -864,7 +920,7 @@ public class DrawShadowOp : PaintOp
     }
 }
 
-public enum ImageFit { Fill, Contain, Cover, None }
+public enum ImageFit { Fill, Contain, Cover, None, ScaleDown }
 
 public static class PaintOpPool
 {

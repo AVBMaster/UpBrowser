@@ -114,8 +114,12 @@ public class CascadeResolver
     /// </summary>
     private void ApplyCascadeAffecting(ComputedStyle style)
     {
-        // Direction and writing-mode affect text layout
-        // For now, these are handled by inheritance
+        if (_cascadeMap.TryGetValue("direction", out var dirVal))
+            style.Direction = dirVal.ToLowerInvariant() == "rtl" ? "rtl" : "ltr";
+        if (_cascadeMap.TryGetValue("writing-mode", out var wmVal))
+            style.WritingMode = ParseWritingMode(wmVal);
+        if (_cascadeMap.TryGetValue("zoom", out var zoomVal))
+            style.Zoom = ParseZoom(zoomVal);
     }
 
     /// <summary>
@@ -193,6 +197,12 @@ public class CascadeResolver
             case "margin-bottom": style.MarginBottom = Length.Parse(value); break;
             case "margin-left": style.MarginLeft = Length.Parse(value); break;
             case "margin-right": style.MarginRight = Length.Parse(value); break;
+            case "margin-block": ParseShorthand2(value, out var mbt, out var mbb); style.MarginTop = mbt; style.MarginBottom = mbb; break;
+            case "margin-inline": ParseShorthand2(value, out var mil, out var mir); style.MarginLeft = mil; style.MarginRight = mir; break;
+            case "margin-block-start": style.MarginTop = Length.Parse(value); break;
+            case "margin-block-end": style.MarginBottom = Length.Parse(value); break;
+            case "margin-inline-start": style.MarginLeft = Length.Parse(value); break;
+            case "margin-inline-end": style.MarginRight = Length.Parse(value); break;
             case "padding":
                 ParseShorthand4(value, out var pt, out var pr, out var pb, out var pl);
                 style.PaddingTop = pt; style.PaddingRight = pr; style.PaddingBottom = pb; style.PaddingLeft = pl;
@@ -201,16 +211,50 @@ public class CascadeResolver
             case "padding-bottom": style.PaddingBottom = Length.Parse(value); break;
             case "padding-left": style.PaddingLeft = Length.Parse(value); break;
             case "padding-right": style.PaddingRight = Length.Parse(value); break;
+            case "padding-block": ParseShorthand2(value, out var pbt, out var pbb); style.PaddingTop = pbt; style.PaddingBottom = pbb; break;
+            case "padding-inline": ParseShorthand2(value, out var pil, out var pir); style.PaddingLeft = pil; style.PaddingRight = pir; break;
+            case "padding-block-start": style.PaddingTop = Length.Parse(value); break;
+            case "padding-block-end": style.PaddingBottom = Length.Parse(value); break;
+            case "padding-inline-start": style.PaddingLeft = Length.Parse(value); break;
+            case "padding-inline-end": style.PaddingRight = Length.Parse(value); break;
             case "color": style.Color = ColorParser.Parse(value); break;
+            case "accent-color": style.AccentColor = value == "auto" ? null : ColorParser.Parse(value); break;
+            case "caret-color": style.CaretColor = value == "auto" ? null : ColorParser.Parse(value); break;
+            case "color-scheme":
+                var cs = value.ToLowerInvariant();
+                style.ColorScheme = cs switch { "light" => "light", "dark" => "dark", "light dark" => "light dark", _ => "normal" };
+                break;
+            case "forced-color-adjust": style.ForcedColorAdjust = value.ToLowerInvariant() == "none" ? ForcedColorAdjustType.None : ForcedColorAdjustType.Auto; break;
             case "background": ParseBackgroundShorthand(value, style); break;
             case "background-color": style.BackgroundColor = ColorParser.Parse(value); break;
             case "background-image": style.BackgroundImage = value == "none" ? null : ParseUrl(value); break;
             case "background-repeat": style.BackgroundRepeat = ParseBackgroundRepeat(value); break;
             case "background-position": ParseBackgroundPosition(value, style); break;
+            case "background-position-x": style.BackgroundPositionX = ParsePositionKeywordOrLength(value); break;
+            case "background-position-y": style.BackgroundPositionY = ParsePositionKeywordOrLength(value); break;
             case "background-size": ParseBackgroundSize(value, style); break;
             case "background-attachment": style.BackgroundAttachment = ParseBackgroundAttachment(value); break;
+            case "background-clip": style.BackgroundClip = value.ToLowerInvariant(); break;
+            case "background-origin": style.BackgroundOrigin = value.ToLowerInvariant(); break;
+            case "background-blend-mode": style.BackgroundBlendMode = ParseBackgroundBlendMode(value); break;
             case "text-align": style.TextAlign = ParseTextAlign(value); break;
-            case "text-decoration": style.TextDecoration = ParseTextDecoration(value); break;
+            case "text-decoration": ParseTextDecorationShorthand(value, style); break;
+            case "text-decoration-line": style.TextDecorationLine = ParseTextDecorationLine(value); break;
+            case "text-decoration-style": style.TextDecorationStyle = ParseTextDecorationStyle(value); break;
+            case "text-decoration-color": style.TextDecorationColor = ColorParser.Parse(value); break;
+            case "text-decoration-thickness":
+                if (value == "auto") style.TextDecorationThickness = 0;
+                else if (Length.TryParse(value, out var tdt)) style.TextDecorationThickness = tdt.ToPixels(0, 0, 0, 0);
+                break;
+            case "text-underline-offset":
+                if (value == "auto") style.TextUnderlineOffset = 0;
+                else if (Length.TryParse(value, out var tuo)) style.TextUnderlineOffset = tuo.ToPixels(0, 0, 0, 0);
+                break;
+            case "text-emphasis": style.TextEmphasis = value; break;
+            case "text-emphasis-color": style.TextEmphasisColor = value; break;
+            case "text-emphasis-style": style.TextEmphasisStyle = value; break;
+            case "text-shadow": style.TextShadow = ParseTextShadow(value); break;
+            case "text-overflow": style.TextOverflow = value.ToLowerInvariant() == "ellipsis" ? TextOverflowType.Ellipsis : TextOverflowType.Clip; break;
             case "vertical-align": style.VerticalAlign = ParseVerticalAlign(value); break;
             case "white-space": style.WhiteSpace = ParseWhiteSpace(value); break;
             case "word-break": style.WordBreak = ParseWordBreak(value); break;
@@ -222,6 +266,10 @@ public class CascadeResolver
                 break;
             case "overflow-x": style.OverflowX = ParseOverflow(value); break;
             case "overflow-y": style.OverflowY = ParseOverflow(value); break;
+            case "overflow-anchor": style.OverflowAnchor = value.ToLowerInvariant() == "none" ? OverflowAnchorType.None : OverflowAnchorType.Auto; break;
+            case "overscroll-behavior": style.OverscrollBehavior = ParseOverscrollBehavior(value); style.OverscrollBehaviorX = style.OverscrollBehavior; style.OverscrollBehaviorY = style.OverscrollBehavior; break;
+            case "overscroll-behavior-x": style.OverscrollBehaviorX = ParseOverscrollBehavior(value); break;
+            case "overscroll-behavior-y": style.OverscrollBehaviorY = ParseOverscrollBehavior(value); break;
             case "z-index": if (value != "auto") style.ZIndex = int.TryParse(value, out var z) ? z : null; break;
             case "border": ParseBorderShorthand(value, style); break;
             case "border-top": ParseBorderSide(style, "top", value); break;
@@ -232,6 +280,18 @@ public class CascadeResolver
             case "border-color": ParseBorderColor(value, style); break;
             case "border-style": ParseBorderStyle(value, style); break;
             case "border-radius": ParseBorderRadius(value, style); break;
+            case "border-top-left-radius": style.BorderTopLeftRadius = ParseSize(value) ?? 0; break;
+            case "border-top-right-radius": style.BorderTopRightRadius = ParseSize(value) ?? 0; break;
+            case "border-bottom-left-radius": style.BorderBottomLeftRadius = ParseSize(value) ?? 0; break;
+            case "border-bottom-right-radius": style.BorderBottomRightRadius = ParseSize(value) ?? 0; break;
+            case "border-collapse": style.BorderCollapse = value.ToLowerInvariant() == "collapse"; break;
+            case "border-spacing": style.BorderSpacing = ParseSize(value) ?? 0; break;
+            case "border-image": style.BorderImageSource = ParseUrl(value); break;
+            case "border-image-source": style.BorderImageSource = ParseUrl(value); break;
+            case "border-image-slice": style.BorderImageSlice = value; break;
+            case "border-image-width": style.BorderImageWidth = value; break;
+            case "border-image-repeat": style.BorderImageRepeat = value; break;
+            case "border-image-outset": style.BorderImageOutset = value; break;
             case "box-sizing": style.BoxSizing = value.Contains("border") ? BoxSizingType.BorderBox : BoxSizingType.ContentBox; break;
             case "opacity": if (float.TryParse(value, out var o)) style.Opacity = Math.Clamp(o, 0, 1); break;
             case "box-shadow": style.BoxShadow = ParseBoxShadow(value); break;
@@ -241,24 +301,67 @@ public class CascadeResolver
             case "flex-shrink": if (float.TryParse(value, out var s)) style.FlexShrink = s; break;
             case "flex-basis": style.FlexBasis = Length.Parse(value); break;
             case "flex": ParseFlexShorthand(value, style); break;
+            case "flex-flow": style.FlexFlow = value; ParseFlexFlow(value, style); break;
+            case "order": if (int.TryParse(value, out var ord)) style.Order = ord; break;
             case "justify-content": style.JustifyContent = ParseJustifyContent(value); break;
+            case "justify-items": style.JustifyItems = value.ToLowerInvariant(); break;
+            case "justify-self": style.JustifySelf = value.ToLowerInvariant(); break;
             case "align-items": style.AlignItems = ParseAlignItems(value); break;
             case "align-self": style.AlignSelf = ParseAlignSelf(value); break;
+            case "align-content": style.AlignContent = value.ToLowerInvariant(); break;
+            case "place-content": style.PlaceContent = value.ToLowerInvariant(); break;
+            case "place-items": style.PlaceItems = value.ToLowerInvariant(); break;
+            case "place-self": style.PlaceSelf = value.ToLowerInvariant(); break;
+            case "gap": ParseGap(value, style); break;
+            case "row-gap": if (Length.TryParse(value, out var rg)) style.RowGap = rg; break;
+            case "column-gap": if (Length.TryParse(value, out var cg)) style.ColumnGap = cg; break;
+            case "grid": style.Grid = value; break;
+            case "grid-template": ParseGridTemplateShorthand(value, style); break;
+            case "grid-template-columns": style.GridTemplateColumns = value == "none" ? null : value; break;
+            case "grid-template-rows": style.GridTemplateRows = value == "none" ? null : value; break;
+            case "grid-template-areas": style.GridTemplateAreas = value == "none" ? null : value; break;
+            case "grid-auto-columns": style.GridAutoColumns = value; break;
+            case "grid-auto-rows": style.GridAutoRows = value; break;
+            case "grid-auto-flow": style.GridAutoFlow = ParseGridAutoFlow(value); break;
+            case "grid-column": style.GridColumn = value; if (value.Contains("/")) { var parts = value.Split('/'); style.GridColumnStart = parts[0].Trim(); style.GridColumnEnd = parts.Length > 1 ? parts[1].Trim() : null; } break;
+            case "grid-column-start": style.GridColumnStart = value; break;
+            case "grid-column-end": style.GridColumnEnd = value; break;
+            case "grid-row": style.GridRow = value; if (value.Contains("/")) { var parts = value.Split('/'); style.GridRowStart = parts[0].Trim(); style.GridRowEnd = parts.Length > 1 ? parts[1].Trim() : null; } break;
+            case "grid-row-start": style.GridRowStart = value; break;
+            case "grid-row-end": style.GridRowEnd = value; break;
+            case "grid-area": style.GridArea = value; break;
             case "top": style.Top = Length.Parse(value); break;
             case "bottom": style.Bottom = Length.Parse(value); break;
             case "left": style.Left = Length.Parse(value); break;
             case "right": style.Right = Length.Parse(value); break;
+            case "inset": ParseInsetShorthand(value, style); break;
+            case "inset-block": ParseShorthand2(value, out var ibt, out var ibb); style.Top = ibt; style.Bottom = ibb; break;
+            case "inset-inline": ParseShorthand2(value, out var iil, out var iir); style.Left = iil; style.Right = iir; break;
+            case "inset-block-start": style.Top = Length.Parse(value); break;
+            case "inset-block-end": style.Bottom = Length.Parse(value); break;
+            case "inset-inline-start": style.Left = Length.Parse(value); break;
+            case "inset-inline-end": style.Right = Length.Parse(value); break;
             case "list-style-type": style.ListStyleType = ParseListStyleType(value); break;
             case "list-style-position": style.ListStylePosition = value.Contains("inside") ? ListStylePosition.Inside : ListStylePosition.Outside; break;
             case "list-style-image": style.ListStyleImage = value == "none" ? null : ParseUrl(value); break;
             case "list-style": ParseListStyle(value, style); break;
             case "cursor": style.Cursor = value; break;
-            case "gap": ParseGap(value, style); break;
-            case "row-gap": if (Length.TryParse(value, out var rg)) style.RowGap = rg; break;
-            case "column-gap": if (Length.TryParse(value, out var cg)) style.ColumnGap = cg; break;
             case "transform": style.Transform = value; break;
+            case "transform-origin": style.TransformOrigin = value; break;
             case "transition": style.Transition = value; break;
+            case "transition-delay": style.TransitionDelay = value; break;
+            case "transition-duration": style.TransitionDuration = value; break;
+            case "transition-property": style.TransitionProperty = value; break;
+            case "transition-timing-function": style.TransitionTimingFunction = value; break;
             case "animation": style.Animation = value; break;
+            case "animation-name": style.AnimationName = value; break;
+            case "animation-duration": style.AnimationDuration = value; break;
+            case "animation-timing-function": style.AnimationTimingFunction = value; break;
+            case "animation-delay": style.AnimationDelay = value; break;
+            case "animation-iteration-count": style.AnimationIterationCount = value; break;
+            case "animation-direction": style.AnimationDirection = value; break;
+            case "animation-fill-mode": style.AnimationFillMode = value; break;
+            case "animation-play-state": style.AnimationPlayState = value; break;
             case "pointer-events": style.PointerEvents = value; break;
             case "user-select": style.UserSelect = value; break;
             case "text-indent":
@@ -276,10 +379,27 @@ public class CascadeResolver
                     style.WordSpacing = ws.ToPixels(0, 0, 0, 0);
                 break;
             case "direction": style.Direction = value.ToLowerInvariant() == "rtl" ? "rtl" : "ltr"; break;
+            case "unicode-bidi": style.UnicodeBidi = value.ToLowerInvariant(); break;
+            case "writing-mode": style.WritingMode = ParseWritingMode(value); break;
+            case "text-orientation": break; // recognized but minimal handling
             case "text-transform": style.TextTransform = value.ToLowerInvariant(); break;
+            case "text-rendering": style.TextRendering = value.ToLowerInvariant(); break;
             case "font":
                 ParseFontShorthand(value, style);
                 break;
+            case "font-family": style.FontFamily = ParseFontFamily(value); break;
+            case "font-size": break; // handled in high-priority
+            case "font-weight": break; // handled in high-priority
+            case "font-style": break; // handled in high-priority
+            case "line-height": break; // handled in high-priority
+            case "font-variant": style.FontVariant = value.ToLowerInvariant(); break;
+            case "font-stretch": style.FontStretch = value.ToLowerInvariant(); break;
+            case "font-kerning": style.FontKerning = value.ToLowerInvariant(); break;
+            case "font-synthesis": style.FontSynthesis = value.ToLowerInvariant(); break;
+            case "font-optical-sizing": style.FontOpticalSizing = value.ToLowerInvariant(); break;
+            case "font-variation-settings": style.FontVariationSettings = value; break;
+            case "font-feature-settings": style.FontFeatureSettings = value; break;
+            case "font-size-adjust": if (value != "none" && float.TryParse(value, out var fsa)) style.FontSizeAdjust = fsa; break;
             case "outline": ParseOutlineShorthand(value, style); break;
             case "outline-width":
                 if (float.TryParse(value.Replace("px", ""), out var ow))
@@ -287,10 +407,55 @@ public class CascadeResolver
                 break;
             case "outline-color": style.OutlineColor = ColorParser.Parse(value); break;
             case "outline-style": style.OutlineStyle = ParseBorderStyleValue(value); break;
+            case "outline-offset": style.OutlineOffset = ParseSize(value) ?? 0; break;
             case "table-layout": style.TableLayout = value.ToLowerInvariant() == "fixed" ? "fixed" : "auto"; break;
             case "caption-side": style.CaptionSide = value.ToLowerInvariant() == "bottom" ? "bottom" : "top"; break;
             case "empty-cells": style.EmptyCells = value.ToLowerInvariant() == "hide" ? "hide" : "show"; break;
             case "content": style.Content = value; break;
+            case "counter-increment": style.CounterIncrement = value; break;
+            case "counter-reset": style.CounterReset = value; break;
+            case "counter-set": style.CounterSet = value; break;
+            case "quotes": style.Quotes = value; break;
+            case "aspect-ratio":
+                if (value == "auto") style.AspectRatio = 0;
+                else if (float.TryParse(value, out var ar)) style.AspectRatio = ar;
+                break;
+            case "object-fit": style.ObjectFit = ParseObjectFit(value); break;
+            case "object-position": ParsePosition(value, out var opx, out var opy); style.ObjectPositionX = opx; style.ObjectPositionY = opy; break;
+            case "filter": style.Filter = value; break;
+            case "backdrop-filter": style.BackdropFilter = value; break;
+            case "clip-path": style.ClipPath = value; break;
+            case "mask": style.Mask = value; break;
+            case "mask-image": style.MaskImage = value; break;
+            case "mask-clip": style.MaskClip = value; break;
+            case "mask-composite": style.MaskComposite = value; break;
+            case "mask-mode": style.MaskMode = value; break;
+            case "mask-origin": style.MaskOrigin = value; break;
+            case "mask-position": style.MaskPosition = value; break;
+            case "mask-repeat": style.MaskRepeat = value; break;
+            case "mask-size": style.MaskSize = value; break;
+            case "isolation": style.Isolation = value.ToLowerInvariant() == "isolate" ? IsolationType.Isolate : IsolationType.Auto; break;
+            case "mix-blend-mode": style.MixBlendMode = ParseMixBlendMode(value); break;
+            case "image-rendering": style.ImageRendering = ParseImageRendering(value); break;
+            case "contain": style.Contain = ParseContain(value); break;
+            case "content-visibility": style.ContentVisibility = ParseContentVisibility(value); break;
+            case "will-change": style.WillChange = value; break;
+            case "scroll-behavior": style.ScrollBehavior = value.ToLowerInvariant() == "smooth" ? ScrollBehaviorType.Smooth : ScrollBehaviorType.Auto; break;
+            case "tab-size": if (float.TryParse(value.Replace("px", ""), out var ts)) style.TabSize = ts; break;
+            case "hyphens": style.Hyphens = ParseHyphens(value); break;
+            case "line-break": style.LineBreak = ParseLineBreak(value); break;
+            case "text-justify": style.TextJustify = ParseTextJustify(value); break;
+            case "hanging-punctuation": style.HangingPunctuation = value.ToLowerInvariant(); break;
+            case "resize": style.Resize = ParseResize(value); break;
+            case "zoom": style.Zoom = ParseZoom(value); break;
+            case "all": break; // all shorthand - handled via reset cascade
+            case "initial-letter": break; // recognized, minimal handling
+            case "box-decoration-break": break; // recognized, minimal handling
+            case "page-break-after": break;
+            case "page-break-before": break;
+            case "page-break-inside": break;
+            case "orphans": break;
+            case "widows": break;
         }
     }
 
@@ -319,9 +484,36 @@ public class CascadeResolver
         child.WordSpacing = parent.WordSpacing;
         child.TextIndent = parent.TextIndent;
         child.TextTransform = parent.TextTransform;
-        child.Direction = parent.Direction;
         child.CaptionSide = parent.CaptionSide;
         child.EmptyCells = parent.EmptyCells;
+        child.WritingMode = parent.WritingMode;
+        child.Orphans = parent.Orphans;
+        child.Widows = parent.Widows;
+        child.Hyphens = parent.Hyphens;
+        child.LineBreak = parent.LineBreak;
+        child.TextJustify = parent.TextJustify;
+        child.TextRendering = parent.TextRendering;
+        child.TextShadow = new List<TextShadowValue>(parent.TextShadow);
+        child.TextDecorationLine = parent.TextDecorationLine;
+        child.TextDecorationStyle = parent.TextDecorationStyle;
+        child.TextDecorationColor = parent.TextDecorationColor;
+        child.TextEmphasis = parent.TextEmphasis;
+        child.TextEmphasisColor = parent.TextEmphasisColor;
+        child.TextEmphasisStyle = parent.TextEmphasisStyle;
+        child.FontVariant = parent.FontVariant;
+        child.FontKerning = parent.FontKerning;
+        child.FontStretch = parent.FontStretch;
+        child.FontSynthesis = parent.FontSynthesis;
+        child.FontOpticalSizing = parent.FontOpticalSizing;
+        child.FontVariationSettings = parent.FontVariationSettings;
+        child.FontFeatureSettings = parent.FontFeatureSettings;
+        child.FontSizeAdjust = parent.FontSizeAdjust;
+        child.Quotes = parent.Quotes;
+        child.ImageRendering = parent.ImageRendering;
+        child.AccentColor = parent.AccentColor;
+        child.CaretColor = parent.CaretColor;
+        child.ColorScheme = parent.ColorScheme;
+        child.ForcedColorAdjust = parent.ForcedColorAdjust;
     }
 
     private void ApplyUserAgentStyles(ComputedStyle style, string tagName)
@@ -353,12 +545,22 @@ public class CascadeResolver
         dest.BackgroundPositionX = src.BackgroundPositionX;
         dest.BackgroundPositionY = src.BackgroundPositionY;
         dest.BackgroundSize = src.BackgroundSize;
+        dest.BackgroundSizeWidth = src.BackgroundSizeWidth;
+        dest.BackgroundSizeHeight = src.BackgroundSizeHeight;
         dest.BackgroundAttachment = src.BackgroundAttachment;
+        dest.BackgroundClip = src.BackgroundClip;
+        dest.BackgroundOrigin = src.BackgroundOrigin;
+        dest.BackgroundBlendMode = src.BackgroundBlendMode;
         dest.FontFamily = src.FontFamily; dest.FontSize = src.FontSize;
         dest.FontWeight = src.FontWeight; dest.FontStyle = src.FontStyle;
         dest.LineHeight = src.LineHeight;
         dest.TextAlign = src.TextAlign;
         dest.TextDecoration = src.TextDecoration;
+        dest.TextDecorationLine = src.TextDecorationLine;
+        dest.TextDecorationStyle = src.TextDecorationStyle;
+        dest.TextDecorationColor = src.TextDecorationColor;
+        dest.TextDecorationThickness = src.TextDecorationThickness;
+        dest.TextUnderlineOffset = src.TextUnderlineOffset;
         dest.VerticalAlign = src.VerticalAlign;
         dest.WhiteSpace = src.WhiteSpace;
         dest.WordBreak = src.WordBreak;
@@ -366,6 +568,10 @@ public class CascadeResolver
         dest.Visibility = src.Visibility;
         dest.Overflow = src.Overflow;
         dest.OverflowX = src.OverflowX; dest.OverflowY = src.OverflowY;
+        dest.OverflowAnchor = src.OverflowAnchor;
+        dest.OverscrollBehavior = src.OverscrollBehavior;
+        dest.OverscrollBehaviorX = src.OverscrollBehaviorX;
+        dest.OverscrollBehaviorY = src.OverscrollBehaviorY;
         dest.ZIndex = src.ZIndex;
         dest.BorderTopWidth = src.BorderTopWidth;
         dest.BorderRightWidth = src.BorderRightWidth;
@@ -383,6 +589,8 @@ public class CascadeResolver
         dest.BorderTopRightRadius = src.BorderTopRightRadius;
         dest.BorderBottomRightRadius = src.BorderBottomRightRadius;
         dest.BorderBottomLeftRadius = src.BorderBottomLeftRadius;
+        dest.BorderCollapse = src.BorderCollapse;
+        dest.BorderSpacing = src.BorderSpacing;
         dest.BoxSizing = src.BoxSizing;
         dest.Opacity = src.Opacity;
         dest.BoxShadow = src.BoxShadow;
@@ -391,30 +599,120 @@ public class CascadeResolver
         dest.FlexGrow = src.FlexGrow;
         dest.FlexShrink = src.FlexShrink;
         dest.FlexBasis = src.FlexBasis;
+        dest.FlexFlow = src.FlexFlow;
         dest.JustifyContent = src.JustifyContent;
         dest.AlignItems = src.AlignItems;
         dest.AlignSelf = src.AlignSelf;
+        dest.AlignContent = src.AlignContent;
+        dest.JustifyItems = src.JustifyItems;
+        dest.JustifySelf = src.JustifySelf;
+        dest.PlaceContent = src.PlaceContent;
+        dest.PlaceItems = src.PlaceItems;
+        dest.PlaceSelf = src.PlaceSelf;
+        dest.Order = src.Order;
         dest.Top = src.Top; dest.Bottom = src.Bottom;
         dest.Left = src.Left; dest.Right = src.Right;
         dest.ListStyleType = src.ListStyleType;
         dest.ListStylePosition = src.ListStylePosition;
         dest.ListStyleImage = src.ListStyleImage;
         dest.Cursor = src.Cursor;
-        dest.Transform = src.Transform;
-        dest.Transition = src.Transition;
-        dest.Animation = src.Animation;
+        dest.Transform = src.Transform; dest.TransformOrigin = src.TransformOrigin;
+        dest.Transition = src.Transition; dest.TransitionDelay = src.TransitionDelay;
+        dest.TransitionDuration = src.TransitionDuration; dest.TransitionProperty = src.TransitionProperty;
+        dest.TransitionTimingFunction = src.TransitionTimingFunction;
+        dest.Animation = src.Animation; dest.AnimationName = src.AnimationName;
+        dest.AnimationDuration = src.AnimationDuration; dest.AnimationTimingFunction = src.AnimationTimingFunction;
+        dest.AnimationDelay = src.AnimationDelay; dest.AnimationIterationCount = src.AnimationIterationCount;
+        dest.AnimationDirection = src.AnimationDirection; dest.AnimationFillMode = src.AnimationFillMode;
+        dest.AnimationPlayState = src.AnimationPlayState;
+        dest.PointerEvents = src.PointerEvents; dest.UserSelect = src.UserSelect;
         dest.Direction = src.Direction;
+        dest.UnicodeBidi = src.UnicodeBidi;
+        dest.WritingMode = src.WritingMode;
         dest.LetterSpacing = src.LetterSpacing;
         dest.WordSpacing = src.WordSpacing;
         dest.TextIndent = src.TextIndent;
         dest.TextTransform = src.TextTransform;
+        dest.TextRendering = src.TextRendering;
+        dest.TextOverflow = src.TextOverflow;
+        dest.TextShadow = src.TextShadow;
+        dest.TextEmphasis = src.TextEmphasis;
+        dest.TextEmphasisColor = src.TextEmphasisColor;
+        dest.TextEmphasisStyle = src.TextEmphasisStyle;
         dest.OutlineWidth = src.OutlineWidth;
         dest.OutlineColor = src.OutlineColor;
         dest.OutlineStyle = src.OutlineStyle;
+        dest.OutlineOffset = src.OutlineOffset;
         dest.TableLayout = src.TableLayout;
         dest.CaptionSide = src.CaptionSide;
         dest.EmptyCells = src.EmptyCells;
         dest.Content = src.Content;
+        dest.CounterIncrement = src.CounterIncrement;
+        dest.CounterReset = src.CounterReset;
+        dest.CounterSet = src.CounterSet;
+        dest.Quotes = src.Quotes;
+        dest.AspectRatio = src.AspectRatio;
+        dest.ObjectFit = src.ObjectFit;
+        dest.ObjectPositionX = src.ObjectPositionX;
+        dest.ObjectPositionY = src.ObjectPositionY;
+        dest.Filter = src.Filter;
+        dest.BackdropFilter = src.BackdropFilter;
+        dest.ClipPath = src.ClipPath;
+        dest.Mask = src.Mask; dest.MaskImage = src.MaskImage;
+        dest.MaskClip = src.MaskClip; dest.MaskComposite = src.MaskComposite;
+        dest.MaskMode = src.MaskMode; dest.MaskOrigin = src.MaskOrigin;
+        dest.MaskPosition = src.MaskPosition; dest.MaskRepeat = src.MaskRepeat;
+        dest.MaskSize = src.MaskSize;
+        dest.Isolation = src.Isolation;
+        dest.MixBlendMode = src.MixBlendMode;
+        dest.ImageRendering = src.ImageRendering;
+        dest.Contain = src.Contain;
+        dest.ContentVisibility = src.ContentVisibility;
+        dest.WillChange = src.WillChange;
+        dest.ScrollBehavior = src.ScrollBehavior;
+        dest.TabSize = src.TabSize;
+        dest.Hyphens = src.Hyphens;
+        dest.LineBreak = src.LineBreak;
+        dest.TextJustify = src.TextJustify;
+        dest.HangingPunctuation = src.HangingPunctuation;
+        dest.Resize = src.Resize;
+        dest.Zoom = src.Zoom;
+        dest.FontVariant = src.FontVariant;
+        dest.FontKerning = src.FontKerning;
+        dest.FontStretch = src.FontStretch;
+        dest.FontSynthesis = src.FontSynthesis;
+        dest.FontOpticalSizing = src.FontOpticalSizing;
+        dest.FontVariationSettings = src.FontVariationSettings;
+        dest.FontFeatureSettings = src.FontFeatureSettings;
+        dest.FontSizeAdjust = src.FontSizeAdjust;
+        dest.AccentColor = src.AccentColor;
+        dest.CaretColor = src.CaretColor;
+        dest.ColorScheme = src.ColorScheme;
+        dest.ForcedColorAdjust = src.ForcedColorAdjust;
+        dest.Orphans = src.Orphans;
+        dest.Widows = src.Widows;
+        dest.RubyPosition = src.RubyPosition;
+        dest.BorderImageSource = src.BorderImageSource;
+        dest.BorderImageSlice = src.BorderImageSlice;
+        dest.BorderImageWidth = src.BorderImageWidth;
+        dest.BorderImageRepeat = src.BorderImageRepeat;
+        dest.BorderImageOutset = src.BorderImageOutset;
+        dest.RowGap = src.RowGap;
+        dest.ColumnGap = src.ColumnGap;
+        dest.GridTemplateColumns = src.GridTemplateColumns;
+        dest.GridTemplateRows = src.GridTemplateRows;
+        dest.GridTemplateAreas = src.GridTemplateAreas;
+        dest.GridAutoColumns = src.GridAutoColumns;
+        dest.GridAutoRows = src.GridAutoRows;
+        dest.GridAutoFlow = src.GridAutoFlow;
+        dest.GridColumnStart = src.GridColumnStart;
+        dest.GridColumnEnd = src.GridColumnEnd;
+        dest.GridRowStart = src.GridRowStart;
+        dest.GridRowEnd = src.GridRowEnd;
+        dest.GridColumn = src.GridColumn;
+        dest.GridRow = src.GridRow;
+        dest.GridArea = src.GridArea;
+        dest.Grid = src.Grid;
     }
 
     // ── Parsing helpers (delegated to specialized parsers) ──
@@ -954,6 +1252,258 @@ public class CascadeResolver
                 style.OutlineColor = ColorParser.Parse(part);
             }
         }
+    }
+
+    private void ParseShorthand2(string value, out Length a, out Length b)
+    {
+        var parts = value.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        a = Length.Parse(parts.Length > 0 ? parts[0] : "0");
+        b = Length.Parse(parts.Length > 1 ? parts[1] : parts[0]);
+    }
+
+    private Length? ParsePositionKeywordOrLength(string value)
+    {
+        return value.ToLowerInvariant() switch
+        {
+            "left" or "top" => new PixelLength(0),
+            "center" => new PercentLength(0.5f),
+            "right" or "bottom" => new PercentLength(1),
+            _ => Length.TryParse(value, out var l) ? l : null
+        };
+    }
+
+    private void ParsePosition(string value, out Length? x, out Length? y)
+    {
+        var parts = value.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        x = parts.Length > 0 ? ParsePositionKeywordOrLength(parts[0]) : null;
+        y = parts.Length > 1 ? ParsePositionKeywordOrLength(parts[1]) : null;
+    }
+
+    private void ParseInsetShorthand(string value, ComputedStyle style)
+    {
+        var parts = value.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length == 0) return;
+        style.Top = Length.Parse(parts[0]);
+        style.Right = Length.Parse(parts.Length > 1 ? parts[1] : parts[0]);
+        style.Bottom = Length.Parse(parts.Length > 2 ? parts[2] : parts[0]);
+        style.Left = Length.Parse(parts.Length > 3 ? parts[3] : (parts.Length > 1 ? parts[1] : parts[0]));
+    }
+
+    private TextDecorationLineType ParseTextDecorationLine(string value)
+    {
+        var lower = value.ToLowerInvariant();
+        if (lower == "none") return TextDecorationLineType.None;
+        var result = TextDecorationLineType.None;
+        if (lower.Contains("underline")) result |= TextDecorationLineType.Underline;
+        if (lower.Contains("overline")) result |= TextDecorationLineType.Overline;
+        if (lower.Contains("line-through")) result |= TextDecorationLineType.LineThrough;
+        return result;
+    }
+
+    private TextDecorationStyleType ParseTextDecorationStyle(string value) => value.ToLowerInvariant() switch
+    {
+        "double" => TextDecorationStyleType.Double,
+        "dotted" => TextDecorationStyleType.Dotted,
+        "dashed" => TextDecorationStyleType.Dashed,
+        "wavy" => TextDecorationStyleType.Wavy,
+        _ => TextDecorationStyleType.Solid
+    };
+
+    private void ParseTextDecorationShorthand(string value, ComputedStyle style)
+    {
+        var parts = value.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        foreach (var part in parts)
+        {
+            var lower = part.ToLowerInvariant();
+            if (lower == "none" || lower == "underline" || lower == "overline" || lower == "line-through")
+                style.TextDecorationLine = ParseTextDecorationLine(part);
+            else if (lower == "solid" || lower == "double" || lower == "dotted" || lower == "dashed" || lower == "wavy")
+                style.TextDecorationStyle = ParseTextDecorationStyle(part);
+            else if (lower.StartsWith("#") || lower.StartsWith("rgb"))
+                style.TextDecorationColor = ColorParser.Parse(part);
+        }
+    }
+
+    private List<TextShadowValue> ParseTextShadow(string value)
+    {
+        var shadows = new List<TextShadowValue>();
+        if (string.IsNullOrEmpty(value) || value == "none") return shadows;
+
+        var parts = value.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length < 2) return shadows;
+
+        float offsetX = float.TryParse(parts[0].TrimEnd('p', 'x'), out var ox) ? ox : 0;
+        float offsetY = float.TryParse(parts[1].TrimEnd('p', 'x'), out var oy) ? oy : 0;
+        float blurRadius = 0;
+        int index = 2;
+        if (index < parts.Length && parts[index].Contains("px"))
+        {
+            float.TryParse(parts[index].TrimEnd('p', 'x'), out blurRadius);
+            index++;
+        }
+        var color = index < parts.Length ? ColorParser.Parse(string.Join(" ", parts.Skip(index))) : new SKColor(0, 0, 0, 255);
+        shadows.Add(new TextShadowValue(color, offsetX, offsetY, blurRadius));
+        return shadows;
+    }
+
+    private ObjectFitType ParseObjectFit(string value) => value.ToLowerInvariant() switch
+    {
+        "contain" => ObjectFitType.Contain,
+        "cover" => ObjectFitType.Cover,
+        "none" => ObjectFitType.None,
+        "scale-down" => ObjectFitType.ScaleDown,
+        _ => ObjectFitType.Fill
+    };
+
+    private GridAutoFlowType ParseGridAutoFlow(string value)
+    {
+        var lower = value.ToLowerInvariant();
+        if (lower.Contains("column")) return GridAutoFlowType.Column;
+        if (lower.Contains("dense")) return GridAutoFlowType.Dense;
+        return GridAutoFlowType.Row;
+    }
+
+    private void ParseGridTemplateShorthand(string value, ComputedStyle style)
+    {
+        if (value == "none") return;
+        if (value.Contains("/"))
+        {
+            var parts = value.Split('/');
+            style.GridTemplateRows = parts[0].Trim();
+            style.GridTemplateColumns = parts.Length > 1 ? parts[1].Trim() : null;
+        }
+    }
+
+    private void ParseFlexFlow(string value, ComputedStyle style)
+    {
+        var parts = value.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        foreach (var part in parts)
+        {
+            var lower = part.ToLowerInvariant();
+            if (lower is "row" or "row-reverse" or "column" or "column-reverse")
+                style.FlexDirection = ParseFlexDirection(part);
+            else if (lower is "nowrap" or "wrap" or "wrap-reverse")
+                style.FlexWrap = ParseFlexWrap(part);
+        }
+    }
+
+    private WritingModeType ParseWritingMode(string value) => value.ToLowerInvariant() switch
+    {
+        "vertical-rl" => WritingModeType.VerticalRl,
+        "vertical-lr" => WritingModeType.VerticalLr,
+        _ => WritingModeType.HorizontalTb
+    };
+
+    private HyphensType ParseHyphens(string value) => value.ToLowerInvariant() switch
+    {
+        "manual" => HyphensType.Manual,
+        "auto" => HyphensType.Auto,
+        _ => HyphensType.None
+    };
+
+    private LineBreakType ParseLineBreak(string value) => value.ToLowerInvariant() switch
+    {
+        "loose" => LineBreakType.Loose,
+        "normal" => LineBreakType.Normal,
+        "strict" => LineBreakType.Strict,
+        "anywhere" => LineBreakType.Anywhere,
+        _ => LineBreakType.Auto
+    };
+
+    private TextJustifyType ParseTextJustify(string value) => value.ToLowerInvariant() switch
+    {
+        "inter-word" => TextJustifyType.InterWord,
+        "inter-character" => TextJustifyType.InterCharacter,
+        "none" => TextJustifyType.None,
+        _ => TextJustifyType.Auto
+    };
+
+    private ResizeType ParseResize(string value) => value.ToLowerInvariant() switch
+    {
+        "both" => ResizeType.Both,
+        "horizontal" => ResizeType.Horizontal,
+        "vertical" => ResizeType.Vertical,
+        _ => ResizeType.None
+    };
+
+    private ContainType ParseContain(string value)
+    {
+        var lower = value.ToLowerInvariant();
+        if (lower == "none") return ContainType.None;
+        if (lower == "strict") return ContainType.Strict;
+        if (lower == "content") return ContainType.Content;
+        if (lower == "layout") return ContainType.Layout;
+        if (lower == "paint") return ContainType.Paint;
+        if (lower == "size") return ContainType.Size;
+        return ContainType.None;
+    }
+
+    private ContentVisibilityType ParseContentVisibility(string value) => value.ToLowerInvariant() switch
+    {
+        "auto" => ContentVisibilityType.Auto,
+        "hidden" => ContentVisibilityType.Hidden,
+        _ => ContentVisibilityType.Visible
+    };
+
+    private ImageRenderingType ParseImageRendering(string value) => value.ToLowerInvariant() switch
+    {
+        "crisp-edges" => ImageRenderingType.CrispEdges,
+        "pixelated" => ImageRenderingType.Pixelated,
+        _ => ImageRenderingType.Auto
+    };
+
+    private MixBlendModeType ParseMixBlendMode(string value) => value.ToLowerInvariant() switch
+    {
+        "multiply" => MixBlendModeType.Multiply,
+        "screen" => MixBlendModeType.Screen,
+        "overlay" => MixBlendModeType.Overlay,
+        "darken" => MixBlendModeType.Darken,
+        "lighten" => MixBlendModeType.Lighten,
+        "color-dodge" => MixBlendModeType.ColorDodge,
+        "color-burn" => MixBlendModeType.ColorBurn,
+        "hard-light" => MixBlendModeType.HardLight,
+        "soft-light" => MixBlendModeType.SoftLight,
+        "difference" => MixBlendModeType.Difference,
+        "exclusion" => MixBlendModeType.Exclusion,
+        "hue" => MixBlendModeType.Hue,
+        "saturation" => MixBlendModeType.Saturation,
+        "color" => MixBlendModeType.Color,
+        "luminosity" => MixBlendModeType.Luminosity,
+        _ => MixBlendModeType.Normal
+    };
+
+    private BackgroundBlendModeType ParseBackgroundBlendMode(string value) => value.ToLowerInvariant() switch
+    {
+        "multiply" => BackgroundBlendModeType.Multiply,
+        "screen" => BackgroundBlendModeType.Screen,
+        "overlay" => BackgroundBlendModeType.Overlay,
+        "darken" => BackgroundBlendModeType.Darken,
+        "lighten" => BackgroundBlendModeType.Lighten,
+        "color-dodge" => BackgroundBlendModeType.ColorDodge,
+        "color-burn" => BackgroundBlendModeType.ColorBurn,
+        "hard-light" => BackgroundBlendModeType.HardLight,
+        "soft-light" => BackgroundBlendModeType.SoftLight,
+        "difference" => BackgroundBlendModeType.Difference,
+        "exclusion" => BackgroundBlendModeType.Exclusion,
+        "hue" => BackgroundBlendModeType.Hue,
+        "saturation" => BackgroundBlendModeType.Saturation,
+        "color" => BackgroundBlendModeType.Color,
+        "luminosity" => BackgroundBlendModeType.Luminosity,
+        _ => BackgroundBlendModeType.Normal
+    };
+
+    private OverscrollBehaviorType ParseOverscrollBehavior(string value) => value.ToLowerInvariant() switch
+    {
+        "contain" => OverscrollBehaviorType.Contain,
+        "none" => OverscrollBehaviorType.None,
+        _ => OverscrollBehaviorType.Auto
+    };
+
+    private float ParseZoom(string value)
+    {
+        if (value.EndsWith("%") && float.TryParse(value[..^1], out var pct)) return pct / 100f;
+        if (float.TryParse(value, out var num)) return num;
+        return 1;
     }
 
     private void ParseGap(string value, ComputedStyle style)

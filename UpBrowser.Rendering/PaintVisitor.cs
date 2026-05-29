@@ -216,23 +216,56 @@ public class PaintVisitor
     {
         if (style.BoxShadow == null) return;
         var shadow = style.BoxShadow;
+
+        if (shadow.Inset)
+        {
+            float radius = Math.Max(style.BorderTopLeftRadius, Math.Max(style.BorderTopRightRadius,
+                Math.Max(style.BorderBottomLeftRadius, style.BorderBottomRightRadius)));
+            float blur = Math.Max(1, shadow.BlurRadius);
+            using var innerPath = new SKPath();
+            if (radius > 0)
+                innerPath.AddRoundRect(rect, radius, radius);
+            else
+                innerPath.AddRect(rect);
+            var clipOp = PaintOpPool.GetPushClipOp();
+            clipOp.ClipPath = new SKPath(innerPath);
+            clipOp.AntiAlias = true;
+            clipOp.Bounds = rect;
+            _displayList.Add(clipOp);
+            var shadowOp = PaintOpPool.GetDrawShadowOp();
+            shadowOp.Path = new SKPath(innerPath);
+            shadowOp.Color = shadow.Color;
+            shadowOp.BlurRadius = blur;
+            shadowOp.OffsetX = shadow.OffsetX;
+            shadowOp.OffsetY = shadow.OffsetY;
+            shadowOp.Inset = true;
+            shadowOp.ZIndex = -1;
+            shadowOp.Bounds = new SKRect(rect.Left - Math.Abs(shadow.OffsetX) - blur, rect.Top - Math.Abs(shadow.OffsetY) - blur,
+                                         rect.Right + Math.Abs(shadow.OffsetX) + blur, rect.Bottom + Math.Abs(shadow.OffsetY) + blur);
+            _displayList.Add(shadowOp);
+            var popClipOp = PaintOpPool.GetPopClipOp();
+            popClipOp.Bounds = rect;
+            _displayList.Add(popClipOp);
+            return;
+        }
+
         using var path = new SKPath();
-        float radius = Math.Max(style.BorderTopLeftRadius, Math.Max(style.BorderTopRightRadius,
+        float borderradius = Math.Max(style.BorderTopLeftRadius, Math.Max(style.BorderTopRightRadius,
             Math.Max(style.BorderBottomLeftRadius, style.BorderBottomRightRadius)));
-        if (radius > 0)
-            path.AddRoundRect(rect, radius, radius);
+        if (borderradius > 0)
+            path.AddRoundRect(rect, borderradius, borderradius);
         else
             path.AddRect(rect);
-        var shadowOp = PaintOpPool.GetDrawShadowOp();
-        shadowOp.Path = path;
-        shadowOp.Color = shadow.Color;
-        shadowOp.BlurRadius = Math.Max(1, shadow.BlurRadius);
-        shadowOp.OffsetX = shadow.OffsetX;
-        shadowOp.OffsetY = shadow.OffsetY;
-        shadowOp.ZIndex = -1;
-        shadowOp.Bounds = new SKRect(rect.Left + shadow.OffsetX - shadow.BlurRadius, rect.Top + shadow.OffsetY - shadow.BlurRadius,
+        var shadowOutsetOp = PaintOpPool.GetDrawShadowOp();
+        shadowOutsetOp.Path = path;
+        shadowOutsetOp.Color = shadow.Color;
+        shadowOutsetOp.BlurRadius = Math.Max(1, shadow.BlurRadius);
+        shadowOutsetOp.OffsetX = shadow.OffsetX;
+        shadowOutsetOp.OffsetY = shadow.OffsetY;
+        shadowOutsetOp.ZIndex = -1;
+        shadowOutsetOp.Bounds = new SKRect(rect.Left + shadow.OffsetX - shadow.BlurRadius, rect.Top + shadow.OffsetY - shadow.BlurRadius,
                                      rect.Right + shadow.OffsetX + shadow.BlurRadius, rect.Bottom + shadow.OffsetY + shadow.BlurRadius);
-        _displayList.Add(shadowOp);
+        _displayList.Add(shadowOutsetOp);
     }
 
     private async void DrawBackgroundImage(Element element, ComputedStyle style, SKRect rect)
@@ -724,6 +757,8 @@ public class PaintVisitor
         op.TextAlign = parentStyle?.TextAlign ?? TextAlignType.Start;
         op.Underline = parentStyle?.TextDecoration == TextDecorationType.Underline;
         op.LineThrough = parentStyle?.TextDecoration == TextDecorationType.LineThrough;
+        if (parentStyle?.TextShadow != null && parentStyle.TextShadow.Count > 0)
+            op.TextShadows = parentStyle.TextShadow;
         op.Bounds = new SKRect(contentBox.Left, contentBox.Top + TotalOffsetY, contentBox.Right, contentBox.Bottom + TotalOffsetY);
 
         // Add selection highlight clipped to the overlapping region
@@ -763,7 +798,7 @@ public class PaintVisitor
             op.Image = image;
             op.SourceRect = new SKRect(0, 0, image.Width, image.Height);
             op.DestRect = rect;
-            op.Fit = ImageFit.Fill;
+            op.Fit = MapObjectFitToImageFit(style.ObjectFit);
             op.ZIndex = element.ComputedStyle?.ZIndex ?? 0;
             op.Bounds = rect;
             _displayList.Add(op);
@@ -794,6 +829,16 @@ public class PaintVisitor
     {
         return length is PixelLength pixelLength ? pixelLength.Value : defaultValue;
     }
+
+    private static ImageFit MapObjectFitToImageFit(ObjectFitType objectFit) => objectFit switch
+    {
+        ObjectFitType.Fill => ImageFit.Fill,
+        ObjectFitType.Contain => ImageFit.Contain,
+        ObjectFitType.Cover => ImageFit.Cover,
+        ObjectFitType.None => ImageFit.None,
+        ObjectFitType.ScaleDown => ImageFit.ScaleDown,
+        _ => ImageFit.Fill
+    };
 
     private SKPath CreateRoundedRectPath(SKRect rect, float radius)
     {
@@ -841,6 +886,8 @@ public class PaintVisitor
                         op.FontFamily = run.FontFamily ?? parentStyle?.FontFamily ?? "Arial";
                         op.Underline = parentStyle?.TextDecoration == TextDecorationType.Underline;
                         op.LineThrough = parentStyle?.TextDecoration == TextDecorationType.LineThrough;
+                        if (parentStyle?.TextShadow != null && parentStyle.TextShadow.Count > 0)
+                            op.TextShadows = parentStyle.TextShadow;
                         op.Bounds = new SKRect(currentX + lineOffsetX, lineY, currentX + run.Width + lineOffsetX, lineY + line.Height);
 
                         // Add selection highlight if this text overlaps with selection
@@ -885,6 +932,8 @@ public class PaintVisitor
                     op.FontFamily = run.FontFamily ?? parentStyle?.FontFamily ?? "Arial";
                     op.Underline = parentStyle?.TextDecoration == TextDecorationType.Underline;
                     op.LineThrough = parentStyle?.TextDecoration == TextDecorationType.LineThrough;
+                    if (parentStyle?.TextShadow != null && parentStyle.TextShadow.Count > 0)
+                        op.TextShadows = parentStyle.TextShadow;
                     op.Bounds = new SKRect(x, boxTop, x + run.Width, boxTop + run.Height);
 
                     // Add selection highlight if this text overlaps with selection

@@ -154,6 +154,14 @@ public class LayoutEngine
         float contentWidth = width;
         float contentHeight = float.IsNaN(elementHeight) ? 0 : elementHeight;
 
+        if (style.AspectRatio > 0)
+        {
+            if (style.Width is not AutoLength && float.IsNaN(elementHeight))
+                contentHeight = contentWidth / style.AspectRatio;
+            else if (style.Width is AutoLength && !float.IsNaN(elementHeight) && elementHeight > 0)
+                contentWidth = elementHeight * style.AspectRatio;
+        }
+
         if (style.BoxSizing == BoxSizingType.BorderBox)
         {
             contentWidth = Math.Max(0, width - borderLeft - borderRight - paddingLeft - paddingRight);
@@ -1585,6 +1593,7 @@ public class LayoutEngine
         foreach (var c in element.Children)
             if (c is Element el && el.ComputedStyle != null && el.ComputedStyle.Display != DisplayType.None)
                 children.Add(el);
+        children.Sort((a, b) => (a.ComputedStyle?.Order ?? 0).CompareTo(b.ComputedStyle?.Order ?? 0));
         if (children.Count == 0) return;
 
         bool isRow = style.FlexDirection == FlexDirectionType.Row || style.FlexDirection == FlexDirectionType.RowReverse;

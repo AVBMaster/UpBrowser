@@ -269,12 +269,19 @@ public class GridLayoutAlgorithm
     {
         return propertyName switch
         {
-            "grid-template-columns" => null,
-            "grid-template-rows" => null,
-            "grid-column-start" => null,
-            "grid-column-end" => null,
-            "grid-row-start" => null,
-            "grid-row-end" => null,
+            "grid-template-columns" => style.GridTemplateColumns,
+            "grid-template-rows" => style.GridTemplateRows,
+            "grid-template-areas" => style.GridTemplateAreas,
+            "grid-auto-columns" => style.GridAutoColumns,
+            "grid-auto-rows" => style.GridAutoRows,
+            "grid-auto-flow" => style.GridAutoFlow.ToString(),
+            "grid-column-start" => style.GridColumnStart,
+            "grid-column-end" => style.GridColumnEnd,
+            "grid-row-start" => style.GridRowStart,
+            "grid-row-end" => style.GridRowEnd,
+            "grid-column" => style.GridColumn,
+            "grid-row" => style.GridRow,
+            "grid-area" => style.GridArea,
             _ => null
         };
     }
