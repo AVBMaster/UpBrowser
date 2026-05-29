@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Linq;
 using SkiaSharp;
 using UpBrowser.Core.Dom;
@@ -868,27 +869,27 @@ public enum ImageFit { Fill, Contain, Cover, None }
 public static class PaintOpPool
 {
     private const int MaxPoolSize = 500;
-    private static readonly Stack<DrawRectOp> _rectOps = new();
-    private static readonly Stack<DrawTextOp> _textOps = new();
-    private static readonly Stack<DrawImageOp> _imageOps = new();
-    private static readonly Stack<DrawLineOp> _lineOps = new();
-    private static readonly Stack<DrawPathOp> _pathOps = new();
-    private static readonly Stack<PushClipOp> _clipOps = new();
-    private static readonly Stack<PopClipOp> _popClipOps = new();
-    private static readonly Stack<PushTransformOp> _transformOps = new();
-    private static readonly Stack<PopTransformOp> _popTransformOps = new();
-    private static readonly Stack<DrawShadowOp> _shadowOps = new();
+    private static readonly ConcurrentStack<DrawRectOp> _rectOps = new();
+    private static readonly ConcurrentStack<DrawTextOp> _textOps = new();
+    private static readonly ConcurrentStack<DrawImageOp> _imageOps = new();
+    private static readonly ConcurrentStack<DrawLineOp> _lineOps = new();
+    private static readonly ConcurrentStack<DrawPathOp> _pathOps = new();
+    private static readonly ConcurrentStack<PushClipOp> _clipOps = new();
+    private static readonly ConcurrentStack<PopClipOp> _popClipOps = new();
+    private static readonly ConcurrentStack<PushTransformOp> _transformOps = new();
+    private static readonly ConcurrentStack<PopTransformOp> _popTransformOps = new();
+    private static readonly ConcurrentStack<DrawShadowOp> _shadowOps = new();
 
-    public static DrawRectOp GetDrawRectOp() => _rectOps.Count > 0 ? _rectOps.Pop() : new DrawRectOp();
-    public static DrawTextOp GetDrawTextOp() => _textOps.Count > 0 ? _textOps.Pop() : new DrawTextOp();
-    public static DrawImageOp GetDrawImageOp() => _imageOps.Count > 0 ? _imageOps.Pop() : new DrawImageOp();
-    public static DrawLineOp GetDrawLineOp() => _lineOps.Count > 0 ? _lineOps.Pop() : new DrawLineOp();
-    public static DrawPathOp GetDrawPathOp() => _pathOps.Count > 0 ? _pathOps.Pop() : new DrawPathOp();
-    public static PushClipOp GetPushClipOp() => _clipOps.Count > 0 ? _clipOps.Pop() : new PushClipOp();
-    public static PopClipOp GetPopClipOp() => _popClipOps.Count > 0 ? _popClipOps.Pop() : new PopClipOp();
-    public static PushTransformOp GetPushTransformOp() => _transformOps.Count > 0 ? _transformOps.Pop() : new PushTransformOp();
-    public static PopTransformOp GetPopTransformOp() => _popTransformOps.Count > 0 ? _popTransformOps.Pop() : new PopTransformOp();
-    public static DrawShadowOp GetDrawShadowOp() => _shadowOps.Count > 0 ? _shadowOps.Pop() : new DrawShadowOp();
+    public static DrawRectOp GetDrawRectOp() => _rectOps.TryPop(out var op) ? op : new DrawRectOp();
+    public static DrawTextOp GetDrawTextOp() => _textOps.TryPop(out var op) ? op : new DrawTextOp();
+    public static DrawImageOp GetDrawImageOp() => _imageOps.TryPop(out var op) ? op : new DrawImageOp();
+    public static DrawLineOp GetDrawLineOp() => _lineOps.TryPop(out var op) ? op : new DrawLineOp();
+    public static DrawPathOp GetDrawPathOp() => _pathOps.TryPop(out var op) ? op : new DrawPathOp();
+    public static PushClipOp GetPushClipOp() => _clipOps.TryPop(out var op) ? op : new PushClipOp();
+    public static PopClipOp GetPopClipOp() => _popClipOps.TryPop(out var op) ? op : new PopClipOp();
+    public static PushTransformOp GetPushTransformOp() => _transformOps.TryPop(out var op) ? op : new PushTransformOp();
+    public static PopTransformOp GetPopTransformOp() => _popTransformOps.TryPop(out var op) ? op : new PopTransformOp();
+    public static DrawShadowOp GetDrawShadowOp() => _shadowOps.TryPop(out var op) ? op : new DrawShadowOp();
 
     public static void Return(DrawRectOp op) { op.Reset(); if (_rectOps.Count < MaxPoolSize) _rectOps.Push(op); }
     public static void Return(DrawTextOp op) { op.Reset(); if (_textOps.Count < MaxPoolSize) _textOps.Push(op); }
@@ -1008,49 +1009,60 @@ public class SpatialGrid
 
 public class DisplayList
 {
+    private readonly object _lock = new();
     private List<PaintOp> _ops = new();
     private bool _isSorted;
     private SpatialGrid? _spatialGrid;
 
     public SpatialGrid? SpatialGrid => _spatialGrid;
 
-    public void Add(PaintOp op) => _ops.Add(op);
+    public void Add(PaintOp op) { lock (_lock) _ops.Add(op); }
 
-    public void AddRange(IEnumerable<PaintOp> ops) => _ops.AddRange(ops);
+    public void AddRange(IEnumerable<PaintOp> ops) { lock (_lock) _ops.AddRange(ops); }
 
     public void Clear()
     {
-        for (int i = 0; i < _ops.Count; i++)
+        List<PaintOp> oldOps;
+        lock (_lock)
         {
-            PaintOpPool.ReturnOp(_ops[i]);
+            oldOps = _ops;
+            _ops = new List<PaintOp>();
+            _isSorted = false;
         }
-        _ops.Clear();
-        _isSorted = false;
+        for (int i = 0; i < oldOps.Count; i++)
+        {
+            PaintOpPool.ReturnOp(oldOps[i]);
+        }
         _spatialGrid?.Clear();
     }
 
     public void SortByZIndex()
     {
-        if (_isSorted) return;
-        // Use stable sort (OrderBy) so equal-ZIndex ops keep their original order.
-        // List<T>.Sort is unstable and can reorder background/foreground ops.
-        _ops = _ops.OrderBy(op => op.ZIndex).ToList();
-        _isSorted = true;
+        lock (_lock)
+        {
+            if (_isSorted) return;
+            // Use stable sort (OrderBy) so equal-ZIndex ops keep their original order.
+            // List<T>.Sort is unstable and can reorder background/foreground ops.
+            _ops = _ops.OrderBy(op => op.ZIndex).ToList();
+            _isSorted = true;
+        }
     }
 
     public void Execute(SKCanvas canvas)
     {
-        for (int i = 0; i < _ops.Count; i++)
+        List<PaintOp> snapshot;
+        lock (_lock) snapshot = new List<PaintOp>(_ops);
+        for (int i = 0; i < snapshot.Count; i++)
         {
             try
             {
-                _ops[i].AlignBounds(canvas);
+                snapshot[i].AlignBounds(canvas);
             }
             catch
             {
                 // ignore alignment errors
             }
-            _ops[i].Execute(canvas);
+            snapshot[i].Execute(canvas);
         }
     }
 
@@ -1062,22 +1074,25 @@ public class DisplayList
                 yield return op;
             yield break;
         }
-        for (int i = 0; i < _ops.Count; i++)
+        List<PaintOp> snapshot;
+        lock (_lock) snapshot = new List<PaintOp>(_ops);
+        for (int i = 0; i < snapshot.Count; i++)
         {
-            if (_ops[i].Bounds.IntersectsWith(rect))
-                yield return _ops[i];
+            if (snapshot[i].Bounds.IntersectsWith(rect))
+                yield return snapshot[i];
         }
     }
 
     public void BuildSpatialGrid()
     {
-        if (_ops.Count <= 100) return;
+        List<PaintOp> snapshot;
+        lock (_lock) snapshot = new List<PaintOp>(_ops);
+        if (snapshot.Count <= 100) return;
         _spatialGrid ??= new SpatialGrid();
-        // Snapshot to prevent collection-modified exception if _ops is modified during enumeration
-        _spatialGrid.Build(_ops.ToList());
+        _spatialGrid.Build(snapshot);
     }
 
-    public int Count => _ops.Count;
+    public int Count { get { lock (_lock) return _ops.Count; } }
 
-    public PaintOp? this[int index] => index >= 0 && index < _ops.Count ? _ops[index] : null;
+    public PaintOp? this[int index] { get { lock (_lock) return index >= 0 && index < _ops.Count ? _ops[index] : null; } }
 }

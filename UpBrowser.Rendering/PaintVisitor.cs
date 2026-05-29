@@ -443,6 +443,8 @@ public class PaintVisitor
             DrawImageElement(element, style, box);
             return;
         }
+        if (style.Display == DisplayType.Inline)
+            return;
         if (box.LineRuns != null && box.LineRuns.Count > 0)
         {
             DrawInlineRuns(box);
@@ -757,6 +759,7 @@ public class PaintVisitor
             if (image == null) return;
             var rect = new SKRect(box.ContentBox.Left, box.ContentBox.Top, box.ContentBox.Right, box.ContentBox.Bottom);
             var op = PaintOpPool.GetDrawImageOp();
+            if (op == null) return;
             op.Image = image;
             op.SourceRect = new SKRect(0, 0, image.Width, image.Height);
             op.DestRect = rect;

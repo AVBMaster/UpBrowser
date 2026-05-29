@@ -564,6 +564,9 @@ public class LayoutEngine
                         float inlineFontSize = childStyle.FontSize > 0 ? childStyle.FontSize : fontSize;
                         float inlineLineHeight = (childStyle.LineHeight > 0 ? childStyle.LineHeight : 1.5f) * inlineFontSize;
 
+                        float inlineStartX = inlineCurrentX;
+                        float inlineStartY = inlineCurrentLine?.Y ?? currentY;
+
                         if (inlineCurrentLine == null)
                         {
                             inlineCurrentLine = new LineBox { Y = currentY, Baseline = currentY + inlineLineHeight * 0.85f, Height = inlineLineHeight };
@@ -666,6 +669,25 @@ public class LayoutEngine
                                     if (inlineLineHeight > inlineMaxHeightInLine) inlineMaxHeightInLine = inlineLineHeight;
                                 }
                             }
+                        }
+
+                        // Create LayoutBox for this inline element so HitTest can find it
+                        if (inlineCurrentLine != null)
+                        {
+                            float topY = inlineStartY;
+                            float bottomY = inlineCurrentLine.Y + inlineCurrentLine.Height;
+                            float leftX = Math.Min(inlineStartX, inlineCurrentX);
+                            float rightX = Math.Max(inlineStartX, inlineCurrentX);
+                            var inlineBox = new LayoutBox
+                            {
+                                MarginBox = new SKRect(leftX, topY, rightX, bottomY),
+                                ContentBox = new SKRect(leftX, topY, rightX, bottomY),
+                                PaddingBox = new SKRect(leftX, topY, rightX, bottomY),
+                                BorderBox = new SKRect(leftX, topY, rightX, bottomY)
+                            };
+                            childElement.LayoutBox = inlineBox;
+                            box.Children.Add(inlineBox);
+                            inlineBox.Parent = box;
                         }
                     }
                     continue;
