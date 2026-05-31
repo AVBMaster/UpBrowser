@@ -19,6 +19,29 @@ public class CssParser
         int braceDepth = 0;
         int lastOpen = -1;
 
+        // Strip string literals before brace matching to avoid matching braces inside strings
+        var cleaned = new System.Text.StringBuilder(cssText.Length);
+        bool inString = false;
+        char stringChar = '\0';
+        for (int i = 0; i < cssText.Length; i++)
+        {
+            char c = cssText[i];
+            if (inString)
+            {
+                if (c == stringChar && (i == 0 || cssText[i - 1] != '\\'))
+                    inString = false;
+                continue;
+            }
+            if (c == '\'' || c == '"')
+            {
+                inString = true;
+                stringChar = c;
+                continue;
+            }
+            cleaned.Append(c);
+        }
+        cssText = cleaned.ToString();
+
         for (int i = 0; i < cssText.Length; i++)
         {
             if (cssText[i] == '{') { braceDepth++; if (braceDepth == 1) lastOpen = i; }
@@ -33,6 +56,9 @@ public class CssParser
             lastEnd = end;
 
             if (string.IsNullOrEmpty(selectorPart)) continue;
+
+            // Skip at-rules entirely (not supported yet)
+            if (selectorPart.StartsWith("@")) continue;
 
             var selectors = ParseSelectors(selectorPart);
             var (properties, importantProps) = ParsePropertiesWithImportance(bodyPart);
@@ -156,18 +182,54 @@ public class CssParser
             {
                 if (i + 1 < selector.Length && selector[i + 1] == ':')
                 { d++; i += 2; }
-                else { c++; i++; }
+                else { i++; }
+
+                int nameStart = i;
                 while (i < selector.Length && selector[i] != '(' && selector[i] != ' ') i++;
+                string pseudoName = selector[nameStart..i].ToLowerInvariant();
+
+                // :is(), :not(), :has() use the highest specificity of their arguments
+                // :where() has zero specificity
+                bool isZeroSpec = pseudoName == "where";
+                bool isArgSpec = pseudoName == "is" || pseudoName == "not" || pseudoName == "has";
+
+                if (!isZeroSpec && !isArgSpec)
+                    c++;
+
                 if (i < selector.Length && selector[i] == '(')
                 {
-                    int depth = 1;
+                    int parenDepth = 1;
+                    int argStart = i + 1;
                     i++;
-                    while (i < selector.Length && depth > 0)
+                    while (i < selector.Length && parenDepth > 0)
                     {
-                        if (selector[i] == '(') depth++;
-                        else if (selector[i] == ')') depth--;
+                        if (selector[i] == '(') parenDepth++;
+                        else if (selector[i] == ')') parenDepth--;
                         i++;
                     }
+                    string args = selector[argStart..(i - 1)];
+
+                    if (isArgSpec)
+                    {
+                        // Compute max specificity across all arguments
+                        (int a, int b, int c, int d) argMax = (0, 0, 0, 0);
+                        foreach (var arg in SplitSelectorsForSpecificity(args))
+                        {
+                            var argSpec = CalculateSpecificity(arg.Trim());
+                            if (argSpec.a > argMax.a ||
+                                (argSpec.a == argMax.a && argSpec.b > argMax.b) ||
+                                (argSpec.a == argMax.a && argSpec.b == argMax.b && argSpec.c > argMax.c) ||
+                                (argSpec.a == argMax.a && argSpec.b == argMax.b && argSpec.c == argMax.c && argSpec.d > argMax.d))
+                            {
+                                argMax = argSpec;
+                            }
+                        }
+                        a += argMax.a;
+                        b += argMax.b;
+                        c += argMax.c;
+                        d += argMax.d;
+                    }
+                    // :where() adds nothing
                 }
             }
             else if (ch == '*') { d++; i++; }
@@ -193,6 +255,26 @@ public class CssParser
         }
 
         return (a, b, c, d);
+    }
+
+    private List<string> SplitSelectorsForSpecificity(string args)
+    {
+        var parts = new List<string>();
+        int depth = 0;
+        int start = 0;
+        for (int i = 0; i < args.Length; i++)
+        {
+            if (args[i] == '(') depth++;
+            else if (args[i] == ')') depth--;
+            else if (args[i] == ',' && depth == 0)
+            {
+                parts.Add(args[start..i].Trim());
+                start = i + 1;
+            }
+        }
+        if (start < args.Length)
+            parts.Add(args[start..].Trim());
+        return parts;
     }
 
     private bool IsIdentStart(char c) => char.IsLetter(c) || c == '_';

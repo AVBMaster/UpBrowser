@@ -895,13 +895,30 @@ public class DrawShadowOp : PaintOp
         Inset = false;
     }
 
+    private static readonly Dictionary<float, SKImageFilter> _blurCache = new();
+
+    private static SKImageFilter GetOrCreateBlur(float radius)
+    {
+        if (radius <= 0) return null!;
+        lock (_blurCache)
+        {
+            if (!_blurCache.TryGetValue(radius, out var filter))
+            {
+                filter = SKImageFilter.CreateBlur(radius, radius);
+                _blurCache[radius] = filter;
+            }
+            return filter;
+        }
+    }
+
     public override void Execute(SKCanvas canvas)
     {
+        var blurFilter = GetOrCreateBlur(BlurRadius);
         using var paint = new SKPaint
         {
             Color = Color.WithAlpha(80),
             IsAntialias = true,
-            ImageFilter = SKImageFilter.CreateBlur(BlurRadius, BlurRadius)
+            ImageFilter = blurFilter
         };
 
         if (Inset)

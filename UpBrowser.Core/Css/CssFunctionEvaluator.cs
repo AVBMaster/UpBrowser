@@ -43,7 +43,7 @@ public static class CssFunctionEvaluator
 
         var result = value;
 
-        result = EvaluateVar(result, context, maxRecursion);
+        result = EvaluateVar(result, context, parentFontSize, rootFontSize, viewportWidth, viewportHeight, maxRecursion);
         result = EvaluateAttr(result, context);
         result = EvaluateCalcAndMath(result, parentFontSize, rootFontSize, viewportWidth, viewportHeight);
         result = EvaluateFitContent(result, parentFontSize, rootFontSize, viewportWidth, viewportHeight);
@@ -53,7 +53,7 @@ public static class CssFunctionEvaluator
         return result;
     }
 
-    private static string EvaluateVar(string value, Element? context, int maxRecursion = 10)
+    private static string EvaluateVar(string value, Element? context, float parentFontSize, float rootFontSize, float viewportWidth, float viewportHeight, int maxRecursion = 10)
     {
         return VarRegex.Replace(value, match =>
         {
@@ -66,7 +66,7 @@ public static class CssFunctionEvaluator
                 resolved = !string.IsNullOrEmpty(fallback) ? fallback : "";
 
             if (resolved != null && (VarRegex.IsMatch(resolved) || CalcFuncRegex.IsMatch(resolved)))
-                resolved = Evaluate(resolved, context, 16, 16, 1920, 1080, maxRecursion - 1);
+                resolved = Evaluate(resolved, context, parentFontSize, rootFontSize, viewportWidth, viewportHeight, maxRecursion - 1);
 
             return resolved ?? "";
         });
@@ -322,10 +322,49 @@ public static class CssFunctionEvaluator
                 continue;
             }
 
-            if (expr[i] == '+' || expr[i] == '-' || expr[i] == '*' || expr[i] == '/')
+            // Check for unary + or - (at start of expression or after another operator)
+            bool isUnary = (expr[i] == '+' || expr[i] == '-') &&
+                (tokens.Count == 0 || tokens[^1] is OpToken);
+
+            if (!isUnary && (expr[i] == '+' || expr[i] == '-' || expr[i] == '*' || expr[i] == '/'))
             {
                 tokens.Add(new OpToken { Value = expr[i] });
                 i++;
+                continue;
+            }
+
+            if (isUnary && (expr[i] == '+' || expr[i] == '-'))
+            {
+                char sign = expr[i];
+                i++;
+
+                // Skip whitespace after sign
+                while (i < expr.Length && char.IsWhiteSpace(expr[i])) i++;
+
+                if (i < expr.Length && (char.IsDigit(expr[i]) || expr[i] == '.'))
+                {
+                    var numMatch = NumberRegex.Match(expr[i..]);
+                    if (numMatch.Success)
+                    {
+                        float num = float.Parse(numMatch.Value);
+                        if (sign == '-') num = -num;
+                        i += numMatch.Length;
+
+                        var unitMatch = UnitRegex.Match(i < expr.Length ? expr[i..] : "");
+                        if (unitMatch.Success)
+                        {
+                            string unit = unitMatch.Value.ToLowerInvariant();
+                            i += unitMatch.Length;
+                            num = ConvertUnit(num, unit, parentFontSize, rootFontSize, viewportWidth, viewportHeight);
+                        }
+
+                        tokens.Add(new NumToken { Value = num });
+                        continue;
+                    }
+                }
+
+                // If no number follows, treat as binary operator
+                tokens.Add(new OpToken { Value = sign });
                 continue;
             }
 
@@ -337,29 +376,6 @@ public static class CssFunctionEvaluator
                     float num = float.Parse(numMatch.Value);
                     int consumed = numMatch.Length;
                     i += consumed;
-
-                    var unitMatch = UnitRegex.Match(i < expr.Length ? expr[i..] : "");
-                    if (unitMatch.Success)
-                    {
-                        string unit = unitMatch.Value.ToLowerInvariant();
-                        i += unitMatch.Length;
-                        num = ConvertUnit(num, unit, parentFontSize, rootFontSize, viewportWidth, viewportHeight);
-                    }
-
-                    tokens.Add(new NumToken { Value = num });
-                    continue;
-                }
-            }
-
-            if (expr[i] == '-' && i + 1 < expr.Length && (char.IsDigit(expr[i + 1]) || expr[i + 1] == '.'))
-            {
-                int start = i;
-                i++;
-                var numMatch = NumberRegex.Match(expr[i..]);
-                if (numMatch.Success)
-                {
-                    float num = -float.Parse(numMatch.Value);
-                    i += numMatch.Length;
 
                     var unitMatch = UnitRegex.Match(i < expr.Length ? expr[i..] : "");
                     if (unitMatch.Success)
@@ -392,6 +408,20 @@ public static class CssFunctionEvaluator
             "vh" => value * viewportHeight / 100f,
             "vmin" => value * Math.Min(viewportWidth, viewportHeight) / 100f,
             "vmax" => value * Math.Max(viewportWidth, viewportHeight) / 100f,
+            "vi" => value * viewportWidth / 100f,
+            "vb" => value * viewportHeight / 100f,
+            "svw" => value * viewportWidth / 100f,
+            "svh" => value * viewportHeight / 100f,
+            "lvw" => value * viewportWidth / 100f,
+            "lvh" => value * viewportHeight / 100f,
+            "dvw" => value * viewportWidth / 100f,
+            "dvh" => value * viewportHeight / 100f,
+            "cqw" => value * viewportWidth / 100f,
+            "cqh" => value * viewportHeight / 100f,
+            "cqi" => value * viewportWidth / 100f,
+            "cqb" => value * viewportHeight / 100f,
+            "cqmin" => value * Math.Min(viewportWidth, viewportHeight) / 100f,
+            "cqmax" => value * Math.Max(viewportWidth, viewportHeight) / 100f,
             "pt" => value * 1.33333f,
             "pc" => value * 16f,
             "in" => value * 96f,
@@ -399,6 +429,12 @@ public static class CssFunctionEvaluator
             "mm" => value * 3.77953f,
             "ex" => value * parentFontSize * 0.5f,
             "ch" => value * parentFontSize * 0.5f,
+            "rex" => value * rootFontSize * 0.5f,
+            "ric" => value * rootFontSize * 0.5f,
+            "lh" => value * parentFontSize,
+            "rlh" => value * rootFontSize,
+            "cap" => value * parentFontSize * 0.7f,
+            "rcap" => value * rootFontSize * 0.7f,
             _ => value
         };
     }

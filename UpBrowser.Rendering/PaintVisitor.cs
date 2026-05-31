@@ -190,8 +190,6 @@ public class PaintVisitor
 
     private void DrawElementBackground(Element element, LayoutBox box, ComputedStyle style, SKRect borderRect)
     {
-        if (element.TagName.Equals("BUTTON", StringComparison.OrdinalIgnoreCase))
-            return;
         if (!style.BackgroundColor.HasValue || style.BackgroundColor.Value.Alpha == 0)
             return;
 
@@ -210,6 +208,9 @@ public class PaintVisitor
         op.BorderRadius = Math.Max(style.BorderTopLeftRadius, Math.Max(style.BorderTopRightRadius, Math.Max(style.BorderBottomLeftRadius, style.BorderBottomRightRadius)));
         op.Bounds = borderRect;
         _displayList.Add(op);
+
+        if (!string.IsNullOrEmpty(style.BackgroundImage))
+            DrawBackgroundImage(element, style, bgRect);
     }
 
     private void DrawBoxShadow(SKRect rect, ComputedStyle style)
@@ -268,11 +269,13 @@ public class PaintVisitor
         _displayList.Add(shadowOutsetOp);
     }
 
-    private async void DrawBackgroundImage(Element element, ComputedStyle style, SKRect rect)
+    private void DrawBackgroundImage(Element element, ComputedStyle style, SKRect rect)
     {
         var url = style.BackgroundImage;
         if (string.IsNullOrEmpty(url)) return;
-        var image = await _imageCache.GetImageAsync(url);
+        var task = _imageCache.GetImageAsync(url);
+        task.Wait();
+        var image = task.Result;
         if (image == null) return;
         float imgW = image.Width, imgH = image.Height;
         float tileWidth = imgW, tileHeight = imgH;
@@ -788,21 +791,19 @@ public class PaintVisitor
         if (string.IsNullOrEmpty(src)) return;
         var resolvedSrc = ResolveImageUrl(src);
         if (resolvedSrc == null) return;
-        Task.Run(async () =>
-        {
-            var image = await _imageCache.GetImageAsync(resolvedSrc);
-            if (image == null) return;
-            var rect = new SKRect(box.ContentBox.Left, box.ContentBox.Top, box.ContentBox.Right, box.ContentBox.Bottom);
-            var op = PaintOpPool.GetDrawImageOp();
-            if (op == null) return;
-            op.Image = image;
-            op.SourceRect = new SKRect(0, 0, image.Width, image.Height);
-            op.DestRect = rect;
-            op.Fit = MapObjectFitToImageFit(style.ObjectFit);
-            op.ZIndex = element.ComputedStyle?.ZIndex ?? 0;
-            op.Bounds = rect;
-            _displayList.Add(op);
-        });
+        var task = _imageCache.GetImageAsync(resolvedSrc);
+        task.Wait();
+        var image = task.Result;
+        if (image == null) return;
+        var rect = new SKRect(box.ContentBox.Left, box.ContentBox.Top, box.ContentBox.Right, box.ContentBox.Bottom);
+        var op = PaintOpPool.GetDrawImageOp();
+        op.Image = image;
+        op.SourceRect = new SKRect(0, 0, image.Width, image.Height);
+        op.DestRect = rect;
+        op.Fit = MapObjectFitToImageFit(style.ObjectFit);
+        op.ZIndex = element.ComputedStyle?.ZIndex ?? 0;
+        op.Bounds = rect;
+        _displayList.Add(op);
     }
 
     private string? ResolveImageUrl(string url)
@@ -961,6 +962,7 @@ public class PaintVisitor
 public class ImageCache
 {
     private readonly Dictionary<string, SKImage> _cache = new();
+    private readonly Dictionary<string, Task<SKImage?>> _pendingLoads = new();
     private readonly LinkedList<string> _accessOrder = new();
     private readonly HttpClient _httpClient = new();
     private readonly object _lock = new();
@@ -969,51 +971,68 @@ public class ImageCache
     public async Task<SKImage?> GetImageAsync(string url)
     {
         if (string.IsNullOrEmpty(url)) return null;
+
+        SKImage? cachedImage = null;
+        Task<SKImage?>? pendingTask = null;
+
         lock (_lock)
         {
-            if (_cache.TryGetValue(url, out var image))
+            if (_cache.TryGetValue(url, out cachedImage))
             {
                 _accessOrder.Remove(url);
                 _accessOrder.AddFirst(url);
-                return image;
+            }
+            else if (!_pendingLoads.TryGetValue(url, out pendingTask))
+            {
+                pendingTask = LoadImageAsync(url);
+                _pendingLoads[url] = pendingTask;
             }
         }
+
+        if (cachedImage != null) return cachedImage;
+        if (pendingTask == null) return null;
+
+        try
+        {
+            var image = await pendingTask;
+            lock (_lock)
+            {
+                _pendingLoads.Remove(url);
+                if (image != null)
+                {
+                    _cache[url] = image;
+                    _accessOrder.AddFirst(url);
+                    EvictIfNeeded();
+                }
+            }
+            return image;
+        }
+        catch
+        {
+            lock (_lock) _pendingLoads.Remove(url);
+            return null;
+        }
+    }
+
+    private async Task<SKImage?> LoadImageAsync(string url)
+    {
         try
         {
             if (!url.StartsWith("http://") && !url.StartsWith("https://"))
             {
                 var ext = Path.GetExtension(url).ToLowerInvariant();
-                if (ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".gif" || ext == ".webp")
+                if (ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".gif" || ext == ".webp" || ext == ".bmp" || ext == ".ico")
                 {
                     var data = await File.ReadAllBytesAsync(url);
-                    var image = SKImage.FromEncodedData(data);
-                    if (image != null)
-                    {
-                        lock (_lock)
-                        {
-                            _cache[url] = image;
-                            _accessOrder.AddFirst(url);
-                            EvictIfNeeded();
-                        }
-                    }
-                    return image;
+                    return SKImage.FromEncodedData(data);
                 }
                 return null;
             }
             else
             {
-                var bytes = await _httpClient.GetByteArrayAsync(url);
-                var image = SKImage.FromEncodedData(bytes);
-                if (image != null)
-                {
-                    lock (_lock)
-                    {
-                        _cache[url] = image;
-                        _accessOrder.AddFirst(url);
-                        EvictIfNeeded();
-                    }
-                }
-                return image;
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+                var bytes = await _httpClient.GetByteArrayAsync(url, cts.Token);
+                return SKImage.FromEncodedData(bytes);
             }
         }
         catch

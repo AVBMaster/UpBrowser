@@ -9,17 +9,70 @@ public abstract class Length
 
     public static Length Parse(string value)
     {
-        if (string.IsNullOrEmpty(value) || value == "auto" || value == "inherit")
+        if (string.IsNullOrEmpty(value) || value == "auto" || value == "inherit" || value == "initial")
             return AutoLength.Instance;
 
+        // Check longest units first to avoid false matches
+        if (value.EndsWith("cqmin"))
+            return new CqMinLength(float.Parse(value[..^5]));
+        if (value.EndsWith("cqmax"))
+            return new CqMaxLength(float.Parse(value[..^5]));
+        if (value.EndsWith("cqw"))
+            return new CqWLength(float.Parse(value[..^3]));
+        if (value.EndsWith("cqh"))
+            return new CqHLength(float.Parse(value[..^3]));
+        if (value.EndsWith("cqi"))
+            return new CqILength(float.Parse(value[..^3]));
+        if (value.EndsWith("cqb"))
+            return new CqBLength(float.Parse(value[..^3]));
+        if (value.EndsWith("dvw"))
+            return new DVwLength(float.Parse(value[..^3]));
+        if (value.EndsWith("dvh"))
+            return new DVhLength(float.Parse(value[..^3]));
+        if (value.EndsWith("svw"))
+            return new SVwLength(float.Parse(value[..^3]));
+        if (value.EndsWith("svh"))
+            return new SVhLength(float.Parse(value[..^3]));
+        if (value.EndsWith("lvw"))
+            return new LVwLength(float.Parse(value[..^3]));
+        if (value.EndsWith("lvh"))
+            return new LVhLength(float.Parse(value[..^3]));
+        if (value.EndsWith("vmin"))
+            return new VminLength(float.Parse(value[..^4]));
+        if (value.EndsWith("vmax"))
+            return new VmaxLength(float.Parse(value[..^4]));
+        if (value.EndsWith("vw"))
+            return new VwLength(float.Parse(value[..^2]));
+        if (value.EndsWith("vh"))
+            return new VhLength(float.Parse(value[..^2]));
+        if (value.EndsWith("vi"))
+            return new ViLength(float.Parse(value[..^2]));
+        if (value.EndsWith("vb"))
+            return new VbLength(float.Parse(value[..^2]));
+        if (value.EndsWith("rem"))
+            return new RemLength(float.Parse(value[..^2]));
+        if (value.EndsWith("rex"))
+            return new RexLength(float.Parse(value[..^3]));
+        if (value.EndsWith("ric"))
+            return new RicLength(float.Parse(value[..^3]));
+        if (value.EndsWith("rlh"))
+            return new RlhLength(float.Parse(value[..^3]));
+        if (value.EndsWith("cap"))
+            return new CapLength(float.Parse(value[..^3]));
+        if (value.EndsWith("rcap"))
+            return new RcapLength(float.Parse(value[..^4]));
+        if (value.EndsWith("lh"))
+            return new LhLength(float.Parse(value[..^2]));
         if (value.EndsWith("px"))
             return new PixelLength(float.Parse(value[..^2]));
         if (value.EndsWith("em"))
             return new EmLength(float.Parse(value[..^2]));
-        if (value.EndsWith("rem"))
-            return new RemLength(float.Parse(value[..^2]));
+        if (value.EndsWith("ex"))
+            return new ExLength(float.Parse(value[..^2]));
+        if (value.EndsWith("ch"))
+            return new ChLength(float.Parse(value[..^2]));
         if (value.EndsWith("%"))
-            return new PercentLength(float.Parse(value[..^2]) / 100f);
+            return new PercentLength(float.Parse(value[..^1]) / 100f);
         if (value.EndsWith("pt"))
             return new PixelLength(float.Parse(value[..^2]) * 1.33333f);
         if (value.EndsWith("pc"))
@@ -30,46 +83,6 @@ public abstract class Length
             return new PixelLength(float.Parse(value[..^2]) * 37.7953f);
         if (value.EndsWith("mm"))
             return new PixelLength(float.Parse(value[..^2]) * 3.77953f);
-        if (value.EndsWith("ex"))
-            return new ExLength(float.Parse(value[..^2]));
-        if (value.EndsWith("ch"))
-            return new ChLength(float.Parse(value[..^2]));
-        if (value.EndsWith("cqw"))
-            return new VwLength(float.Parse(value[..^3]));
-        if (value.EndsWith("cqh"))
-            return new VhLength(float.Parse(value[..^3]));
-        if (value.EndsWith("cqi"))
-            return new VwLength(float.Parse(value[..^3]));
-        if (value.EndsWith("cqb"))
-            return new VhLength(float.Parse(value[..^3]));
-        if (value.EndsWith("cqmin"))
-            return new VminLength(float.Parse(value[..^5]));
-        if (value.EndsWith("cqmax"))
-            return new VmaxLength(float.Parse(value[..^5]));
-        if (value.EndsWith("dvw"))
-            return new VwLength(float.Parse(value[..^3]));
-        if (value.EndsWith("dvh"))
-            return new VhLength(float.Parse(value[..^3]));
-        if (value.EndsWith("svw"))
-            return new VwLength(float.Parse(value[..^3]));
-        if (value.EndsWith("svh"))
-            return new VhLength(float.Parse(value[..^3]));
-        if (value.EndsWith("lvw"))
-            return new VwLength(float.Parse(value[..^3]));
-        if (value.EndsWith("lvh"))
-            return new VhLength(float.Parse(value[..^3]));
-        if (value.EndsWith("vmin"))
-            return new VminLength(float.Parse(value[..^4]));
-        if (value.EndsWith("vmax"))
-            return new VmaxLength(float.Parse(value[..^4]));
-        if (value.EndsWith("vw"))
-            return new VwLength(float.Parse(value[..^2]));
-        if (value.EndsWith("vh"))
-            return new VhLength(float.Parse(value[..^2]));
-        if (value.EndsWith("vi"))
-            return new VwLength(float.Parse(value[..^2]));
-        if (value.EndsWith("vb"))
-            return new VhLength(float.Parse(value[..^2]));
         if (value == "0")
             return new PixelLength(0);
 
@@ -228,6 +241,172 @@ public class ChLength : Length
     public ChLength(float value) => Value = value;
     public override float ToPixels(float reference, float rootFontSize, float viewportWidth, float viewportHeight) => Value * reference * 0.5f;
     public override string ToString() => $"{Value}ch";
+}
+
+// Container query units (temporarily mapped to viewport until container support)
+public class CqWLength : Length
+{
+    public float Value { get; }
+    public CqWLength(float value) => Value = value;
+    public override float ToPixels(float reference, float rootFontSize, float viewportWidth, float viewportHeight) => Value * viewportWidth / 100f;
+    public override string ToString() => $"{Value}cqw";
+}
+
+public class CqHLength : Length
+{
+    public float Value { get; }
+    public CqHLength(float value) => Value = value;
+    public override float ToPixels(float reference, float rootFontSize, float viewportWidth, float viewportHeight) => Value * viewportHeight / 100f;
+    public override string ToString() => $"{Value}cqh";
+}
+
+public class CqILength : Length
+{
+    public float Value { get; }
+    public CqILength(float value) => Value = value;
+    public override float ToPixels(float reference, float rootFontSize, float viewportWidth, float viewportHeight) => Value * viewportWidth / 100f;
+    public override string ToString() => $"{Value}cqi";
+}
+
+public class CqBLength : Length
+{
+    public float Value { get; }
+    public CqBLength(float value) => Value = value;
+    public override float ToPixels(float reference, float rootFontSize, float viewportWidth, float viewportHeight) => Value * viewportHeight / 100f;
+    public override string ToString() => $"{Value}cqb";
+}
+
+public class CqMinLength : Length
+{
+    public float Value { get; }
+    public CqMinLength(float value) => Value = value;
+    public override float ToPixels(float reference, float rootFontSize, float viewportWidth, float viewportHeight) => Value * Math.Min(viewportWidth, viewportHeight) / 100f;
+    public override string ToString() => $"{Value}cqmin";
+}
+
+public class CqMaxLength : Length
+{
+    public float Value { get; }
+    public CqMaxLength(float value) => Value = value;
+    public override float ToPixels(float reference, float rootFontSize, float viewportWidth, float viewportHeight) => Value * Math.Max(viewportWidth, viewportHeight) / 100f;
+    public override string ToString() => $"{Value}cqmax";
+}
+
+// Dynamic viewport units
+public class DVwLength : Length
+{
+    public float Value { get; }
+    public DVwLength(float value) => Value = value;
+    public override float ToPixels(float reference, float rootFontSize, float viewportWidth, float viewportHeight) => Value * viewportWidth / 100f;
+    public override string ToString() => $"{Value}dvw";
+}
+
+public class DVhLength : Length
+{
+    public float Value { get; }
+    public DVhLength(float value) => Value = value;
+    public override float ToPixels(float reference, float rootFontSize, float viewportWidth, float viewportHeight) => Value * viewportHeight / 100f;
+    public override string ToString() => $"{Value}dvh";
+}
+
+// Small viewport units
+public class SVwLength : Length
+{
+    public float Value { get; }
+    public SVwLength(float value) => Value = value;
+    public override float ToPixels(float reference, float rootFontSize, float viewportWidth, float viewportHeight) => Value * viewportWidth / 100f;
+    public override string ToString() => $"{Value}svw";
+}
+
+public class SVhLength : Length
+{
+    public float Value { get; }
+    public SVhLength(float value) => Value = value;
+    public override float ToPixels(float reference, float rootFontSize, float viewportWidth, float viewportHeight) => Value * viewportHeight / 100f;
+    public override string ToString() => $"{Value}svh";
+}
+
+// Large viewport units
+public class LVwLength : Length
+{
+    public float Value { get; }
+    public LVwLength(float value) => Value = value;
+    public override float ToPixels(float reference, float rootFontSize, float viewportWidth, float viewportHeight) => Value * viewportWidth / 100f;
+    public override string ToString() => $"{Value}lvw";
+}
+
+public class LVhLength : Length
+{
+    public float Value { get; }
+    public LVhLength(float value) => Value = value;
+    public override float ToPixels(float reference, float rootFontSize, float viewportWidth, float viewportHeight) => Value * viewportHeight / 100f;
+    public override string ToString() => $"{Value}lvh";
+}
+
+// Inline/block-axis viewport units (vi = viewport inline, vb = viewport block)
+public class ViLength : Length
+{
+    public float Value { get; }
+    public ViLength(float value) => Value = value;
+    public override float ToPixels(float reference, float rootFontSize, float viewportWidth, float viewportHeight) => Value * viewportWidth / 100f;
+    public override string ToString() => $"{Value}vi";
+}
+
+public class VbLength : Length
+{
+    public float Value { get; }
+    public VbLength(float value) => Value = value;
+    public override float ToPixels(float reference, float rootFontSize, float viewportWidth, float viewportHeight) => Value * viewportHeight / 100f;
+    public override string ToString() => $"{Value}vb";
+}
+
+// Font-relative units
+public class RexLength : Length
+{
+    public float Value { get; }
+    public RexLength(float value) => Value = value;
+    public override float ToPixels(float reference, float rootFontSize, float viewportWidth, float viewportHeight) => Value * rootFontSize * 0.5f;
+    public override string ToString() => $"{Value}rex";
+}
+
+public class RicLength : Length
+{
+    public float Value { get; }
+    public RicLength(float value) => Value = value;
+    public override float ToPixels(float reference, float rootFontSize, float viewportWidth, float viewportHeight) => Value * rootFontSize * 0.5f;
+    public override string ToString() => $"{Value}ric";
+}
+
+public class LhLength : Length
+{
+    public float Value { get; }
+    public LhLength(float value) => Value = value;
+    public override float ToPixels(float reference, float rootFontSize, float viewportWidth, float viewportHeight) => Value * reference;
+    public override string ToString() => $"{Value}lh";
+}
+
+public class RlhLength : Length
+{
+    public float Value { get; }
+    public RlhLength(float value) => Value = value;
+    public override float ToPixels(float reference, float rootFontSize, float viewportWidth, float viewportHeight) => Value * rootFontSize;
+    public override string ToString() => $"{Value}rlh";
+}
+
+public class CapLength : Length
+{
+    public float Value { get; }
+    public CapLength(float value) => Value = value;
+    public override float ToPixels(float reference, float rootFontSize, float viewportWidth, float viewportHeight) => Value * reference * 0.7f;
+    public override string ToString() => $"{Value}cap";
+}
+
+public class RcapLength : Length
+{
+    public float Value { get; }
+    public RcapLength(float value) => Value = value;
+    public override float ToPixels(float reference, float rootFontSize, float viewportWidth, float viewportHeight) => Value * rootFontSize * 0.7f;
+    public override string ToString() => $"{Value}rcap";
 }
 
 public class MathLength : Length

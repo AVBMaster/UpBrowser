@@ -95,40 +95,54 @@ public class LayoutEngine
 
     private float GetAbsoluteWidth(ComputedStyle style, LayoutBox? containingBlock, float fontSize)
     {
-        if (style.Width is PixelLength px) return px.Value;
-        if (style.Width is PercentLength pct && containingBlock != null)
-            return pct.Value * containingBlock.ContentBox.Width;
-        if (style.Width is MathLength ml)
+        float result = float.NaN;
+        if (style.Width is PixelLength px) result = px.Value;
+        else if (style.Width is PercentLength pct && containingBlock != null)
+            result = pct.Value * containingBlock.ContentBox.Width;
+        else if (style.Width is MathLength ml)
         {
             float refWidth = containingBlock?.ContentBox.Width ?? 0;
-            return ml.ToPixels(fontSize, 16, refWidth, 0);
+            result = ml.ToPixels(fontSize, _rootFontSize, _viewportWidth, _viewportHeight);
         }
-        if (containingBlock != null && !(style.Left is AutoLength) && !(style.Right is AutoLength))
+        else if (containingBlock != null && !(style.Left is AutoLength) && !(style.Right is AutoLength))
         {
-            float left = Length.ToPixelsOrDefault(style.Left, fontSize);
-            float right = Length.ToPixelsOrDefault(style.Right, fontSize);
-            return containingBlock.ContentBox.Width - left - right;
+            float left = Length.ToPixelsOrDefault(style.Left, fontSize, _viewportWidth, _viewportHeight);
+            float right = Length.ToPixelsOrDefault(style.Right, fontSize, _viewportWidth, _viewportHeight);
+            result = containingBlock.ContentBox.Width - left - right;
         }
-        return float.NaN;
+
+        if (!float.IsNaN(result))
+        {
+            if (style.MinWidth is PixelLength minW) result = Math.Max(result, minW.Value);
+            if (style.MaxWidth is PixelLength maxW) result = Math.Min(result, maxW.Value);
+        }
+        return result;
     }
 
     private float GetAbsoluteHeight(ComputedStyle style, LayoutBox? containingBlock, float fontSize, float parentHeight)
     {
-        if (style.Height is PixelLength px) return px.Value;
-        if (style.Height is PercentLength pct && containingBlock != null)
-            return pct.Value * containingBlock.ContentBox.Height;
-        if (style.Height is MathLength ml)
+        float result = float.NaN;
+        if (style.Height is PixelLength px) result = px.Value;
+        else if (style.Height is PercentLength pct && containingBlock != null)
+            result = pct.Value * containingBlock.ContentBox.Height;
+        else if (style.Height is MathLength ml)
         {
             float refHeight = containingBlock?.ContentBox.Height ?? parentHeight;
-            return ml.ToPixels(fontSize, 16, 0, refHeight);
+            result = ml.ToPixels(fontSize, _rootFontSize, _viewportWidth, _viewportHeight);
         }
-        if (containingBlock != null && !(style.Top is AutoLength) && !(style.Bottom is AutoLength))
+        else if (containingBlock != null && !(style.Top is AutoLength) && !(style.Bottom is AutoLength))
         {
-            float top = Length.ToPixelsOrDefault(style.Top, fontSize);
-            float bottom = Length.ToPixelsOrDefault(style.Bottom, fontSize);
-            return containingBlock.ContentBox.Height - top - bottom;
+            float top = Length.ToPixelsOrDefault(style.Top, fontSize, _viewportWidth, _viewportHeight);
+            float bottom = Length.ToPixelsOrDefault(style.Bottom, fontSize, _viewportWidth, _viewportHeight);
+            result = containingBlock.ContentBox.Height - top - bottom;
         }
-        return float.NaN;
+
+        if (!float.IsNaN(result))
+        {
+            if (style.MinHeight is PixelLength minH) result = Math.Max(result, minH.Value);
+            if (style.MaxHeight is PixelLength maxH) result = Math.Min(result, maxH.Value);
+        }
+        return result;
     }
 
     private LayoutBox? CreateLayoutBox(Element element, float x, float y, float availableWidth, LayoutBox? parentBox)
@@ -176,9 +190,17 @@ public class LayoutEngine
 
         if (style.BoxSizing == BoxSizingType.BorderBox)
         {
-            contentWidth = Math.Max(0, width - borderLeft - borderRight - paddingLeft - paddingRight);
-            contentHeight = float.IsNaN(elementHeight) ? 0 : Math.Max(0, elementHeight - borderTop - borderBottom - paddingTop - paddingBottom);
+            if (!float.IsNaN(width))
+                contentWidth = Math.Max(0, width - borderLeft - borderRight - paddingLeft - paddingRight);
+            if (!float.IsNaN(elementHeight) && elementHeight > 0)
+                contentHeight = Math.Max(0, elementHeight - borderTop - borderBottom - paddingTop - paddingBottom);
         }
+
+        // Apply min/max constraints
+        if (style.MinWidth is PixelLength minW) contentWidth = Math.Max(contentWidth, minW.Value);
+        if (style.MaxWidth is PixelLength maxW) contentWidth = Math.Min(contentWidth, maxW.Value);
+        if (style.MinHeight is PixelLength minH) contentHeight = Math.Max(contentHeight, minH.Value);
+        if (style.MaxHeight is PixelLength maxH) contentHeight = Math.Min(contentHeight, maxH.Value);
 
         bool isBlockLevel = style.Display != DisplayType.Inline && style.Display != DisplayType.InlineFlex &&
                             style.Display != DisplayType.InlineBlock && style.Position != PositionType.Absolute;
@@ -527,8 +549,8 @@ public class LayoutEngine
         float fontSize = style?.FontSize ?? 16f;
         float lineHeight = (style?.LineHeight ?? 1.5f) * fontSize;
 
-        var floatLeftElements = new List<Element>();
-        var floatRightElements = new List<Element>();
+        var floatLeftElements = new List<(Element elem, float marginTop)>();
+        var floatRightElements = new List<(Element elem, float marginTop)>();
         var normalFlowElements = new List<Node>();
 
         foreach (var child in element.Children)
@@ -546,9 +568,9 @@ public class LayoutEngine
                     continue;
                 }
                 if (childStyle.Float == FloatType.Left)
-                    floatLeftElements.Add(childElement);
+                    floatLeftElements.Add((childElement, childStyle.MarginTop.ToPixels(childStyle.FontSize, _rootFontSize, _viewportWidth, _viewportHeight)));
                 else if (childStyle.Float == FloatType.Right)
-                    floatRightElements.Add(childElement);
+                    floatRightElements.Add((childElement, childStyle.MarginTop.ToPixels(childStyle.FontSize, _rootFontSize, _viewportWidth, _viewportHeight)));
                 else
                     normalFlowElements.Add(childElement);
             }
@@ -563,8 +585,81 @@ public class LayoutEngine
 
         var (preserveSpaces, preserveNewlines, allowWrapping) = GetWhiteSpaceBehavior(style?.WhiteSpace ?? WhiteSpaceMode.Normal);
 
-        foreach (var item in normalFlowElements)
+        int floatLeftIndex = 0, floatRightIndex = 0;
+
+        // Merge floats and normal flow in source order
+        var mergedChildren = new List<(Node node, bool isFloatLeft, int floatIdx)>();
+        foreach (var child in element.Children)
         {
+            if (child is Element childElement)
+            {
+                var childStyle = childElement.ComputedStyle;
+                if (childStyle == null || childStyle.Display == DisplayType.None || childStyle.Visibility == VisibilityType.Hidden)
+                    continue;
+                if (childStyle.Position == PositionType.Absolute) continue;
+                if (childStyle.Float == FloatType.Left)
+                    mergedChildren.Add((childElement, true, floatLeftIndex++));
+                else if (childStyle.Float == FloatType.Right)
+                    mergedChildren.Add((childElement, false, floatRightIndex++));
+                else
+                    mergedChildren.Add((childElement, false, -1));
+            }
+            else if (child is TextNode textNode)
+                mergedChildren.Add((textNode, false, -1));
+        }
+
+        floatLeftIndex = 0;
+        floatRightIndex = 0;
+
+        foreach (var (item, isFloat, floatIdx) in mergedChildren)
+        {
+            if (isFloat && item is Element fElem)
+            {
+                // Place floats interleaved with normal flow
+                if (floatIdx >= 0)
+                {
+                    var fStyle = fElem.ComputedStyle;
+                    if (fStyle == null) continue;
+                    float marginTop = fStyle.MarginTop.ToPixels(fStyle.FontSize, _rootFontSize, _viewportWidth, _viewportHeight);
+                    float marginLeft = fStyle.MarginLeft.ToPixels(fStyle.FontSize, _rootFontSize, _viewportWidth, _viewportHeight);
+                    float marginRight = fStyle.MarginRight.ToPixels(fStyle.FontSize, _rootFontSize, _viewportWidth, _viewportHeight);
+
+                    // Flush pending inline content before float
+                    if (inlineCurrentLine != null && inlineCurrentLine.Runs.Count > 0)
+                    {
+                        inlineCurrentLine.Height = inlineMaxHeightInLine > 0 ? inlineMaxHeightInLine : (style?.LineHeight ?? 1.5f) * (style?.FontSize ?? 16);
+                        currentY = inlineCurrentLine.Y + inlineCurrentLine.Height;
+                        inlineCurrentLine = null;
+                        inlineCurrentX = 0;
+                        inlineMaxHeightInLine = 0;
+                    }
+
+                    currentY += marginTop;
+                    float elemWidth = 0;
+                    if (fStyle.Width is PixelLength w) elemWidth = w.Value;
+                    else if (fStyle.Width is PercentLength wp) elemWidth = wp.Value * availableWidth;
+                    else elemWidth = 100;
+
+                    float elemX = (floatIdx >= 0 && item == floatLeftElements[floatLeftIndex].elem) ? x + marginLeft : x + availableWidth - elemWidth - marginRight;
+                    // Actually determine position by type
+                    // Let's use the FloatType from style
+                    bool isLeft = fStyle.Float == FloatType.Left;
+                    float fx = isLeft ? x + marginLeft : x + availableWidth - elemWidth - marginRight;
+
+                    var childBox = CreateLayoutBox(fElem, fx, currentY, elemWidth, box);
+                    if (childBox != null)
+                    {
+                        box.Children.Add(childBox);
+                        childBox.Parent = box;
+                        // move past the float
+                        currentY = Math.Max(currentY, childBox.MarginBox.Bottom);
+                    }
+                    if (isLeft) floatLeftIndex++;
+                    else floatRightIndex++;
+                }
+                continue;
+            }
+
             if (item is Element childElement)
             {
                 var childStyle = childElement.ComputedStyle;
@@ -728,13 +823,13 @@ public class LayoutEngine
                     float clearY = currentY;
                     if (childStyle.Clear == ClearType.Left || childStyle.Clear == ClearType.Both)
                     {
-                        foreach (var floatElem in floatLeftElements)
+                        foreach (var (floatElem, _) in floatLeftElements)
                             if (floatElem.LayoutBox != null && floatElem.LayoutBox.MarginBox.Bottom > clearY)
                                 clearY = floatElem.LayoutBox.MarginBox.Bottom;
                     }
                     if (childStyle.Clear == ClearType.Right || childStyle.Clear == ClearType.Both)
                     {
-                        foreach (var floatElem in floatRightElements)
+                        foreach (var (floatElem, _) in floatRightElements)
                             if (floatElem.LayoutBox != null && floatElem.LayoutBox.MarginBox.Bottom > clearY)
                                 clearY = floatElem.LayoutBox.MarginBox.Bottom;
                     }
@@ -928,51 +1023,6 @@ public class LayoutEngine
         {
             inlineCurrentLine.Height = inlineMaxHeightInLine > 0 ? inlineMaxHeightInLine : lineHeight;
             currentY = inlineCurrentLine.Y + inlineCurrentLine.Height;
-        }
-
-        float inlineContentBottom = currentY;
-
-        float floatY = y;
-        foreach (var floatElem in floatLeftElements)
-        {
-            var childStyle = floatElem.ComputedStyle;
-            if (childStyle == null) continue;
-            float marginTop = childStyle.MarginTop.ToPixels(childStyle.FontSize, _rootFontSize, _viewportWidth, _viewportHeight);
-            float marginLeft = childStyle.MarginLeft.ToPixels(childStyle.FontSize, _rootFontSize, _viewportWidth, _viewportHeight);
-            float elemWidth = 0;
-            if (childStyle.Width is PixelLength w) elemWidth = w.Value;
-            else if (childStyle.Width is PercentLength wp) elemWidth = wp.Value * availableWidth;
-            else elemWidth = 100;
-            float elemX = x + marginLeft;
-            var childBox = CreateLayoutBox(floatElem, elemX, floatY, elemWidth, box);
-            if (childBox != null)
-            {
-                box.Children.Add(childBox);
-                childBox.Parent = box;
-                floatY = Math.Max(floatY + childBox.MarginBox.Height, floatY);
-            }
-        }
-
-        float floatRightY = y;
-        foreach (var floatElem in floatRightElements)
-        {
-            var childStyle = floatElem.ComputedStyle;
-            if (childStyle == null) continue;
-            float marginTop = childStyle.MarginTop.ToPixels(childStyle.FontSize, _rootFontSize, _viewportWidth, _viewportHeight);
-            float marginRight = childStyle.MarginRight.ToPixels(childStyle.FontSize, _rootFontSize, _viewportWidth, _viewportHeight);
-            floatRightY += marginTop;
-            float elemWidth = 0;
-            if (childStyle.Width is PixelLength w) elemWidth = w.Value;
-            else if (childStyle.Width is PercentLength wp) elemWidth = wp.Value * availableWidth;
-            else elemWidth = 100;
-            float elemX = x + availableWidth - elemWidth - marginRight;
-            var childBox = CreateLayoutBox(floatElem, elemX, floatRightY, elemWidth, box);
-            if (childBox != null)
-            {
-                box.Children.Add(childBox);
-                childBox.Parent = box;
-                floatRightY = Math.Max(floatRightY + childBox.MarginBox.Height, floatRightY);
-            }
         }
 
         currentY += collapsedMarginBottom;
@@ -1667,11 +1717,52 @@ public class LayoutEngine
             DistributeFlexSpace(line, isRow);
 
         float currentCross = isRow ? box.ContentBox.Top : box.ContentBox.Left;
-        float maxCrossInLine = 0;
+        float availableCross = isRow ? box.ContentBox.Height : box.ContentBox.Width;
+
+        // First pass: determine cross sizes per line
+        foreach (var line in lines)
+        {
+            float maxCrossInLine = 0;
+            foreach (var item in line.Items)
+            {
+                var childBox = CreateLayoutBox(item.Element, 0, 0, item.ComputedMainSize, box);
+                if (childBox != null)
+                {
+                    float crossSize = isRow ? childBox.MarginBox.Height : childBox.MarginBox.Width;
+                    if (crossSize > maxCrossInLine) maxCrossInLine = crossSize;
+                }
+            }
+
+            // Apply align-items: stretch to set cross size if auto
+            foreach (var item in line.Items)
+            {
+                var childStyle = item.Element.ComputedStyle;
+                if (childStyle == null) continue;
+                bool isAutoCross = isRow
+                    ? (childStyle.Height is AutoLength || childStyle.Height == null)
+                    : (childStyle.Width is AutoLength || childStyle.Width == null);
+                if (isAutoCross && style.AlignItems == AlignItemsType.Stretch)
+                {
+                    // stretch: set cross size to line's cross size minus margins
+                    float marginBefore = isRow ? item.MarginTop : item.MarginLeft;
+                    float marginAfter = isRow ? item.MarginBottom : item.MarginRight;
+                    float crossStretch = Math.Max(0, maxCrossInLine - marginBefore - marginAfter);
+                    if (isRow && crossStretch > 0)
+                    {
+                        childStyle.Height = new PixelLength(crossStretch);
+                    }
+                    else if (!isRow && crossStretch > 0)
+                    {
+                        childStyle.Width = new PixelLength(crossStretch);
+                    }
+                }
+            }
+        }
+
+        // Second pass: position items
         foreach (var line in lines)
         {
             float lineMainStart = isRow ? box.ContentBox.Left : box.ContentBox.Top;
-            float lineCrossStart = isRow ? box.ContentBox.Top : box.ContentBox.Left;
             float lineMainSize = isRow ? box.ContentBox.Width : box.ContentBox.Height;
             float totalGrow = 0;
             float usedMain = 0;
@@ -1689,33 +1780,68 @@ public class LayoutEngine
             float mainPos = lineMainStart + offset;
             if (isReverse) mainPos = lineMainStart + lineMainSize - offset;
 
+            float maxCrossInLine = 0;
+            foreach (var item in line.Items)
+            {
+                var childBox = CreateLayoutBox(item.Element, 0, 0, item.ComputedMainSize, box);
+                if (childBox != null)
+                {
+                    float crossSize = isRow ? childBox.MarginBox.Height : childBox.MarginBox.Width;
+                    if (crossSize > maxCrossInLine) maxCrossInLine = crossSize;
+                }
+            }
+
             int itemIndex = 0;
             foreach (var item in line.Items)
             {
                 float itemMainSize = item.ComputedMainSize;
                 float itemX, itemY;
+
+                // Apply align-items/align-self for cross-axis alignment
+                var childStyle = item.Element.ComputedStyle;
+                AlignItemsType alignType = style.AlignItems;
+                if (childStyle != null && childStyle.AlignSelf != AlignSelfType.Auto)
+                    alignType = (AlignItemsType)childStyle.AlignSelf;
+
+                float crossOffset = 0;
+                var crossBox = CreateLayoutBox(item.Element, 0, 0, itemMainSize, box);
+                float itemCrossSize = crossBox != null ? (isRow ? crossBox.MarginBox.Height : crossBox.MarginBox.Width) : 0;
+                float marginBefore = isRow ? item.MarginTop : item.MarginLeft;
+                float marginAfter = isRow ? item.MarginBottom : item.MarginRight;
+                float itemCrossSpace = maxCrossInLine - itemCrossSize - marginBefore - marginAfter;
+
+                if (itemCrossSpace > 0)
+                {
+                    crossOffset = alignType switch
+                    {
+                        AlignItemsType.FlexEnd => itemCrossSpace,
+                        AlignItemsType.Center => itemCrossSpace / 2,
+                        AlignItemsType.Baseline => 0,
+                        _ => 0 // stretch handled in first pass
+                    };
+                }
+
                 if (isRow)
                 {
                     itemX = mainPos + item.MarginLeft;
-                    itemY = currentCross + item.MarginTop;
+                    itemY = currentCross + marginBefore + crossOffset;
                 }
                 else
                 {
-                    itemX = currentCross + item.MarginLeft;
+                    itemX = currentCross + marginBefore + crossOffset;
                     itemY = mainPos + item.MarginTop;
                 }
-                var childBox = CreateLayoutBox(item.Element, itemX, itemY, itemMainSize, box);
-                if (childBox != null)
+
+                var itemBox = CreateLayoutBox(item.Element, itemX, itemY, itemMainSize, box);
+                if (itemBox != null)
                 {
-                    box.Children.Add(childBox);
-                    childBox.Parent = box;
+                    box.Children.Add(itemBox);
+                    itemBox.Parent = box;
                     if (isRow)
                     {
                         mainPos += itemMainSize + item.MarginLeft + item.MarginRight;
                         if (itemIndex < line.Items.Count - 1)
                             mainPos += mainGap;
-                        if (childBox.MarginBox.Height > maxCrossInLine)
-                            maxCrossInLine = childBox.MarginBox.Height;
                     }
                     else
                     {
@@ -1729,7 +1855,10 @@ public class LayoutEngine
             if (isRow)
             {
                 currentCross += maxCrossInLine + crossGap;
-                maxCrossInLine = 0;
+            }
+            else
+            {
+                currentCross += maxCrossInLine + crossGap;
             }
         }
         AdjustBoxHeightFromContent(box);
@@ -1866,28 +1995,33 @@ public class LayoutEngine
         if (style == null) return new LayoutBox();
 
         float left = float.NaN, right = float.NaN, top = float.NaN, bottom = float.NaN;
-        if (!(style.Left is AutoLength) && style.Left != null)
+        bool isAutoLeft = style.Left is AutoLength || style.Left == null;
+        bool isAutoRight = style.Right is AutoLength || style.Right == null;
+        bool isAutoTop = style.Top is AutoLength || style.Top == null;
+        bool isAutoBottom = style.Bottom is AutoLength || style.Bottom == null;
+
+        if (!isAutoLeft)
         {
             if (style.Left is PixelLength sl) left = sl.Value;
             else if (style.Left is PercentLength spl) left = spl.Value * containingBlock.ContentBox.Width;
             else if (style.Left is EmLength slem) left = slem.Value * style.FontSize;
             else if (style.Left is RemLength slrem) left = slrem.Value * _rootFontSize;
         }
-        if (!(style.Right is AutoLength) && style.Right != null)
+        if (!isAutoRight)
         {
             if (style.Right is PixelLength sr) right = sr.Value;
             else if (style.Right is PercentLength spr) right = spr.Value * containingBlock.ContentBox.Width;
             else if (style.Right is EmLength srem) right = srem.Value * style.FontSize;
             else if (style.Right is RemLength srr) right = srr.Value * _rootFontSize;
         }
-        if (!(style.Top is AutoLength) && style.Top != null)
+        if (!isAutoTop)
         {
             if (style.Top is PixelLength st) top = st.Value;
             else if (style.Top is PercentLength spt) top = spt.Value * containingBlock.ContentBox.Height;
             else if (style.Top is EmLength stem) top = stem.Value * style.FontSize;
             else if (style.Top is RemLength strem) top = strem.Value * _rootFontSize;
         }
-        if (!(style.Bottom is AutoLength) && style.Bottom != null)
+        if (!isAutoBottom)
         {
             if (style.Bottom is PixelLength sb) bottom = sb.Value;
             else if (style.Bottom is PercentLength sbp) bottom = sbp.Value * containingBlock.ContentBox.Height;
@@ -1895,32 +2029,84 @@ public class LayoutEngine
             else if (style.Bottom is RemLength sbr) bottom = sbr.Value * _rootFontSize;
         }
 
+        float marginLeft = Length.ToPixelsOrDefault(style.MarginLeft, 0, _viewportWidth, _viewportHeight);
+        float marginTop = Length.ToPixelsOrDefault(style.MarginTop, 0, _viewportWidth, _viewportHeight);
+        float marginRight = Length.ToPixelsOrDefault(style.MarginRight, 0, _viewportWidth, _viewportHeight);
+        float marginBottom = Length.ToPixelsOrDefault(style.MarginBottom, 0, _viewportWidth, _viewportHeight);
+
+        // Auto margin centering: when both left/right (or top/bottom) are specified and margins are auto
         float finalLeft;
-        if (!float.IsNaN(left))
-            finalLeft = containingBlock.ContentBox.Left + left;
+        bool autoLeftMargin = style.MarginLeft is AutoLength;
+        bool autoRightMargin = style.MarginRight is AutoLength;
+
+        if (!float.IsNaN(left) && !float.IsNaN(right))
+        {
+            // Both left and right specified; auto margins center the element
+            float cbWidth = containingBlock.ContentBox.Width;
+            float totalWidth = finalWidth + marginLeft + marginRight;
+            if (!autoLeftMargin && !autoRightMargin)
+            {
+                // Over-constrained: left wins
+                finalLeft = containingBlock.ContentBox.Left + left + marginLeft;
+            }
+            else if (autoLeftMargin && autoRightMargin)
+            {
+                // Center: auto margins share remaining space
+                float remaining = cbWidth - left - right - finalWidth;
+                if (remaining > 0) { marginLeft = remaining / 2; marginRight = remaining / 2; }
+                finalLeft = containingBlock.ContentBox.Left + left + marginLeft;
+            }
+            else if (autoLeftMargin)
+            {
+                finalLeft = containingBlock.ContentBox.Right - right - finalWidth - marginRight;
+            }
+            else
+            {
+                finalLeft = containingBlock.ContentBox.Left + left + marginLeft;
+            }
+        }
+        else if (!float.IsNaN(left))
+            finalLeft = containingBlock.ContentBox.Left + left + marginLeft;
         else if (!float.IsNaN(right))
-            finalLeft = containingBlock.ContentBox.Right - right - finalWidth;
+            finalLeft = containingBlock.ContentBox.Right - right - finalWidth - marginRight;
         else
-            finalLeft = containingBlock.ContentBox.Left;
+            finalLeft = containingBlock.ContentBox.Left + marginLeft;
 
         float finalTop;
-        if (!float.IsNaN(top))
-            finalTop = containingBlock.ContentBox.Top + top;
+        bool autoTopMargin = style.MarginTop is AutoLength;
+        bool autoBottomMargin = style.MarginBottom is AutoLength;
+
+        if (!float.IsNaN(top) && !float.IsNaN(bottom))
+        {
+            float cbHeight = containingBlock.ContentBox.Height;
+            if (!autoTopMargin && !autoBottomMargin)
+            {
+                finalTop = containingBlock.ContentBox.Top + top + marginTop;
+            }
+            else if (autoTopMargin && autoBottomMargin)
+            {
+                float remaining = cbHeight - top - bottom - finalHeight;
+                if (remaining > 0) { marginTop = remaining / 2; marginBottom = remaining / 2; }
+                finalTop = containingBlock.ContentBox.Top + top + marginTop;
+            }
+            else if (autoTopMargin)
+            {
+                finalTop = containingBlock.ContentBox.Bottom - bottom - finalHeight - marginBottom;
+            }
+            else
+            {
+                finalTop = containingBlock.ContentBox.Top + top + marginTop;
+            }
+        }
+        else if (!float.IsNaN(top))
+            finalTop = containingBlock.ContentBox.Top + top + marginTop;
         else if (!float.IsNaN(bottom))
-            finalTop = containingBlock.ContentBox.Bottom - bottom - finalHeight;
+            finalTop = containingBlock.ContentBox.Bottom - bottom - finalHeight - marginBottom;
         else
-            finalTop = containingBlock.ContentBox.Top;
-
-        float marginLeft = style.MarginLeft.ToPixels(style.FontSize, _rootFontSize, _viewportWidth, _viewportHeight);
-        float marginTop = style.MarginTop.ToPixels(style.FontSize, _rootFontSize, _viewportWidth, _viewportHeight);
-        float marginRight = style.MarginRight.ToPixels(style.FontSize, _rootFontSize, _viewportWidth, _viewportHeight);
-        float marginBottom = style.MarginBottom.ToPixels(style.FontSize, _rootFontSize, _viewportWidth, _viewportHeight);
-
-        finalLeft += marginLeft;
-        finalTop += marginTop;
+            finalTop = containingBlock.ContentBox.Top + marginTop;
 
         var box = new LayoutBox();
-        box.MarginBox = new SKRect(finalLeft, finalTop, finalLeft + finalWidth + marginRight, finalTop + finalHeight + marginBottom);
+        box.MarginBox = new SKRect(finalLeft - marginLeft, finalTop - marginTop, finalLeft + finalWidth + marginRight, finalTop + finalHeight + marginBottom);
         box.BorderBox = new SKRect(finalLeft, finalTop, finalLeft + finalWidth, finalTop + finalHeight);
         box.PaddingBox = box.BorderBox;
         box.ContentBox = new SKRect(finalLeft, finalTop, finalLeft + finalWidth, finalTop + finalHeight);
