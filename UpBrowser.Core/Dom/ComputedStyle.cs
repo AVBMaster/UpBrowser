@@ -43,9 +43,9 @@ public abstract class Length
         if (value.EndsWith("cqb"))
             return new VhLength(float.Parse(value[..^3]));
         if (value.EndsWith("cqmin"))
-            return new VwLength(float.Parse(value[..^5]));
+            return new VminLength(float.Parse(value[..^5]));
         if (value.EndsWith("cqmax"))
-            return new VwLength(float.Parse(value[..^5]));
+            return new VmaxLength(float.Parse(value[..^5]));
         if (value.EndsWith("dvw"))
             return new VwLength(float.Parse(value[..^3]));
         if (value.EndsWith("dvh"))
@@ -59,9 +59,9 @@ public abstract class Length
         if (value.EndsWith("lvh"))
             return new VhLength(float.Parse(value[..^3]));
         if (value.EndsWith("vmin"))
-            return new VwLength(float.Parse(value[..^4]));
+            return new VminLength(float.Parse(value[..^4]));
         if (value.EndsWith("vmax"))
-            return new VwLength(float.Parse(value[..^4]));
+            return new VmaxLength(float.Parse(value[..^4]));
         if (value.EndsWith("vw"))
             return new VwLength(float.Parse(value[..^2]));
         if (value.EndsWith("vh"))
@@ -75,10 +75,7 @@ public abstract class Length
 
         if (value.StartsWith("calc(") || value.StartsWith("min(") || value.StartsWith("max(") || value.StartsWith("clamp(") || value.StartsWith("fit-content("))
         {
-            var evaluated = CssFunctionEvaluator.Evaluate(value, null, 16, 16, 1920, 1080);
-            if (evaluated.EndsWith("px") && float.TryParse(evaluated[..^2], out var epx))
-                return new PixelLength(epx);
-            return AutoLength.Instance;
+            return new MathLength(value);
         }
 
         return AutoLength.Instance;
@@ -112,11 +109,13 @@ public abstract class Length
             "large" => 18,
             "x-large" => 24,
             "xx-large" => 32,
+            "larger" => parentFontSize * 1.2f,
+            "smaller" => parentFontSize / 1.2f,
             _ => 16
         };
     }
 
-    public static float ToPixelsOrDefault(Length length, float defaultValue = 0)
+    public static float ToPixelsOrDefault(Length length, float defaultValue = 0, float viewportWidth = 0, float viewportHeight = 0)
     {
         if (length == null) return defaultValue;
         if (length is PixelLength p) return p.Value;
@@ -134,6 +133,11 @@ public abstract class Length
         {
             var reference = defaultValue > 0 ? defaultValue : 0f;
             return perc.Value * reference;
+        }
+        if (length is MathLength ml)
+        {
+            var reference = defaultValue > 0 ? defaultValue : 16f;
+            return ml.ToPixels(reference, 16, viewportWidth, viewportHeight);
         }
         return defaultValue;
     }
@@ -194,6 +198,22 @@ public class VhLength : Length
     public override string ToString() => $"{Value}vh";
 }
 
+public class VminLength : Length
+{
+    public float Value { get; }
+    public VminLength(float value) => Value = value;
+    public override float ToPixels(float reference, float rootFontSize, float viewportWidth, float viewportHeight) => Value * Math.Min(viewportWidth, viewportHeight) / 100f;
+    public override string ToString() => $"{Value}vmin";
+}
+
+public class VmaxLength : Length
+{
+    public float Value { get; }
+    public VmaxLength(float value) => Value = value;
+    public override float ToPixels(float reference, float rootFontSize, float viewportWidth, float viewportHeight) => Value * Math.Max(viewportWidth, viewportHeight) / 100f;
+    public override string ToString() => $"{Value}vmax";
+}
+
 public class ExLength : Length
 {
     public float Value { get; }
@@ -208,6 +228,20 @@ public class ChLength : Length
     public ChLength(float value) => Value = value;
     public override float ToPixels(float reference, float rootFontSize, float viewportWidth, float viewportHeight) => Value * reference * 0.5f;
     public override string ToString() => $"{Value}ch";
+}
+
+public class MathLength : Length
+{
+    public string Expression { get; }
+    public MathLength(string expression) => Expression = expression;
+    public override float ToPixels(float reference, float rootFontSize, float viewportWidth, float viewportHeight)
+    {
+        var evaluated = CssFunctionEvaluator.Evaluate(Expression, null, reference, rootFontSize, viewportWidth, viewportHeight);
+        if (evaluated.EndsWith("px") && float.TryParse(evaluated[..^2], out var epx))
+            return epx;
+        return float.NaN;
+    }
+    public override string ToString() => Expression;
 }
 
 public class ComputedStyle
@@ -660,20 +694,21 @@ public class BoxDimensions
 
     public static BoxDimensions FromStyle(ComputedStyle style)
     {
+        float fontSize = style.FontSize > 0 ? style.FontSize : 16f;
         return new BoxDimensions
         {
-            MarginTop = GetPixelFromLength(style.MarginTop, 16f, 16f, 0, 0),
-            MarginRight = GetPixelFromLength(style.MarginRight, 16f, 16f, 0, 0),
-            MarginBottom = GetPixelFromLength(style.MarginBottom, 16f, 16f, 0, 0),
-            MarginLeft = GetPixelFromLength(style.MarginLeft, 16f, 16f, 0, 0),
+            MarginTop = GetPixelFromLength(style.MarginTop, fontSize, 16f, 0, 0),
+            MarginRight = GetPixelFromLength(style.MarginRight, fontSize, 16f, 0, 0),
+            MarginBottom = GetPixelFromLength(style.MarginBottom, fontSize, 16f, 0, 0),
+            MarginLeft = GetPixelFromLength(style.MarginLeft, fontSize, 16f, 0, 0),
             BorderTopWidth = style.BorderTopWidth,
             BorderRightWidth = style.BorderRightWidth,
             BorderBottomWidth = style.BorderBottomWidth,
             BorderLeftWidth = style.BorderLeftWidth,
-            PaddingTop = GetPixelFromLength(style.PaddingTop, 16f, 16f, 0, 0),
-            PaddingRight = GetPixelFromLength(style.PaddingRight, 16f, 16f, 0, 0),
-            PaddingBottom = GetPixelFromLength(style.PaddingBottom, 16f, 16f, 0, 0),
-            PaddingLeft = GetPixelFromLength(style.PaddingLeft, 16f, 16f, 0, 0)
+            PaddingTop = GetPixelFromLength(style.PaddingTop, fontSize, 16f, 0, 0),
+            PaddingRight = GetPixelFromLength(style.PaddingRight, fontSize, 16f, 0, 0),
+            PaddingBottom = GetPixelFromLength(style.PaddingBottom, fontSize, 16f, 0, 0),
+            PaddingLeft = GetPixelFromLength(style.PaddingLeft, fontSize, 16f, 0, 0)
         };
     }
 

@@ -98,6 +98,11 @@ public class LayoutEngine
         if (style.Width is PixelLength px) return px.Value;
         if (style.Width is PercentLength pct && containingBlock != null)
             return pct.Value * containingBlock.ContentBox.Width;
+        if (style.Width is MathLength ml)
+        {
+            float refWidth = containingBlock?.ContentBox.Width ?? 0;
+            return ml.ToPixels(fontSize, 16, refWidth, 0);
+        }
         if (containingBlock != null && !(style.Left is AutoLength) && !(style.Right is AutoLength))
         {
             float left = Length.ToPixelsOrDefault(style.Left, fontSize);
@@ -112,6 +117,11 @@ public class LayoutEngine
         if (style.Height is PixelLength px) return px.Value;
         if (style.Height is PercentLength pct && containingBlock != null)
             return pct.Value * containingBlock.ContentBox.Height;
+        if (style.Height is MathLength ml)
+        {
+            float refHeight = containingBlock?.ContentBox.Height ?? parentHeight;
+            return ml.ToPixels(fontSize, 16, 0, refHeight);
+        }
         if (containingBlock != null && !(style.Top is AutoLength) && !(style.Bottom is AutoLength))
         {
             float top = Length.ToPixelsOrDefault(style.Top, fontSize);
@@ -132,7 +142,9 @@ public class LayoutEngine
 
         float width = CalculateWidth(element, availableWidth);
         float parentHeight = parentBox?.ContentBox.Height ?? _viewportHeight;
-        float elementHeight = CalculateHeight(element, availableWidth, parentHeight, style);
+        var parentElement = element.ParentElement;
+        bool parentHeightExplicit = parentElement?.ComputedStyle != null && HasExplicitHeight(parentElement.ComputedStyle);
+        float elementHeight = CalculateHeight(element, availableWidth, parentHeight, style, parentHeightExplicit);
 
         bool isAutoMarginLeft = style.MarginLeft is AutoLength;
         bool isAutoMarginRight = style.MarginRight is AutoLength;
@@ -489,13 +501,23 @@ public class LayoutEngine
         return availableWidth;
     }
 
-    private float CalculateHeight(Element element, float availableWidth, float parentHeight, ComputedStyle style)
+    private float CalculateHeight(Element element, float availableWidth, float parentHeight, ComputedStyle style, bool parentHeightExplicit = true)
     {
         if (style.Height is PixelLength h) return h.Value;
-        if (style.Height is PercentLength hp) return hp.Value * (parentHeight > 0 ? parentHeight : _viewportHeight);
+        if (style.Height is PercentLength hp)
+        {
+            if (parentHeightExplicit && parentHeight > 0)
+                return hp.Value * parentHeight;
+            return float.NaN;
+        }
         if (style.Height is EmLength em) return em.Value * style.FontSize;
         if (style.Height is RemLength rem) return rem.Value * _rootFontSize;
         return float.NaN;
+    }
+
+    private bool HasExplicitHeight(ComputedStyle style)
+    {
+        return style.Height is PixelLength || style.Height is EmLength || style.Height is RemLength || style.Height is VhLength || style.Height is VminLength || style.Height is VmaxLength;
     }
 
     private void LayoutBlockChildren(Element element, LayoutBox box, float x, ref float y, float availableWidth)

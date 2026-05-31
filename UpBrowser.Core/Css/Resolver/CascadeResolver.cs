@@ -44,8 +44,6 @@ public class CascadeResolver
         if (parentStyle != null)
             InheritProperties(style, parentStyle);
 
-        ApplyUserAgentStyles(style, element.TagName);
-
         var cacheKey = new CacheKey(element, _stylesheets.Count);
         if (_cache.TryGet(cacheKey, out var cached))
         {
@@ -57,14 +55,14 @@ public class CascadeResolver
 
         _cascadeMap.Clear();
 
+        AnalyzeUAStyles(element, treeOrder);
         Analyze(element, treeOrder);
+        AnalyzeInlineStyle(element, treeOrder);
+        AnalyzeJsModifiedStyle(element, treeOrder);
 
         ApplyCascadeAffecting(style);
         ApplyHighPriority(style, parentStyle);
-        ApplyMatchResult(style, parentStyle);
-
-        ApplyInlineStyle(style, element, parentStyle);
-        ApplyJsModifiedStyle(style, element, parentStyle);
+        ApplyMatchResult(style);
 
         _cache.Set(cacheKey, style.Clone());
 
@@ -82,8 +80,7 @@ public class CascadeResolver
     }
 
     /// <summary>
-    /// Analyze phase: traverse all declarations, insert into CascadeMap,
-    /// keeping only the highest-priority entry per property.
+    /// Analyze phase: traverse all author stylesheet declarations into CascadeMap.
     /// </summary>
     private void Analyze(Element element, int treeOrder)
     {
@@ -103,13 +100,91 @@ public class CascadeResolver
                         );
                         _cascadeMap.Insert(prop.Key, prop.Value, priority);
 
-                        // Collect CSS custom properties (--*)
                         if (prop.Key.StartsWith("--"))
-                        {
                             CssFunctionEvaluator.SetCustomProperty(prop.Key[2..], prop.Value);
-                        }
                     }
                 }
+            }
+        }
+    }
+
+    private void AnalyzeUAStyles(Element element, int treeOrder)
+    {
+        var style = new ComputedStyle();
+        ElementStyleRegistry.ApplyUserAgentStyle(style, element.TagName);
+
+        var props = new Dictionary<string, string>();
+        CollectNonDefaultProperties(style, props);
+
+        foreach (var kv in props)
+        {
+            var priority = new CascadePriority(false, CascadeOrigin.UserAgent, treeOrder);
+            _cascadeMap.Insert(kv.Key, kv.Value, priority);
+        }
+    }
+
+    private void CollectNonDefaultProperties(ComputedStyle style, Dictionary<string, string> props)
+    {
+        var def = new ComputedStyle();
+        if (style.Display != def.Display) props["display"] = style.Display.ToCssString();
+        if (style.FontSize != def.FontSize) props["font-size"] = $"{style.FontSize}px";
+        if (style.FontWeight != def.FontWeight) props["font-weight"] = style.FontWeight == FontWeight.Bold ? "700" : "400";
+        if (style.FontStyle != def.FontStyle) props["font-style"] = style.FontStyle == FontStyleType.Italic ? "italic" : "normal";
+        if (style.FontFamily != def.FontFamily) props["font-family"] = style.FontFamily;
+        if (style.LineHeight != def.LineHeight) props["line-height"] = style.LineHeight.ToString("0.000");
+        if (style.Color != def.Color) props["color"] = $"rgba({style.Color.Red},{style.Color.Green},{style.Color.Blue},{style.Color.Alpha / 255f})";
+        if (style.BackgroundColor != def.BackgroundColor && style.BackgroundColor.HasValue) props["background-color"] = $"rgba({style.BackgroundColor.Value.Red},{style.BackgroundColor.Value.Green},{style.BackgroundColor.Value.Blue},{style.BackgroundColor.Value.Alpha / 255f})";
+        AddLengthProp(props, style.MarginTop, "margin-top", def.MarginTop);
+        AddLengthProp(props, style.MarginBottom, "margin-bottom", def.MarginBottom);
+        AddLengthProp(props, style.MarginLeft, "margin-left", def.MarginLeft);
+        AddLengthProp(props, style.MarginRight, "margin-right", def.MarginRight);
+        AddLengthProp(props, style.PaddingTop, "padding-top", def.PaddingTop);
+        AddLengthProp(props, style.PaddingBottom, "padding-bottom", def.PaddingBottom);
+        AddLengthProp(props, style.PaddingLeft, "padding-left", def.PaddingLeft);
+        AddLengthProp(props, style.PaddingRight, "padding-right", def.PaddingRight);
+        if (style.WhiteSpace != def.WhiteSpace) props["white-space"] = style.WhiteSpace.ToString().ToLowerInvariant();
+        if (style.ListStyleType != def.ListStyleType) props["list-style-type"] = style.ListStyleType.ToString().ToLowerInvariant();
+        if (style.BorderCollapse != def.BorderCollapse) props["border-collapse"] = style.BorderCollapse ? "collapse" : "separate";
+        if (!string.IsNullOrEmpty(style.BackgroundImage)) props["background-image"] = style.BackgroundImage;
+        if (style.TextAlign != def.TextAlign) props["text-align"] = style.TextAlign.ToString().ToLowerInvariant();
+        if (style.TextDecoration != def.TextDecoration) props["text-decoration"] = style.TextDecoration.ToString().ToLowerInvariant();
+        if (style.VerticalAlign != def.VerticalAlign) props["vertical-align"] = style.VerticalAlign.ToString().ToLowerInvariant();
+        if (style.Overflow != def.Overflow) props["overflow"] = style.Overflow.ToString().ToLowerInvariant();
+        if (style.Position != def.Position) props["position"] = style.Position.ToString().ToLowerInvariant();
+        if (style.Float != def.Float) props["float"] = style.Float.ToString().ToLowerInvariant();
+        if (style.Clear != def.Clear) props["clear"] = style.Clear.ToString().ToLowerInvariant();
+        if (style.BoxSizing != def.BoxSizing) props["box-sizing"] = style.BoxSizing == BoxSizingType.BorderBox ? "border-box" : "content-box";
+        if (style.Cursor != def.Cursor) props["cursor"] = style.Cursor ?? "auto";
+    }
+
+    private static void AddLengthProp(Dictionary<string, string> props, Length length, string name, Length defaultLength)
+    {
+        if (length == null || length == defaultLength || length is AutoLength) return;
+        if (length is PixelLength px) { if (px.Value != 0) props[name] = $"{px.Value}px"; }
+        else { props[name] = length.ToString(); }
+    }
+
+    private void AnalyzeInlineStyle(Element element, int treeOrder)
+    {
+        var inlineStyleAttr = element.GetAttribute("style");
+        if (string.IsNullOrEmpty(inlineStyleAttr)) return;
+
+        var inlineProps = _inlineParser.ParseInlineStyle(inlineStyleAttr);
+        foreach (var prop in inlineProps)
+        {
+            var priority = new CascadePriority(false, CascadeOrigin.Inline, treeOrder);
+            _cascadeMap.Insert(prop.Key, prop.Value, priority);
+        }
+    }
+
+    private void AnalyzeJsModifiedStyle(Element element, int treeOrder)
+    {
+        foreach (var kv in element.Style)
+        {
+            if (!string.IsNullOrEmpty(kv.Key) && !string.IsNullOrEmpty(kv.Value))
+            {
+                var priority = new CascadePriority(false, CascadeOrigin.JsModified, treeOrder);
+                _cascadeMap.Insert(kv.Key, kv.Value, priority);
             }
         }
     }
@@ -153,35 +228,16 @@ public class CascadeResolver
     /// <summary>
     /// Apply all remaining cascade-winning declarations.
     /// </summary>
-    private void ApplyMatchResult(ComputedStyle style, ComputedStyle? parentStyle)
+    private void ApplyMatchResult(ComputedStyle style)
     {
         foreach (var (name, value) in _cascadeMap.GetAll())
         {
             if (IsHighPriorityProperty(name)) continue;
-            ApplyProperty(style, name, value, parentStyle);
+            ApplyProperty(style, name, value);
         }
     }
 
-    private void ApplyInlineStyle(ComputedStyle style, Element element, ComputedStyle? parentStyle)
-    {
-        var inlineStyleAttr = element.GetAttribute("style");
-        if (string.IsNullOrEmpty(inlineStyleAttr)) return;
-
-        var inlineProps = _inlineParser.ParseInlineStyle(inlineStyleAttr);
-        foreach (var prop in inlineProps)
-            ApplyProperty(style, prop.Key, prop.Value, parentStyle);
-    }
-
-    private void ApplyJsModifiedStyle(ComputedStyle style, Element element, ComputedStyle? parentStyle)
-    {
-        foreach (var kv in element.Style)
-        {
-            if (!string.IsNullOrEmpty(kv.Key) && !string.IsNullOrEmpty(kv.Value))
-                ApplyProperty(style, kv.Key, kv.Value, parentStyle);
-        }
-    }
-
-    private void ApplyProperty(ComputedStyle style, string name, string value, ComputedStyle? parentStyle)
+    private void ApplyProperty(ComputedStyle style, string name, string value)
     {
         switch (name)
         {
@@ -529,15 +585,10 @@ public class CascadeResolver
         child.ForcedColorAdjust = parent.ForcedColorAdjust;
     }
 
-    private void ApplyUserAgentStyles(ComputedStyle style, string tagName)
-    {
-        ElementStyleRegistry.ApplyUserAgentStyle(style, tagName);
-    }
-
     private ComputedStyle CreateUserAgentStyle(string tagName)
     {
         var style = new ComputedStyle();
-        ApplyUserAgentStyles(style, tagName);
+        ElementStyleRegistry.ApplyUserAgentStyle(style, tagName);
         return style;
     }
 
@@ -757,7 +808,13 @@ public class CascadeResolver
         _ => FontStyleType.Normal
     };
 
-    private string ParseFontFamily(string value) => value.Trim('"', '\'');
+    private string ParseFontFamily(string value)
+    {
+        var families = value.Split(',', StringSplitOptions.RemoveEmptyEntries);
+        if (families.Length == 0) return "Arial, sans-serif";
+        var first = families[0].Trim().Trim('"', '\'');
+        return string.IsNullOrEmpty(first) ? "Arial, sans-serif" : first;
+    }
 
     private float ParseLineHeight(string value, float fontSize)
     {
@@ -1555,6 +1612,10 @@ public class CascadeResolver
 /// <summary>
 /// Cascade priority encoding - similar to Blink's 96-bit priority integer.
 /// Order: Importance → Origin → TreeOrder
+/// Per CSS Cascading 4 spec:
+///   Normal: Inline(5) > Author(3) > User(2) > UA(1)
+///   Important: UA(5) > User(4) > Author(3) > Inline(2)
+///   (JS-modified same as Inline)
 /// </summary>
 public readonly struct CascadePriority : IComparable<CascadePriority>
 {
@@ -1574,22 +1635,44 @@ public readonly struct CascadePriority : IComparable<CascadePriority>
         if (Importance != other.Importance)
             return Importance.CompareTo(other.Importance);
 
-        int originCmp = GetOriginWeight(Origin).CompareTo(GetOriginWeight(other.Origin));
-        if (originCmp != 0) return originCmp;
+        int thisWeight = GetOriginWeight(Origin, Importance);
+        int otherWeight = GetOriginWeight(other.Origin, other.Importance);
+        if (thisWeight != otherWeight)
+            return thisWeight.CompareTo(otherWeight);
 
         return TreeOrder.CompareTo(other.TreeOrder);
     }
 
-    private static int GetOriginWeight(CascadeOrigin origin) => origin switch
+    private static int GetOriginWeight(CascadeOrigin origin, bool isImportant)
     {
-        CascadeOrigin.UserAgent => 1,
-        CascadeOrigin.User => 2,
-        CascadeOrigin.Author => 4,
-        _ => 0
-    };
+        if (isImportant)
+        {
+            return origin switch
+            {
+                CascadeOrigin.JsModified => 1,
+                CascadeOrigin.Inline => 2,
+                CascadeOrigin.Author => 3,
+                CascadeOrigin.User => 4,
+                CascadeOrigin.UserAgent => 5,
+                _ => 0
+            };
+        }
+        else
+        {
+            return origin switch
+            {
+                CascadeOrigin.UserAgent => 1,
+                CascadeOrigin.User => 2,
+                CascadeOrigin.Author => 3,
+                CascadeOrigin.Inline => 4,
+                CascadeOrigin.JsModified => 5,
+                _ => 0
+            };
+        }
+    }
 }
 
-public enum CascadeOrigin { UserAgent, User, Author }
+public enum CascadeOrigin { UserAgent, User, Author, Inline, JsModified }
 
 /// <summary>
 /// CascadeMap stores property declarations and keeps only the highest-priority one per property.

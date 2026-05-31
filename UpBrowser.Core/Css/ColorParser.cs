@@ -9,10 +9,8 @@ namespace UpBrowser.Core.Css;
 /// </summary>
 public static class ColorParser
 {
-    private static readonly Regex RgbRegex = new(@"rgb\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)", RegexOptions.Compiled | RegexOptions.IgnoreCase);
-    private static readonly Regex RgbaRegex = new(@"rgba\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*([\d.]+)\s*\)", RegexOptions.Compiled | RegexOptions.IgnoreCase);
-    private static readonly Regex HslRegex = new(@"hsl\s*\(\s*([\d.]+)\s*,\s*([\d.]+)%\s*,\s*([\d.]+)%\s*\)", RegexOptions.Compiled | RegexOptions.IgnoreCase);
-    private static readonly Regex HslaRegex = new(@"hsla\s*\(\s*([\d.]+)\s*,\s*([\d.]+)%\s*,\s*([\d.]+)%\s*,\s*([\d.]+)\s*\)", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+    private static readonly Regex RgbFuncRegex = new(@"rgba?\s*\(", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+    private static readonly Regex HslFuncRegex = new(@"hsla?\s*\(", RegexOptions.Compiled | RegexOptions.IgnoreCase);
     private static readonly Regex HwbRegex = new(@"hwb\s*\(\s*([\d.]+)\s*,\s*([\d.]+)%\s*,\s*([\d.]+)%\s*(?:\s*/\s*([\d.]+%?))?\s*\)", RegexOptions.Compiled | RegexOptions.IgnoreCase);
     private static readonly Regex LabRegex = new(@"lab\s*\(\s*([\d.]+)%?\s*([+-]\s*[\d.]+)\s*([+-]\s*[\d.]+)\s*(?:\s*/\s*([\d.]+))?\s*\)", RegexOptions.Compiled | RegexOptions.IgnoreCase);
     private static readonly Regex LchRegex = new(@"lch\s*\(\s*([\d.]+)%?\s*([\d.]+)\s*([\d.]+)\s*(?:\s*/\s*([\d.]+))?\s*\)", RegexOptions.Compiled | RegexOptions.IgnoreCase);
@@ -120,50 +118,115 @@ public static class ColorParser
 
     private static SKColor? ParseRgb(string value)
     {
-        var rgbaMatch = RgbaRegex.Match(value);
-        if (rgbaMatch.Success)
-        {
-            return new SKColor(
-                byte.Parse(rgbaMatch.Groups[1].Value),
-                byte.Parse(rgbaMatch.Groups[2].Value),
-                byte.Parse(rgbaMatch.Groups[3].Value),
-                (byte)(float.Parse(rgbaMatch.Groups[4].Value) * 255));
-        }
+        var match = RgbFuncRegex.Match(value);
+        if (!match.Success) return null;
 
-        var rgbMatch = RgbRegex.Match(value);
-        if (rgbMatch.Success)
-        {
-            return new SKColor(
-                byte.Parse(rgbMatch.Groups[1].Value),
-                byte.Parse(rgbMatch.Groups[2].Value),
-                byte.Parse(rgbMatch.Groups[3].Value));
-        }
+        var inner = ExtractFunctionInner(value, match.Index);
+        if (inner == null) return null;
 
-        return null;
+        var parts = ParseColorFunctionArgs(inner);
+        if (parts.Count < 3) return null;
+
+        byte r = ParseColorChannel(parts[0], 255);
+        byte g = ParseColorChannel(parts[1], 255);
+        byte b = ParseColorChannel(parts[2], 255);
+        byte alpha = 255;
+
+        if (parts.Count >= 4)
+            alpha = (byte)Math.Clamp(MathF.Round(ParseAlpha(parts[3]) * 255), 0, 255);
+
+        return new SKColor(r, g, b, alpha);
     }
 
     private static SKColor? ParseHsl(string value)
     {
-        var hslaMatch = HslaRegex.Match(value);
-        if (hslaMatch.Success)
+        var match = HslFuncRegex.Match(value);
+        if (!match.Success) return null;
+
+        var inner = ExtractFunctionInner(value, match.Index);
+        if (inner == null) return null;
+
+        var parts = ParseColorFunctionArgs(inner);
+        if (parts.Count < 3) return null;
+
+        float h = float.Parse(parts[0]);
+        float s = ParsePercent(parts[1]);
+        float l = ParsePercent(parts[2]);
+        float alpha = 1.0f;
+
+        if (parts.Count >= 4)
+            alpha = ParseAlpha(parts[3]);
+
+        return HslToRgb(h, s, l, alpha);
+    }
+
+    private static string? ExtractFunctionInner(string value, int funcStart)
+    {
+        int parenStart = value.IndexOf('(', funcStart);
+        if (parenStart < 0) return null;
+        int depth = 1;
+        int i = parenStart + 1;
+        while (i < value.Length && depth > 0)
         {
-            float h = float.Parse(hslaMatch.Groups[1].Value);
-            float s = float.Parse(hslaMatch.Groups[2].Value) / 100f;
-            float l = float.Parse(hslaMatch.Groups[3].Value) / 100f;
-            float a = float.Parse(hslaMatch.Groups[4].Value);
-            return HslToRgb(h, s, l, a);
+            if (value[i] == '(') depth++;
+            else if (value[i] == ')') depth--;
+            if (depth > 0) i++;
+        }
+        return depth == 0 ? value[(parenStart + 1)..i] : null;
+    }
+
+    private static List<string> ParseColorFunctionArgs(string inner)
+    {
+        var result = new List<string>();
+        int depth = 0;
+        int start = 0;
+
+        for (int i = 0; i < inner.Length; i++)
+        {
+            if (inner[i] == '(') depth++;
+            else if (inner[i] == ')') depth--;
+            else if (depth == 0 && inner[i] == ',')
+            {
+                result.Add(inner[start..i].Trim());
+                start = i + 1;
+            }
+            else if (depth == 0 && inner[i] == '/')
+            {
+                result.Add(inner[start..i].Trim());
+                start = i + 1;
+            }
         }
 
-        var hslMatch = HslRegex.Match(value);
-        if (hslMatch.Success)
-        {
-            float h = float.Parse(hslMatch.Groups[1].Value);
-            float s = float.Parse(hslMatch.Groups[2].Value) / 100f;
-            float l = float.Parse(hslMatch.Groups[3].Value) / 100f;
-            return HslToRgb(h, s, l, 1.0f);
-        }
+        var last = inner[start..].Trim();
+        if (last.Length > 0) result.Add(last);
+        return result;
+    }
 
-        return null;
+    private static byte ParseColorChannel(string value, byte max)
+    {
+        value = value.Trim();
+        if (value.EndsWith("%"))
+        {
+            float pct = float.Parse(value[..^1]);
+            return (byte)Math.Clamp(MathF.Round(pct / 100f * max), 0, max);
+        }
+        return byte.Parse(value);
+    }
+
+    private static float ParseAlpha(string value)
+    {
+        value = value.Trim();
+        if (value.EndsWith("%"))
+            return float.Parse(value[..^1]) / 100f;
+        return float.Parse(value);
+    }
+
+    private static float ParsePercent(string value)
+    {
+        value = value.Trim();
+        if (value.EndsWith("%"))
+            return float.Parse(value[..^1]) / 100f;
+        return float.Parse(value);
     }
 
     private static SKColor HslToRgb(float h, float s, float l, float a)
@@ -372,18 +435,49 @@ public static class ColorParser
 
     private static SKColor? ParseColorMix(string value)
     {
-        var match = Regex.Match(value, @"color-mix\s*\(\s*(?:in\s+[\w-]+\s*,\s*)?(.+?)\s*,\s*(.+?)\s*\)", RegexOptions.IgnoreCase);
+        var match = Regex.Match(value, @"color-mix\s*\((.*)\)", RegexOptions.IgnoreCase);
         if (!match.Success) return null;
 
-        // Simple average blend
-        var c1 = Parse(match.Groups[1].Value.Trim());
-        var c2 = Parse(match.Groups[2].Value.Trim());
+        var inner = match.Groups[1].Value.Trim();
 
-        byte r = (byte)((c1.Red + c2.Red) / 2);
-        byte g = (byte)((c1.Green + c2.Green) / 2);
-        byte b = (byte)((c1.Blue + c2.Blue) / 2);
-        byte a = (byte)((c1.Alpha + c2.Alpha) / 2);
+        string colorspace = "srgb";
+        if (inner.StartsWith("in ", StringComparison.OrdinalIgnoreCase))
+        {
+            int spaceEnd = inner.IndexOf(',');
+            if (spaceEnd > 0)
+            {
+                colorspace = inner[3..spaceEnd].Trim();
+                inner = inner[(spaceEnd + 1)..].Trim();
+            }
+        }
+
+        var args = inner.Split(',', StringSplitOptions.RemoveEmptyEntries);
+        if (args.Length < 2) return null;
+
+        var (color1, pct1) = ParseColorMixArg(args[0].Trim());
+        var (color2, pct2) = ParseColorMixArg(args[1].Trim());
+
+        float total = pct1 + pct2;
+        if (total == 0) { pct1 = 0.5f; pct2 = 0.5f; }
+        else { pct1 /= total; pct2 /= total; }
+
+        byte r = (byte)Math.Clamp(MathF.Round(color1.Red * pct1 + color2.Red * pct2), 0, 255);
+        byte g = (byte)Math.Clamp(MathF.Round(color1.Green * pct1 + color2.Green * pct2), 0, 255);
+        byte b = (byte)Math.Clamp(MathF.Round(color1.Blue * pct1 + color2.Blue * pct2), 0, 255);
+        byte a = (byte)Math.Clamp(MathF.Round(color1.Alpha * pct1 + color2.Alpha * pct2), 0, 255);
         return new SKColor(r, g, b, a);
+    }
+
+    private static (SKColor color, float pct) ParseColorMixArg(string arg)
+    {
+        var pctMatch = Regex.Match(arg, @"([\d.]+%)");
+        if (pctMatch.Success)
+        {
+            float pct = float.Parse(pctMatch.Value[..^1]) / 100f;
+            var colorStr = arg.Replace(pctMatch.Value, "").Trim();
+            return (Parse(colorStr), pct);
+        }
+        return (Parse(arg), 1f);
     }
 
     private static SKColor? ParseColorFunction(string value)
