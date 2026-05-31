@@ -12,46 +12,6 @@ using UpBrowser.Rendering.DevTools;
 
 namespace UpBrowser;
 
-internal static class ClipboardHelper
-{
-    [System.Runtime.InteropServices.DllImport("user32.dll")]
-    private static extern bool OpenClipboard(IntPtr hWndNewOwner);
-    [System.Runtime.InteropServices.DllImport("user32.dll")]
-    private static extern bool CloseClipboard();
-    [System.Runtime.InteropServices.DllImport("user32.dll")]
-    private static extern bool SetClipboardData(uint uFormat, IntPtr data);
-    [System.Runtime.InteropServices.DllImport("user32.dll")]
-    private static extern IntPtr GetClipboardData(uint uFormat);
-    [System.Runtime.InteropServices.DllImport("user32.dll")]
-    private static extern bool EmptyClipboard();
-    private const uint CF_UNICODETEXT = 13;
-
-    public static void SetText(string text)
-    {
-        if (!OpenClipboard(IntPtr.Zero)) return;
-        try
-        {
-            EmptyClipboard();
-            IntPtr hMem = System.Runtime.InteropServices.Marshal.StringToHGlobalUni(text);
-            SetClipboardData(CF_UNICODETEXT, hMem);
-        }
-        finally { CloseClipboard(); }
-    }
-
-    public static string? GetText()
-    {
-        if (!OpenClipboard(IntPtr.Zero)) return null;
-        try
-        {
-            IntPtr hData = GetClipboardData(CF_UNICODETEXT);
-            return hData != IntPtr.Zero
-                ? System.Runtime.InteropServices.Marshal.PtrToStringUni(hData)
-                : null;
-        }
-        finally { CloseClipboard(); }
-    }
-}
-
 public class BrowserApp : IDisposable
 {
     private readonly IWindow _window;
@@ -123,8 +83,7 @@ public class BrowserApp : IDisposable
         int physicalWidth = (int)(logicalWidth * _dpiScale);
         int physicalHeight = (int)(logicalHeight * _dpiScale);
 
-        var winWindow = PlatformFactory.CreateWindowsWindow(physicalWidth, physicalHeight, "UpBrowser");
-        _window = winWindow ?? throw new InvalidOperationException("Failed to create window");
+        _window = PlatformFactory.CreateWindow(physicalWidth, physicalHeight, "UpBrowser");
         _docManager = new DocumentManager();
         _chrome = new ChromeRenderer();
         _scroll = new ScrollManager();
@@ -1548,12 +1507,9 @@ public class BrowserApp : IDisposable
         };
     }
 
-    [System.Runtime.InteropServices.DllImport("user32.dll")]
-    private static extern short GetKeyState(int nVirtKey);
-
-    private static bool IsCtrlPressed() => (GetKeyState(0x11) & 0x8000) != 0;
-    private static bool IsShiftPressed() => (GetKeyState(0x10) & 0x8000) != 0;
-    private static bool IsAltPressed() => (GetKeyState(0x12) & 0x8000) != 0;
+    private bool IsCtrlPressed() => _input.IsCtrlDown;
+    private bool IsShiftPressed() => _input.IsShiftDown;
+    private bool IsAltPressed() => _input.IsAltDown;
 
     #endregion
 
@@ -1600,25 +1556,25 @@ public class BrowserApp : IDisposable
         {
             string sel = _devTools.GetActiveTabSelectedText();
             if (!string.IsNullOrEmpty(sel))
-                ClipboardHelper.SetText(sel);
+                Clipboard.SetText(sel);
         }
         else if (_chrome.IsUrlBarFocused())
         {
             string url = _chrome.GetCurrentUrl() ?? "";
             if (!string.IsNullOrEmpty(url))
-                ClipboardHelper.SetText(url);
+                Clipboard.SetText(url);
         }
         else
         {
             string sel = GetSelectedText();
             if (!string.IsNullOrEmpty(sel))
-                ClipboardHelper.SetText(sel);
+                Clipboard.SetText(sel);
         }
     }
 
     private void PerformPaste()
     {
-        string? text = ClipboardHelper.GetText();
+        string? text = Clipboard.GetText();
         if (string.IsNullOrEmpty(text)) return;
 
         foreach (char c in text)

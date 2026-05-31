@@ -42,91 +42,22 @@ public class SkiaRenderer : IDisposable
 
     /// <summary>
     /// Attempt to enable GPU acceleration via SkiaSharp GRContext.
-    /// Creates a hidden OpenGL context on Windows, then uses GRContext.CreateGl().
+    /// Creates a platform-appropriate OpenGL context, then uses GRContext.CreateGl().
     /// Falls back to CPU software rendering if GPU init fails.
     /// </summary>
     public bool TryEnableGpu()
     {
         try
         {
-            // 1. Create a hidden dummy window for OpenGL context
-            const uint WS_POPUP = 0x80000000;
-            var hInstance = GetModuleHandleW(null);
-            _glDummyWindow = CreateWindowExW(0, "STATIC", "",
-                WS_POPUP, 0, 0, 1, 1,
-                IntPtr.Zero, IntPtr.Zero, hInstance, IntPtr.Zero);
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+                return TryEnableGpuWindows();
+            else if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+                return TryEnableGpuLinux();
+            else if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
+                return TryEnableGpuMac();
 
-            if (_glDummyWindow == IntPtr.Zero)
-            {
-                Console.WriteLine("[GPU] Failed to create dummy window");
-                return false;
-            }
-
-            // 2. Get device context and set pixel format for OpenGL
-            _glDC = GetDC(_glDummyWindow);
-            if (_glDC == IntPtr.Zero)
-            {
-                Console.WriteLine("[GPU] Failed to get DC");
-                CleanupGlWindow();
-                return false;
-            }
-
-            var pfd = new PIXELFORMATDESCRIPTOR
-            {
-                nSize = (ushort)Marshal.SizeOf<PIXELFORMATDESCRIPTOR>(),
-                nVersion = 1,
-                dwFlags = PFD_DRAW_TO_WINDOW | PFD_SUPPORT_OPENGL | PFD_DOUBLEBUFFER,
-                iPixelType = PFD_TYPE_RGBA,
-                cColorBits = 32,
-                cAlphaBits = 8,
-                cDepthBits = 24,
-                cStencilBits = 8,
-                iLayerType = 0
-            };
-
-            var pixelFormat = ChoosePixelFormat(_glDC, ref pfd);
-            if (pixelFormat == 0)
-            {
-                Console.WriteLine("[GPU] ChoosePixelFormat failed");
-                CleanupGlWindow();
-                return false;
-            }
-
-            if (!SetPixelFormat(_glDC, pixelFormat, ref pfd))
-            {
-                Console.WriteLine("[GPU] SetPixelFormat failed");
-                CleanupGlWindow();
-                return false;
-            }
-
-            // 3. Create and make current the OpenGL rendering context
-            _glRC = wglCreateContext(_glDC);
-            if (_glRC == IntPtr.Zero)
-            {
-                Console.WriteLine("[GPU] wglCreateContext failed");
-                CleanupGlWindow();
-                return false;
-            }
-
-            if (!wglMakeCurrent(_glDC, _glRC))
-            {
-                Console.WriteLine("[GPU] wglMakeCurrent failed");
-                CleanupGlWindow();
-                return false;
-            }
-
-            // 4. Create SkiaSharp GRContext via OpenGL
-            _grContext = GRContext.CreateGl();
-            if (_grContext == null)
-            {
-                Console.WriteLine("[GPU] GRContext.CreateGl returned null");
-                CleanupGlContext();
-                return false;
-            }
-
-            _useGpu = true;
-            Console.WriteLine("[GPU] OpenGL GPU acceleration enabled");
-            return true;
+            Console.WriteLine("[GPU] No GPU support for this platform");
+            return false;
         }
         catch (Exception ex)
         {
@@ -134,6 +65,96 @@ public class SkiaRenderer : IDisposable
             CleanupGlContext();
             return false;
         }
+    }
+
+    private bool TryEnableGpuWindows()
+    {
+        const uint WS_POPUP = 0x80000000;
+        var hInstance = GetModuleHandleW(null);
+        _glDummyWindow = CreateWindowExW(0, "STATIC", "",
+            WS_POPUP, 0, 0, 1, 1,
+            IntPtr.Zero, IntPtr.Zero, hInstance, IntPtr.Zero);
+
+        if (_glDummyWindow == IntPtr.Zero)
+        {
+            Console.WriteLine("[GPU] Failed to create dummy window");
+            return false;
+        }
+
+        _glDC = GetDC(_glDummyWindow);
+        if (_glDC == IntPtr.Zero)
+        {
+            Console.WriteLine("[GPU] Failed to get DC");
+            CleanupGlWindow();
+            return false;
+        }
+
+        var pfd = new PIXELFORMATDESCRIPTOR
+        {
+            nSize = (ushort)Marshal.SizeOf<PIXELFORMATDESCRIPTOR>(),
+            nVersion = 1,
+            dwFlags = PFD_DRAW_TO_WINDOW | PFD_SUPPORT_OPENGL | PFD_DOUBLEBUFFER,
+            iPixelType = PFD_TYPE_RGBA,
+            cColorBits = 32,
+            cAlphaBits = 8,
+            cDepthBits = 24,
+            cStencilBits = 8,
+            iLayerType = 0
+        };
+
+        var pixelFormat = ChoosePixelFormat(_glDC, ref pfd);
+        if (pixelFormat == 0)
+        {
+            Console.WriteLine("[GPU] ChoosePixelFormat failed");
+            CleanupGlWindow();
+            return false;
+        }
+
+        if (!SetPixelFormat(_glDC, pixelFormat, ref pfd))
+        {
+            Console.WriteLine("[GPU] SetPixelFormat failed");
+            CleanupGlWindow();
+            return false;
+        }
+
+        _glRC = wglCreateContext(_glDC);
+        if (_glRC == IntPtr.Zero)
+        {
+            Console.WriteLine("[GPU] wglCreateContext failed");
+            CleanupGlWindow();
+            return false;
+        }
+
+        if (!wglMakeCurrent(_glDC, _glRC))
+        {
+            Console.WriteLine("[GPU] wglMakeCurrent failed");
+            CleanupGlWindow();
+            return false;
+        }
+
+        _grContext = GRContext.CreateGl();
+        if (_grContext == null)
+        {
+            Console.WriteLine("[GPU] GRContext.CreateGl returned null");
+            CleanupGlContext();
+            return false;
+        }
+
+        _useGpu = true;
+        Console.WriteLine("[GPU] OpenGL GPU acceleration enabled (Windows)");
+        return true;
+    }
+
+    private bool TryEnableGpuLinux()
+    {
+        Console.WriteLine("[GPU] GPU acceleration on Linux not yet implemented, using CPU");
+        return false;
+    }
+
+    private bool TryEnableGpuMac()
+    {
+        Console.WriteLine("[GPU] GPU acceleration on macOS not yet implemented, using CPU");
+        return false;
     }
 
     public void Initialize(int width, int height, bool enableDirtyRegions = true)

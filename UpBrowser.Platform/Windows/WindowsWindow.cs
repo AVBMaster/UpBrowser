@@ -12,6 +12,7 @@ public class WindowsWindow : IWindow
     private Action<double>? _onFrame;
     private Action<double, double>? _onMouseWheel;
     private Action<Key>? _onKeyDown;
+    private Action<Key>? _onKeyUp;
     private DateTime _lastFrameTime;
     private int _width;
     private int _height;
@@ -72,6 +73,12 @@ public class WindowsWindow : IWindow
     {
         get => _onKeyDown;
         set => _onKeyDown = value;
+    }
+
+    public Action<Key>? OnKeyUp
+    {
+        get => _onKeyUp;
+        set => _onKeyUp = value;
     }
 
     public Action<float>? OnDpiChanged
@@ -399,6 +406,14 @@ public class WindowsWindow : IWindow
                     }
 
                     _onKeyDown?.Invoke(key);
+                    return IntPtr.Zero;
+                }
+
+            case NativeWindow.WM_KEYUP:
+                {
+                    int virtualKey = wParam.ToInt32();
+                    var key = (Key)virtualKey;
+                    _onKeyUp?.Invoke(key);
                     return IntPtr.Zero;
                 }
 

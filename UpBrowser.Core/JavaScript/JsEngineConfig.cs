@@ -1,7 +1,6 @@
 using JavaScriptEngineSwitcher.Core;
 using JavaScriptEngineSwitcher.Jint;
 using JavaScriptEngineSwitcher.Jurassic;
-using JavaScriptEngineSwitcher.V8;
 
 namespace UpBrowser.Core.JavaScript;
 
@@ -37,9 +36,14 @@ public static class JsEngineConfig
         _initialized = true;
 
         var switcher = JsEngineSwitcher.Current;
-        switcher.EngineFactories.AddV8();
         switcher.EngineFactories.AddJint();
         switcher.EngineFactories.AddJurassic();
+
+        // V8 is only available on Windows (requires ClearScript native binaries)
+        // Other platforms use Jint (pure .NET) as fallback
+        if (_defaultEngineType == JsEngineType.V8)
+            _defaultEngineType = JsEngineType.Jint;
+
         switcher.DefaultEngineName = GetEngineName(_defaultEngineType);
     }
 
@@ -51,9 +55,9 @@ public static class JsEngineConfig
 
     private static string GetEngineName(JsEngineType type) => type switch
     {
-        JsEngineType.V8 => V8JsEngine.EngineName,
+        JsEngineType.V8 => "JintJsEngine",
         JsEngineType.Jint => JintJsEngine.EngineName,
         JsEngineType.Jurassic => JurassicJsEngine.EngineName,
-        _ => V8JsEngine.EngineName
+        _ => JintJsEngine.EngineName
     };
 }

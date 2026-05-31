@@ -13,7 +13,7 @@
     <ProjectReference Include="..\UpBrowser.Input\UpBrowser.Input.csproj" />
   </ItemGroup>
 
-  <ItemGroup>
+  <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Windows'))">
     <PackageReference Include="Microsoft.ClearScript.V8.Native.win-x64" Version="*" />
   </ItemGroup>
 </Project>

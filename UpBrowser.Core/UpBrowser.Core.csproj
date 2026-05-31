@@ -7,9 +7,9 @@
 
   <ItemGroup>
     <PackageReference Include="AngleSharp" Version="*" />
-    <PackageReference Include="JavaScriptEngineSwitcher.ChakraCore.Native.win-x64" Version="*" />
     <PackageReference Include="JavaScriptEngineSwitcher.Core" Version="*" />
-    <PackageReference Include="JavaScriptEngineSwitcher.V8" Version="*" />
+    <PackageReference Include="JavaScriptEngineSwitcher.V8" Version="*" Condition="$([MSBuild]::IsOSPlatform('Windows'))" />
+    <PackageReference Include="JavaScriptEngineSwitcher.ChakraCore.Native.win-x64" Version="*" Condition="$([MSBuild]::IsOSPlatform('Windows'))" />
     <PackageReference Include="SkiaSharp" Version="*" />
     <PackageReference Include="JavaScriptEngineSwitcher.Jint" Version="*" />
     <PackageReference Include="JavaScriptEngineSwitcher.Jurassic" Version="*" />

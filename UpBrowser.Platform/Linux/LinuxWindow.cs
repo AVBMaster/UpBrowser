@@ -24,9 +24,10 @@ public class LinuxWindow : IWindow
     public Action<char>? OnImeChar { get; set; }
     public Func<char, Key, bool>? OnKeyDownWithChar { get; set; }
     public Action<Key>? OnKeyDown { get; set; }
+    public Action<Key>? OnKeyUp { get; set; }
     public Action<float, float>? OnMouseMove { get; set; }
     public Action<float, float, bool>? OnMouseClick { get; set; }
-    public Action<double, double>? OnMouseWheel { get; set; }  // 修改为双参数
+    public Action<double, double>? OnMouseWheel { get; set; }
     public Action<float>? OnDpiChanged { get; set; }
     public Action? OnSetFocus { get; set; }
     public Action? OnKillFocus { get; set; }
@@ -68,29 +69,52 @@ public class LinuxWindow : IWindow
                     case 2: // KeyPress
                         var keySym = XLookupString(ref xevent, null, 0, out _, out _);
                         var ch = (char)keySym;
+                        var mappedKey = MapKey(keySym);
                         if (ch >= 32 && ch <= 126)
+                        {
+                            OnKeyDown?.Invoke(mappedKey);
                             OnChar?.Invoke(ch);
+                        }
                         else
-                            OnKeyDown?.Invoke(MapKey(keySym));
+                        {
+                            OnKeyDown?.Invoke(mappedKey);
+                        }
+                        break;
+
+                    case 3: // KeyRelease
+                        XLookupString(ref xevent, null, 0, out var releaseKeySym, out _);
+                        OnKeyUp?.Invoke(MapKey(releaseKeySym));
                         break;
 
                     case 4: // ButtonPress
                         var bx = (float)xevent.xbutton.x;
                         var by = (float)xevent.xbutton.y;
-                        if (xevent.xbutton.button == 4)      // 滚轮向上
+                        if (xevent.xbutton.button == 4)
                             OnMouseWheel?.Invoke(0, -1.0);
-                        else if (xevent.xbutton.button == 5) // 滚轮向下
+                        else if (xevent.xbutton.button == 5)
                             OnMouseWheel?.Invoke(0, 1.0);
-                        else if (xevent.xbutton.button == 6) // 水平向左（某些设备）
+                        else if (xevent.xbutton.button == 6)
                             OnMouseWheel?.Invoke(-1.0, 0);
-                        else if (xevent.xbutton.button == 7) // 水平向右
+                        else if (xevent.xbutton.button == 7)
                             OnMouseWheel?.Invoke(1.0, 0);
                         else
                             OnMouseClick?.Invoke(bx, by, xevent.xbutton.button == 1);
                         break;
 
+                    case 5: // ButtonRelease
+                        OnMouseClick?.Invoke((float)xevent.xbutton.x, (float)xevent.xbutton.y, false);
+                        break;
+
                     case 6: // MotionNotify
                         OnMouseMove?.Invoke((float)xevent.xmotion.x, (float)xevent.xmotion.y);
+                        break;
+
+                    case 9: // FocusIn
+                        OnSetFocus?.Invoke();
+                        break;
+
+                    case 10: // FocusOut
+                        OnKillFocus?.Invoke();
                         break;
 
                     case 12: // Expose
@@ -181,9 +205,10 @@ public class LinuxWindow : IWindow
         var visual = XDefaultVisual(_display, screen);
         var depth = (int)XDefaultDepth(_display, screen);
 
-        var attribMask = XEventMask.ExposureMask | XEventMask.KeyPressMask |
+        var attribMask = XEventMask.ExposureMask | XEventMask.KeyPressMask | XEventMask.KeyReleaseMask |
                          XEventMask.ButtonPressMask | XEventMask.ButtonReleaseMask |
-                         XEventMask.PointerMotionMask | XEventMask.StructureNotifyMask;
+                         XEventMask.PointerMotionMask | XEventMask.StructureNotifyMask |
+                         XEventMask.FocusChangeMask;
 
         _window = XCreateSimpleWindow(_display, root, 0, 0, _width, _height, 1,
             (IntPtr)(long)XBlackPixel(_display, screen), (IntPtr)(long)XWhitePixel(_display, screen));
@@ -387,11 +412,13 @@ public class LinuxWindow : IWindow
     [Flags]
     private enum XEventMask : long
     {
-        ExposureMask = 1L << 15,
         KeyPressMask = 1L << 0,
+        KeyReleaseMask = 1L << 1,
         ButtonPressMask = 1L << 2,
         ButtonReleaseMask = 1L << 3,
         PointerMotionMask = 1L << 6,
+        ExposureMask = 1L << 15,
+        FocusChangeMask = 1L << 21,
         StructureNotifyMask = 1L << 17
     }
 }

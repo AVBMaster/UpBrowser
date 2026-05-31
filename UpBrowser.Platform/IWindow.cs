@@ -12,6 +12,7 @@ public interface IWindow : IDisposable
     Action<char>? OnImeChar { get; set; }
     Func<char, Key, bool>? OnKeyDownWithChar { get; set; }
     Action<Key>? OnKeyDown { get; set; }
+    Action<Key>? OnKeyUp { get; set; }
     Action<float, float>? OnMouseMove { get; set; }
     Action<float, float, bool>? OnMouseClick { get; set; }
     /// <summary>

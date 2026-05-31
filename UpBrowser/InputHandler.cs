@@ -43,6 +43,10 @@ public class InputHandler
     public Action? OnSelectAll { get; set; }
     public Action? OnImeTargetChanged { get; set; }
 
+    public bool IsCtrlDown { get; private set; }
+    public bool IsShiftDown { get; private set; }
+    public bool IsAltDown { get; private set; }
+
     public InputHandler(ChromeRenderer chrome, ScrollManager scroll, IWindow window, float dpiScale)
     {
         _chrome = chrome;
@@ -58,6 +62,7 @@ public class InputHandler
         _window.OnMouseClick = OnMouseClick;
         _window.OnKeyDownWithChar = OnKeyDownWithChar;
         _window.OnKeyDown = OnKeyDown;
+        _window.OnKeyUp = OnKeyUp;
         _window.OnMouseWheel = OnMouseWheel;
         _window.OnImeChar = OnImeChar;
         _chrome.OnUrlBarFocus = () => { };
@@ -225,6 +230,8 @@ public class InputHandler
 
     private bool OnKeyDownWithChar(char charCode, Key key)
     {
+        UpdateModifierKeys(key, true);
+
         if (OnDevToolsInput != null && !_chrome.IsUrlBarFocused())
         {
             if (OnDevToolsInput(charCode, key))
@@ -334,6 +341,7 @@ public class InputHandler
 
     private void OnKeyDown(Key key)
     {
+        UpdateModifierKeys(key, true);
         OnDomKeyDown?.Invoke('\0', key, false);
 
         if (key == Key.F12)
@@ -353,6 +361,11 @@ public class InputHandler
         OnDomKeyUp?.Invoke('\0', key, false);
     }
 
+    private void OnKeyUp(Key key)
+    {
+        UpdateModifierKeys(key, false);
+    }
+
     private void OnMouseWheel(double deltaX, double deltaY)
     {
         if (OnDevToolsWheel != null && OnDevToolsWheel(deltaY, _mouseX, _mouseY))
@@ -363,9 +376,7 @@ public class InputHandler
 
         if (!_chrome.IsUrlBarFocused())
         {
-            // 检测Shift键以强制水平滚动（如果触控板没有水平事件）
-            bool shiftPressed = (GetKeyState(0x10) & 0x8000) != 0; // VK_SHIFT = 0x10
-            if (shiftPressed)
+            if (IsShiftDown)
                 _scroll.ScrollBy((float)deltaY, 0);
             else
             {
@@ -401,6 +412,10 @@ public class InputHandler
         OnImeChar?.Invoke(charCode);
     }
 
-    [System.Runtime.InteropServices.DllImport("user32.dll")]
-    private static extern short GetKeyState(int nVirtKey);
+    private void UpdateModifierKeys(Key key, bool isDown)
+    {
+        if (key is Key.Shift or Key.LShift or Key.RShift) IsShiftDown = isDown;
+        else if (key is Key.Ctrl or Key.LCtrl or Key.RCtrl) IsCtrlDown = isDown;
+        else if (key is Key.Alt or Key.LAlt or Key.RAlt) IsAltDown = isDown;
+    }
 }
