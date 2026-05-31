@@ -240,12 +240,14 @@ public class CssSelector
 {
     public SelectorType Type { get; set; }
     public string? TagName { get; set; }
+    public string? Namespace { get; set; }
     public string? Id { get; set; }
     public List<string> Classes { get; } = new();
     public string? AttributeName { get; set; }
     public string? AttributeValue { get; set; }
     public AttributeMatchType AttributeMatch { get; set; }
     public PseudoClassType? PseudoClass { get; set; }
+    public string? PseudoClassArgument { get; set; }
     public PseudoElementType? PseudoElement { get; set; }
 
     public CssSelector? Parent { get; set; }
@@ -298,7 +300,6 @@ public class CssSelector
             prev = sel;
         }
 
-        // Calculate specificity for the entire selector chain
         if (root != null)
         {
             CalculateChainSpecificity(root);
@@ -356,6 +357,12 @@ public class CssSelector
             return s;
         }
 
+        if (selector == "&")
+        {
+            s.Type = SelectorType.Nesting;
+            return s;
+        }
+
         int i = 0;
         char first = selector[0];
 
@@ -363,6 +370,7 @@ public class CssSelector
         {
             s.Type = SelectorType.Id;
             s.Id = selector[1..];
+            i = 1;
         }
         else if (first == '.')
         {
@@ -372,15 +380,29 @@ public class CssSelector
         }
         else if (first == ':')
         {
-            s.Type = SelectorType.PseudoClass;
-            var pseudo = selector[1..].ToLowerInvariant();
-            if (pseudo.StartsWith("before")) { s.PseudoElement = PseudoElementType.Before; s.PseudoClass = PseudoClassType.Before; }
-            else if (pseudo.StartsWith("after")) { s.PseudoElement = PseudoElementType.After; s.PseudoClass = PseudoClassType.After; }
-            else if (pseudo == "hover") s.PseudoClass = PseudoClassType.Hover;
-            else if (pseudo == "active") s.PseudoClass = PseudoClassType.Active;
-            else if (pseudo == "focus") s.PseudoClass = PseudoClassType.Focus;
-            else if (pseudo == "first-child") s.PseudoClass = PseudoClassType.FirstChild;
-            else if (pseudo == "last-child") s.PseudoClass = PseudoClassType.LastChild;
+            int doubleColon = selector.StartsWith("::") ? 1 : 0;
+            int pseudoStart = doubleColon + 1;
+            int parenIdx = selector.IndexOf('(');
+            int pseudoEnd = parenIdx > 0 ? parenIdx : selector.Length;
+
+            var pseudo = selector[pseudoStart..pseudoEnd].ToLowerInvariant();
+
+            if (doubleColon > 0)
+            {
+                s.Type = SelectorType.PseudoElement;
+                s.PseudoElement = ParsePseudoElementType(pseudo);
+            }
+            else
+            {
+                s.Type = SelectorType.PseudoClass;
+                if (parenIdx > 0)
+                {
+                    var arg = selector[(parenIdx + 1)..^1].Trim();
+                    s.PseudoClassArgument = arg;
+                }
+                s.PseudoClass = ParsePseudoClassType(pseudo);
+            }
+            i = selector.Length;
         }
         else if (first == '[')
         {
@@ -417,12 +439,30 @@ public class CssSelector
                 s.AttributeName = inner;
                 s.AttributeMatch = AttributeMatchType.Exact;
             }
+            i = selector.Length;
         }
         else
         {
             s.Type = SelectorType.Tag;
+            var pipeIdx = selector.IndexOf('|');
             var bracketIdx = selector.IndexOf('[');
-            if (bracketIdx > 0)
+
+            if (pipeIdx > 0 && (bracketIdx < 0 || pipeIdx < bracketIdx))
+            {
+                s.Namespace = selector[..pipeIdx].ToLowerInvariant();
+                var rest = selector[(pipeIdx + 1)..];
+                if (rest == "*")
+                {
+                    s.Type = SelectorType.Universal;
+                    s.TagName = null;
+                }
+                else
+                {
+                    s.TagName = rest.ToLowerInvariant();
+                }
+                i = selector.Length;
+            }
+            else if (bracketIdx > 0)
             {
                 s.TagName = selector[..bracketIdx].ToLowerInvariant();
                 var inner = selector[(bracketIdx + 1)..^1];
@@ -444,7 +484,6 @@ public class CssSelector
             }
         }
 
-        // Parse remaining parts (classes, ids, pseudo)
         while (i < selector.Length)
         {
             char c = selector[i];
@@ -464,18 +503,129 @@ public class CssSelector
             }
             else if (c == ':')
             {
-                int end = i + 1;
-                while (end < selector.Length && (char.IsLetterOrDigit(selector[end]) || selector[end] == '-')) end++;
-                var pseudo = selector[(i + 1)..end].ToLowerInvariant();
-                if (pseudo == "before") s.PseudoElement = PseudoElementType.Before;
-                else if (pseudo == "after") s.PseudoElement = PseudoElementType.After;
-                else if (Enum.TryParse<PseudoClassType>(pseudo, true, out var pc)) s.PseudoClass = pc;
-                i = end;
+                int doubleColon = (i + 1 < selector.Length && selector[i + 1] == ':') ? 1 : 0;
+                int pseudoStart = i + 1 + doubleColon;
+                int parenIdx = selector.IndexOf('(', pseudoStart);
+                int pseudoEnd = parenIdx > 0 ? parenIdx : selector.Length;
+
+                var pseudo = selector[pseudoStart..pseudoEnd].ToLowerInvariant();
+
+                if (doubleColon > 0)
+                {
+                    s.PseudoElement = ParsePseudoElementType(pseudo);
+                }
+                else
+                {
+                    if (parenIdx > 0)
+                    {
+                        var endParen = selector.IndexOf(')', parenIdx);
+                        s.PseudoClassArgument = endParen > 0 ? selector[(parenIdx + 1)..endParen].Trim() : "";
+                    }
+                    s.PseudoClass = ParsePseudoClassType(pseudo);
+                }
+                var skipTo = selector.Length;
+                if (parenIdx > 0)
+                {
+                    var endParen = selector.IndexOf(')', parenIdx);
+                    if (endParen > 0) skipTo = endParen + 1;
+                }
+                else
+                {
+                    skipTo = pseudoEnd;
+                }
+                i = skipTo;
             }
             else i++;
         }
 
         return s;
+    }
+
+    private static PseudoClassType? ParsePseudoClassType(string name)
+    {
+        return name switch
+        {
+            "active" => PseudoClassType.Active,
+            "any-link" => PseudoClassType.AnyLink,
+            "autofill" => PseudoClassType.AutoFill,
+            "before" => PseudoClassType.Before,
+            "checked" => PseudoClassType.Checked,
+            "default" => PseudoClassType.Default,
+            "defined" => PseudoClassType.Defined,
+            "disabled" => PseudoClassType.Disabled,
+            "empty" => PseudoClassType.Empty,
+            "enabled" => PseudoClassType.Enabled,
+            "first" => PseudoClassType.First,
+            "first-child" => PseudoClassType.FirstChild,
+            "first-of-type" => PseudoClassType.FirstOfType,
+            "focus" => PseudoClassType.Focus,
+            "focus-visible" => PseudoClassType.FocusVisible,
+            "focus-within" => PseudoClassType.FocusWithin,
+            "fullscreen" => PseudoClassType.Fullscreen,
+            "hover" => PseudoClassType.Hover,
+            "in-range" => PseudoClassType.InRange,
+            "indeterminate" => PseudoClassType.Indeterminate,
+            "invalid" => PseudoClassType.Invalid,
+            "last-child" => PseudoClassType.LastChild,
+            "last-of-type" => PseudoClassType.LastOfType,
+            "left" => PseudoClassType.Left,
+            "link" => PseudoClassType.Link,
+            "modal" => PseudoClassType.Modal,
+            "only-child" => PseudoClassType.OnlyChild,
+            "only-of-type" => PseudoClassType.OnlyOfType,
+            "optional" => PseudoClassType.Optional,
+            "out-of-range" => PseudoClassType.OutOfRange,
+            "placeholder-shown" => PseudoClassType.PlaceholderShown,
+            "popover-open" => PseudoClassType.PopoverOpen,
+            "read-only" => PseudoClassType.ReadOnly,
+            "read-write" => PseudoClassType.ReadWrite,
+            "required" => PseudoClassType.Required,
+            "right" => PseudoClassType.Right,
+            "root" => PseudoClassType.Root,
+            "scope" => PseudoClassType.Scope,
+            "target" => PseudoClassType.Target,
+            "user-invalid" => PseudoClassType.UserInvalid,
+            "user-valid" => PseudoClassType.UserValid,
+            "valid" => PseudoClassType.Valid,
+            "visited" => PseudoClassType.Visited,
+            "after" => PseudoClassType.After,
+            "not" => PseudoClassType.Not,
+            "nth-child" => PseudoClassType.NthChild,
+            "nth-last-child" => PseudoClassType.NthLastChild,
+            "nth-of-type" => PseudoClassType.NthOfType,
+            "nth-last-of-type" => PseudoClassType.NthLastOfType,
+            "is" => PseudoClassType.Is,
+            "where" => PseudoClassType.Where,
+            "has" => PseudoClassType.Has,
+            "lang" => PseudoClassType.Lang,
+            "dir" => PseudoClassType.Dir,
+            "state" => PseudoClassType.State,
+            _ => null
+        };
+    }
+
+    private static PseudoElementType ParsePseudoElementType(string name)
+    {
+        return name switch
+        {
+            "before" => PseudoElementType.Before,
+            "after" => PseudoElementType.After,
+            "backdrop" => PseudoElementType.Backdrop,
+            "file-selector-button" => PseudoElementType.FileSelectorButton,
+            "first-letter" => PseudoElementType.FirstLetter,
+            "first-line" => PseudoElementType.FirstLine,
+            "grammar-error" => PseudoElementType.GrammarError,
+            "marker" => PseudoElementType.Marker,
+            "placeholder" => PseudoElementType.Placeholder,
+            "selection" => PseudoElementType.Selection,
+            "spelling-error" => PseudoElementType.SpellingError,
+            "view-transition" => PseudoElementType.ViewTransition,
+            "view-transition-group" => PseudoElementType.ViewTransitionGroup,
+            "view-transition-image-pair" => PseudoElementType.ViewTransitionImagePair,
+            "view-transition-new" => PseudoElementType.ViewTransitionNew,
+            "view-transition-old" => PseudoElementType.ViewTransitionOld,
+            _ => PseudoElementType.Before
+        };
     }
 
     public bool Matches(Element element, Element? parent)
@@ -484,7 +634,6 @@ public class CssSelector
 
         if (Parent == null) return true;
 
-        // For descendant combinator (space), check any ancestor
         var ancestor = parent;
         while (ancestor != null)
         {
@@ -493,7 +642,6 @@ public class CssSelector
             ancestor = ancestor.ParentElement;
         }
 
-        // Check other combinators
         return CheckOtherCombinators(element);
     }
 
@@ -520,13 +668,31 @@ public class CssSelector
         return selector.Type switch
         {
             SelectorType.Universal => true,
-            SelectorType.Tag => selector.TagName == null || element.TagName.Equals(selector.TagName, StringComparison.OrdinalIgnoreCase),
+            SelectorType.Nesting => true,
+            SelectorType.Tag => MatchTag(selector, element),
             SelectorType.Id => element.Id == selector.Id,
             SelectorType.Class => selector.Classes.All(c => element.HasClass(c)),
             SelectorType.Attribute => MatchAttribute(selector, element),
             SelectorType.PseudoClass => MatchesPseudoClass(selector, element),
+            SelectorType.PseudoElement => true,
             _ => true
         };
+    }
+
+    private bool MatchTag(CssSelector selector, Element element)
+    {
+        var tagMatch = selector.TagName == null || element.TagName.Equals(selector.TagName, StringComparison.OrdinalIgnoreCase);
+        if (!tagMatch) return false;
+
+        if (selector.Namespace != null)
+        {
+            var elNs = element.NamespaceUri ?? "";
+            if (selector.Namespace == "*") return true;
+            if (selector.Namespace == "ns")
+                return elNs == "http://www.w3.org/2000/svg" || elNs == "http://www.w3.org/1998/Math/MathML";
+            return elNs.EndsWith(selector.Namespace, StringComparison.OrdinalIgnoreCase);
+        }
+        return true;
     }
 
     private bool MatchAttribute(CssSelector selector, Element element)
@@ -549,17 +715,211 @@ public class CssSelector
 
     private bool MatchesPseudoClass(CssSelector selector, Element element)
     {
+        if (selector.PseudoClass == null) return true;
+
         return selector.PseudoClass switch
         {
             PseudoClassType.FirstChild => element.ParentElement?.Children.OfType<Element>().FirstOrDefault() == element,
             PseudoClassType.LastChild => element.ParentElement?.Children.OfType<Element>().LastOrDefault() == element,
+            PseudoClassType.FirstOfType => IsFirstOfType(element),
+            PseudoClassType.LastOfType => IsLastOfType(element),
+            PseudoClassType.OnlyChild => element.ParentElement?.Children.OfType<Element>().Count() == 1,
+            PseudoClassType.OnlyOfType => element.ParentElement?.Children.OfType<Element>().Count(e => e.TagName == element.TagName) == 1,
+            PseudoClassType.NthChild => MatchesNth(selector.PseudoClassArgument, element, false),
+            PseudoClassType.NthLastChild => MatchesNth(selector.PseudoClassArgument, element, true),
+            PseudoClassType.NthOfType => MatchesNthOfType(selector.PseudoClassArgument, element, false),
+            PseudoClassType.NthLastOfType => MatchesNthOfType(selector.PseudoClassArgument, element, true),
+            PseudoClassType.Root => element.Parent is Document,
+            PseudoClassType.Empty => element.Children.Count == 0 && string.IsNullOrEmpty(element.TextContent),
+            PseudoClassType.Link => element.TagName == "A" && element.HasAttribute("href"),
+            PseudoClassType.Visited => element.TagName == "A" && element.HasAttribute("href"),
+            PseudoClassType.Active => element.IsFocused,
+            PseudoClassType.Hover => element.IsFocused,
+            PseudoClassType.Focus => element.IsFocused,
+            PseudoClassType.FocusVisible => element.IsFocused,
+            PseudoClassType.FocusWithin => IsFocusWithin(element),
+            PseudoClassType.Enabled => !element.HasAttribute("disabled") && IsFormLike(element),
+            PseudoClassType.Disabled => element.HasAttribute("disabled"),
+            PseudoClassType.Checked => element.HasAttribute("checked") || element.HasAttribute("selected"),
+            PseudoClassType.Required => element.HasAttribute("required"),
+            PseudoClassType.Optional => !element.HasAttribute("required") && IsFormLike(element),
+            PseudoClassType.Valid => true,
+            PseudoClassType.Invalid => false,
+            PseudoClassType.InRange => true,
+            PseudoClassType.OutOfRange => false,
+            PseudoClassType.UserValid => true,
+            PseudoClassType.UserInvalid => false,
+            PseudoClassType.Default => element.HasAttribute("checked") || element.HasAttribute("selected"),
+            PseudoClassType.Indeterminate => false,
+            PseudoClassType.PlaceholderShown => element.HasAttribute("placeholder") && string.IsNullOrEmpty(element.Value),
+            PseudoClassType.ReadOnly => element.HasAttribute("readonly"),
+            PseudoClassType.ReadWrite => !element.HasAttribute("readonly") && IsFormLike(element),
+            PseudoClassType.Target => false,
+            PseudoClassType.Scope => true,
+            PseudoClassType.Defined => true,
+            PseudoClassType.AnyLink => element.TagName == "A" && element.HasAttribute("href"),
+            PseudoClassType.AutoFill => false,
+            PseudoClassType.Modal => false,
+            PseudoClassType.PopoverOpen => false,
+            PseudoClassType.Fullscreen => false,
+            PseudoClassType.Not => true,
+            PseudoClassType.Is => true,
+            PseudoClassType.Where => true,
+            PseudoClassType.Has => true,
+            PseudoClassType.Lang => MatchesLang(selector.PseudoClassArgument, element),
+            PseudoClassType.Dir => MatchesDir(selector.PseudoClassArgument, element),
+            PseudoClassType.State => false,
+            PseudoClassType.First => false,
+            PseudoClassType.Left => false,
+            PseudoClassType.Right => false,
+            PseudoClassType.Before => true,
+            PseudoClassType.After => true,
             _ => true
         };
     }
+
+    private static bool IsFormLike(Element element) => element.TagName is "INPUT" or "TEXTAREA" or "SELECT" or "BUTTON" or "OPTION" or "DATALIST" or "METEr" or "PROGRESS";
+
+    private static bool IsFirstOfType(Element element)
+    {
+        var siblings = element.ParentElement?.Children.OfType<Element>() ?? Enumerable.Empty<Element>();
+        return siblings.FirstOrDefault(e => e.TagName == element.TagName) == element;
+    }
+
+    private static bool IsLastOfType(Element element)
+    {
+        var siblings = element.ParentElement?.Children.OfType<Element>() ?? Enumerable.Empty<Element>();
+        return siblings.LastOrDefault(e => e.TagName == element.TagName) == element;
+    }
+
+    private static bool IsFocusWithin(Element element)
+    {
+        if (element.IsFocused) return true;
+        return element.Children.OfType<Element>().Any(IsFocusWithin);
+    }
+
+    private static bool MatchesNth(string? argument, Element element, bool fromEnd)
+    {
+        if (string.IsNullOrEmpty(argument)) return false;
+
+        int index;
+        if (fromEnd)
+        {
+            var all = element.ParentElement?.Children.OfType<Element>().Reverse().ToList() ?? new List<Element>();
+            index = all.IndexOf(element) + 1;
+        }
+        else
+        {
+            var all = element.ParentElement?.Children.OfType<Element>().ToList() ?? new List<Element>();
+            index = all.IndexOf(element) + 1;
+        }
+
+        if (index <= 0) return false;
+
+        var trimmed = argument.Trim().ToLowerInvariant();
+
+        if (trimmed == "odd") return index % 2 == 1;
+        if (trimmed == "even") return index % 2 == 0;
+
+        var match = Regex.Match(trimmed, @"^\s*(?:([+-]?\d*)\s*[nN]\s*([+-]\s*\d+)?|([+-]?\d+))\s*$");
+        if (!match.Success) return int.TryParse(trimmed, out var exact) && index == exact;
+
+        if (!string.IsNullOrEmpty(match.Groups[3].Value))
+            return index == int.Parse(match.Groups[3].Value);
+
+        int a = string.IsNullOrEmpty(match.Groups[1].Value) ? 1 : (match.Groups[1].Value == "-" ? -1 : int.Parse(match.Groups[1].Value));
+        int b = string.IsNullOrEmpty(match.Groups[2].Value) ? 0 : int.Parse(match.Groups[2].Value.Replace(" ", ""));
+
+        if (a == 0) return index == b;
+
+        var n = (index - b) / (double)a;
+        return n >= 0 && Math.Abs(n - Math.Round(n)) < 0.0001;
+    }
+
+    private static bool MatchesNthOfType(string? argument, Element element, bool fromEnd)
+    {
+        if (string.IsNullOrEmpty(argument)) return false;
+
+        int index;
+        var sameType = element.ParentElement?.Children.OfType<Element>().Where(e => e.TagName == element.TagName).ToList() ?? new List<Element>();
+
+        if (fromEnd)
+        {
+            sameType.Reverse();
+        }
+
+        index = sameType.IndexOf(element) + 1;
+        if (index <= 0) return false;
+
+        var trimmed = argument.Trim().ToLowerInvariant();
+
+        if (trimmed == "odd") return index % 2 == 1;
+        if (trimmed == "even") return index % 2 == 0;
+
+        var match = Regex.Match(trimmed, @"^\s*(?:([+-]?\d*)\s*[nN]\s*([+-]\s*\d+)?|([+-]?\d+))\s*$");
+        if (!match.Success) return int.TryParse(trimmed, out var exact) && index == exact;
+
+        if (!string.IsNullOrEmpty(match.Groups[3].Value))
+            return index == int.Parse(match.Groups[3].Value);
+
+        int a = string.IsNullOrEmpty(match.Groups[1].Value) ? 1 : (match.Groups[1].Value == "-" ? -1 : int.Parse(match.Groups[1].Value));
+        int b = string.IsNullOrEmpty(match.Groups[2].Value) ? 0 : int.Parse(match.Groups[2].Value.Replace(" ", ""));
+
+        if (a == 0) return index == b;
+
+        var n = (index - b) / (double)a;
+        return n >= 0 && Math.Abs(n - Math.Round(n)) < 0.0001;
+    }
+
+    private static bool MatchesLang(string? argument, Element element)
+    {
+        if (string.IsNullOrEmpty(argument)) return false;
+        var lang = element.GetAttribute("lang");
+        if (lang == null) return false;
+        return lang.Equals(argument, StringComparison.OrdinalIgnoreCase) ||
+               lang.StartsWith(argument + "-", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool MatchesDir(string? argument, Element element)
+    {
+        if (string.IsNullOrEmpty(argument)) return false;
+        var dir = element.GetAttribute("dir");
+        if (dir == null) return false;
+        return dir.Equals(argument, StringComparison.OrdinalIgnoreCase);
+    }
 }
 
-public enum SelectorType { Universal, Tag, Id, Class, Attribute, PseudoClass, PseudoElement }
+public enum SelectorType { Universal, Tag, Id, Class, Attribute, PseudoClass, PseudoElement, Nesting }
 public enum CombinatorType { Descendant, Child, AdjacentSibling, GeneralSibling }
 public enum AttributeMatchType { Exact, WhitespaceSeparated, StartsWith, EndsWith, Contains, DashSeparator }
-public enum PseudoClassType { Hover, Active, Focus, FirstChild, LastChild, FirstOfType, LastOfType, Before, After }
-public enum PseudoElementType { Before, After, FirstLine, FirstLetter }
+public enum PseudoClassType
+{
+    Hover, Active, Focus, FocusVisible, FocusWithin,
+    FirstChild, LastChild, FirstOfType, LastOfType,
+    OnlyChild, OnlyOfType,
+    NthChild, NthLastChild, NthOfType, NthLastOfType,
+    Root, Empty,
+    Link, Visited, AnyLink,
+    Enabled, Disabled, Checked, Required, Optional,
+    Valid, Invalid, InRange, OutOfRange,
+    UserValid, UserInvalid,
+    Default, Indeterminate,
+    PlaceholderShown, ReadOnly, ReadWrite,
+    Target, Scope, Defined,
+    Not, Is, Where, Has,
+    Lang, Dir,
+    Before, After,
+    First, Left, Right,
+    AutoFill, Modal, PopoverOpen, Fullscreen,
+    State,
+    // Legacy aliases
+    FirstLine, FirstLetter
+}
+public enum PseudoElementType
+{
+    Before, After, Backdrop, FileSelectorButton,
+    FirstLetter, FirstLine, GrammarError,
+    Marker, Placeholder, Selection, SpellingError,
+    ViewTransition, ViewTransitionGroup, ViewTransitionImagePair,
+    ViewTransitionNew, ViewTransitionOld
+}

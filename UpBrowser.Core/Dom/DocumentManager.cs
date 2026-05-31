@@ -61,7 +61,7 @@ public class DocumentManager
             Console.WriteLine($"[Layout] Error during layout: {ex.Message}");
         }
 
-        return new DocumentLoadResult(doc, angleSharpDoc);
+        return new DocumentLoadResult(doc, angleSharpDoc, styleComputer);
     }
 
     public static string DefaultHtml => _defaultHtml;
@@ -389,7 +389,9 @@ public class DocumentManager
         ";
     }
 
-    public record DocumentLoadResult(Document Document, AngleSharp.Dom.IDocument AngleSharpDoc);
+    public Stylesheet GetUaStylesheet() => _uaStylesheet;
+
+    public record DocumentLoadResult(Document Document, AngleSharp.Dom.IDocument AngleSharpDoc, StyleComputer? StyleComputer = null);
 }
 
 public class HtmlElement : Element

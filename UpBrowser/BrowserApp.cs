@@ -1,13 +1,14 @@
+using SkiaSharp;
+using System.Text;
 using UpBrowser.Core;
+using UpBrowser.Core.Css;
+using UpBrowser.Core.Dom;
+using UpBrowser.Core.EventLoop;
+using UpBrowser.Core.JavaScript;
+using UpBrowser.Core.Layout;
 using UpBrowser.Platform;
 using UpBrowser.Rendering;
 using UpBrowser.Rendering.DevTools;
-using UpBrowser.Core.Dom;
-using UpBrowser.Core.Layout;
-using UpBrowser.Core.Css;
-using UpBrowser.Core.JavaScript;
-using UpBrowser.Core.EventLoop;
-using SkiaSharp;
 
 namespace UpBrowser;
 
@@ -456,6 +457,11 @@ public class BrowserApp : IDisposable
             {
                 NavigateToHttp(url);
             }
+            // file:// 协议支持
+            else if (url.StartsWith("file://"))
+            {
+                NavigateToFile(url);
+            }
             else
             {
                 NavigateToSearch(url);
@@ -751,6 +757,48 @@ public class BrowserApp : IDisposable
         });
     }
 
+    private void NavigateToFile(string url)
+    {
+        if (_isNavigating)
+            _isNavigating = false; // 允许新导航中断之前的请求
+
+        _isNavigating = true;
+        _chrome.SetLoadingState(true);
+        _input.NeedsRedraw = true;
+
+        Task.Run(async () =>
+        {
+            string filePath;
+            try
+            {
+                // 将 file:///C:/path/file.html 转换为本地路径
+                var uri = new Uri(url);
+                filePath = uri.LocalPath; // Windows: "C:\\path\\file.html"
+                if (!File.Exists(filePath))
+                    throw new FileNotFoundException($"File not found: {filePath}");
+            }
+            catch (Exception ex)
+            {
+                _eventLoop.PostTask(() => ShowErrorPage(url, ex.Message));
+                return;
+            }
+
+            try
+            {
+                string html = await File.ReadAllTextAsync(filePath, Encoding.UTF8);
+                // 使用文件所在目录作为 baseUrl，用于解析相对路径的资源
+                string baseDir = Path.GetDirectoryName(filePath)?.Replace('\\', '/');
+                string baseUrl = baseDir != null ? $"file://{baseDir}/" : null;
+
+                _eventLoop.PostTask(() => LoadAndRenderHtml(html, baseUrl));
+            }
+            catch (Exception ex)
+            {
+                _eventLoop.PostTask(() => ShowErrorPage(url, ex.Message));
+            }
+        });
+    }
+
     private void LoadAndRenderHtml(string html, string? baseUrl = null)
     {
         _currentHtml = html;
@@ -983,7 +1031,12 @@ public class BrowserApp : IDisposable
 
             if (_pendingRelayout)
             {
-                var styleComputer = new StyleComputer();
+                var styleComputer = _currentLoad.StyleComputer;
+                if (styleComputer == null)
+                {
+                    styleComputer = new StyleComputer();
+                    styleComputer.AddStylesheet(_docManager.GetUaStylesheet());
+                }
                 styleComputer.ComputeStyles(_currentLoad.Document);
                 _jsEngine.ClearDirty();
                 _pendingRelayout = false;

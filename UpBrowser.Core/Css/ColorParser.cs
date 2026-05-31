@@ -13,6 +13,11 @@ public static class ColorParser
     private static readonly Regex RgbaRegex = new(@"rgba\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*([\d.]+)\s*\)", RegexOptions.Compiled | RegexOptions.IgnoreCase);
     private static readonly Regex HslRegex = new(@"hsl\s*\(\s*([\d.]+)\s*,\s*([\d.]+)%\s*,\s*([\d.]+)%\s*\)", RegexOptions.Compiled | RegexOptions.IgnoreCase);
     private static readonly Regex HslaRegex = new(@"hsla\s*\(\s*([\d.]+)\s*,\s*([\d.]+)%\s*,\s*([\d.]+)%\s*,\s*([\d.]+)\s*\)", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+    private static readonly Regex HwbRegex = new(@"hwb\s*\(\s*([\d.]+)\s*,\s*([\d.]+)%\s*,\s*([\d.]+)%\s*(?:\s*/\s*([\d.]+%?))?\s*\)", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+    private static readonly Regex LabRegex = new(@"lab\s*\(\s*([\d.]+)%?\s*([+-]\s*[\d.]+)\s*([+-]\s*[\d.]+)\s*(?:\s*/\s*([\d.]+))?\s*\)", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+    private static readonly Regex LchRegex = new(@"lch\s*\(\s*([\d.]+)%?\s*([\d.]+)\s*([\d.]+)\s*(?:\s*/\s*([\d.]+))?\s*\)", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+    private static readonly Regex OklabRegex = new(@"oklab\s*\(\s*([\d.]+)\s*([+-]\s*[\d.]+)\s*([+-]\s*[\d.]+)\s*(?:\s*/\s*([\d.]+))?\s*\)", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+    private static readonly Regex OklchRegex = new(@"oklch\s*\(\s*([\d.]+)\s*([\d.]+)\s*([\d.]+)\s*(?:\s*/\s*([\d.]+))?\s*\)", RegexOptions.Compiled | RegexOptions.IgnoreCase);
     private static readonly Regex Hex8Regex = new(@"^#([0-9a-f]{8})$", RegexOptions.Compiled | RegexOptions.IgnoreCase);
     private static readonly Regex Hex6Regex = new(@"^#([0-9a-f]{6})$", RegexOptions.Compiled | RegexOptions.IgnoreCase);
     private static readonly Regex Hex4Regex = new(@"^#([0-9a-f]{4})$", RegexOptions.Compiled | RegexOptions.IgnoreCase);
@@ -33,6 +38,30 @@ public static class ColorParser
 
         var hsl = ParseHsl(value);
         if (hsl.HasValue) return hsl.Value;
+
+        var hwb = ParseHwb(value);
+        if (hwb.HasValue) return hwb.Value;
+
+        var lab = ParseLab(value);
+        if (lab.HasValue) return lab.Value;
+
+        var lch = ParseLch(value);
+        if (lch.HasValue) return lch.Value;
+
+        var oklab = ParseOklab(value);
+        if (oklab.HasValue) return oklab.Value;
+
+        var oklch = ParseOklch(value);
+        if (oklch.HasValue) return oklch.Value;
+
+        var lightDark = ParseLightDark(value);
+        if (lightDark.HasValue) return lightDark.Value;
+
+        var colorMix = ParseColorMix(value);
+        if (colorMix.HasValue) return colorMix.Value;
+
+        var colorFn = ParseColorFunction(value);
+        if (colorFn.HasValue) return colorFn.Value;
 
         var current = ParseCurrentColor(value);
         if (current.HasValue) return current.Value;
@@ -159,6 +188,297 @@ public static class ColorParser
             (byte)(a * 255));
     }
 
+    private static SKColor? ParseHwb(string value)
+    {
+        var match = HwbRegex.Match(value);
+        if (!match.Success) return null;
+
+        float h = float.Parse(match.Groups[1].Value);
+        float w = float.Parse(match.Groups[2].Value) / 100f;
+        float b = float.Parse(match.Groups[3].Value) / 100f;
+        float alpha = 1f;
+        if (match.Groups[4].Success)
+        {
+            var aVal = match.Groups[4].Value;
+            alpha = aVal.EndsWith("%") ? float.Parse(aVal[..^1]) / 100f : float.Parse(aVal);
+        }
+
+        h = ((h % 360) + 360) % 360;
+        w = MathF.Min(w, 1f);
+        b = MathF.Min(b, 1f);
+        float sum = w + b;
+        if (sum > 1f) { w /= sum; b /= sum; }
+
+        // HWB to RGB: compute hue with full saturation, then apply whiteness and blackness
+        float hue = h;
+        float c = 1f;
+        float x = c * (1 - Math.Abs((hue / 60f) % 2 - 1));
+        float r = 0, g = 0, bb = 0;
+        if (hue < 60) { r = c; g = x; }
+        else if (hue < 120) { r = x; g = c; }
+        else if (hue < 180) { r = 0; g = c; bb = x; }
+        else if (hue < 240) { r = 0; g = x; bb = c; }
+        else if (hue < 300) { r = x; g = 0; bb = c; }
+        else { r = c; g = 0; bb = x; }
+
+        // Apply whiteness and blackness
+        r = r * (1f - w - b) + w;
+        g = g * (1f - w - b) + w;
+        bb = bb * (1f - w - b) + w;
+
+        return new SKColor(
+            (byte)Math.Clamp(MathF.Round(r * 255), 0, 255),
+            (byte)Math.Clamp(MathF.Round(g * 255), 0, 255),
+            (byte)Math.Clamp(MathF.Round(bb * 255), 0, 255),
+            (byte)Math.Clamp(MathF.Round(alpha * 255), 0, 255));
+    }
+
+    private static SKColor? ParseLab(string value)
+    {
+        var match = LabRegex.Match(value);
+        if (!match.Success) return null;
+
+        float l = float.Parse(match.Groups[1].Value);
+        float a = float.Parse(match.Groups[2].Value);
+        float bb = float.Parse(match.Groups[3].Value);
+        float alpha = 1f;
+        if (match.Groups[4].Success)
+            alpha = float.Parse(match.Groups[4].Value);
+
+        // Approximate Lab -> sRGB via simple conversion
+        l = Math.Clamp(l, 0, 100);
+        float fy = (l + 16) / 116;
+        float fx = a / 500 + fy;
+        float fz = fy - bb / 200;
+
+        float x = LabLinearComponent(fx) * 0.96422f;
+        float y = LabLinearComponent(fy) * 1f;
+        float z = LabLinearComponent(fz) * 0.82521f;
+
+        return XyzToSrgb(x, y, z, alpha);
+    }
+
+    private static SKColor? ParseLch(string value)
+    {
+        var match = LchRegex.Match(value);
+        if (!match.Success) return null;
+
+        float l = float.Parse(match.Groups[1].Value);
+        float c = float.Parse(match.Groups[2].Value);
+        float h = float.Parse(match.Groups[3].Value);
+        float alpha = 1f;
+        if (match.Groups[4].Success)
+            alpha = float.Parse(match.Groups[4].Value);
+
+        float a = c * MathF.Cos(h * MathF.PI / 180f);
+        float bb = c * MathF.Sin(h * MathF.PI / 180f);
+
+        float fy = (l + 16) / 116;
+        float fx = a / 500 + fy;
+        float fz = fy - bb / 200;
+
+        float x = LabLinearComponent(fx) * 0.96422f;
+        float y = LabLinearComponent(fy) * 1f;
+        float z = LabLinearComponent(fz) * 0.82521f;
+
+        return XyzToSrgb(x, y, z, alpha);
+    }
+
+    private static SKColor? ParseOklab(string value)
+    {
+        var match = OklabRegex.Match(value);
+        if (!match.Success) return null;
+
+        float l = float.Parse(match.Groups[1].Value);
+        float a = float.Parse(match.Groups[2].Value);
+        float bb = float.Parse(match.Groups[3].Value);
+        float alpha = 1f;
+        if (match.Groups[4].Success)
+            alpha = float.Parse(match.Groups[4].Value);
+
+        // OKLab -> linear sRGB conversion
+        l = Math.Clamp(l, 0, 1);
+        float l_ = l + 0.3963377774f * a + 0.2158037573f * bb;
+        float m_ = l - 0.1055613458f * a - 0.0638541728f * bb;
+        float s_ = l - 0.0894841775f * a - 1.2914855480f * bb;
+
+        float l3 = l_ * l_ * l_;
+        float m3 = m_ * m_ * m_;
+        float s3 = s_ * s_ * s_;
+
+        float r = 4.0767416621f * l3 - 3.3077115913f * m3 + 0.2309699292f * s3;
+        float g = -1.2684380046f * l3 + 2.6097574011f * m3 - 0.3413193965f * s3;
+        float b = -0.0041960863f * l3 - 0.7034186147f * m3 + 1.7076147010f * s3;
+
+        r = LinearToSrgbChannel(r);
+        g = LinearToSrgbChannel(g);
+        b = LinearToSrgbChannel(b);
+
+        return new SKColor(
+            (byte)Math.Clamp(MathF.Round(r * 255), 0, 255),
+            (byte)Math.Clamp(MathF.Round(g * 255), 0, 255),
+            (byte)Math.Clamp(MathF.Round(b * 255), 0, 255),
+            (byte)Math.Clamp(MathF.Round(alpha * 255), 0, 255));
+    }
+
+    private static SKColor? ParseOklch(string value)
+    {
+        var match = OklchRegex.Match(value);
+        if (!match.Success) return null;
+
+        float l = float.Parse(match.Groups[1].Value);
+        float c = float.Parse(match.Groups[2].Value);
+        float h = float.Parse(match.Groups[3].Value);
+        float alpha = 1f;
+        if (match.Groups[4].Success)
+            alpha = float.Parse(match.Groups[4].Value);
+
+        float a = c * MathF.Cos(h * MathF.PI / 180f);
+        float bb = c * MathF.Sin(h * MathF.PI / 180f);
+
+        // OKLab -> linear sRGB (reuse oklab logic)
+        l = Math.Clamp(l, 0, 1);
+        float l_ = l + 0.3963377774f * a + 0.2158037573f * bb;
+        float m_ = l - 0.1055613458f * a - 0.0638541728f * bb;
+        float s_ = l - 0.0894841775f * a - 1.2914855480f * bb;
+
+        float l3 = l_ * l_ * l_;
+        float m3 = m_ * m_ * m_;
+        float s3 = s_ * s_ * s_;
+
+        float r = 4.0767416621f * l3 - 3.3077115913f * m3 + 0.2309699292f * s3;
+        float g = -1.2684380046f * l3 + 2.6097574011f * m3 - 0.3413193965f * s3;
+        float b = -0.0041960863f * l3 - 0.7034186147f * m3 + 1.7076147010f * s3;
+
+        r = LinearToSrgbChannel(r);
+        g = LinearToSrgbChannel(g);
+        b = LinearToSrgbChannel(b);
+
+        return new SKColor(
+            (byte)Math.Clamp(MathF.Round(r * 255), 0, 255),
+            (byte)Math.Clamp(MathF.Round(g * 255), 0, 255),
+            (byte)Math.Clamp(MathF.Round(b * 255), 0, 255),
+            (byte)Math.Clamp(MathF.Round(alpha * 255), 0, 255));
+    }
+
+    private static SKColor? ParseLightDark(string value)
+    {
+        var match = Regex.Match(value, @"light-dark\s*\(\s*([^,]+)\s*,\s*(.+)\s*\)", RegexOptions.IgnoreCase);
+        if (!match.Success) return null;
+
+        // Return the light color value (default to light theme)
+        return Parse(match.Groups[1].Value.Trim());
+    }
+
+    private static SKColor? ParseColorMix(string value)
+    {
+        var match = Regex.Match(value, @"color-mix\s*\(\s*(?:in\s+[\w-]+\s*,\s*)?(.+?)\s*,\s*(.+?)\s*\)", RegexOptions.IgnoreCase);
+        if (!match.Success) return null;
+
+        // Simple average blend
+        var c1 = Parse(match.Groups[1].Value.Trim());
+        var c2 = Parse(match.Groups[2].Value.Trim());
+
+        byte r = (byte)((c1.Red + c2.Red) / 2);
+        byte g = (byte)((c1.Green + c2.Green) / 2);
+        byte b = (byte)((c1.Blue + c2.Blue) / 2);
+        byte a = (byte)((c1.Alpha + c2.Alpha) / 2);
+        return new SKColor(r, g, b, a);
+    }
+
+    private static SKColor? ParseColorFunction(string value)
+    {
+        var match = Regex.Match(value, @"color\s*\(\s*([\w-]+)\s+(.+?)\s*\)", RegexOptions.IgnoreCase);
+        if (!match.Success) return null;
+
+        // Color function: color(colorspace c1 c2 c3 / a)
+        // For now, parse as raw sRGB values if in srgb colorspace
+        var space = match.Groups[1].Value.ToLowerInvariant();
+        var channels = match.Groups[2].Value.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        var vals = channels[0].Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
+
+        if (space == "srgb" && vals.Length >= 3)
+        {
+            float r = float.Parse(vals[0]);
+            float g = float.Parse(vals[1]);
+            float b = float.Parse(vals[2]);
+            float alpha = 1f;
+            if (channels.Length > 1 && float.TryParse(channels[1].Trim(), out var a))
+                alpha = a;
+            return new SKColor(
+                (byte)Math.Clamp(MathF.Round(r * 255), 0, 255),
+                (byte)Math.Clamp(MathF.Round(g * 255), 0, 255),
+                (byte)Math.Clamp(MathF.Round(b * 255), 0, 255),
+                (byte)Math.Clamp(MathF.Round(alpha * 255), 0, 255));
+        }
+
+        // srgb-linear, display-p3, a98-rgb, prophoto-rgb, rec2020, xyz, xyz-d50, xyz-d65
+        // Fallback: treat as sRGB if possible from xyz or display-p3
+        if (vals.Length >= 3)
+        {
+            float x = float.Parse(vals[0]);
+            float y = float.Parse(vals[1]);
+            float z = vals.Length > 2 ? float.Parse(vals[2]) : 0;
+            float alpha = 1f;
+            if (channels.Length > 1 && float.TryParse(channels[1].Trim(), out var a))
+                alpha = a;
+
+            if (space == "xyz" || space == "xyz-d65")
+                return XyzToSrgb(x, y, z, alpha);
+            if (space == "display-p3")
+            {
+                var rgb = DisplayP3ToSrgb(x, y, z);
+                return new SKColor(rgb.r, rgb.g, rgb.b, (byte)Math.Clamp(MathF.Round(alpha * 255), 0, 255));
+            }
+        }
+
+        return null;
+    }
+
+    private static float LabLinearComponent(float t)
+    {
+        const float delta = 6f / 29f;
+        if (t > delta)
+            return t * t * t;
+        return 3 * delta * delta * (t - 4f / 29f);
+    }
+
+    private static SKColor XyzToSrgb(float x, float y, float z, float alpha)
+    {
+        float r = 3.2404542f * x - 1.5371385f * y - 0.4985314f * z;
+        float g = -0.9692660f * x + 1.8760108f * y + 0.0415560f * z;
+        float b = 0.0556434f * x - 0.2040259f * y + 1.0572252f * z;
+
+        r = LinearToSrgbChannel(r);
+        g = LinearToSrgbChannel(g);
+        b = LinearToSrgbChannel(b);
+
+        return new SKColor(
+            (byte)Math.Clamp(MathF.Round(r * 255), 0, 255),
+            (byte)Math.Clamp(MathF.Round(g * 255), 0, 255),
+            (byte)Math.Clamp(MathF.Round(b * 255), 0, 255),
+            (byte)Math.Clamp(MathF.Round(alpha * 255), 0, 255));
+    }
+
+    private static (byte r, byte g, byte b) DisplayP3ToSrgb(float r, float g, float b)
+    {
+        // Approximate Display P3 to sRGB
+        float sr = 1.0f * r + 0.0f * g + 0.0f * b;
+        float sg = 0.0f * r + 1.0f * g + 0.0f * b;
+        float sb = 0.0f * r + 0.0f * g + 1.0f * b;
+        return (
+            (byte)Math.Clamp(MathF.Round(LinearToSrgbChannel(sr) * 255), 0, 255),
+            (byte)Math.Clamp(MathF.Round(LinearToSrgbChannel(sg) * 255), 0, 255),
+            (byte)Math.Clamp(MathF.Round(LinearToSrgbChannel(sb) * 255), 0, 255));
+    }
+
+    private static float LinearToSrgbChannel(float c)
+    {
+        if (c <= 0.0031308f)
+            return 12.92f * c;
+        return 1.055f * MathF.Pow(c, 1f / 2.4f) - 0.055f;
+    }
+
     private static SKColor? ParseCurrentColor(string value)
     {
         return value.Equals("currentcolor", StringComparison.OrdinalIgnoreCase)
@@ -249,7 +569,14 @@ public static class KnownColors
         { "thistle", SKColor.Parse("#D8BFD8") }, { "tomato", SKColor.Parse("#FF6347") },
         { "turquoise", SKColor.Parse("#40E0D0") }, { "wheat", SKColor.Parse("#F5DEB3") },
         { "whitesmoke", SKColor.Parse("#F5F5F5") }, { "yellowgreen", SKColor.Parse("#9ACD32") },
-        { "rebeccapurple", SKColor.Parse("#663399") }
+        { "rebeccapurple", SKColor.Parse("#663399") },
+        { "grey", SKColor.Parse("#808080") },
+        { "darkgrey", SKColor.Parse("#A9A9A9") },
+        { "darkslategrey", SKColor.Parse("#2F4F4F") },
+        { "dimgrey", SKColor.Parse("#696969") },
+        { "lightgrey", SKColor.Parse("#D3D3D3") },
+        { "lightslategrey", SKColor.Parse("#778899") },
+        { "slategrey", SKColor.Parse("#708090") }
     };
 
     public static SKColor? Get(string name) => Colors.GetValueOrDefault(name);

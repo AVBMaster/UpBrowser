@@ -1,4 +1,5 @@
 using SkiaSharp;
+using UpBrowser.Core.Css;
 
 namespace UpBrowser.Core.Dom;
 
@@ -19,6 +20,20 @@ public abstract class Length
             return new RemLength(float.Parse(value[..^2]));
         if (value.EndsWith("%"))
             return new PercentLength(float.Parse(value[..^2]) / 100f);
+        if (value.EndsWith("pt"))
+            return new PixelLength(float.Parse(value[..^2]) * 1.33333f);
+        if (value.EndsWith("pc"))
+            return new PixelLength(float.Parse(value[..^2]) * 16f);
+        if (value.EndsWith("in"))
+            return new PixelLength(float.Parse(value[..^2]) * 96f);
+        if (value.EndsWith("cm"))
+            return new PixelLength(float.Parse(value[..^2]) * 37.7953f);
+        if (value.EndsWith("mm"))
+            return new PixelLength(float.Parse(value[..^2]) * 3.77953f);
+        if (value.EndsWith("ex"))
+            return new ExLength(float.Parse(value[..^2]));
+        if (value.EndsWith("ch"))
+            return new ChLength(float.Parse(value[..^2]));
         if (value.EndsWith("cqw"))
             return new VwLength(float.Parse(value[..^3]));
         if (value.EndsWith("cqh"))
@@ -57,6 +72,14 @@ public abstract class Length
             return new VhLength(float.Parse(value[..^2]));
         if (value == "0")
             return new PixelLength(0);
+
+        if (value.StartsWith("calc(") || value.StartsWith("min(") || value.StartsWith("max(") || value.StartsWith("clamp(") || value.StartsWith("fit-content("))
+        {
+            var evaluated = CssFunctionEvaluator.Evaluate(value, null, 16, 16, 1920, 1080);
+            if (evaluated.EndsWith("px") && float.TryParse(evaluated[..^2], out var epx))
+                return new PixelLength(epx);
+            return AutoLength.Instance;
+        }
 
         return AutoLength.Instance;
     }
@@ -171,8 +194,30 @@ public class VhLength : Length
     public override string ToString() => $"{Value}vh";
 }
 
+public class ExLength : Length
+{
+    public float Value { get; }
+    public ExLength(float value) => Value = value;
+    public override float ToPixels(float reference, float rootFontSize, float viewportWidth, float viewportHeight) => Value * reference * 0.5f;
+    public override string ToString() => $"{Value}ex";
+}
+
+public class ChLength : Length
+{
+    public float Value { get; }
+    public ChLength(float value) => Value = value;
+    public override float ToPixels(float reference, float rootFontSize, float viewportWidth, float viewportHeight) => Value * reference * 0.5f;
+    public override string ToString() => $"{Value}ch";
+}
+
 public class ComputedStyle
 {
+    private readonly Dictionary<string, string> _customProperties = new(StringComparer.OrdinalIgnoreCase);
+
+    public void SetCustomProperty(string name, string value) => _customProperties[name] = value;
+    public string? GetCustomProperty(string name) => _customProperties.GetValueOrDefault(name);
+    public bool HasCustomProperty(string name) => _customProperties.ContainsKey(name);
+    public IEnumerable<KeyValuePair<string, string>> GetAllCustomProperties() => _customProperties;
     public Length Width { get; set; } = AutoLength.Instance;
     public Length Height { get; set; } = AutoLength.Instance;
     public Length Top { get; set; } = AutoLength.Instance;

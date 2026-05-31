@@ -102,6 +102,12 @@ public class CascadeResolver
                             treeOrder: treeOrder
                         );
                         _cascadeMap.Insert(prop.Key, prop.Value, priority);
+
+                        // Collect CSS custom properties (--*)
+                        if (prop.Key.StartsWith("--"))
+                        {
+                            CssFunctionEvaluator.SetCustomProperty(prop.Key[2..], prop.Value);
+                        }
                     }
                 }
             }
@@ -227,7 +233,14 @@ public class CascadeResolver
             case "forced-color-adjust": style.ForcedColorAdjust = value.ToLowerInvariant() == "none" ? ForcedColorAdjustType.None : ForcedColorAdjustType.Auto; break;
             case "background": ParseBackgroundShorthand(value, style); break;
             case "background-color": style.BackgroundColor = ColorParser.Parse(value); break;
-            case "background-image": style.BackgroundImage = value == "none" ? null : ParseUrl(value); break;
+            case "background-image":
+                if (value == "none")
+                    style.BackgroundImage = null;
+                else if (CssFunctionEvaluator.IsGradient(value))
+                    style.BackgroundImage = value;
+                else
+                    style.BackgroundImage = ParseUrl(value);
+                break;
             case "background-repeat": style.BackgroundRepeat = ParseBackgroundRepeat(value); break;
             case "background-position": ParseBackgroundPosition(value, style); break;
             case "background-position-x": style.BackgroundPositionX = ParsePositionKeywordOrLength(value); break;
@@ -1030,7 +1043,7 @@ public class CascadeResolver
         style.BorderTopWidth = w.Count > 0 ? w[0] : 0;
         style.BorderRightWidth = w.Count > 1 ? w[1] : w[0];
         style.BorderBottomWidth = w.Count > 2 ? w[2] : w[0];
-        style.BorderLeftWidth = w.Count > 3 ? w[3] : w[1];
+        style.BorderLeftWidth = w.Count > 3 ? w[3] : (w.Count > 1 ? w[1] : w[0]);
     }
 
     private void ParseBorderColor(string value, ComputedStyle style)
@@ -1040,7 +1053,7 @@ public class CascadeResolver
         style.BorderTopColor = c.Count > 0 ? c[0] : SKColors.Black;
         style.BorderRightColor = c.Count > 1 ? c[1] : c[0];
         style.BorderBottomColor = c.Count > 2 ? c[2] : c[0];
-        style.BorderLeftColor = c.Count > 3 ? c[3] : c[1];
+        style.BorderLeftColor = c.Count > 3 ? c[3] : (c.Count > 1 ? c[1] : c[0]);
     }
 
     private void ParseBorderStyle(string value, ComputedStyle style)
