@@ -1719,7 +1719,9 @@ public class LayoutEngine
         float currentCross = isRow ? box.ContentBox.Top : box.ContentBox.Left;
         float availableCross = isRow ? box.ContentBox.Height : box.ContentBox.Width;
 
-        // First pass: determine cross sizes per line
+        var lineCrossSizes = new Dictionary<FlexLine, float>();
+        
+        // First pass: determine cross sizes per line (without modifying styles)
         foreach (var line in lines)
         {
             float maxCrossInLine = 0;
@@ -1732,31 +1734,7 @@ public class LayoutEngine
                     if (crossSize > maxCrossInLine) maxCrossInLine = crossSize;
                 }
             }
-
-            // Apply align-items: stretch to set cross size if auto
-            foreach (var item in line.Items)
-            {
-                var childStyle = item.Element.ComputedStyle;
-                if (childStyle == null) continue;
-                bool isAutoCross = isRow
-                    ? (childStyle.Height is AutoLength || childStyle.Height == null)
-                    : (childStyle.Width is AutoLength || childStyle.Width == null);
-                if (isAutoCross && style.AlignItems == AlignItemsType.Stretch)
-                {
-                    // stretch: set cross size to line's cross size minus margins
-                    float marginBefore = isRow ? item.MarginTop : item.MarginLeft;
-                    float marginAfter = isRow ? item.MarginBottom : item.MarginRight;
-                    float crossStretch = Math.Max(0, maxCrossInLine - marginBefore - marginAfter);
-                    if (isRow && crossStretch > 0)
-                    {
-                        childStyle.Height = new PixelLength(crossStretch);
-                    }
-                    else if (!isRow && crossStretch > 0)
-                    {
-                        childStyle.Width = new PixelLength(crossStretch);
-                    }
-                }
-            }
+            lineCrossSizes[line] = maxCrossInLine;
         }
 
         // Second pass: position items
@@ -1780,16 +1758,7 @@ public class LayoutEngine
             float mainPos = lineMainStart + offset;
             if (isReverse) mainPos = lineMainStart + lineMainSize - offset;
 
-            float maxCrossInLine = 0;
-            foreach (var item in line.Items)
-            {
-                var childBox = CreateLayoutBox(item.Element, 0, 0, item.ComputedMainSize, box);
-                if (childBox != null)
-                {
-                    float crossSize = isRow ? childBox.MarginBox.Height : childBox.MarginBox.Width;
-                    if (crossSize > maxCrossInLine) maxCrossInLine = crossSize;
-                }
-            }
+            float maxCrossInLine = lineCrossSizes[line];
 
             int itemIndex = 0;
             foreach (var item in line.Items)
@@ -1817,7 +1786,8 @@ public class LayoutEngine
                         AlignItemsType.FlexEnd => itemCrossSpace,
                         AlignItemsType.Center => itemCrossSpace / 2,
                         AlignItemsType.Baseline => 0,
-                        _ => 0 // stretch handled in first pass
+                        AlignItemsType.Stretch => itemCrossSpace,
+                        _ => 0
                     };
                 }
 
