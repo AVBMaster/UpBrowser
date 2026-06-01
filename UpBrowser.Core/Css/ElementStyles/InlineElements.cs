@@ -152,8 +152,7 @@ public static class InlineElements
 
             case "abbr":
                 style.Display = DisplayType.Inline;
-                style.BorderBottomWidth = 1;
-                style.BorderBottomStyle = BorderStyle.Dotted;
+                style.TextDecoration = TextDecorationType.Underline;
                 style.Cursor = "help";
                 break;
 

@@ -61,7 +61,10 @@ public static class ElementStyleRegistry
         Register("figcaption", BlockElements.Apply);
         Register("details", BlockElements.Apply);
         Register("summary", BlockElements.Apply);
+        Register("dialog", BlockElements.Apply);
         Register("hr", BlockElements.Apply);
+        Register("search", BlockElements.Apply);
+        Register("hgroup", BlockElements.Apply);
 
         Register("span", InlineElements.Apply);
         Register("a", InlineElements.Apply);

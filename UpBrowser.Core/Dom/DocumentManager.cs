@@ -44,7 +44,7 @@ public class DocumentManager
         try
         {
             await LoadStylesFromHtml(angleSharpDoc, styleComputer, baseUrl);
-            styleComputer.ComputeStyles(doc);
+            styleComputer.ComputeStyles(doc, viewportWidth, viewportHeight);
         }
         catch (Exception ex)
         {
@@ -113,9 +113,26 @@ public class DocumentManager
         }
     }
 
-    private async Task ProcessImports(object stylesheet, StyleComputer styleComputer, string? baseUrl)
+    private async Task ProcessImports(Stylesheet stylesheet, StyleComputer styleComputer, string? baseUrl)
     {
-        await Task.CompletedTask;
+        foreach (var importRule in stylesheet.ImportRules)
+        {
+            if (string.IsNullOrEmpty(importRule.Url)) continue;
+            var url = ResolveUrl(baseUrl, importRule.Url);
+            if (url == null) continue;
+            try
+            {
+                using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
+                var cssText = await client.GetStringAsync(url);
+                var importedStylesheet = _cssParser.Parse(cssText);
+                await ProcessImports(importedStylesheet, styleComputer, url);
+                styleComputer.AddStylesheet(importedStylesheet);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[CSS] Failed to process @import '{importRule.Url}': {ex.Message}");
+            }
+        }
     }
 
     private static string? ResolveUrl(string? baseUrl, string href)

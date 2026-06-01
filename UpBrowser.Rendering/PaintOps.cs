@@ -817,6 +817,48 @@ public class DrawPathOp : PaintOp
     }
 }
 
+public class PushLayerOp : PaintOp
+{
+    public float Opacity { get; set; } = 1.0f;
+    public SKRect ClipRect { get; set; }
+    public bool HasClipRect { get; set; }
+    public SKPath? ClipPath { get; set; }
+    public SKImageFilter? ImageFilter { get; set; }
+
+    public override void Reset()
+    {
+        base.Reset();
+        Opacity = 1.0f;
+        ClipRect = default;
+        HasClipRect = false;
+        ClipPath = null;
+        ImageFilter = null;
+    }
+
+    public override void Execute(SKCanvas canvas)
+    {
+        var paint = new SKPaint();
+        paint.Color = SKColors.Black;
+        if (Opacity < 1.0f)
+            paint.Color = paint.Color.WithAlpha((byte)(Opacity * 255));
+        if (ImageFilter != null)
+            paint.ImageFilter = ImageFilter;
+
+        canvas.SaveLayer(paint);
+
+        if (ClipPath != null)
+            canvas.ClipPath(ClipPath, SKClipOperation.Intersect, true);
+        else if (HasClipRect && ClipRect.Width > 0 && ClipRect.Height > 0)
+            canvas.ClipRect(ClipRect, SKClipOperation.Intersect, true);
+    }
+}
+
+public class PopLayerOp : PaintOp
+{
+    public override void Reset() { base.Reset(); }
+    public override void Execute(SKCanvas canvas) { canvas.Restore(); }
+}
+
 public class PushClipOp : PaintOp
 {
     public SKRect ClipRect { get; set; }
@@ -952,6 +994,8 @@ public static class PaintOpPool
     private static readonly ConcurrentStack<PushTransformOp> _transformOps = new();
     private static readonly ConcurrentStack<PopTransformOp> _popTransformOps = new();
     private static readonly ConcurrentStack<DrawShadowOp> _shadowOps = new();
+    private static readonly ConcurrentStack<PushLayerOp> _layerOps = new();
+    private static readonly ConcurrentStack<PopLayerOp> _popLayerOps = new();
 
     public static DrawRectOp GetDrawRectOp() => _rectOps.TryPop(out var op) ? op : new DrawRectOp();
     public static DrawTextOp GetDrawTextOp() => _textOps.TryPop(out var op) ? op : new DrawTextOp();
@@ -963,6 +1007,8 @@ public static class PaintOpPool
     public static PushTransformOp GetPushTransformOp() => _transformOps.TryPop(out var op) ? op : new PushTransformOp();
     public static PopTransformOp GetPopTransformOp() => _popTransformOps.TryPop(out var op) ? op : new PopTransformOp();
     public static DrawShadowOp GetDrawShadowOp() => _shadowOps.TryPop(out var op) ? op : new DrawShadowOp();
+    public static PushLayerOp GetPushLayerOp() => _layerOps.TryPop(out var op) ? op : new PushLayerOp();
+    public static PopLayerOp GetPopLayerOp() => _popLayerOps.TryPop(out var op) ? op : new PopLayerOp();
 
     public static void Return(DrawRectOp op) { op.Reset(); if (_rectOps.Count < MaxPoolSize) _rectOps.Push(op); }
     public static void Return(DrawTextOp op) { op.Reset(); if (_textOps.Count < MaxPoolSize) _textOps.Push(op); }
@@ -974,6 +1020,8 @@ public static class PaintOpPool
     public static void Return(PushTransformOp op) { op.Reset(); if (_transformOps.Count < MaxPoolSize) _transformOps.Push(op); }
     public static void Return(PopTransformOp op) { op.Reset(); if (_popTransformOps.Count < MaxPoolSize) _popTransformOps.Push(op); }
     public static void Return(DrawShadowOp op) { op.Reset(); if (_shadowOps.Count < MaxPoolSize) _shadowOps.Push(op); }
+    public static void Return(PushLayerOp op) { op.Reset(); if (_layerOps.Count < MaxPoolSize) _layerOps.Push(op); }
+    public static void Return(PopLayerOp op) { op.Reset(); if (_popLayerOps.Count < MaxPoolSize) _popLayerOps.Push(op); }
 
     public static void ReturnOp(PaintOp op)
     {
@@ -989,6 +1037,8 @@ public static class PaintOpPool
             case PushTransformOp o: Return(o); break;
             case PopTransformOp o: Return(o); break;
             case DrawShadowOp o: Return(o); break;
+            case PushLayerOp o: Return(o); break;
+            case PopLayerOp o: Return(o); break;
         }
     }
 
@@ -1004,6 +1054,8 @@ public static class PaintOpPool
         _transformOps.Clear();
         _popTransformOps.Clear();
         _shadowOps.Clear();
+        _layerOps.Clear();
+        _popLayerOps.Clear();
     }
 }
 

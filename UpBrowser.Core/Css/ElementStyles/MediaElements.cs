@@ -13,6 +13,8 @@ public static class MediaElements
             case "img":
                 style.Display = DisplayType.InlineBlock;
                 style.VerticalAlign = VerticalAlignType.Bottom;
+                style.MaxWidth = new PixelLength(100);
+                style.Height = new PixelLength(0);
                 break;
 
             case "picture":
@@ -33,18 +35,11 @@ public static class MediaElements
             // 视频和音频
             case "video":
                 style.Display = DisplayType.InlineBlock;
-                style.BorderTopWidth = 1;
-                style.BorderRightWidth = 1;
-                style.BorderBottomWidth = 1;
-                style.BorderLeftWidth = 1;
-                style.BorderTopStyle = BorderStyle.Solid;
-                style.BorderRightStyle = BorderStyle.Solid;
-                style.BorderBottomStyle = BorderStyle.Solid;
-                style.BorderLeftStyle = BorderStyle.Solid;
-                style.BorderTopColor = SKColors.Gray;
-                style.BorderRightColor = SKColors.Gray;
-                style.BorderBottomColor = SKColors.Gray;
-                style.BorderLeftColor = SKColors.Gray;
+                style.MaxWidth = new PixelLength(100);
+                style.BorderTopWidth = 0;
+                style.BorderRightWidth = 0;
+                style.BorderBottomWidth = 0;
+                style.BorderLeftWidth = 0;
                 style.BackgroundColor = SKColors.Black;
                 style.Width = new PixelLength(300);
                 style.Height = new PixelLength(150);
@@ -68,18 +63,10 @@ public static class MediaElements
             // 嵌入内容
             case "iframe":
                 style.Display = DisplayType.InlineBlock;
-                style.BorderTopWidth = 1;
-                style.BorderRightWidth = 1;
-                style.BorderBottomWidth = 1;
-                style.BorderLeftWidth = 1;
-                style.BorderTopStyle = BorderStyle.Solid;
-                style.BorderRightStyle = BorderStyle.Solid;
-                style.BorderBottomStyle = BorderStyle.Solid;
-                style.BorderLeftStyle = BorderStyle.Solid;
-                style.BorderTopColor = SKColors.Gray;
-                style.BorderRightColor = SKColors.Gray;
-                style.BorderBottomColor = SKColors.Gray;
-                style.BorderLeftColor = SKColors.Gray;
+                style.BorderTopWidth = 0;
+                style.BorderRightWidth = 0;
+                style.BorderBottomWidth = 0;
+                style.BorderLeftWidth = 0;
                 style.Width = new PixelLength(300);
                 style.Height = new PixelLength(150);
                 break;

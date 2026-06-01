@@ -19,9 +19,9 @@ public class StyleComputer
         _resolver.AddStylesheet(stylesheet);
     }
 
-    public void ComputeStyles(Document document)
+    public void ComputeStyles(Document document, float viewportWidth = 1024f, float viewportHeight = 768f, string colorScheme = "light")
     {
-        _resolver.ResolveStyles(document);
+        _resolver.ResolveStyles(document, viewportWidth, viewportHeight, colorScheme);
     }
 
     /// <summary>

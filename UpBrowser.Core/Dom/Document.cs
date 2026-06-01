@@ -101,6 +101,8 @@ public abstract class Element : Node
     public ComputedStyle? ComputedStyle { get; set; }
     public LayoutBox? LayoutBox { get; set; }
     public string? NamespaceUri { get; set; }
+    public Dictionary<string, string>? BeforeStyles { get; set; }
+    public Dictionary<string, string>? AfterStyles { get; set; }
 
     private string[]? _classList;
     public string[] ClassList

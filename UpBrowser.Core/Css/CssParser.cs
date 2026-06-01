@@ -15,11 +15,6 @@ public class CssParser
 
         cssText = CommentRegex.Replace(cssText, "");
 
-        var bracePairs = new List<(int start, int end)>();
-        int braceDepth = 0;
-        int lastOpen = -1;
-
-        // Strip string literals before brace matching to avoid matching braces inside strings
         var cleaned = new System.Text.StringBuilder(cssText.Length);
         bool inString = false;
         char stringChar = '\0';
@@ -42,39 +37,8 @@ public class CssParser
         }
         cssText = cleaned.ToString();
 
-        for (int i = 0; i < cssText.Length; i++)
-        {
-            if (cssText[i] == '{') { braceDepth++; if (braceDepth == 1) lastOpen = i; }
-            else if (cssText[i] == '}') { braceDepth--; if (braceDepth == 0) bracePairs.Add((lastOpen, i)); }
-        }
-
-        int lastEnd = -1;
-        foreach (var (start, end) in bracePairs)
-        {
-            var selectorPart = cssText[(lastEnd + 1)..start].Trim();
-            var bodyPart = cssText[(start + 1)..end].Trim();
-            lastEnd = end;
-
-            if (string.IsNullOrEmpty(selectorPart)) continue;
-
-            // Skip at-rules entirely (not supported yet)
-            if (selectorPart.StartsWith("@")) continue;
-
-            var selectors = ParseSelectors(selectorPart);
-            var (properties, importantProps) = ParsePropertiesWithImportance(bodyPart);
-
-            foreach (var selector in selectors)
-            {
-                var rule = new CssRule
-                {
-                    Selector = selector,
-                    Specificity = CalculateSpecificity(selector),
-                    Properties = new Dictionary<string, string>(properties),
-                    ImportantProperties = new HashSet<string>(importantProps, StringComparer.OrdinalIgnoreCase)
-                };
-                stylesheet.Rules.Add(rule);
-            }
-        }
+        int pos = 0;
+        ParseRuleList(cssText, ref pos, stylesheet);
 
         stylesheet.Rules.Sort((a, b) =>
         {
@@ -87,6 +51,401 @@ public class CssParser
             return a.Specificity.d.CompareTo(b.Specificity.d);
         });
         return stylesheet;
+    }
+
+    private void ParseRuleList(string css, ref int pos, Stylesheet stylesheet)
+    {
+        while (pos < css.Length)
+        {
+            SkipWhitespace(css, ref pos);
+            if (pos >= css.Length) break;
+
+            if (css[pos] == '}') { pos++; continue; }
+
+            if (css[pos] == '@')
+            {
+                int start = pos;
+                pos++;
+                int identStart = pos;
+                while (pos < css.Length && (char.IsLetterOrDigit(css[pos]) || css[pos] == '-')) pos++;
+                string atName = css[identStart..pos].ToLowerInvariant();
+
+                SkipWhitespace(css, ref pos);
+
+                if (atName == "media")
+                {
+                    var condition = ReadUntilBrace(css, ref pos);
+                    if (pos < css.Length && css[pos] == '{')
+                    {
+                        pos++;
+                        var rule = new MediaRule { Condition = condition.Trim() };
+                        int depth = 1;
+                        int blockStart = pos;
+                        while (pos < css.Length && depth > 0)
+                        {
+                            if (css[pos] == '{') depth++;
+                            else if (css[pos] == '}') depth--;
+                            pos++;
+                        }
+                        string blockContent = css[blockStart..(pos - 1)];
+                        int innerPos = 0;
+                        ParseRuleList(blockContent, ref innerPos, rule, stylesheet);
+                        stylesheet.MediaRules.Add(rule);
+                    }
+                }
+                else if (atName == "import")
+                {
+                    var urlPart = ReadUntilSemicolon(css, ref pos);
+                    var rule = new ImportRule();
+                    urlPart = urlPart.Trim();
+                    if (urlPart.StartsWith("url("))
+                        rule.Url = urlPart[4..^1].Trim().Trim('"', '\'');
+                    else
+                        rule.Url = urlPart.Trim().Trim('"', '\'');
+                    var semiIdx = css.IndexOf(';', pos);
+                    if (semiIdx > 0)
+                    {
+                        var afterUrl = css[pos..semiIdx].Trim();
+                        if (!string.IsNullOrEmpty(afterUrl))
+                            rule.MediaCondition = afterUrl;
+                        pos = semiIdx + 1;
+                    }
+                    else
+                    {
+                        pos = css.IndexOf(';', pos) + 1;
+                    }
+                    stylesheet.ImportRules.Add(rule);
+                }
+                else if (atName == "font-face")
+                {
+                    SkipWhitespace(css, ref pos);
+                    if (pos < css.Length && css[pos] == '{')
+                    {
+                        pos++;
+                        int depth = 1;
+                        int blockStart = pos;
+                        while (pos < css.Length && depth > 0)
+                        {
+                            if (css[pos] == '{') depth++;
+                            else if (css[pos] == '}') depth--;
+                            pos++;
+                        }
+                        string blockContent = css[blockStart..(pos - 1)];
+                        var (props, _) = ParsePropertiesWithImportance(blockContent);
+                        stylesheet.FontFaceRules.Add(new FontFaceRule { Properties = props });
+                    }
+                }
+                else if (atName == "keyframes" || atName == "-webkit-keyframes" || atName == "-moz-keyframes")
+                {
+                    SkipWhitespace(css, ref pos);
+                    int nameStart = pos;
+                    while (pos < css.Length && css[pos] != '{') pos++;
+                    string name = css[nameStart..pos].Trim();
+                    if (pos < css.Length && css[pos] == '{')
+                    {
+                        pos++;
+                        var rule = new KeyframesRule { Name = name };
+                        int depth = 1;
+                        int blockStart = pos;
+                        while (pos < css.Length && depth > 0)
+                        {
+                            if (css[pos] == '{') depth++;
+                            else if (css[pos] == '}') depth--;
+                            pos++;
+                        }
+                        string blockContent = css[blockStart..(pos - 1)];
+                        int innerPos = 0;
+                        ParseKeyframeBlocks(blockContent, ref innerPos, rule);
+                        stylesheet.KeyframesRules.Add(rule);
+                    }
+                }
+                else if (atName == "supports")
+                {
+                    var condition = ReadUntilBrace(css, ref pos);
+                    if (pos < css.Length && css[pos] == '{')
+                    {
+                        pos++;
+                        var rule = new SupportsRule { Condition = condition.Trim() };
+                        int depth = 1;
+                        int blockStart = pos;
+                        while (pos < css.Length && depth > 0)
+                        {
+                            if (css[pos] == '{') depth++;
+                            else if (css[pos] == '}') depth--;
+                            pos++;
+                        }
+                        string blockContent = css[blockStart..(pos - 1)];
+                        int innerPos = 0;
+                        ParseRuleList(blockContent, ref innerPos, rule, stylesheet);
+                        stylesheet.SupportsRules.Add(rule);
+                    }
+                }
+                else if (atName == "layer")
+                {
+                    SkipWhitespace(css, ref pos);
+                    string? layerName = null;
+                    if (pos < css.Length && css[pos] != '{')
+                    {
+                        int nameStart = pos;
+                        while (pos < css.Length && css[pos] != '{' && css[pos] != ';') pos++;
+                        layerName = css[nameStart..pos].Trim();
+                        if (pos < css.Length && css[pos] == ';') { pos++; continue; }
+                    }
+                    if (pos < css.Length && css[pos] == '{')
+                    {
+                        pos++;
+                        var rule = new LayerRule { Name = layerName };
+                        int depth = 1;
+                        int blockStart = pos;
+                        while (pos < css.Length && depth > 0)
+                        {
+                            if (css[pos] == '{') depth++;
+                            else if (css[pos] == '}') depth--;
+                            pos++;
+                        }
+                        string blockContent = css[blockStart..(pos - 1)];
+                        int innerPos = 0;
+                        ParseRuleList(blockContent, ref innerPos, rule, stylesheet);
+                        stylesheet.LayerRules.Add(rule);
+                    }
+                }
+                else
+                {
+                    SkipUntilSemicolonOrBrace(css, ref pos);
+                }
+            }
+            else
+            {
+                int ruleStart = pos;
+                SkipUntilBrace(css, ref pos);
+                string selectorPart = css[ruleStart..pos].Trim();
+                if (pos < css.Length && css[pos] == '{')
+                {
+                    pos++;
+                    int depth = 1;
+                    int blockStart = pos;
+                    while (pos < css.Length && depth > 0)
+                    {
+                        if (css[pos] == '{') depth++;
+                        else if (css[pos] == '}') depth--;
+                        pos++;
+                    }
+                    string bodyPart = css[blockStart..(pos - 1)].Trim();
+
+                    if (!string.IsNullOrEmpty(selectorPart))
+                    {
+                        var selectors = ParseSelectors(selectorPart);
+                        var (properties, importantProps) = ParsePropertiesWithImportance(bodyPart);
+                        foreach (var selector in selectors)
+                        {
+                            var rule = new CssRule
+                            {
+                                Selector = selector,
+                                Specificity = CalculateSpecificity(selector),
+                                Properties = new Dictionary<string, string>(properties),
+                                ImportantProperties = new HashSet<string>(importantProps, StringComparer.OrdinalIgnoreCase)
+                            };
+                            stylesheet.Rules.Add(rule);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private void ParseRuleList(string css, ref int pos, CssAtRule parentRule, Stylesheet stylesheet)
+    {
+        while (pos < css.Length)
+        {
+            SkipWhitespace(css, ref pos);
+            if (pos >= css.Length) break;
+            if (css[pos] == '}') break;
+
+            if (css[pos] == '@')
+            {
+                pos++;
+                int identStart = pos;
+                while (pos < css.Length && (char.IsLetterOrDigit(css[pos]) || css[pos] == '-')) pos++;
+                string atName = css[identStart..pos].ToLowerInvariant();
+
+                SkipWhitespace(css, ref pos);
+
+                if (atName == "import")
+                {
+                    var urlPart = ReadUntilSemicolon(css, ref pos);
+                    var rule = new ImportRule();
+                    urlPart = urlPart.Trim();
+                    if (urlPart.StartsWith("url("))
+                        rule.Url = urlPart[4..^1].Trim().Trim('"', '\'');
+                    else
+                        rule.Url = urlPart.Trim().Trim('"', '\'');
+                    pos = css.IndexOf(';', pos) + 1;
+                    stylesheet.ImportRules.Add(rule);
+                }
+                else if (atName == "font-face")
+                {
+                    SkipWhitespace(css, ref pos);
+                    if (pos < css.Length && css[pos] == '{')
+                    {
+                        pos++;
+                        int depth = 1;
+                        int blockStart = pos;
+                        while (pos < css.Length && depth > 0)
+                        {
+                            if (css[pos] == '{') depth++;
+                            else if (css[pos] == '}') depth--;
+                            pos++;
+                        }
+                        string blockContent = css[blockStart..(pos - 1)];
+                        var (props, _) = ParsePropertiesWithImportance(blockContent);
+                        stylesheet.FontFaceRules.Add(new FontFaceRule { Properties = props });
+                    }
+                }
+                else
+                {
+                    SkipUntilSemicolonOrBrace(css, ref pos);
+                }
+            }
+            else
+            {
+                int ruleStart = pos;
+                SkipUntilBrace(css, ref pos);
+                string selectorPart = css[ruleStart..pos].Trim();
+                if (pos < css.Length && css[pos] == '{')
+                {
+                    pos++;
+                    int depth = 1;
+                    int blockStart = pos;
+                    while (pos < css.Length && depth > 0)
+                    {
+                        if (css[pos] == '{') depth++;
+                        else if (css[pos] == '}') depth--;
+                        pos++;
+                    }
+                    string bodyPart = css[blockStart..(pos - 1)].Trim();
+
+                    if (!string.IsNullOrEmpty(selectorPart))
+                    {
+                        var selectors = ParseSelectors(selectorPart);
+                        var (properties, importantProps) = ParsePropertiesWithImportance(bodyPart);
+
+                        if (parentRule is MediaRule mediaRule)
+                        {
+                            foreach (var selector in selectors)
+                            {
+                                mediaRule.Rules.Add(new CssRule
+                                {
+                                    Selector = selector,
+                                    Specificity = CalculateSpecificity(selector),
+                                    Properties = new Dictionary<string, string>(properties),
+                                    ImportantProperties = new HashSet<string>(importantProps, StringComparer.OrdinalIgnoreCase)
+                                });
+                            }
+                        }
+                        else if (parentRule is SupportsRule supportsRule)
+                        {
+                            foreach (var selector in selectors)
+                            {
+                                supportsRule.Rules.Add(new CssRule
+                                {
+                                    Selector = selector,
+                                    Specificity = CalculateSpecificity(selector),
+                                    Properties = new Dictionary<string, string>(properties),
+                                    ImportantProperties = new HashSet<string>(importantProps, StringComparer.OrdinalIgnoreCase)
+                                });
+                            }
+                        }
+                        else if (parentRule is LayerRule layerRule)
+                        {
+                            foreach (var selector in selectors)
+                            {
+                                layerRule.Rules.Add(new CssRule
+                                {
+                                    Selector = selector,
+                                    Specificity = CalculateSpecificity(selector),
+                                    Properties = new Dictionary<string, string>(properties),
+                                    ImportantProperties = new HashSet<string>(importantProps, StringComparer.OrdinalIgnoreCase)
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private void ParseKeyframeBlocks(string css, ref int pos, KeyframesRule rule)
+    {
+        while (pos < css.Length)
+        {
+            SkipWhitespace(css, ref pos);
+            if (pos >= css.Length) break;
+            if (css[pos] == '}') break;
+
+            int selStart = pos;
+            SkipUntilBrace(css, ref pos);
+            string selector = css[selStart..pos].Trim();
+            if (pos < css.Length && css[pos] == '{')
+            {
+                pos++;
+                int depth = 1;
+                int blockStart = pos;
+                while (pos < css.Length && depth > 0)
+                {
+                    if (css[pos] == '{') depth++;
+                    else if (css[pos] == '}') depth--;
+                    pos++;
+                }
+                string body = css[blockStart..(pos - 1)].Trim();
+                var (props, _) = ParsePropertiesWithImportance(body);
+                rule.Keyframes.Add(new KeyframeBlock
+                {
+                    Selector = selector,
+                    Properties = props
+                });
+            }
+        }
+    }
+
+    private void SkipWhitespace(string css, ref int pos)
+    {
+        while (pos < css.Length && char.IsWhiteSpace(css[pos])) pos++;
+    }
+
+    private string ReadUntilBrace(string css, ref int pos)
+    {
+        int start = pos;
+        while (pos < css.Length && css[pos] != '{') pos++;
+        return css[start..pos];
+    }
+
+    private string ReadUntilSemicolon(string css, ref int pos)
+    {
+        int start = pos;
+        while (pos < css.Length && css[pos] != ';' && css[pos] != '{') pos++;
+        return css[start..pos];
+    }
+
+    private void SkipUntilBrace(string css, ref int pos)
+    {
+        while (pos < css.Length && css[pos] != '{' && css[pos] != '}') pos++;
+    }
+
+    private void SkipUntilSemicolonOrBrace(string css, ref int pos)
+    {
+        int depth = 0;
+        while (pos < css.Length)
+        {
+            if (css[pos] == '{') depth++;
+            else if (css[pos] == '}')
+            {
+                if (depth == 0) break;
+                depth--;
+            }
+            else if (css[pos] == ';' && depth == 0) { pos++; return; }
+            pos++;
+        }
+        if (pos < css.Length) pos++;
     }
 
     private List<string> ParseSelectors(string selectorText)
@@ -304,8 +663,60 @@ public class CssParser
 public class Stylesheet
 {
     public List<CssRule> Rules { get; } = new();
+    public List<MediaRule> MediaRules { get; } = new();
+    public List<FontFaceRule> FontFaceRules { get; } = new();
+    public List<ImportRule> ImportRules { get; } = new();
+    public List<KeyframesRule> KeyframesRules { get; } = new();
+    public List<SupportsRule> SupportsRules { get; } = new();
+    public List<LayerRule> LayerRules { get; } = new();
 
     public void AddRule(CssRule rule) => Rules.Add(rule);
+}
+
+public abstract class CssAtRule
+{
+    public string? MediaCondition { get; set; }
+}
+
+public class MediaRule : CssAtRule
+{
+    public string Condition { get; set; } = "";
+    public List<CssRule> Rules { get; set; } = new();
+}
+
+public class FontFaceRule : CssAtRule
+{
+    public Dictionary<string, string> Properties { get; set; } = new();
+}
+
+public class ImportRule : CssAtRule
+{
+    public new string? MediaCondition { get; set; }
+    public string Url { get; set; } = "";
+}
+
+public class KeyframesRule : CssAtRule
+{
+    public string Name { get; set; } = "";
+    public List<KeyframeBlock> Keyframes { get; set; } = new();
+}
+
+public class KeyframeBlock
+{
+    public string Selector { get; set; } = "";
+    public Dictionary<string, string> Properties { get; set; } = new();
+}
+
+public class SupportsRule : CssAtRule
+{
+    public string Condition { get; set; } = "";
+    public List<CssRule> Rules { get; set; } = new();
+}
+
+public class LayerRule : CssAtRule
+{
+    public string? Name { get; set; }
+    public List<CssRule> Rules { get; set; } = new();
 }
 
 public class CssRule

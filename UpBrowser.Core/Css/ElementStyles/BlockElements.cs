@@ -63,26 +63,23 @@ public static class BlockElements
                 style.MarginBottom = new PixelLength(4);
                 break;
 
-            // 列表元素 —— 增大 line-height 使间距更明显，li 不设 margin（与浏览器一致）
+            // 列表元素
             case "ul":
-                style.Display = DisplayType.Block;
-                style.MarginTop = new PixelLength(8);
-                style.MarginBottom = new PixelLength(8);
+                style.Display = DisplayType.ListItem;
+                style.MarginTop = new PixelLength(16);
+                style.MarginBottom = new PixelLength(16);
                 style.PaddingLeft = new PixelLength(40);
-                style.LineHeight = 1.6f;   // 增大行高以提供足够间距
                 break;
             case "ol":
-                style.Display = DisplayType.Block;
-                style.MarginTop = new PixelLength(8);
-                style.MarginBottom = new PixelLength(8);
+                style.Display = DisplayType.ListItem;
+                style.MarginTop = new PixelLength(16);
+                style.MarginBottom = new PixelLength(16);
                 style.PaddingLeft = new PixelLength(40);
-                style.LineHeight = 1.6f;
                 break;
             case "li":
                 style.Display = DisplayType.ListItem;
-                style.PaddingTop = new PixelLength(2);
-                style.PaddingBottom = new PixelLength(2);
-                style.PaddingLeft = new PixelLength(20);
+                style.MarginTop = new PixelLength(0);
+                style.MarginBottom = new PixelLength(0);
                 break;
             case "dl":
                 style.Display = DisplayType.Block;
@@ -103,43 +100,43 @@ public static class BlockElements
             // 表格元素
             case "table":
                 style.Display = DisplayType.Table;
-                style.BorderCollapse = true;
+                style.BorderCollapse = false;
                 style.MarginTop = new PixelLength(12);
                 style.MarginBottom = new PixelLength(12);
                 break;
             case "thead":
-                style.Display = DisplayType.TableRow;
+                style.Display = DisplayType.TableHeaderGroup;
                 style.VerticalAlign = VerticalAlignType.Middle;
                 break;
             case "tbody":
-                style.Display = DisplayType.TableRow;
+                style.Display = DisplayType.TableRowGroup;
                 style.VerticalAlign = VerticalAlignType.Middle;
                 break;
             case "tfoot":
-                style.Display = DisplayType.TableRow;
+                style.Display = DisplayType.TableFooterGroup;
                 style.VerticalAlign = VerticalAlignType.Middle;
                 break;
             case "tr":
                 style.Display = DisplayType.TableRow;
-                style.VerticalAlign = VerticalAlignType.Inherit;
+                style.VerticalAlign = VerticalAlignType.Middle;
                 break;
             case "th":
                 style.Display = DisplayType.TableCell;
                 style.FontWeight = FontWeight.Bold;
                 style.TextAlign = TextAlignType.Center;
-                style.VerticalAlign = VerticalAlignType.Inherit;
-                style.PaddingTop = new PixelLength(4);
-                style.PaddingBottom = new PixelLength(4);
-                style.PaddingLeft = new PixelLength(8);
-                style.PaddingRight = new PixelLength(8);
+                style.VerticalAlign = VerticalAlignType.Middle;
+                style.PaddingTop = new PixelLength(1);
+                style.PaddingBottom = new PixelLength(1);
+                style.PaddingLeft = new PixelLength(5);
+                style.PaddingRight = new PixelLength(5);
                 break;
             case "td":
                 style.Display = DisplayType.TableCell;
-                style.VerticalAlign = VerticalAlignType.Inherit;
-                style.PaddingTop = new PixelLength(4);
-                style.PaddingBottom = new PixelLength(4);
-                style.PaddingLeft = new PixelLength(8);
-                style.PaddingRight = new PixelLength(8);
+                style.VerticalAlign = VerticalAlignType.Middle;
+                style.PaddingTop = new PixelLength(1);
+                style.PaddingBottom = new PixelLength(1);
+                style.PaddingLeft = new PixelLength(5);
+                style.PaddingRight = new PixelLength(5);
                 break;
             case "caption":
                 style.Display = DisplayType.TableCaption;
@@ -229,8 +226,8 @@ public static class BlockElements
                 break;
             case "figure":
                 style.Display = DisplayType.Block;
-                style.MarginTop = new PixelLength(12);
-                style.MarginBottom = new PixelLength(12);
+                style.MarginTop = new PixelLength(16);
+                style.MarginBottom = new PixelLength(16);
                 style.MarginLeft = new PixelLength(40);
                 style.MarginRight = new PixelLength(40);
                 break;
@@ -245,8 +242,18 @@ public static class BlockElements
             // 交互元素
             case "details":
                 style.Display = DisplayType.Block;
-                style.MarginTop = new PixelLength(12);
-                style.MarginBottom = new PixelLength(12);
+                style.PaddingTop = new PixelLength(8);
+                style.PaddingBottom = new PixelLength(8);
+                style.PaddingLeft = new PixelLength(8);
+                style.PaddingRight = new PixelLength(8);
+                style.BorderTopWidth = 1;
+                style.BorderBottomWidth = 1;
+                style.BorderLeftWidth = 1;
+                style.BorderRightWidth = 1;
+                style.BorderTopColor = SKColor.Parse("#CCCCCC");
+                style.BorderBottomColor = SKColor.Parse("#CCCCCC");
+                style.BorderLeftColor = SKColor.Parse("#CCCCCC");
+                style.BorderRightColor = SKColor.Parse("#CCCCCC");
                 break;
             case "summary":
                 style.Display = DisplayType.Block;
@@ -254,21 +261,29 @@ public static class BlockElements
                 style.Cursor = "pointer";
                 break;
             case "dialog":
-                style.Display = DisplayType.None;
+                style.Display = DisplayType.Block;
                 style.Position = PositionType.Absolute;
-                style.BackgroundColor = SKColors.White;
+                style.MarginTop = new PixelLength(0);
+                style.MarginBottom = new PixelLength(0);
+                style.MarginLeft = new PixelLength(0);
+                style.MarginRight = new PixelLength(0);
+                style.PaddingTop = new PixelLength(16);
+                style.PaddingBottom = new PixelLength(16);
+                style.PaddingLeft = new PixelLength(16);
+                style.PaddingRight = new PixelLength(16);
                 style.BorderTopWidth = 1;
                 style.BorderBottomWidth = 1;
                 style.BorderLeftWidth = 1;
                 style.BorderRightWidth = 1;
-                style.BorderTopColor = SKColor.Parse("#808080");
-                style.BorderBottomColor = SKColor.Parse("#808080");
-                style.BorderLeftColor = SKColor.Parse("#808080");
-                style.BorderRightColor = SKColor.Parse("#808080");
-                style.PaddingTop = new PixelLength(8);
-                style.PaddingBottom = new PixelLength(8);
-                style.PaddingLeft = new PixelLength(16);
-                style.PaddingRight = new PixelLength(16);
+                style.BorderTopStyle = BorderStyle.Solid;
+                style.BorderRightStyle = BorderStyle.Solid;
+                style.BorderBottomStyle = BorderStyle.Solid;
+                style.BorderLeftStyle = BorderStyle.Solid;
+                style.BorderTopColor = SKColors.Black;
+                style.BorderBottomColor = SKColors.Black;
+                style.BorderLeftColor = SKColors.Black;
+                style.BorderRightColor = SKColors.Black;
+                style.BackgroundColor = SKColors.White;
                 break;
 
             // 分隔线
@@ -300,16 +315,20 @@ public static class BlockElements
                 break;
             case "fieldset":
                 style.Display = DisplayType.Block;
-                style.MarginTop = new PixelLength(12);
-                style.MarginBottom = new PixelLength(12);
-                style.PaddingTop = new PixelLength(8);
-                style.PaddingBottom = new PixelLength(8);
-                style.PaddingLeft = new PixelLength(8);
-                style.PaddingRight = new PixelLength(8);
+                style.MarginTop = new PixelLength(0);
+                style.MarginBottom = new PixelLength(8);
+                style.PaddingTop = new PixelLength(6);
+                style.PaddingBottom = new PixelLength(10);
+                style.PaddingLeft = new PixelLength(12);
+                style.PaddingRight = new PixelLength(12);
                 style.BorderTopWidth = 1;
                 style.BorderBottomWidth = 1;
                 style.BorderLeftWidth = 1;
                 style.BorderRightWidth = 1;
+                style.BorderTopStyle = BorderStyle.Solid;
+                style.BorderRightStyle = BorderStyle.Solid;
+                style.BorderBottomStyle = BorderStyle.Solid;
+                style.BorderLeftStyle = BorderStyle.Solid;
                 style.BorderTopColor = SKColor.Parse("#DADCE0");
                 style.BorderBottomColor = SKColor.Parse("#DADCE0");
                 style.BorderLeftColor = SKColor.Parse("#DADCE0");
@@ -353,6 +372,14 @@ public static class BlockElements
                 style.MarginBottom = new PixelLength(12);
                 break;
             case "noscript":
+                style.Display = DisplayType.Block;
+                break;
+
+            // 其他语义化元素
+            case "search":
+                style.Display = DisplayType.Block;
+                break;
+            case "hgroup":
                 style.Display = DisplayType.Block;
                 break;
         }

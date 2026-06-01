@@ -559,6 +559,8 @@ public class ComputedStyle
 
     public Length RowGap { get; set; } = new PixelLength(0);
     public Length ColumnGap { get; set; } = new PixelLength(0);
+    public int ColumnCount { get; set; }
+    public Length? ColumnWidth { get; set; }
 
     public float OutlineWidth { get; set; }
     public SKColor OutlineColor { get; set; } = SKColors.Black;
@@ -744,6 +746,7 @@ public class ComputedStyle
             TextUnderlineOffset = TextUnderlineOffset,
             TextEmphasis = TextEmphasis, TextEmphasisColor = TextEmphasisColor, TextEmphasisStyle = TextEmphasisStyle,
             RowGap = RowGap, ColumnGap = ColumnGap,
+            ColumnCount = ColumnCount, ColumnWidth = ColumnWidth,
             OutlineWidth = OutlineWidth, OutlineColor = OutlineColor, OutlineStyle = OutlineStyle, OutlineOffset = OutlineOffset,
             TableLayout = TableLayout, CaptionSide = CaptionSide, EmptyCells = EmptyCells, Content = Content,
             CounterIncrement = CounterIncrement, CounterReset = CounterReset, CounterSet = CounterSet, Quotes = Quotes,
@@ -932,6 +935,22 @@ public class LayoutBox
     public List<InlineRun>? LineRuns { get; set; }
     public bool IsFloating { get; set; }
     public FloatType Float { get; set; }
+
+    public bool IsScrollContainer { get; set; }
+    public float ScrollContentWidth { get; set; }
+    public float ScrollContentHeight { get; set; }
+    public float ScrollX { get; set; }
+    public float ScrollY { get; set; }
+
+    public bool IsSticky { get; set; }
+    public float StickyTop { get; set; }
+    public float StickyLeft { get; set; }
+
+    public bool IsMultiColumn { get; set; }
+    public int ColumnCount { get; set; }
+    public float ColumnWidth { get; set; }
+    public float ColumnGapSize { get; set; }
+    public List<LayoutBox>? Columns { get; set; }
 
     public SKRect AlignToDevice(SKCanvas canvas)
     {

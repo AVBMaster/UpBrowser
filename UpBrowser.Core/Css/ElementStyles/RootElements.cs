@@ -15,8 +15,9 @@ public static class RootElements
                 style.MarginBottom = new PixelLength(0);
                 style.MarginLeft = new PixelLength(0);
                 style.MarginRight = new PixelLength(0);
+                style.FontFamily = "sans-serif";
                 style.FontSize = 16;
-                style.LineHeight = 1.2f;
+                style.LineHeight = 1.15f;
                 // 透明背景，让 body 背景透出
                 style.BackgroundColor = null;
                 break;

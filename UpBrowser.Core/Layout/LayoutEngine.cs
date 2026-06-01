@@ -261,6 +261,10 @@ public class LayoutEngine
         box.ContentBox = LayoutMath.RoundRect(box.ContentBox, _dpiScale);
 
         box.LineHeight = style.LineHeight * style.FontSize;
+
+        // Generate ::before and ::after pseudo-element content
+        GeneratePseudoElementContent(element, box, style);
+
         element.LayoutBox = box;
         box.ZIndex = style.ZIndex;
 
@@ -439,7 +443,7 @@ public class LayoutEngine
                 LayoutInlineChildren(element, box, childX, childY, childAvailableWidth);
                 break;
             case DisplayType.Table:
-                LayoutTable(element, box, childX, childY, childAvailableWidth);
+                TableLayoutAlgorithm.LayoutTable(element, box, childAvailableWidth);
                 break;
             case DisplayType.ListItem:
                 LayoutBlockChildren(element, box, childX, ref childY, childAvailableWidth);
@@ -450,6 +454,60 @@ public class LayoutEngine
         }
 
         AdjustBoxHeightFromContent(box);
+
+        // Detect scroll containers
+        if (style.Overflow == OverflowType.Scroll || style.Overflow == OverflowType.Auto ||
+            style.OverflowX == OverflowType.Scroll || style.OverflowX == OverflowType.Auto ||
+            style.OverflowY == OverflowType.Scroll || style.OverflowY == OverflowType.Auto)
+        {
+            box.IsScrollContainer = true;
+            box.ScrollContentWidth = box.ContentBox.Width;
+            box.ScrollContentHeight = box.ContentBox.Height;
+            foreach (var child in box.Children)
+            {
+                if (child.MarginBox.Right > box.ContentBox.Left + box.ScrollContentWidth)
+                    box.ScrollContentWidth = child.MarginBox.Right - box.ContentBox.Left;
+                if (child.MarginBox.Bottom > box.ContentBox.Top + box.ScrollContentHeight)
+                    box.ScrollContentHeight = child.MarginBox.Bottom - box.ContentBox.Top;
+            }
+            if (box.Lines != null && box.Lines.Count > 0)
+            {
+                float maxLineWidth = 0;
+                foreach (var line in box.Lines)
+                {
+                    float lineWidth = 0;
+                    foreach (var run in line.Runs) lineWidth += run.Width;
+                    if (lineWidth > maxLineWidth) maxLineWidth = lineWidth;
+                }
+                if (maxLineWidth > box.ScrollContentWidth)
+                    box.ScrollContentWidth = maxLineWidth;
+                float linesHeight = box.Lines.Last().Y + box.Lines.Last().Height - box.ContentBox.Top;
+                if (linesHeight > box.ScrollContentHeight)
+                    box.ScrollContentHeight = linesHeight;
+            }
+        }
+
+        // Detect sticky
+        if (style.Position == PositionType.Sticky)
+        {
+            box.IsSticky = true;
+            box.StickyTop = style.Top is PixelLength st ? st.Value : 0;
+            box.StickyLeft = style.Left is PixelLength sl ? sl.Value : 0;
+        }
+
+        // Apply text-overflow: ellipsis
+        if (style.TextOverflow == TextOverflowType.Ellipsis &&
+            (style.Overflow == OverflowType.Hidden || style.OverflowX == OverflowType.Hidden) &&
+            box.Lines != null && box.Lines.Count > 0)
+        {
+            ApplyTextEllipsis(box, style);
+        }
+
+        // Multi-column layout
+        if (style.ColumnCount > 0 || (style.ColumnWidth != null && style.ColumnWidth is not AutoLength))
+        {
+            ApplyMultiColumn(element, box, style);
+        }
 
         bool isAutoWidth = style.Width is AutoLength || style.Width is null;
         if (isAutoWidth && (style.Display == DisplayType.Inline || style.Display == DisplayType.InlineBlock))
@@ -2144,5 +2202,127 @@ public class LayoutEngine
             box.BorderBox = new SKRect(box.BorderBox.Left, box.BorderBox.Top, box.BorderBox.Right, maxBottom + paddingBottom + borderBottom);
             box.MarginBox = new SKRect(box.MarginBox.Left, box.MarginBox.Top, box.MarginBox.Right, maxBottom + paddingBottom + borderBottom + marginBottom);
         }
+    }
+
+    private void GeneratePseudoElementContent(Element element, LayoutBox box, ComputedStyle style)
+    {
+        if (element.BeforeStyles != null && element.BeforeStyles.TryGetValue("content", out var beforeContent))
+        {
+            beforeContent = beforeContent.Trim('"', '\'');
+            if (!string.IsNullOrEmpty(beforeContent) && beforeContent != "none")
+            {
+                var beforeNode = new TextNode(beforeContent);
+                beforeNode.Parent = element;
+                element.Children.Insert(0, beforeNode);
+            }
+        }
+
+        if (element.AfterStyles != null && element.AfterStyles.TryGetValue("content", out var afterContent))
+        {
+            afterContent = afterContent.Trim('"', '\'');
+            if (!string.IsNullOrEmpty(afterContent) && afterContent != "none")
+            {
+                var afterNode = new TextNode(afterContent);
+                afterNode.Parent = element;
+                element.Children.Add(afterNode);
+            }
+        }
+    }
+
+    private void ApplyTextEllipsis(LayoutBox box, ComputedStyle style)
+    {
+        if (box.Lines == null) return;
+
+        float availableWidth = box.ContentBox.Width;
+        if (availableWidth <= 0) return;
+
+        for (int i = box.Lines.Count - 1; i >= 0; i--)
+        {
+            var line = box.Lines[i];
+            float lineWidth = 0;
+            foreach (var run in line.Runs) lineWidth += run.Width;
+
+            if (lineWidth > availableWidth)
+            {
+                string ellipsis = "\u2026";
+                float ellipsisWidth = MeasureTextWidth(ellipsis, style.FontSize, style.FontFamily);
+                float currentWidth = 0;
+
+                for (int j = 0; j < line.Runs.Count; j++)
+                {
+                    var run = line.Runs[j];
+                    if (currentWidth + run.Width > availableWidth - ellipsisWidth)
+                    {
+                        float remainingSpace = availableWidth - currentWidth - ellipsisWidth;
+                        if (remainingSpace > 0)
+                        {
+                            run.Width = remainingSpace;
+                            run.Text = TruncateText(run.Text, remainingSpace, run.FontSize ?? style.FontSize, run.FontFamily ?? style.FontFamily);
+                        }
+
+                        var ellipsisRun = new InlineRun
+                        {
+                            Text = ellipsis,
+                            Width = ellipsisWidth,
+                            Height = run.Height,
+                            IsText = true,
+                            Node = run.Node,
+                            Color = run.Color,
+                            FontSize = run.FontSize,
+                            FontFamily = run.FontFamily
+                        };
+
+                        line.Runs.RemoveRange(j + 1, line.Runs.Count - j - 1);
+                        line.Runs.Add(ellipsisRun);
+                        break;
+                    }
+                    currentWidth += run.Width;
+                }
+                break;
+            }
+        }
+    }
+
+    private string TruncateText(string text, float maxWidth, float fontSize, string? fontFamily)
+    {
+        if (string.IsNullOrEmpty(text)) return text;
+
+        for (int i = text.Length; i > 0; i--)
+        {
+            string truncated = text[..i];
+            float width = MeasureTextWidth(truncated, fontSize, fontFamily);
+            if (width <= maxWidth) return truncated;
+        }
+        return "";
+    }
+
+    private void ApplyMultiColumn(Element element, LayoutBox box, ComputedStyle style)
+    {
+        int colCount = style.ColumnCount;
+        float colWidth = 0;
+
+        if (colCount <= 0 && style.ColumnWidth != null)
+        {
+            colWidth = style.ColumnWidth.ToPixels(style.FontSize, _rootFontSize, _viewportWidth, _viewportHeight);
+            if (colWidth > 0)
+            {
+                float gap = style.ColumnGap.ToPixels(style.FontSize, _rootFontSize, _viewportWidth, _viewportHeight);
+                if (gap == 0) gap = 16;
+                colCount = Math.Max(1, (int)((box.ContentBox.Width + gap) / (colWidth + gap)));
+            }
+        }
+
+        if (colCount <= 1) return;
+
+        float gapSize = style.ColumnGap.ToPixels(style.FontSize, _rootFontSize, _viewportWidth, _viewportHeight);
+        if (gapSize == 0) gapSize = 16;
+
+        if (colWidth <= 0)
+            colWidth = (box.ContentBox.Width - gapSize * (colCount - 1)) / colCount;
+
+        box.IsMultiColumn = true;
+        box.ColumnCount = colCount;
+        box.ColumnWidth = colWidth;
+        box.ColumnGapSize = gapSize;
     }
 }

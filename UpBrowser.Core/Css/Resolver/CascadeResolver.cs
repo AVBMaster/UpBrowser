@@ -19,13 +19,26 @@ public class CascadeResolver
 
     private ComputedStyle? _rootStyle;
     private int _treeOrderCounter;
+    private float _viewportWidth = 1024f;
+    private float _viewportHeight = 768f;
+    private string _colorScheme = "light";
+
+    public void SetViewport(float width, float height, string colorScheme = "light")
+    {
+        _viewportWidth = width;
+        _viewportHeight = height;
+        _colorScheme = colorScheme;
+    }
 
     public void AddStylesheet(Stylesheet stylesheet) => _stylesheets.Add(stylesheet);
 
-    public void ResolveStyles(Document document)
+    public void ResolveStyles(Document document, float viewportWidth = 1024f, float viewportHeight = 768f, string colorScheme = "light")
     {
         _treeOrderCounter = 0;
         _cache.Clear();
+        _viewportWidth = viewportWidth;
+        _viewportHeight = viewportHeight;
+        _colorScheme = colorScheme;
 
         _rootStyle = CreateUserAgentStyle("html");
         _rootStyle.FontSize = 16;
@@ -90,18 +103,82 @@ public class CascadeResolver
             {
                 if (_matcher.Matches(rule, element))
                 {
-                    foreach (var prop in rule.Properties)
-                    {
-                        bool isImportant = rule.IsPropertyImportant(prop.Key);
-                        var priority = new CascadePriority(
-                            importance: isImportant,
-                            origin: CascadeOrigin.Author,
-                            treeOrder: treeOrder
-                        );
-                        _cascadeMap.Insert(prop.Key, prop.Value, priority);
+                    bool isBefore = rule.Selector.Contains("::before");
+                    bool isAfter = rule.Selector.Contains("::after");
 
-                        if (prop.Key.StartsWith("--"))
-                            CssFunctionEvaluator.SetCustomProperty(prop.Key[2..], prop.Value);
+                    if (isBefore)
+                    {
+                        element.BeforeStyles ??= new Dictionary<string, string>();
+                        foreach (var prop in rule.Properties)
+                            element.BeforeStyles[prop.Key] = prop.Value;
+                    }
+                    else if (isAfter)
+                    {
+                        element.AfterStyles ??= new Dictionary<string, string>();
+                        foreach (var prop in rule.Properties)
+                            element.AfterStyles[prop.Key] = prop.Value;
+                    }
+                    else
+                    {
+                        var expandedProps = ShorthandExpander.Expand(rule.Properties);
+                        foreach (var prop in expandedProps)
+                        {
+                            bool isImportant = rule.IsPropertyImportant(prop.Key) || rule.IsPropertyImportant(GetOriginalShorthand(prop.Key));
+                            var priority = new CascadePriority(
+                                importance: isImportant,
+                                origin: CascadeOrigin.Author,
+                                treeOrder: treeOrder
+                            );
+                            _cascadeMap.Insert(prop.Key, prop.Value, priority);
+
+                            if (prop.Key.StartsWith("--"))
+                                CssFunctionEvaluator.SetCustomProperty(prop.Key[2..], prop.Value);
+                        }
+                    }
+                }
+            }
+
+            foreach (var mediaRule in stylesheet.MediaRules)
+            {
+                if (MediaQueryEvaluator.Evaluate(mediaRule.Condition, _viewportWidth, _viewportHeight, _colorScheme))
+                {
+                    foreach (var rule in mediaRule.Rules)
+                    {
+                        if (_matcher.Matches(rule, element))
+                        {
+                            bool isBefore = rule.Selector.Contains("::before");
+                            bool isAfter = rule.Selector.Contains("::after");
+
+                            if (isBefore)
+                            {
+                                element.BeforeStyles ??= new Dictionary<string, string>();
+                                foreach (var prop in rule.Properties)
+                                    element.BeforeStyles[prop.Key] = prop.Value;
+                            }
+                            else if (isAfter)
+                            {
+                                element.AfterStyles ??= new Dictionary<string, string>();
+                                foreach (var prop in rule.Properties)
+                                    element.AfterStyles[prop.Key] = prop.Value;
+                            }
+                            else
+                            {
+                                var expandedProps = ShorthandExpander.Expand(rule.Properties);
+                                foreach (var prop in expandedProps)
+                                {
+                                    bool isImportant = rule.IsPropertyImportant(prop.Key) || rule.IsPropertyImportant(GetOriginalShorthand(prop.Key));
+                                    var priority = new CascadePriority(
+                                        importance: isImportant,
+                                        origin: CascadeOrigin.Author,
+                                        treeOrder: treeOrder
+                                    );
+                                    _cascadeMap.Insert(prop.Key, prop.Value, priority);
+
+                                    if (prop.Key.StartsWith("--"))
+                                        CssFunctionEvaluator.SetCustomProperty(prop.Key[2..], prop.Value);
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -170,7 +247,8 @@ public class CascadeResolver
         if (string.IsNullOrEmpty(inlineStyleAttr)) return;
 
         var inlineProps = _inlineParser.ParseInlineStyle(inlineStyleAttr);
-        foreach (var prop in inlineProps)
+        var expandedProps = ShorthandExpander.Expand(inlineProps);
+        foreach (var prop in expandedProps)
         {
             var priority = new CascadePriority(false, CascadeOrigin.Inline, treeOrder);
             _cascadeMap.Insert(prop.Key, prop.Value, priority);
@@ -384,6 +462,8 @@ public class CascadeResolver
             case "gap": ParseGap(value, style); break;
             case "row-gap": if (Length.TryParse(value, out var rg)) style.RowGap = rg; break;
             case "column-gap": if (Length.TryParse(value, out var cg)) style.ColumnGap = cg; break;
+            case "column-count": if (int.TryParse(value, out var cc)) style.ColumnCount = cc; break;
+            case "column-width": if (Length.TryParse(value, out var cw)) style.ColumnWidth = cw; break;
             case "grid": style.Grid = value; break;
             case "grid-template": ParseGridTemplateShorthand(value, style); break;
             case "grid-template-columns": style.GridTemplateColumns = value == "none" ? null : value; break;
@@ -763,6 +843,8 @@ public class CascadeResolver
         dest.BorderImageOutset = src.BorderImageOutset;
         dest.RowGap = src.RowGap;
         dest.ColumnGap = src.ColumnGap;
+        dest.ColumnCount = src.ColumnCount;
+        dest.ColumnWidth = src.ColumnWidth;
         dest.GridTemplateColumns = src.GridTemplateColumns;
         dest.GridTemplateRows = src.GridTemplateRows;
         dest.GridTemplateAreas = src.GridTemplateAreas;
@@ -1606,6 +1688,19 @@ public class CascadeResolver
 
         var color = index < parts.Length ? ColorParser.Parse(string.Join(" ", parts.Skip(index))) : new SKColor(0, 0, 0, 80);
         return new BoxShadowValue(color, offsetX, offsetY, blurRadius, spread);
+    }
+
+    private static string GetOriginalShorthand(string longhand)
+    {
+        return longhand switch
+        {
+            var s when s.StartsWith("margin-") => "margin",
+            var s when s.StartsWith("padding-") => "padding",
+            var s when s.StartsWith("border-top-") || s.StartsWith("border-right-") || s.StartsWith("border-bottom-") || s.StartsWith("border-left-") => "border",
+            var s when s.StartsWith("flex-") => "flex",
+            var s when s.StartsWith("grid-") => "grid",
+            _ => longhand
+        };
     }
 }
 
