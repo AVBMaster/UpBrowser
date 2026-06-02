@@ -367,7 +367,7 @@ public class BrowserApp : IDisposable
         var devTool = new LayoutDevTool();
         var debugReport = devTool.GenerateReport(_currentLoad!.Document, 1024, 768);
         File.WriteAllText("layout_debug.txt", debugReport);
-        Console.WriteLine("Debug report saved to layout_debug.txt");
+        Console.WriteLine($"[Debug] Initial report saved ({debugReport.Length} chars)");
         Console.WriteLine(devTool.GenerateQuickReport(_currentLoad.Document));
 
         _jsEngine.LoadDocument(_currentLoad.Document);
@@ -830,6 +830,19 @@ public class BrowserApp : IDisposable
 
         BuildDisplayList(ww, wh);
         _scroll.ScrollTo(0, 0);
+
+        // Update layout debug report on every page load
+        try
+        {
+            var devTool = new LayoutDevTool();
+            var debugReport = devTool.GenerateReport(_currentLoad.Document, ww, wh);
+            File.WriteAllText("layout_debug.txt", debugReport);
+            Console.WriteLine($"[Debug] Report updated ({debugReport.Length} chars)");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[Debug] Failed to generate report: {ex.Message}");
+        }
 
         _lastActiveTabIndex = _chrome.ActiveTabIndex;
         _tabStates[_lastActiveTabIndex] = new TabState

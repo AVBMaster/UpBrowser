@@ -207,6 +207,57 @@ public static class TableLayoutAlgorithm
         return maxWidth;
     }
 
+    private static float MeasureCellContentHeight(Element cell, float contentWidth)
+    {
+        var cellStyle = cell.ComputedStyle;
+        float defaultFontSize = cellStyle?.FontSize ?? 16;
+        float defaultLineHeight = (cellStyle?.LineHeight > 0 ? cellStyle.LineHeight : 1.5f) * defaultFontSize;
+        float totalHeight = 0;
+
+        foreach (var child in cell.Children)
+        {
+            if (child is Element el)
+            {
+                var childStyle = el.ComputedStyle;
+                if (childStyle != null)
+                {
+                    float fontSize = childStyle.FontSize;
+                    float lineHeight = (childStyle.LineHeight > 0 ? childStyle.LineHeight : 1.5f) * fontSize;
+                    string text = el.TextContent ?? "";
+                    if (!string.IsNullOrEmpty(text) && contentWidth > 0)
+                    {
+                        float textWidth = text.Length * fontSize * 0.6f;
+                        int lines = Math.Max(1, (int)Math.Ceiling(textWidth / contentWidth));
+                        totalHeight += lines * lineHeight;
+                    }
+                    else
+                    {
+                        totalHeight += lineHeight;
+                    }
+                }
+            }
+            else if (child is TextNode tn)
+            {
+                string text = tn.TextContent ?? "";
+                if (!string.IsNullOrEmpty(text) && contentWidth > 0)
+                {
+                    float textWidth = text.Length * defaultFontSize * 0.6f;
+                    int lines = Math.Max(1, (int)Math.Ceiling(textWidth / contentWidth));
+                    totalHeight += lines * defaultLineHeight;
+                }
+                else
+                {
+                    totalHeight += defaultLineHeight;
+                }
+            }
+        }
+
+        if (totalHeight <= 0)
+            totalHeight = defaultLineHeight;
+
+        return totalHeight;
+    }
+
     private static LayoutBox? CreateCellBox(Element cell, float x, float y, float width)
     {
         var style = cell.ComputedStyle;
@@ -218,12 +269,13 @@ public static class TableLayoutAlgorithm
         float paddingRight = style.PaddingRight.ToPixels(style.FontSize, 16, 0, 0);
 
         float contentWidth = Math.Max(0, width - paddingLeft - paddingRight);
+        float contentHeight = MeasureCellContentHeight(cell, contentWidth);
 
         var box = new LayoutBox();
-        box.ContentBox = new SKRect(x + paddingLeft, y + paddingTop, x + paddingLeft + contentWidth, y + paddingTop);
-        box.PaddingBox = new SKRect(x + paddingLeft, y, x + width - paddingRight, y + paddingTop);
-        box.BorderBox = new SKRect(x, y, x + width, y + paddingTop + paddingBottom);
-        box.MarginBox = new SKRect(x, y, x + width, y + paddingTop + paddingBottom);
+        box.ContentBox = new SKRect(x + paddingLeft, y + paddingTop, x + paddingLeft + contentWidth, y + paddingTop + contentHeight);
+        box.PaddingBox = new SKRect(x, y + paddingTop, x + width, y + paddingTop + contentHeight + paddingBottom);
+        box.BorderBox = new SKRect(x, y, x + width, y + paddingTop + contentHeight + paddingBottom);
+        box.MarginBox = new SKRect(x, y, x + width, y + paddingTop + contentHeight + paddingBottom);
 
         cell.LayoutBox = box;
         return box;

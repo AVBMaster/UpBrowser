@@ -153,7 +153,7 @@ public static class ShorthandExpander
             var p = part.Trim();
             if (string.IsNullOrEmpty(p)) continue;
 
-            if (p.StartsWith("url(") || p.StartsWith("linear-gradient") || p.StartsWith("radial-gradient"))
+            if (p.StartsWith("url(") || p.StartsWith("linear-gradient") || p.StartsWith("radial-gradient") || p.StartsWith("conic-gradient") || p.StartsWith("repeating-linear-gradient") || p.StartsWith("repeating-radial-gradient") || p.StartsWith("repeating-conic-gradient"))
                 result["background-image"] = p;
             else if (p.StartsWith("#") || p.StartsWith("rgb") || IsNamedColor(p))
                 result["background-color"] = p;

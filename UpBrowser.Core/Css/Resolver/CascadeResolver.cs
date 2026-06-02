@@ -182,6 +182,96 @@ public class CascadeResolver
                     }
                 }
             }
+
+            // Process @supports rules
+            foreach (var supportsRule in stylesheet.SupportsRules)
+            {
+                bool supported = EvaluateSupportsCondition(supportsRule.Condition);
+                if (supported)
+                {
+                    foreach (var rule in supportsRule.Rules)
+                    {
+                        if (_matcher.Matches(rule, element))
+                        {
+                            bool isBefore = rule.Selector.Contains("::before");
+                            bool isAfter = rule.Selector.Contains("::after");
+
+                            if (isBefore)
+                            {
+                                element.BeforeStyles ??= new Dictionary<string, string>();
+                                foreach (var prop in rule.Properties)
+                                    element.BeforeStyles[prop.Key] = prop.Value;
+                            }
+                            else if (isAfter)
+                            {
+                                element.AfterStyles ??= new Dictionary<string, string>();
+                                foreach (var prop in rule.Properties)
+                                    element.AfterStyles[prop.Key] = prop.Value;
+                            }
+                            else
+                            {
+                                var expandedProps = ShorthandExpander.Expand(rule.Properties);
+                                foreach (var prop in expandedProps)
+                                {
+                                    bool isImportant = rule.IsPropertyImportant(prop.Key) || rule.IsPropertyImportant(GetOriginalShorthand(prop.Key));
+                                    var priority = new CascadePriority(
+                                        importance: isImportant,
+                                        origin: CascadeOrigin.Author,
+                                        treeOrder: treeOrder
+                                    );
+                                    _cascadeMap.Insert(prop.Key, prop.Value, priority);
+
+                                    if (prop.Key.StartsWith("--"))
+                                        CssFunctionEvaluator.SetCustomProperty(prop.Key[2..], prop.Value);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Process @layer rules
+            foreach (var layerRule in stylesheet.LayerRules)
+            {
+                foreach (var rule in layerRule.Rules)
+                {
+                    if (_matcher.Matches(rule, element))
+                    {
+                        bool isBefore = rule.Selector.Contains("::before");
+                        bool isAfter = rule.Selector.Contains("::after");
+
+                        if (isBefore)
+                        {
+                            element.BeforeStyles ??= new Dictionary<string, string>();
+                            foreach (var prop in rule.Properties)
+                                element.BeforeStyles[prop.Key] = prop.Value;
+                        }
+                        else if (isAfter)
+                        {
+                            element.AfterStyles ??= new Dictionary<string, string>();
+                            foreach (var prop in rule.Properties)
+                                element.AfterStyles[prop.Key] = prop.Value;
+                        }
+                        else
+                        {
+                            var expandedProps = ShorthandExpander.Expand(rule.Properties);
+                            foreach (var prop in expandedProps)
+                            {
+                                bool isImportant = rule.IsPropertyImportant(prop.Key) || rule.IsPropertyImportant(GetOriginalShorthand(prop.Key));
+                                var priority = new CascadePriority(
+                                    importance: isImportant,
+                                    origin: CascadeOrigin.Author,
+                                    treeOrder: treeOrder
+                                );
+                                _cascadeMap.Insert(prop.Key, prop.Value, priority);
+
+                                if (prop.Key.StartsWith("--"))
+                                    CssFunctionEvaluator.SetCustomProperty(prop.Key[2..], prop.Value);
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -316,6 +406,8 @@ public class CascadeResolver
     }
 
     private void ApplyProperty(ComputedStyle style, string name, string value)
+    {
+    try
     {
         switch (name)
         {
@@ -606,6 +698,10 @@ public class CascadeResolver
             case "orphans": break;
             case "widows": break;
         }
+    }
+    catch (FormatException) { /* Gracefully skip malformed CSS values */ }
+    catch (OverflowException) { /* Skip values that are too large/small */ }
+    catch (Exception) { /* Catch any other parsing errors */ }
     }
 
     private bool IsHighPriorityProperty(string name) => name switch
@@ -1688,6 +1784,16 @@ public class CascadeResolver
 
         var color = index < parts.Length ? ColorParser.Parse(string.Join(" ", parts.Skip(index))) : new SKColor(0, 0, 0, 80);
         return new BoxShadowValue(color, offsetX, offsetY, blurRadius, spread);
+    }
+
+    private bool EvaluateSupportsCondition(string condition)
+    {
+        if (string.IsNullOrWhiteSpace(condition)) return true;
+
+        // For now, treat all @supports conditions as true
+        // A proper implementation would parse the condition and check CSS property support
+        // Most common: @supports (display: flex) - we support flex, so return true
+        return true;
     }
 
     private static string GetOriginalShorthand(string longhand)

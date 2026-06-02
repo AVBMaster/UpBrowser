@@ -143,7 +143,10 @@ public class PaintVisitor
         }
 
         bool hasOverflowHidden = style.Overflow == OverflowType.Hidden || style.OverflowX == OverflowType.Hidden || style.OverflowY == OverflowType.Hidden;
-        if (hasOverflowHidden)
+        bool isScrollContainer = layoutBox.IsScrollContainer &&
+            (layoutBox.ScrollContentHeight > layoutBox.ContentBox.Height || layoutBox.ScrollContentWidth > layoutBox.ContentBox.Width);
+        bool needsClip = hasOverflowHidden || isScrollContainer;
+        if (needsClip)
         {
             var clipRect = new SKRect(
                 layoutBox.PaddingBox.Left,
@@ -158,6 +161,23 @@ public class PaintVisitor
             }
         }
 
+        if (isScrollContainer)
+        {
+            float scrollOffsetX = -layoutBox.ScrollX;
+            float scrollOffsetY = -layoutBox.ScrollY;
+            if (scrollOffsetX != 0 || scrollOffsetY != 0)
+            {
+                var translateOp = PaintOpPool.GetPushTransformOp();
+                translateOp.Matrix = SKMatrix.CreateTranslation(scrollOffsetX, scrollOffsetY);
+                translateOp.Bounds = new SKRect(
+                    layoutBox.ContentBox.Left,
+                    layoutBox.ContentBox.Top + TotalOffsetY,
+                    layoutBox.ContentBox.Right,
+                    layoutBox.ContentBox.Bottom + TotalOffsetY);
+                _displayList.Add(translateOp);
+            }
+        }
+
         DrawElementContent(element, layoutBox, style);
 
         if (style.Display == DisplayType.ListItem)
@@ -169,7 +189,10 @@ public class PaintVisitor
                 VisitElement(childElement);
         }
 
-        if (hasOverflowHidden)
+        if (isScrollContainer && (layoutBox.ScrollX != 0 || layoutBox.ScrollY != 0))
+            _displayList.Add(PaintOpPool.GetPopTransformOp());
+
+        if (needsClip)
             _displayList.Add(PaintOpPool.GetPopClipOp());
 
         // Draw scrollbar for scroll containers

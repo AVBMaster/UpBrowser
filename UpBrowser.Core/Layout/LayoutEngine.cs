@@ -1900,8 +1900,52 @@ public class LayoutEngine
         {
             if (style.Width is PixelLength w) return w.Value;
             if (style.Width is PercentLength wp) return wp.Value * containerSize;
+            // flex-basis: auto + width: auto → use intrinsic content width
+            float intrinsic = MeasureIntrinsicWidth(element, style);
+            if (intrinsic > 0) return intrinsic;
         }
         return 0;
+    }
+
+    private float MeasureIntrinsicWidth(Element element, ComputedStyle style)
+    {
+        float totalTextWidth = 0;
+        CollectTextWidth(element, style, ref totalTextWidth);
+        if (totalTextWidth > 0) return totalTextWidth;
+
+        float childrenMaxRight = 0;
+        foreach (var child in element.Children)
+        {
+            if (child is Element childEl && childEl.LayoutBox != null)
+            {
+                float right = childEl.LayoutBox.MarginBox.Right;
+                if (right > childrenMaxRight) childrenMaxRight = right;
+            }
+        }
+        if (childrenMaxRight > 0) return childrenMaxRight;
+
+        float fallback = MeasureTextWidth(element.TextContent ?? "", style.FontSize, style.FontFamily);
+        return fallback > 0 ? fallback : 50;
+    }
+
+    private void CollectTextWidth(Element element, ComputedStyle parentStyle, ref float maxWidth)
+    {
+        foreach (var child in element.Children)
+        {
+            if (child is TextNode tn)
+            {
+                string text = tn.TextContent ?? "";
+                if (!string.IsNullOrEmpty(text))
+                {
+                    float w = MeasureTextWidth(text, parentStyle.FontSize, parentStyle.FontFamily);
+                    if (w > maxWidth) maxWidth = w;
+                }
+            }
+            else if (child is Element childEl && childEl.ComputedStyle != null)
+            {
+                CollectTextWidth(childEl, childEl.ComputedStyle, ref maxWidth);
+            }
+        }
     }
 
     private List<FlexLine> WrapFlexItems(List<FlexItem> items, float mainSize, bool isRow)
@@ -2208,7 +2252,7 @@ public class LayoutEngine
     {
         if (element.BeforeStyles != null && element.BeforeStyles.TryGetValue("content", out var beforeContent))
         {
-            beforeContent = beforeContent.Trim('"', '\'');
+            beforeContent = DecodeCssContent(beforeContent);
             if (!string.IsNullOrEmpty(beforeContent) && beforeContent != "none")
             {
                 var beforeNode = new TextNode(beforeContent);
@@ -2219,7 +2263,7 @@ public class LayoutEngine
 
         if (element.AfterStyles != null && element.AfterStyles.TryGetValue("content", out var afterContent))
         {
-            afterContent = afterContent.Trim('"', '\'');
+            afterContent = DecodeCssContent(afterContent);
             if (!string.IsNullOrEmpty(afterContent) && afterContent != "none")
             {
                 var afterNode = new TextNode(afterContent);
@@ -2227,6 +2271,42 @@ public class LayoutEngine
                 element.Children.Add(afterNode);
             }
         }
+    }
+
+    private static string DecodeCssContent(string content)
+    {
+        content = content.Trim('"', '\'');
+        if (string.IsNullOrEmpty(content)) return content;
+
+        // Decode CSS unicode escapes: \201C -> "
+        var result = new System.Text.StringBuilder();
+        for (int i = 0; i < content.Length; i++)
+        {
+            if (content[i] == '\\' && i + 1 < content.Length)
+            {
+                // Read hex digits for CSS unicode escape
+                int hexStart = i + 1;
+                int hexEnd = hexStart;
+                while (hexEnd < content.Length && char.IsLetterOrDigit(content[hexEnd]) && hexEnd - hexStart < 6)
+                    hexEnd++;
+                if (hexEnd > hexStart)
+                {
+                    var hexStr = content[hexStart..hexEnd];
+                    if (int.TryParse(hexStr, System.Globalization.NumberStyles.HexNumber, null, out var codePoint))
+                    {
+                        result.Append((char)codePoint);
+                        i = hexEnd - 1;
+                        continue;
+                    }
+                }
+                result.Append(content[i]);
+            }
+            else
+            {
+                result.Append(content[i]);
+            }
+        }
+        return result.ToString();
     }
 
     private void ApplyTextEllipsis(LayoutBox box, ComputedStyle style)
@@ -2324,5 +2404,155 @@ public class LayoutEngine
         box.ColumnCount = colCount;
         box.ColumnWidth = colWidth;
         box.ColumnGapSize = gapSize;
+
+        if (box.Children.Count == 0) return;
+
+        float containerLeft = box.ContentBox.Left;
+        float containerTop = box.ContentBox.Top;
+        float totalContentHeight = box.ContentBox.Height;
+        if (totalContentHeight <= 0)
+        {
+            foreach (var child in box.Children)
+                if (child.MarginBox.Bottom > containerTop + totalContentHeight)
+                    totalContentHeight = child.MarginBox.Bottom - containerTop;
+        }
+        if (totalContentHeight <= 0) return;
+
+        float idealColumnHeight = totalContentHeight / colCount;
+
+        var columnRanges = new List<(float top, float bottom)>();
+        float accumTop = 0;
+        for (int c = 0; c < colCount; c++)
+        {
+            float colHeight = idealColumnHeight;
+            if (c == colCount - 1)
+                colHeight = totalContentHeight - accumTop;
+            columnRanges.Add((accumTop, accumTop + colHeight));
+            accumTop += colHeight;
+        }
+
+        var columnChildren = new List<List<LayoutBox>>();
+        for (int c = 0; c < colCount; c++)
+            columnChildren.Add(new List<LayoutBox>());
+
+        float cumHeight = 0;
+        int currentCol = 0;
+        foreach (var child in box.Children)
+        {
+            float childHeight = child.MarginBox.Height;
+            if (childHeight <= 0) childHeight = child.BorderBox.Height;
+            if (childHeight <= 0) continue;
+
+            if (currentCol < colCount - 1 && cumHeight + childHeight > idealColumnHeight + idealColumnHeight * 0.15f && cumHeight > 0)
+            {
+                currentCol++;
+            }
+
+            columnChildren[currentCol].Add(child);
+            cumHeight += childHeight;
+        }
+
+        for (int c = 0; c < colCount; c++)
+        {
+            float colX = containerLeft + c * (colWidth + gapSize);
+            float colTop = containerTop;
+            float currentY = colTop;
+
+            foreach (var child in columnChildren[c])
+            {
+                float offsetX = colX - child.MarginBox.Left;
+                float offsetY = currentY - child.MarginBox.Top;
+
+                child.MarginBox = new SKRect(
+                    child.MarginBox.Left + offsetX, currentY,
+                    child.MarginBox.Right + offsetX, currentY + child.MarginBox.Height);
+                child.BorderBox = new SKRect(
+                    child.BorderBox.Left + offsetX, child.BorderBox.Top + offsetY,
+                    child.BorderBox.Right + offsetX, child.BorderBox.Bottom + offsetY);
+                child.PaddingBox = new SKRect(
+                    child.PaddingBox.Left + offsetX, child.PaddingBox.Top + offsetY,
+                    child.PaddingBox.Right + offsetX, child.PaddingBox.Bottom + offsetY);
+                child.ContentBox = new SKRect(
+                    child.ContentBox.Left + offsetX, child.ContentBox.Top + offsetY,
+                    child.ContentBox.Right + offsetX, child.ContentBox.Bottom + offsetY);
+
+                if (child.LineRuns != null)
+                {
+                    var newRuns = new List<InlineRun>();
+                    foreach (var run in child.LineRuns)
+                    {
+                        newRuns.Add(new InlineRun
+                        {
+                            Text = run.Text,
+                            X = run.X + offsetX,
+                            Width = run.Width,
+                            Height = run.Height,
+                            Baseline = run.Baseline + offsetY,
+                            Node = run.Node,
+                            IsText = run.IsText,
+                            Color = run.Color,
+                            FontSize = run.FontSize,
+                            FontFamily = run.FontFamily
+                        });
+                    }
+                    child.LineRuns = newRuns;
+                }
+
+                if (child.Lines != null)
+                {
+                    var newLines = new List<LineBox>();
+                    foreach (var line in child.Lines)
+                    {
+                        var newLine = new LineBox
+                        {
+                            X = line.X + offsetX,
+                            Y = line.Y + offsetY,
+                            Width = line.Width,
+                            Height = line.Height,
+                            Baseline = line.Baseline + offsetY,
+                            TextAlignOffsetX = line.TextAlignOffsetX
+                        };
+                        if (line.Runs != null)
+                        {
+                            foreach (var run in line.Runs)
+                            {
+                                newLine.Runs.Add(new InlineRun
+                                {
+                                    Text = run.Text,
+                                    X = run.X + offsetX,
+                                    Width = run.Width,
+                                    Height = run.Height,
+                                    Baseline = run.Baseline + offsetY,
+                                    Node = run.Node,
+                                    IsText = run.IsText,
+                                    Color = run.Color,
+                                    FontSize = run.FontSize,
+                                    FontFamily = run.FontFamily
+                                });
+                            }
+                        }
+                        newLines.Add(newLine);
+                    }
+                    child.Lines = newLines;
+                }
+
+                currentY = child.MarginBox.Bottom;
+            }
+        }
+
+        float maxColBottom = containerTop;
+        foreach (var child in box.Children)
+            if (child.MarginBox.Bottom > maxColBottom)
+                maxColBottom = child.MarginBox.Bottom;
+
+        float tablePaddingBottom = style.PaddingBottom.ToPixels(style.FontSize, _rootFontSize, _viewportWidth, _viewportHeight);
+        float tableBorderBottom = style.BorderBottomWidth;
+        float tableMarginBottom = style.MarginBottom.ToPixels(style.FontSize, _rootFontSize, _viewportWidth, _viewportHeight);
+        float totalTableWidth = colCount * colWidth + (colCount - 1) * gapSize;
+
+        box.ContentBox = new SKRect(containerLeft, box.ContentBox.Top, containerLeft + totalTableWidth, maxColBottom);
+        box.PaddingBox = new SKRect(box.PaddingBox.Left, box.PaddingBox.Top, box.PaddingBox.Left + totalTableWidth, maxColBottom + tablePaddingBottom);
+        box.BorderBox = new SKRect(box.BorderBox.Left, box.BorderBox.Top, box.BorderBox.Left + totalTableWidth, maxColBottom + tablePaddingBottom + tableBorderBottom);
+        box.MarginBox = new SKRect(box.MarginBox.Left, box.MarginBox.Top, box.MarginBox.Left + totalTableWidth, maxColBottom + tablePaddingBottom + tableBorderBottom + tableMarginBottom);
     }
 }

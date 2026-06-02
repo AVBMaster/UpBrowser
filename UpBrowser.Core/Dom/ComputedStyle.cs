@@ -12,86 +12,106 @@ public abstract class Length
         if (string.IsNullOrEmpty(value) || value == "auto" || value == "inherit" || value == "initial")
             return AutoLength.Instance;
 
-        // Check longest units first to avoid false matches
-        if (value.EndsWith("cqmin"))
-            return new CqMinLength(float.Parse(value[..^5]));
-        if (value.EndsWith("cqmax"))
-            return new CqMaxLength(float.Parse(value[..^5]));
-        if (value.EndsWith("cqw"))
-            return new CqWLength(float.Parse(value[..^3]));
-        if (value.EndsWith("cqh"))
-            return new CqHLength(float.Parse(value[..^3]));
-        if (value.EndsWith("cqi"))
-            return new CqILength(float.Parse(value[..^3]));
-        if (value.EndsWith("cqb"))
-            return new CqBLength(float.Parse(value[..^3]));
-        if (value.EndsWith("dvw"))
-            return new DVwLength(float.Parse(value[..^3]));
-        if (value.EndsWith("dvh"))
-            return new DVhLength(float.Parse(value[..^3]));
-        if (value.EndsWith("svw"))
-            return new SVwLength(float.Parse(value[..^3]));
-        if (value.EndsWith("svh"))
-            return new SVhLength(float.Parse(value[..^3]));
-        if (value.EndsWith("lvw"))
-            return new LVwLength(float.Parse(value[..^3]));
-        if (value.EndsWith("lvh"))
-            return new LVhLength(float.Parse(value[..^3]));
-        if (value.EndsWith("vmin"))
-            return new VminLength(float.Parse(value[..^4]));
-        if (value.EndsWith("vmax"))
-            return new VmaxLength(float.Parse(value[..^4]));
-        if (value.EndsWith("vw"))
-            return new VwLength(float.Parse(value[..^2]));
-        if (value.EndsWith("vh"))
-            return new VhLength(float.Parse(value[..^2]));
-        if (value.EndsWith("vi"))
-            return new ViLength(float.Parse(value[..^2]));
-        if (value.EndsWith("vb"))
-            return new VbLength(float.Parse(value[..^2]));
-        if (value.EndsWith("rem"))
-            return new RemLength(float.Parse(value[..^2]));
-        if (value.EndsWith("rex"))
-            return new RexLength(float.Parse(value[..^3]));
-        if (value.EndsWith("ric"))
-            return new RicLength(float.Parse(value[..^3]));
-        if (value.EndsWith("rlh"))
-            return new RlhLength(float.Parse(value[..^3]));
-        if (value.EndsWith("cap"))
-            return new CapLength(float.Parse(value[..^3]));
-        if (value.EndsWith("rcap"))
-            return new RcapLength(float.Parse(value[..^4]));
-        if (value.EndsWith("lh"))
-            return new LhLength(float.Parse(value[..^2]));
-        if (value.EndsWith("px"))
-            return new PixelLength(float.Parse(value[..^2]));
-        if (value.EndsWith("em"))
-            return new EmLength(float.Parse(value[..^2]));
-        if (value.EndsWith("ex"))
-            return new ExLength(float.Parse(value[..^2]));
-        if (value.EndsWith("ch"))
-            return new ChLength(float.Parse(value[..^2]));
-        if (value.EndsWith("%"))
-            return new PercentLength(float.Parse(value[..^1]) / 100f);
-        if (value.EndsWith("pt"))
-            return new PixelLength(float.Parse(value[..^2]) * 1.33333f);
-        if (value.EndsWith("pc"))
-            return new PixelLength(float.Parse(value[..^2]) * 16f);
-        if (value.EndsWith("in"))
-            return new PixelLength(float.Parse(value[..^2]) * 96f);
-        if (value.EndsWith("cm"))
-            return new PixelLength(float.Parse(value[..^2]) * 37.7953f);
-        if (value.EndsWith("mm"))
-            return new PixelLength(float.Parse(value[..^2]) * 3.77953f);
-        if (value == "0")
-            return new PixelLength(0);
-
-        if (value.StartsWith("calc(") || value.StartsWith("min(") || value.StartsWith("max(") || value.StartsWith("clamp(") || value.StartsWith("fit-content("))
+        try
         {
-            return new MathLength(value);
+            // Check longest units first to avoid false matches
+            if (value.EndsWith("cqmin"))
+                return new CqMinLength(SafeFloat(value[..^5]));
+            if (value.EndsWith("cqmax"))
+                return new CqMaxLength(SafeFloat(value[..^5]));
+            if (value.EndsWith("cqw"))
+                return new CqWLength(SafeFloat(value[..^3]));
+            if (value.EndsWith("cqh"))
+                return new CqHLength(SafeFloat(value[..^3]));
+            if (value.EndsWith("cqi"))
+                return new CqILength(SafeFloat(value[..^3]));
+            if (value.EndsWith("cqb"))
+                return new CqBLength(SafeFloat(value[..^3]));
+            if (value.EndsWith("dvw"))
+                return new DVwLength(SafeFloat(value[..^3]));
+            if (value.EndsWith("dvh"))
+                return new DVhLength(SafeFloat(value[..^3]));
+            if (value.EndsWith("svw"))
+                return new SVwLength(SafeFloat(value[..^3]));
+            if (value.EndsWith("svh"))
+                return new SVhLength(SafeFloat(value[..^3]));
+            if (value.EndsWith("lvw"))
+                return new LVwLength(SafeFloat(value[..^3]));
+            if (value.EndsWith("lvh"))
+                return new LVhLength(SafeFloat(value[..^3]));
+            if (value.EndsWith("vmin"))
+                return new VminLength(SafeFloat(value[..^4]));
+            if (value.EndsWith("vmax"))
+                return new VmaxLength(SafeFloat(value[..^4]));
+            if (value.EndsWith("vw"))
+                return new VwLength(SafeFloat(value[..^2]));
+            if (value.EndsWith("vh"))
+                return new VhLength(SafeFloat(value[..^2]));
+            if (value.EndsWith("vi"))
+                return new ViLength(SafeFloat(value[..^2]));
+            if (value.EndsWith("vb"))
+                return new VbLength(SafeFloat(value[..^2]));
+            if (value.EndsWith("rem"))
+                return new RemLength(SafeFloat(value[..^3]));
+            if (value.EndsWith("rex"))
+                return new RexLength(SafeFloat(value[..^3]));
+            if (value.EndsWith("ric"))
+                return new RicLength(SafeFloat(value[..^3]));
+            if (value.EndsWith("rlh"))
+                return new RlhLength(SafeFloat(value[..^3]));
+            if (value.EndsWith("cap"))
+                return new CapLength(SafeFloat(value[..^3]));
+            if (value.EndsWith("rcap"))
+                return new RcapLength(SafeFloat(value[..^4]));
+            if (value.EndsWith("lh"))
+                return new LhLength(SafeFloat(value[..^2]));
+            if (value.EndsWith("px"))
+                return new PixelLength(SafeFloat(value[..^2]));
+            if (value.EndsWith("em"))
+                return new EmLength(SafeFloat(value[..^2]));
+            if (value.EndsWith("ex"))
+                return new ExLength(SafeFloat(value[..^2]));
+            if (value.EndsWith("ch"))
+                return new ChLength(SafeFloat(value[..^2]));
+            if (value.EndsWith("%"))
+                return new PercentLength(SafeFloat(value[..^1]) / 100f);
+            if (value.EndsWith("pt"))
+                return new PixelLength(SafeFloat(value[..^2]) * 1.33333f);
+            if (value.EndsWith("pc"))
+                return new PixelLength(SafeFloat(value[..^2]) * 16f);
+            if (value.EndsWith("in"))
+                return new PixelLength(SafeFloat(value[..^2]) * 96f);
+            if (value.EndsWith("cm"))
+                return new PixelLength(SafeFloat(value[..^2]) * 37.7953f);
+            if (value.EndsWith("mm"))
+                return new PixelLength(SafeFloat(value[..^2]) * 3.77953f);
+            if (value == "0")
+                return new PixelLength(0);
+
+            if (value.StartsWith("calc(") || value.StartsWith("min(") || value.StartsWith("max(") || value.StartsWith("clamp(") || value.StartsWith("fit-content("))
+            {
+                return new MathLength(value);
+            }
+        }
+        catch (FormatException)
+        {
+            // Gracefully handle malformed CSS values - return auto instead of crashing
+        }
+        catch (OverflowException)
+        {
+            // Handle extremely large/small values
         }
 
         return AutoLength.Instance;
+    }
+
+    private static float SafeFloat(string s)
+    {
+        s = s.Trim();
+        if (float.TryParse(s, System.Globalization.NumberStyles.Float,
+            System.Globalization.CultureInfo.InvariantCulture, out var result))
+            return result;
+        return 0f;
     }
 
     public static bool TryParse(string value, out Length length)
