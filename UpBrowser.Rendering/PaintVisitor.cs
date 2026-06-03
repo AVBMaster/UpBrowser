@@ -71,17 +71,40 @@ public class PaintVisitor
     private void VisitElement(Element element)
     {
         var layoutBox = element.LayoutBox;
-        if (layoutBox == null) return;
+
+        // If no layout box (e.g. <tr>, <thead>, <tbody>), still visit children
+        if (layoutBox == null)
+        {
+            foreach (var child in element.Children)
+            {
+                if (child is Element childElement && childElement.ComputedStyle != null && childElement.ComputedStyle.Display != DisplayType.None)
+                    VisitElement(childElement);
+            }
+            return;
+        }
         var style = element.ComputedStyle;
         if (style == null) return;
         if (style.Display == DisplayType.None)
             return;
+
+        bool isVisibilityHidden = style.Visibility == VisibilityType.Hidden;
 
         var offsetBorderBox = new SKRect(
             layoutBox.BorderBox.Left,
             layoutBox.BorderBox.Top + TotalOffsetY,
             layoutBox.BorderBox.Right,
             layoutBox.BorderBox.Bottom + TotalOffsetY);
+
+        // Compute sticky offset
+        float stickyOffsetX = 0, stickyOffsetY = 0;
+        if (layoutBox.IsSticky && layoutBox.Parent is LayoutBox parentBox && parentBox.IsScrollContainer)
+        {
+            float normalTop = layoutBox.BorderBox.Top;
+            if (parentBox.ScrollY > normalTop - layoutBox.StickyTop)
+                stickyOffsetY = parentBox.ScrollY - normalTop + layoutBox.StickyTop;
+            if (parentBox.ScrollX > layoutBox.BorderBox.Left - layoutBox.StickyLeft)
+                stickyOffsetX = parentBox.ScrollX - layoutBox.BorderBox.Left + layoutBox.StickyLeft;
+        }
 
         SKImageFilter? elementFilter = null;
         if (!string.IsNullOrEmpty(style.Filter) && style.Filter != "none")
@@ -90,7 +113,7 @@ public class PaintVisitor
         bool hasClipPath = !string.IsNullOrEmpty(style.ClipPath) && style.ClipPath != "none";
         bool hasOpacityLayer = style.Opacity < 1.0f && style.Opacity >= 0f;
 
-        if (elementFilter != null || hasOpacityLayer || hasClipPath)
+        if (!isVisibilityHidden && (elementFilter != null || hasOpacityLayer || hasClipPath))
         {
             var layerOp = PaintOpPool.GetPushLayerOp();
             layerOp.Opacity = hasOpacityLayer ? style.Opacity : 1.0f;
@@ -105,83 +128,118 @@ public class PaintVisitor
             _displayList.Add(layerOp);
         }
 
-        DrawElementBackground(element, layoutBox, style, offsetBorderBox);
-        DrawElementBorder(element, layoutBox, style, offsetBorderBox);
-        DrawElementOutline(element, layoutBox, style, offsetBorderBox);
-
-        // Apply CSS transform
-        bool hasTransform = !string.IsNullOrEmpty(style.Transform) && style.Transform != "none";
-        SKMatrix transformMatrix = SKMatrix.Identity;
-        if (hasTransform)
+        if (!isVisibilityHidden)
         {
-            var transformOrigin = ParseTransformOrigin(style.TransformOrigin, layoutBox);
-            var operations = TransformParser.Parse(style.Transform);
-            if (operations.Count > 0)
+            DrawElementBackground(element, layoutBox, style, offsetBorderBox);
+            DrawElementBorder(element, layoutBox, style, offsetBorderBox);
+            DrawElementOutline(element, layoutBox, style, offsetBorderBox);
+        }
+
+        if (!isVisibilityHidden)
+        {
+            // Apply CSS transform
+            bool hasTransform = !string.IsNullOrEmpty(style.Transform) && style.Transform != "none";
+            SKMatrix transformMatrix = SKMatrix.Identity;
+            if (hasTransform)
             {
-                transformMatrix = TransformParser.ToMatrix(operations, transformOrigin.X, transformOrigin.Y);
-                var transformOp = PaintOpPool.GetPushTransformOp();
-                transformOp.Matrix = transformMatrix;
-                transformOp.Bounds = offsetBorderBox;
-                _displayList.Add(transformOp);
+                var transformOrigin = ParseTransformOrigin(style.TransformOrigin, layoutBox);
+                var operations = TransformParser.Parse(style.Transform);
+                if (operations.Count > 0)
+                {
+                    transformMatrix = TransformParser.ToMatrix(operations, transformOrigin.X, transformOrigin.Y);
+                    var transformOp = PaintOpPool.GetPushTransformOp();
+                    transformOp.Matrix = transformMatrix;
+                    transformOp.Bounds = offsetBorderBox;
+                    _displayList.Add(transformOp);
+                }
+            }
+
+            if (element.TagName.Equals("HR", StringComparison.OrdinalIgnoreCase))
+            {
+                float y = layoutBox.ContentBox.Top + TotalOffsetY + layoutBox.ContentBox.Height / 2;
+                float x1 = layoutBox.ContentBox.Left;
+                float x2 = layoutBox.ContentBox.Right;
+                var lineOp = PaintOpPool.GetDrawLineOp();
+                lineOp.X1 = x1;
+                lineOp.Y1 = y;
+                lineOp.X2 = x2;
+                lineOp.Y2 = y;
+                lineOp.Color = style.BorderTopColor;
+                lineOp.StrokeWidth = style.BorderTopWidth;
+                lineOp.Bounds = new SKRect(x1, y - 1, x2, y + 1);
+                _displayList.Add(lineOp);
+            }
+
+            bool hasOverflowHidden = style.Overflow == OverflowType.Hidden || style.OverflowX == OverflowType.Hidden || style.OverflowY == OverflowType.Hidden;
+            bool isScrollContainer = layoutBox.IsScrollContainer &&
+                (layoutBox.ScrollContentHeight > layoutBox.ContentBox.Height || layoutBox.ScrollContentWidth > layoutBox.ContentBox.Width);
+            bool needsClip = hasOverflowHidden || isScrollContainer;
+            if (needsClip)
+            {
+                var clipRect = new SKRect(
+                    layoutBox.PaddingBox.Left,
+                    layoutBox.PaddingBox.Top + TotalOffsetY,
+                    layoutBox.PaddingBox.Right,
+                    layoutBox.PaddingBox.Bottom + TotalOffsetY);
+                if (clipRect.Width > 0 && clipRect.Height > 0)
+                {
+                    var clipOp = PaintOpPool.GetPushClipOp();
+                    clipOp.ClipRect = clipRect;
+                    _displayList.Add(clipOp);
+                }
+            }
+
+            if (isScrollContainer)
+            {
+                float scrollOffsetX = -layoutBox.ScrollX;
+                float scrollOffsetY = -layoutBox.ScrollY;
+                if (scrollOffsetX != 0 || scrollOffsetY != 0)
+                {
+                    var translateOp = PaintOpPool.GetPushTransformOp();
+                    translateOp.Matrix = SKMatrix.CreateTranslation(scrollOffsetX, scrollOffsetY);
+                    translateOp.Bounds = new SKRect(
+                        layoutBox.ContentBox.Left,
+                        layoutBox.ContentBox.Top + TotalOffsetY,
+                        layoutBox.ContentBox.Right,
+                        layoutBox.ContentBox.Bottom + TotalOffsetY);
+                    _displayList.Add(translateOp);
+                }
+            }
+
+            bool hasStickyOffset = (stickyOffsetX != 0 || stickyOffsetY != 0);
+            if (hasStickyOffset)
+            {
+                var stickyOp = PaintOpPool.GetPushTransformOp();
+                stickyOp.Matrix = SKMatrix.CreateTranslation(stickyOffsetX, stickyOffsetY);
+                stickyOp.Bounds = offsetBorderBox;
+                _displayList.Add(stickyOp);
+            }
+
+            DrawElementContent(element, layoutBox, style);
+
+            if (style.Display == DisplayType.ListItem)
+                DrawListMarker(element, layoutBox, style);
+
+            if (hasStickyOffset)
+                _displayList.Add(PaintOpPool.GetPopTransformOp());
+
+            if (isScrollContainer && (layoutBox.ScrollX != 0 || layoutBox.ScrollY != 0))
+                _displayList.Add(PaintOpPool.GetPopTransformOp());
+
+            if (needsClip)
+                _displayList.Add(PaintOpPool.GetPopClipOp());
+
+            // Draw scrollbar for scroll containers
+            if (layoutBox.IsScrollContainer && (layoutBox.ScrollContentHeight > layoutBox.ContentBox.Height || layoutBox.ScrollContentWidth > layoutBox.ContentBox.Width))
+            {
+                DrawScrollbar(layoutBox, style);
+            }
+
+            if (hasTransform && transformMatrix != SKMatrix.Identity)
+            {
+                _displayList.Add(PaintOpPool.GetPopTransformOp());
             }
         }
-
-        if (element.TagName.Equals("HR", StringComparison.OrdinalIgnoreCase))
-        {
-            float y = layoutBox.ContentBox.Top + TotalOffsetY + layoutBox.ContentBox.Height / 2;
-            float x1 = layoutBox.ContentBox.Left;
-            float x2 = layoutBox.ContentBox.Right;
-            var lineOp = PaintOpPool.GetDrawLineOp();
-            lineOp.X1 = x1;
-            lineOp.Y1 = y;
-            lineOp.X2 = x2;
-            lineOp.Y2 = y;
-            lineOp.Color = style.BorderTopColor;
-            lineOp.StrokeWidth = style.BorderTopWidth;
-            lineOp.Bounds = new SKRect(x1, y - 1, x2, y + 1);
-            _displayList.Add(lineOp);
-        }
-
-        bool hasOverflowHidden = style.Overflow == OverflowType.Hidden || style.OverflowX == OverflowType.Hidden || style.OverflowY == OverflowType.Hidden;
-        bool isScrollContainer = layoutBox.IsScrollContainer &&
-            (layoutBox.ScrollContentHeight > layoutBox.ContentBox.Height || layoutBox.ScrollContentWidth > layoutBox.ContentBox.Width);
-        bool needsClip = hasOverflowHidden || isScrollContainer;
-        if (needsClip)
-        {
-            var clipRect = new SKRect(
-                layoutBox.PaddingBox.Left,
-                layoutBox.PaddingBox.Top + TotalOffsetY,
-                layoutBox.PaddingBox.Right,
-                layoutBox.PaddingBox.Bottom + TotalOffsetY);
-            if (clipRect.Width > 0 && clipRect.Height > 0)
-            {
-                var clipOp = PaintOpPool.GetPushClipOp();
-                clipOp.ClipRect = clipRect;
-                _displayList.Add(clipOp);
-            }
-        }
-
-        if (isScrollContainer)
-        {
-            float scrollOffsetX = -layoutBox.ScrollX;
-            float scrollOffsetY = -layoutBox.ScrollY;
-            if (scrollOffsetX != 0 || scrollOffsetY != 0)
-            {
-                var translateOp = PaintOpPool.GetPushTransformOp();
-                translateOp.Matrix = SKMatrix.CreateTranslation(scrollOffsetX, scrollOffsetY);
-                translateOp.Bounds = new SKRect(
-                    layoutBox.ContentBox.Left,
-                    layoutBox.ContentBox.Top + TotalOffsetY,
-                    layoutBox.ContentBox.Right,
-                    layoutBox.ContentBox.Bottom + TotalOffsetY);
-                _displayList.Add(translateOp);
-            }
-        }
-
-        DrawElementContent(element, layoutBox, style);
-
-        if (style.Display == DisplayType.ListItem)
-            DrawListMarker(element, layoutBox, style);
 
         foreach (var child in element.Children)
         {
@@ -189,24 +247,7 @@ public class PaintVisitor
                 VisitElement(childElement);
         }
 
-        if (isScrollContainer && (layoutBox.ScrollX != 0 || layoutBox.ScrollY != 0))
-            _displayList.Add(PaintOpPool.GetPopTransformOp());
-
-        if (needsClip)
-            _displayList.Add(PaintOpPool.GetPopClipOp());
-
-        // Draw scrollbar for scroll containers
-        if (layoutBox.IsScrollContainer && (layoutBox.ScrollContentHeight > layoutBox.ContentBox.Height || layoutBox.ScrollContentWidth > layoutBox.ContentBox.Width))
-        {
-            DrawScrollbar(layoutBox, style);
-        }
-
-        if (hasTransform && transformMatrix != SKMatrix.Identity)
-        {
-            _displayList.Add(PaintOpPool.GetPopTransformOp());
-        }
-
-        if (elementFilter != null || hasOpacityLayer || hasClipPath)
+        if (!isVisibilityHidden && (elementFilter != null || hasOpacityLayer || hasClipPath))
         {
             _displayList.Add(PaintOpPool.GetPopLayerOp());
         }
@@ -280,26 +321,30 @@ public class PaintVisitor
 
     private void DrawElementBackground(Element element, LayoutBox box, ComputedStyle style, SKRect borderRect)
     {
-        if (!style.BackgroundColor.HasValue || style.BackgroundColor.Value.Alpha == 0)
-            return;
-
-        SKColor bgColor = style.BackgroundColor.Value;
         var bgRect = new SKRect(borderRect.Left + style.BorderLeftWidth, borderRect.Top + style.BorderTopWidth,
                                 borderRect.Right - style.BorderRightWidth, borderRect.Bottom - style.BorderBottomWidth);
         if (bgRect.Width <= 0 || bgRect.Height <= 0) return;
-        if (style.Opacity < 1.0f)
-            bgColor = bgColor.WithAlpha((byte)(bgColor.Alpha * style.Opacity));
 
         DrawBoxShadow(borderRect, style);
 
-        var op = PaintOpPool.GetDrawRectOp();
-        op.Rect = bgRect;
-        op.FillColor = bgColor;
-        op.BorderRadius = Math.Max(style.BorderTopLeftRadius, Math.Max(style.BorderTopRightRadius, Math.Max(style.BorderBottomLeftRadius, style.BorderBottomRightRadius)));
-        op.Bounds = borderRect;
-        _displayList.Add(op);
+        bool hasBackgroundColor = style.BackgroundColor.HasValue && style.BackgroundColor.Value.Alpha > 0;
+        bool hasBackgroundImage = !string.IsNullOrEmpty(style.BackgroundImage);
 
-        if (!string.IsNullOrEmpty(style.BackgroundImage))
+        if (hasBackgroundColor)
+        {
+            SKColor bgColor = style.BackgroundColor.Value;
+            if (style.Opacity < 1.0f)
+                bgColor = bgColor.WithAlpha((byte)(bgColor.Alpha * style.Opacity));
+
+            var op = PaintOpPool.GetDrawRectOp();
+            op.Rect = bgRect;
+            op.FillColor = bgColor;
+            op.BorderRadius = Math.Max(style.BorderTopLeftRadius, Math.Max(style.BorderTopRightRadius, Math.Max(style.BorderBottomLeftRadius, style.BorderBottomRightRadius)));
+            op.Bounds = borderRect;
+            _displayList.Add(op);
+        }
+
+        if (hasBackgroundImage)
         {
             if (style.BackgroundImage.Contains("gradient", StringComparison.OrdinalIgnoreCase))
                 DrawGradientBackground(style, bgRect);
@@ -345,7 +390,7 @@ public class PaintVisitor
             return;
         }
 
-        using var path = new SKPath();
+        var path = new SKPath();
         float borderradius = Math.Max(style.BorderTopLeftRadius, Math.Max(style.BorderTopRightRadius,
             Math.Max(style.BorderBottomLeftRadius, style.BorderBottomRightRadius)));
         if (borderradius > 0)
@@ -353,6 +398,7 @@ public class PaintVisitor
         else
             path.AddRect(rect);
         var shadowOutsetOp = PaintOpPool.GetDrawShadowOp();
+        shadowOutsetOp.Path.Dispose();
         shadowOutsetOp.Path = path;
         shadowOutsetOp.Color = shadow.Color;
         shadowOutsetOp.BlurRadius = Math.Max(1, shadow.BlurRadius);
@@ -565,13 +611,14 @@ public class PaintVisitor
         float maxRadius = Math.Max(style.BorderTopLeftRadius, Math.Max(style.BorderTopRightRadius,
             Math.Max(style.BorderBottomLeftRadius, style.BorderBottomRightRadius)));
 
-        using var path = new SKPath();
+        var path = new SKPath();
         if (maxRadius > 0)
             path.AddRoundRect(rect, maxRadius, maxRadius);
         else
             path.AddRect(rect);
 
         var op = PaintOpPool.GetDrawPathOp();
+        op.Path.Dispose();
         op.Path = path;
         op.FillPaint = new SKPaint
         {
@@ -641,8 +688,9 @@ public class PaintVisitor
         if (maxRadius > 0)
         {
             var op = PaintOpPool.GetDrawPathOp();
-            using var path = new SKPath();
+            var path = new SKPath();
             path.AddRoundRect(outlineRect, maxRadius + offset, maxRadius + offset);
+            op.Path.Dispose();
             op.Path = path;
             op.StrokePaint = paint;
             op.Bounds = outlineRect;
@@ -670,7 +718,7 @@ public class PaintVisitor
         if (string.IsNullOrEmpty(clipPath)) return null;
 
         var path = new SKPath();
-        var rect = box.ContentBox;
+        var rect = box.BorderBox;
 
         if (clipPath.StartsWith("circle("))
         {
@@ -1293,8 +1341,9 @@ public class PaintVisitor
                         op.Color = run.Color ?? parentStyle?.Color ?? SKColors.Black;
                         op.FontSize = actualFontSize;
                         op.FontFamily = run.FontFamily ?? parentStyle?.FontFamily ?? "Arial";
-                        op.Underline = parentStyle?.TextDecoration == TextDecorationType.Underline;
-                        op.LineThrough = parentStyle?.TextDecoration == TextDecorationType.LineThrough;
+                        op.Underline = parentStyle?.TextDecorationLine == TextDecorationLineType.Underline || parentStyle?.TextDecoration == TextDecorationType.Underline;
+                        op.LineThrough = parentStyle?.TextDecorationLine == TextDecorationLineType.LineThrough || parentStyle?.TextDecoration == TextDecorationType.LineThrough;
+                        if (parentStyle != null) op.UnderlineColor = parentStyle.TextDecorationColor;
                         if (parentStyle?.TextShadow != null && parentStyle.TextShadow.Count > 0)
                             op.TextShadows = parentStyle.TextShadow;
                         op.Bounds = new SKRect(currentX + lineOffsetX, lineY, currentX + run.Width + lineOffsetX, lineY + line.Height);
@@ -1339,8 +1388,9 @@ public class PaintVisitor
                     op.Color = run.Color ?? parentStyle?.Color ?? SKColors.Black;
                     op.FontSize = actualFontSize;
                     op.FontFamily = run.FontFamily ?? parentStyle?.FontFamily ?? "Arial";
-                    op.Underline = parentStyle?.TextDecoration == TextDecorationType.Underline;
-                    op.LineThrough = parentStyle?.TextDecoration == TextDecorationType.LineThrough;
+                    op.Underline = parentStyle?.TextDecorationLine == TextDecorationLineType.Underline || parentStyle?.TextDecoration == TextDecorationType.Underline;
+                    op.LineThrough = parentStyle?.TextDecorationLine == TextDecorationLineType.LineThrough || parentStyle?.TextDecoration == TextDecorationType.LineThrough;
+                    if (parentStyle != null) op.UnderlineColor = parentStyle.TextDecorationColor;
                     if (parentStyle?.TextShadow != null && parentStyle.TextShadow.Count > 0)
                         op.TextShadows = parentStyle.TextShadow;
                     op.Bounds = new SKRect(x, boxTop, x + run.Width, boxTop + run.Height);

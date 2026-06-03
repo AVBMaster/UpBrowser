@@ -103,6 +103,8 @@ public abstract class Element : Node
     public string? NamespaceUri { get; set; }
     public Dictionary<string, string>? BeforeStyles { get; set; }
     public Dictionary<string, string>? AfterStyles { get; set; }
+    public bool HasGeneratedBefore { get; set; }
+    public bool HasGeneratedAfter { get; set; }
 
     private string[]? _classList;
     public string[] ClassList

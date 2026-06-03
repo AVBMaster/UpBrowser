@@ -645,7 +645,6 @@ public class LayoutEngine
                 var childStyle = childElement.ComputedStyle;
                 if (childStyle == null) continue;
                 if (childStyle.Display == DisplayType.None) continue;
-                if (childStyle.Visibility == VisibilityType.Hidden) continue;
                 if (childStyle.Position == PositionType.Absolute)
                 {
                     var childBox = CreateLayoutBox(childElement, 0, 0, availableWidth, box);
@@ -692,7 +691,7 @@ public class LayoutEngine
             if (child is Element childElement)
             {
                 var childStyle = childElement.ComputedStyle;
-                if (childStyle == null || childStyle.Display == DisplayType.None || childStyle.Visibility == VisibilityType.Hidden)
+                if (childStyle == null || childStyle.Display == DisplayType.None)
                     continue;
                 if (childStyle.Position == PositionType.Absolute) continue;
                 if (childStyle.Float == FloatType.Left)
@@ -2293,34 +2292,26 @@ public class LayoutEngine
         if (element.BeforeStyles != null && element.BeforeStyles.TryGetValue("content", out var beforeContent))
         {
             beforeContent = DecodeCssContent(beforeContent);
-            if (!string.IsNullOrEmpty(beforeContent) && beforeContent != "none" && !HasPseudoContent(element, beforeContent))
+            if (!string.IsNullOrEmpty(beforeContent) && beforeContent != "none" && !element.HasGeneratedBefore)
             {
                 var beforeNode = new TextNode(beforeContent);
                 beforeNode.Parent = element;
                 element.Children.Insert(0, beforeNode);
+                element.HasGeneratedBefore = true;
             }
         }
 
         if (element.AfterStyles != null && element.AfterStyles.TryGetValue("content", out var afterContent))
         {
             afterContent = DecodeCssContent(afterContent);
-            if (!string.IsNullOrEmpty(afterContent) && afterContent != "none" && !HasPseudoContent(element, afterContent))
+            if (!string.IsNullOrEmpty(afterContent) && afterContent != "none" && !element.HasGeneratedAfter)
             {
                 var afterNode = new TextNode(afterContent);
                 afterNode.Parent = element;
                 element.Children.Add(afterNode);
+                element.HasGeneratedAfter = true;
             }
         }
-    }
-
-    private static bool HasPseudoContent(Element element, string content)
-    {
-        foreach (var child in element.Children)
-        {
-            if (child is TextNode text && text.Data == content)
-                return true;
-        }
-        return false;
     }
 
     private static string DecodeCssContent(string content)

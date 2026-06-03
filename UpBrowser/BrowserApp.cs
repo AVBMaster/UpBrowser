@@ -1010,7 +1010,7 @@ public class BrowserApp : IDisposable
                     styleComputer = new StyleComputer();
                     styleComputer.AddStylesheet(_docManager.GetUaStylesheet());
                 }
-                styleComputer.ComputeStyles(_currentLoad.Document);
+                styleComputer.ComputeStyles(_currentLoad.Document, windowWidth, contentViewportHeight);
                 _jsEngine.ClearDirty();
                 _pendingRelayout = false;
             }

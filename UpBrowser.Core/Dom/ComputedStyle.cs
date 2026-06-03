@@ -965,6 +965,8 @@ public class LayoutBox
     public bool IsSticky { get; set; }
     public float StickyTop { get; set; }
     public float StickyLeft { get; set; }
+    public float StickyOffsetX { get; set; }
+    public float StickyOffsetY { get; set; }
 
     public bool IsMultiColumn { get; set; }
     public int ColumnCount { get; set; }

@@ -77,10 +77,59 @@ public class CascadeResolver
         ApplyHighPriority(style, parentStyle);
         ApplyMatchResult(style);
 
+        // Apply @keyframes final state for animated elements
+        if (!string.IsNullOrEmpty(style.AnimationName) && style.AnimationName != "none")
+        {
+            ApplyKeyframeAnimation(element, style, parentStyle);
+        }
+
         _cache.Set(cacheKey, style.Clone());
 
         element.ComputedStyle = style;
         ResolveChildren(element, style);
+    }
+
+    private void ApplyKeyframeAnimation(Element element, ComputedStyle style, ComputedStyle? parentStyle = null)
+    {
+        var name = style.AnimationName;
+        foreach (var stylesheet in _stylesheets)
+        {
+            foreach (var kfRule in stylesheet.KeyframesRules)
+            {
+                if (!string.Equals(kfRule.Name, name, StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                // Find the 100% keyframe (or the last keyframe)
+                KeyframeBlock? finalBlock = null;
+                float maxPct = -1;
+                foreach (var block in kfRule.Keyframes)
+                {
+                    if (float.TryParse(block.Selector.TrimEnd('%'), out var pct) && pct >= maxPct)
+                    {
+                        maxPct = pct;
+                        finalBlock = block;
+                    }
+                }
+
+                if (finalBlock != null)
+                {
+                    var expanded = ShorthandExpander.Expand(finalBlock.Properties);
+                    foreach (var prop in expanded)
+                    {
+                        var animPriority = new CascadePriority(
+                            importance: false,
+                            origin: CascadeOrigin.Animation,
+                            treeOrder: int.MaxValue
+                        );
+                        _cascadeMap.Insert(prop.Key, prop.Value, animPriority);
+                    }
+                    ApplyCascadeAffecting(style);
+                    ApplyHighPriority(style, parentStyle ?? style);
+                    ApplyMatchResult(style);
+                }
+                break;
+            }
+        }
     }
 
     private void ResolveChildren(Element element, ComputedStyle parentStyle)
@@ -1799,10 +1848,97 @@ public class CascadeResolver
     {
         if (string.IsNullOrWhiteSpace(condition)) return true;
 
-        // For now, treat all @supports conditions as true
-        // A proper implementation would parse the condition and check CSS property support
-        // Most common: @supports (display: flex) - we support flex, so return true
-        return true;
+        // Handle 'not' prefix
+        bool negate = false;
+        var trimmed = condition.Trim();
+        if (trimmed.StartsWith("not ", StringComparison.OrdinalIgnoreCase))
+        {
+            negate = true;
+            trimmed = trimmed[4..].Trim();
+        }
+
+        // Handle 'and' / 'or' combinators (simple version)
+        if (trimmed.Contains(" and ", StringComparison.OrdinalIgnoreCase))
+        {
+            var parts = trimmed.Split(new[] { " and " }, StringSplitOptions.RemoveEmptyEntries);
+            bool result = true;
+            foreach (var part in parts)
+                result = result && EvaluateSingleSupportsCondition(part.Trim());
+            return negate ? !result : result;
+        }
+        if (trimmed.Contains(" or ", StringComparison.OrdinalIgnoreCase))
+        {
+            var parts = trimmed.Split(new[] { " or " }, StringSplitOptions.RemoveEmptyEntries);
+            bool result = false;
+            foreach (var part in parts)
+                result = result || EvaluateSingleSupportsCondition(part.Trim());
+            return negate ? !result : result;
+        }
+
+        bool eval = EvaluateSingleSupportsCondition(trimmed);
+        return negate ? !eval : eval;
+    }
+
+    private bool EvaluateSingleSupportsCondition(string condition)
+    {
+        condition = condition.Trim();
+        // Remove outer parentheses
+        if (condition.StartsWith('(') && condition.EndsWith(')'))
+            condition = condition[1..^1].Trim();
+
+        // Parse property: value
+        var colonIdx = condition.IndexOf(':');
+        if (colonIdx < 0) return true;
+
+        var propName = condition[..colonIdx].Trim().ToLowerInvariant();
+        var propValue = condition[(colonIdx + 1)..].Trim().ToLowerInvariant();
+
+        return propName switch
+        {
+            "display" => propValue is "flex" or "inline-flex" or "grid" or "inline-grid" or "block" or "inline-block" or "inline" or "list-item" or "none" or "table" or "table-cell" or "table-row",
+            "position" => propValue is "static" or "relative" or "absolute" or "fixed" or "sticky",
+            "transform" or "-webkit-transform" => propValue is not "none" || true,
+            "transition" => true,
+            "animation" => true,
+            "overflow" or "overflow-x" or "overflow-y" => propValue is "visible" or "hidden" or "scroll" or "auto",
+            "flex-wrap" => propValue is "nowrap" or "wrap" or "wrap-reverse",
+            "justify-content" => propValue is "flex-start" or "flex-end" or "center" or "space-between" or "space-around" or "space-evenly",
+            "align-items" => propValue is "flex-start" or "flex-end" or "center" or "baseline" or "stretch",
+            "align-content" => propValue is "flex-start" or "flex-end" or "center" or "space-between" or "space-around" or "stretch",
+            "gap" => true,
+            "flex" or "flex-grow" or "flex-shrink" or "flex-basis" => true,
+            "background" or "background-color" or "background-image" or "background-size" => true,
+            "color" => true,
+            "font-family" => true,
+            "font-size" => true,
+            "filter" or "-webkit-filter" => true,
+            "clip-path" or "-webkit-clip-path" => true,
+            "text-decoration" or "text-decoration-line" or "text-decoration-style" or "text-decoration-color" => true,
+            "box-shadow" => true,
+            "text-shadow" => true,
+            "opacity" => true,
+            "visibility" => propValue is "visible" or "hidden" or "collapse",
+            "z-index" => true,
+            "outline" or "outline-style" or "outline-width" or "outline-color" => true,
+            "border" or "border-radius" => true,
+            "margin" or "padding" => true,
+            "width" or "height" or "min-width" or "max-width" or "min-height" or "max-height" => true,
+            "top" or "right" or "bottom" or "left" => true,
+            "float" => propValue is "none" or "left" or "right",
+            "clear" => propValue is "none" or "left" or "right" or "both",
+            "object-fit" => propValue is "fill" or "contain" or "cover" or "none" or "scale-down",
+            "cursor" => true,
+            "user-select" or "-webkit-user-select" => true,
+            "pointer-events" => propValue is "auto" or "none",
+            "white-space" => propValue is "normal" or "nowrap" or "pre" or "pre-wrap" or "pre-line",
+            "word-break" => propValue is "normal" or "break-all" or "keep-all" or "break-word",
+            "overflow-wrap" or "word-wrap" => propValue is "normal" or "break-word",
+            "text-overflow" => propValue is "clip" or "ellipsis",
+            "line-height" => true,
+            "letter-spacing" => true,
+            "list-style" or "list-style-type" or "list-style-position" or "list-style-image" => true,
+            _ => true // unknown properties are assumed supported
+        };
     }
 
     private static string GetOriginalShorthand(string longhand)
@@ -1861,9 +1997,10 @@ public readonly struct CascadePriority : IComparable<CascadePriority>
             {
                 CascadeOrigin.JsModified => 1,
                 CascadeOrigin.Inline => 2,
-                CascadeOrigin.Author => 3,
-                CascadeOrigin.User => 4,
-                CascadeOrigin.UserAgent => 5,
+                CascadeOrigin.Animation => 3,
+                CascadeOrigin.Author => 4,
+                CascadeOrigin.User => 5,
+                CascadeOrigin.UserAgent => 6,
                 _ => 0
             };
         }
@@ -1874,15 +2011,16 @@ public readonly struct CascadePriority : IComparable<CascadePriority>
                 CascadeOrigin.UserAgent => 1,
                 CascadeOrigin.User => 2,
                 CascadeOrigin.Author => 3,
-                CascadeOrigin.Inline => 4,
-                CascadeOrigin.JsModified => 5,
+                CascadeOrigin.Animation => 4,
+                CascadeOrigin.Inline => 5,
+                CascadeOrigin.JsModified => 6,
                 _ => 0
             };
         }
     }
 }
 
-public enum CascadeOrigin { UserAgent, User, Author, Inline, JsModified }
+public enum CascadeOrigin { UserAgent, User, Author, Inline, Animation, JsModified }
 
 /// <summary>
 /// CascadeMap stores property declarations and keeps only the highest-priority one per property.

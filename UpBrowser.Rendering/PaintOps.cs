@@ -896,7 +896,8 @@ public class PushTransformOp : PaintOp
     public override void Execute(SKCanvas canvas)
     {
         canvas.Save();
-        canvas.SetMatrix(Matrix);
+        var m = Matrix;
+        canvas.Concat(ref m);
     }
 }
 

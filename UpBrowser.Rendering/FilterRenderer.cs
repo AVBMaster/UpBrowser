@@ -90,8 +90,15 @@ public static class FilterRenderer
     private static SKImageFilter? CreateColorMatrix(string[] args, Func<float, float[]> matrixFunc)
     {
         if (args.Length < 1) return null;
-        var valStr = args[0].Replace("%", "").Trim();
+        var valStr = args[0].Trim();
+        bool isPercent = valStr.EndsWith("%");
+        valStr = valStr.Replace("%", "").Trim();
         if (!float.TryParse(valStr, out var amount)) return null;
+
+        // CSS: brightness(2) = 200% brightness, brightness(50%) = 50% brightness
+        // If no % sign, treat as multiplier (e.g., 2 → 200%)
+        if (!isPercent)
+            amount *= 100f;
 
         var matrix = matrixFunc(amount);
         var colorMatrix = SKColorFilter.CreateColorMatrix(matrix);
@@ -145,10 +152,16 @@ public static class FilterRenderer
         float amount = 100f;
         if (args.Length >= 1)
         {
-            var valStr = args[0].Replace("%", "").Trim();
+            var valStr = args[0].Trim();
+            bool isPercent = valStr.EndsWith("%");
+            valStr = valStr.Replace("%", "").Trim();
             float.TryParse(valStr, out amount);
+            if (!isPercent)
+                amount *= 100f;
         }
-        return CreateColorMatrix(new[] { amount.ToString() }, SaturateMatrix);
+        // grayscale(a%) = saturate(100% - a%)
+        float satAmount = Math.Max(0, 100f - amount);
+        return CreateColorMatrix(new[] { satAmount.ToString() }, SaturateMatrix);
     }
 
     private static SKImageFilter? CreateSepia(string[] args)
@@ -242,7 +255,7 @@ public static class FilterRenderer
             color = ParseFilterColor(args[3]) ?? SKColors.Black;
         }
 
-        return SKImageFilter.CreateDropShadow(offsetX, offsetY, blur / 2f, blur / 2f, color);
+        return SKImageFilter.CreateDropShadow(offsetX, offsetY, blur, blur, color);
     }
 
     private static SKColor? ParseFilterColor(string s)
