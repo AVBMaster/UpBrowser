@@ -24,7 +24,11 @@ public class CssParser
             if (inString)
             {
                 if (c == stringChar && (i == 0 || cssText[i - 1] != '\\'))
+                {
                     inString = false;
+                    continue;
+                }
+                cleaned.Append(c);
                 continue;
             }
             if (c == '\'' || c == '"')
@@ -862,13 +866,16 @@ public class CssSelector
         if (first == '#')
         {
             s.Type = SelectorType.Id;
-            s.Id = selector[1..];
+            int idEnd = selector.IndexOfAny(new[] { ':', '.', '#', '[' }, 1);
+            s.Id = idEnd < 0 ? selector[1..] : selector[1..idEnd];
             i = 1;
         }
         else if (first == '.')
         {
             s.Type = SelectorType.Class;
-            s.Classes.Add(selector[1..]);
+            int classEnd = selector.IndexOfAny(new[] { ':', '.', '#', '[' }, 1);
+            string className = classEnd < 0 ? selector[1..] : selector[1..classEnd];
+            s.Classes.Add(className);
             i = 1;
         }
         else if (first == ':')
@@ -973,7 +980,8 @@ public class CssSelector
             }
             else
             {
-                s.TagName = selector.ToLowerInvariant();
+                int pseudoOrIdx = selector.IndexOfAny(new[] { ':', '.', '#', '[' });
+                s.TagName = pseudoOrIdx < 0 ? selector.ToLowerInvariant() : selector[..pseudoOrIdx].ToLowerInvariant();
             }
         }
 

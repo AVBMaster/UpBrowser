@@ -27,7 +27,6 @@ public static class ShorthandExpander
         {
             case "margin": ExpandFourSides(result, "margin", value); break;
             case "padding": ExpandFourSides(result, "padding", value); break;
-            case "border": ExpandBorder(result, value); break;
             case "border-width": ExpandFourSides(result, "border", value, "width"); break;
             case "border-color": ExpandFourSides(result, "border", value, "color"); break;
             case "border-style": ExpandFourSides(result, "border", value, "style"); break;

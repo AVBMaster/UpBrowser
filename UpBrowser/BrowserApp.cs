@@ -1,4 +1,5 @@
 using SkiaSharp;
+using System.IO;
 using System.Text;
 using UpBrowser.Core;
 using UpBrowser.Core.Css;
@@ -360,7 +361,7 @@ public class BrowserApp : IDisposable
     {
         Console.WriteLine("UpBrowser - Starting...");
 
-        _currentHtml = DocumentManager.DefaultHtml;
+        _currentHtml = File.ReadAllText(@"D:\Master\code\UpBrowser\test_css_features.html");
         var initialLoad = await _docManager.LoadHtmlAsync(_currentHtml);
         _currentLoad = initialLoad;
 

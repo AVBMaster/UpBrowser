@@ -65,13 +65,13 @@ public static class BlockElements
 
             // 列表元素
             case "ul":
-                style.Display = DisplayType.ListItem;
+                style.Display = DisplayType.Block;
                 style.MarginTop = new PixelLength(16);
                 style.MarginBottom = new PixelLength(16);
                 style.PaddingLeft = new PixelLength(40);
                 break;
             case "ol":
-                style.Display = DisplayType.ListItem;
+                style.Display = DisplayType.Block;
                 style.MarginTop = new PixelLength(16);
                 style.MarginBottom = new PixelLength(16);
                 style.PaddingLeft = new PixelLength(40);

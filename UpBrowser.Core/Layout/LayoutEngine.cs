@@ -432,6 +432,20 @@ public class LayoutEngine
             return finalBox;
         }
 
+        // Multi-column: compute column width before laying out children
+        if (style.ColumnCount > 0 || (style.ColumnWidth != null && style.ColumnWidth is not AutoLength))
+        {
+            var (colCount, colWidth, gapSize) = ComputeMultiColumn(style, box.ContentBox.Width);
+            if (colCount > 1)
+            {
+                box.IsMultiColumn = true;
+                box.ColumnCount = colCount;
+                box.ColumnWidth = colWidth;
+                box.ColumnGapSize = gapSize;
+                childAvailableWidth = Math.Max(0, colWidth);
+            }
+        }
+
         switch (style.Display)
         {
             case DisplayType.Flex:
@@ -503,8 +517,8 @@ public class LayoutEngine
             ApplyTextEllipsis(box, style);
         }
 
-        // Multi-column layout
-        if (style.ColumnCount > 0 || (style.ColumnWidth != null && style.ColumnWidth is not AutoLength))
+        // Multi-column layout: reposition children into columns
+        if (box.IsMultiColumn)
         {
             ApplyMultiColumn(element, box, style);
         }
@@ -611,8 +625,21 @@ public class LayoutEngine
         var floatRightElements = new List<(Element elem, float marginTop)>();
         var normalFlowElements = new List<Node>();
 
+        // Check if details element without open attribute → hide all non-summary children
+        bool isClosedDetails = element.TagName == "DETAILS" && !element.HasAttribute("open");
+        bool detailsSummaryFound = false;
+
         foreach (var child in element.Children)
         {
+            // For closed <details>, only include the first <summary> child
+            if (isClosedDetails)
+            {
+                if (child is Element ce && ce.TagName == "SUMMARY" && !detailsSummaryFound)
+                    detailsSummaryFound = true;
+                else
+                    continue;
+            }
+
             if (child is Element childElement)
             {
                 var childStyle = childElement.ComputedStyle;
@@ -644,11 +671,24 @@ public class LayoutEngine
         var (preserveSpaces, preserveNewlines, allowWrapping) = GetWhiteSpaceBehavior(style?.WhiteSpace ?? WhiteSpaceMode.Normal);
 
         int floatLeftIndex = 0, floatRightIndex = 0;
+        detailsSummaryFound = false;
 
         // Merge floats and normal flow in source order
         var mergedChildren = new List<(Node node, bool isFloatLeft, int floatIdx)>();
         foreach (var child in element.Children)
         {
+            // For closed <details>, only include the first <summary> child
+            if (isClosedDetails)
+            {
+                if (child is Element ce && ce.TagName == "SUMMARY" && !detailsSummaryFound)
+                {
+                    detailsSummaryFound = true;
+                    // Include the summary
+                }
+                else
+                    continue;
+            }
+
             if (child is Element childElement)
             {
                 var childStyle = childElement.ComputedStyle;
@@ -2374,6 +2414,33 @@ public class LayoutEngine
             if (width <= maxWidth) return truncated;
         }
         return "";
+    }
+
+    private (int colCount, float colWidth, float gapSize) ComputeMultiColumn(ComputedStyle style, float containerWidth)
+    {
+        int colCount = style.ColumnCount;
+        float colWidth = 0;
+
+        if (colCount <= 0 && style.ColumnWidth != null)
+        {
+            colWidth = style.ColumnWidth.ToPixels(style.FontSize, _rootFontSize, _viewportWidth, _viewportHeight);
+            if (colWidth > 0)
+            {
+                float gap = style.ColumnGap.ToPixels(style.FontSize, _rootFontSize, _viewportWidth, _viewportHeight);
+                if (gap == 0) gap = 16;
+                colCount = Math.Max(1, (int)((containerWidth + gap) / (colWidth + gap)));
+            }
+        }
+
+        if (colCount <= 1) return (1, containerWidth, 0);
+
+        float gapSize = style.ColumnGap.ToPixels(style.FontSize, _rootFontSize, _viewportWidth, _viewportHeight);
+        if (gapSize == 0) gapSize = 16;
+
+        if (colWidth <= 0)
+            colWidth = (containerWidth - gapSize * (colCount - 1)) / colCount;
+
+        return (colCount, Math.Max(0, colWidth), gapSize);
     }
 
     private void ApplyMultiColumn(Element element, LayoutBox box, ComputedStyle style)
