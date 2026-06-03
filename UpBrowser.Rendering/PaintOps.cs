@@ -67,6 +67,10 @@ public class DrawRectOp : PaintOp
     public SKColor BorderRightColor { get; set; }
     public SKColor BorderBottomColor { get; set; }
     public SKColor BorderLeftColor { get; set; }
+    public BorderStyle BorderTopStyle { get; set; }
+    public BorderStyle BorderRightStyle { get; set; }
+    public BorderStyle BorderBottomStyle { get; set; }
+    public BorderStyle BorderLeftStyle { get; set; }
     public float BorderRadius { get; set; }
 
     public override void Reset()
@@ -76,6 +80,7 @@ public class DrawRectOp : PaintOp
         FillColor = default;
         BorderTopWidth = BorderRightWidth = BorderBottomWidth = BorderLeftWidth = 0;
         BorderTopColor = BorderRightColor = BorderBottomColor = BorderLeftColor = default;
+        BorderTopStyle = BorderRightStyle = BorderBottomStyle = BorderLeftStyle = BorderStyle.None;
         BorderRadius = 0;
     }
 
@@ -154,47 +159,30 @@ public class DrawRectOp : PaintOp
         if (hasBorder)
         {
             if (BorderTopWidth > 0)
-            {
-                using var paint = new SKPaint
-                {
-                    Color = BorderTopColor,
-                    Style = SKPaintStyle.Fill
-                };
-                var r = new SKRect(alignedRect.Left, alignedRect.Top, alignedRect.Right, alignedRect.Bottom);
-                canvas.DrawRect(r.Left, r.Top, r.Width, BorderTopWidth, paint);
-            }
-
+                DrawBorderSide(canvas, alignedRect.Left, alignedRect.Top, alignedRect.Right, alignedRect.Top, BorderTopWidth, BorderTopColor, BorderTopStyle);
             if (BorderBottomWidth > 0)
-            {
-                using var paint = new SKPaint
-                {
-                    Color = BorderBottomColor,
-                    Style = SKPaintStyle.Fill
-                };
-                var r2 = new SKRect(alignedRect.Left, alignedRect.Top, alignedRect.Right, alignedRect.Bottom);
-                canvas.DrawRect(r2.Left, r2.Bottom - BorderBottomWidth, r2.Width, BorderBottomWidth, paint);
-            }
-
+                DrawBorderSide(canvas, alignedRect.Left, alignedRect.Bottom, alignedRect.Right, alignedRect.Bottom, BorderBottomWidth, BorderBottomColor, BorderBottomStyle);
             if (BorderLeftWidth > 0)
-            {
-                using var paint = new SKPaint
-                {
-                    Color = BorderLeftColor,
-                    Style = SKPaintStyle.Fill
-                };
-                canvas.DrawRect(alignedRect.Left, alignedRect.Top, BorderLeftWidth, alignedRect.Height, paint);
-            }
-
+                DrawBorderSide(canvas, alignedRect.Left, alignedRect.Top, alignedRect.Left, alignedRect.Bottom, BorderLeftWidth, BorderLeftColor, BorderLeftStyle);
             if (BorderRightWidth > 0)
-            {
-                using var paint = new SKPaint
-                {
-                    Color = BorderRightColor,
-                    Style = SKPaintStyle.Fill
-                };
-                canvas.DrawRect(alignedRect.Right - BorderRightWidth, alignedRect.Top, BorderRightWidth, alignedRect.Height, paint);
-            }
+                DrawBorderSide(canvas, alignedRect.Right, alignedRect.Top, alignedRect.Right, alignedRect.Bottom, BorderRightWidth, BorderRightColor, BorderRightStyle);
         }
+    }
+
+    private static void DrawBorderSide(SKCanvas canvas, float x1, float y1, float x2, float y2, float width, SKColor color, BorderStyle style)
+    {
+        using var paint = new SKPaint
+        {
+            Color = color,
+            Style = SKPaintStyle.Stroke,
+            StrokeWidth = width,
+            IsAntialias = true
+        };
+        if (style == BorderStyle.Dashed)
+            paint.PathEffect = SKPathEffect.CreateDash(new[] { width * 4, width * 4 }, 0);
+        else if (style == BorderStyle.Dotted)
+            paint.PathEffect = SKPathEffect.CreateDash(new[] { width, width }, 0);
+        canvas.DrawLine(x1, y1, x2, y2, paint);
     }
 }
 
@@ -211,6 +199,7 @@ public class DrawTextOp : PaintOp
     public float? MaxWidth { get; set; }
     public bool Underline { get; set; }
     public bool LineThrough { get; set; }
+    public SKColor UnderlineColor { get; set; }
     public List<TextShadowValue>? TextShadows { get; set; }
 
     public override void Reset()
@@ -225,6 +214,7 @@ public class DrawTextOp : PaintOp
         TextAlign = TextAlignType.Start;
         MaxWidth = null;
         Underline = LineThrough = false;
+        UnderlineColor = default;
         TextShadows = null;
     }
 
@@ -285,9 +275,10 @@ public class DrawTextOp : PaintOp
         if (Underline)
         {
             float underlineY = drawY + 2;
+            var underlineColor = UnderlineColor.Alpha > 0 ? UnderlineColor : Color;
             using var underlinePaint = new SKPaint
             {
-                Color = Color,
+                Color = underlineColor,
                 StrokeWidth = 1,
                 Style = SKPaintStyle.Stroke,
                 IsAntialias = true

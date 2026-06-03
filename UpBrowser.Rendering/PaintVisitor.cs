@@ -608,6 +608,10 @@ public class PaintVisitor
         op.BorderRightColor = style.BorderRightColor;
         op.BorderBottomColor = style.BorderBottomColor;
         op.BorderLeftColor = style.BorderLeftColor;
+        op.BorderTopStyle = style.BorderTopStyle;
+        op.BorderRightStyle = style.BorderRightStyle;
+        op.BorderBottomStyle = style.BorderBottomStyle;
+        op.BorderLeftStyle = style.BorderLeftStyle;
         op.Bounds = borderRect;
         _displayList.Add(op);
     }
@@ -1161,8 +1165,9 @@ public class PaintVisitor
         op.FontFamily = parentStyle?.FontFamily ?? "Arial";
         op.FontWeight = parentStyle?.FontWeight ?? FontWeight.Normal;
         op.TextAlign = parentStyle?.TextAlign ?? TextAlignType.Start;
-        op.Underline = parentStyle?.TextDecoration == TextDecorationType.Underline;
-        op.LineThrough = parentStyle?.TextDecoration == TextDecorationType.LineThrough;
+        op.Underline = parentStyle?.TextDecorationLine == TextDecorationLineType.Underline || parentStyle?.TextDecoration == TextDecorationType.Underline;
+        op.LineThrough = parentStyle?.TextDecorationLine == TextDecorationLineType.LineThrough || parentStyle?.TextDecoration == TextDecorationType.LineThrough;
+        if (parentStyle != null) op.UnderlineColor = parentStyle.TextDecorationColor;
         if (parentStyle?.TextShadow != null && parentStyle.TextShadow.Count > 0)
             op.TextShadows = parentStyle.TextShadow;
         op.Bounds = new SKRect(contentBox.Left, contentBox.Top + TotalOffsetY, contentBox.Right, contentBox.Bottom + TotalOffsetY);

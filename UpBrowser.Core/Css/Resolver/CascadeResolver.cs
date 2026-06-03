@@ -478,7 +478,16 @@ public class CascadeResolver
             case "background-blend-mode": style.BackgroundBlendMode = ParseBackgroundBlendMode(value); break;
             case "text-align": style.TextAlign = ParseTextAlign(value); break;
             case "text-decoration": ParseTextDecorationShorthand(value, style); break;
-            case "text-decoration-line": style.TextDecorationLine = ParseTextDecorationLine(value); break;
+            case "text-decoration-line":
+                style.TextDecorationLine = ParseTextDecorationLine(value);
+                style.TextDecoration = style.TextDecorationLine switch
+                {
+                    TextDecorationLineType.Underline => TextDecorationType.Underline,
+                    TextDecorationLineType.LineThrough => TextDecorationType.LineThrough,
+                    TextDecorationLineType.Overline => TextDecorationType.Overline,
+                    _ => TextDecorationType.None
+                };
+                break;
             case "text-decoration-style": style.TextDecorationStyle = ParseTextDecorationStyle(value); break;
             case "text-decoration-color": style.TextDecorationColor = ColorParser.Parse(value); break;
             case "text-decoration-thickness":
@@ -1567,7 +1576,7 @@ public class CascadeResolver
                 style.TextDecorationLine = ParseTextDecorationLine(part);
             else if (lower == "solid" || lower == "double" || lower == "dotted" || lower == "dashed" || lower == "wavy")
                 style.TextDecorationStyle = ParseTextDecorationStyle(part);
-            else if (lower.StartsWith("#") || lower.StartsWith("rgb"))
+            else
                 style.TextDecorationColor = ColorParser.Parse(part);
         }
     }

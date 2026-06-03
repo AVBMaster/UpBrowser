@@ -2293,7 +2293,7 @@ public class LayoutEngine
         if (element.BeforeStyles != null && element.BeforeStyles.TryGetValue("content", out var beforeContent))
         {
             beforeContent = DecodeCssContent(beforeContent);
-            if (!string.IsNullOrEmpty(beforeContent) && beforeContent != "none")
+            if (!string.IsNullOrEmpty(beforeContent) && beforeContent != "none" && !HasPseudoContent(element, beforeContent))
             {
                 var beforeNode = new TextNode(beforeContent);
                 beforeNode.Parent = element;
@@ -2304,13 +2304,23 @@ public class LayoutEngine
         if (element.AfterStyles != null && element.AfterStyles.TryGetValue("content", out var afterContent))
         {
             afterContent = DecodeCssContent(afterContent);
-            if (!string.IsNullOrEmpty(afterContent) && afterContent != "none")
+            if (!string.IsNullOrEmpty(afterContent) && afterContent != "none" && !HasPseudoContent(element, afterContent))
             {
                 var afterNode = new TextNode(afterContent);
                 afterNode.Parent = element;
                 element.Children.Add(afterNode);
             }
         }
+    }
+
+    private static bool HasPseudoContent(Element element, string content)
+    {
+        foreach (var child in element.Children)
+        {
+            if (child is TextNode text && text.Data == content)
+                return true;
+        }
+        return false;
     }
 
     private static string DecodeCssContent(string content)

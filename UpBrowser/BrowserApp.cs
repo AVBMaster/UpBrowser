@@ -1139,6 +1139,23 @@ public class BrowserApp : IDisposable
         Console.WriteLine($"[Click] HitTest found: {element?.TagName} at ({docX:F1},{adjustedY:F1})");
         if (element != null)
         {
+            // Handle <summary> click to toggle parent <details>
+            if (element.TagName == "SUMMARY")
+            {
+                var detailsParent = element.ParentElement;
+                while (detailsParent != null && detailsParent.TagName != "DETAILS")
+                    detailsParent = detailsParent.ParentElement;
+                if (detailsParent != null)
+                {
+                    if (detailsParent.HasAttribute("open"))
+                        detailsParent.RemoveAttribute("open");
+                    else
+                        detailsParent.SetAttribute("open", "");
+                    _pendingRelayout = true;
+                    return;
+                }
+            }
+
             bool shouldProceed = _jsEngine.DispatchEvent(element, "click");
 
             // Dispatch focus/blur when focused element changes
