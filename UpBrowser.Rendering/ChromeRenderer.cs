@@ -325,7 +325,7 @@ public class ChromeRenderer : IImeSupport
         if (!_isLoading && _loadingProgress >= 1f) return;
 
         UpdateLoadingProgress();
-        float progressY = TabBarHeight - 2;
+        float progressY = TabBarHeight;
         float barHeight = 2;
 
         canvas.DrawRect(0, progressY, width, barHeight, _progressBgPaint);
