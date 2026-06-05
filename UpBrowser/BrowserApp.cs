@@ -131,6 +131,7 @@ public class BrowserApp : IDisposable
         _input.OnDevToolsInput = (c, key) => DevToolsHandleInput(c, key);
         _input.OnDevToolsClick = (x, y, isDown) => HandleDevToolsClick(x, y, isDown);
         _input.OnDevToolsWheel = (delta, mx, my) => _devTools.HandleWheel(delta, mx, my);
+        _input.OnScrollContainerWheel = (dx, dy, mx, my) => HandleScrollContainerWheel(dx, dy, mx, my);
         _input.OnImeChar = HandleImeChar;
         _input.OnImeTargetChanged = UpdateImeTarget;
         _input.OnCopy = PerformCopy;
@@ -1367,6 +1368,55 @@ public class BrowserApp : IDisposable
         _jsEngine.DispatchEvent(target, evt);
     }
 
+    private bool HandleScrollContainerWheel(double deltaX, double deltaY, float mouseX, float mouseY)
+    {
+        if (_currentLoad == null) return false;
+        // Find the element under the mouse in document coordinates (accounting for page scroll)
+        float docX = mouseX + _scroll.ScrollX;
+        float docY = mouseY - _contentOffset + _scroll.ScrollY;
+        var element = HitTest(_currentLoad.Document, docX, docY);
+        if (element == null) return false;
+
+        // Walk up from the hit element to find a scroll container
+        var el = element;
+        while (el != null)
+        {
+            var box = el.LayoutBox;
+            if (box != null && box.IsScrollContainer &&
+                box.ContentBox.Height > 0 && box.ContentBox.Width > 0 &&
+                (box.ScrollContentHeight > box.ContentBox.Height || box.ScrollContentWidth > box.ContentBox.Width))
+            {
+                // Check if mouse is within this scroll container's viewport
+                float scrollY = box.ScrollY - (float)deltaY;
+                float maxScrollY = box.ScrollContentHeight - box.ContentBox.Height;
+                if (maxScrollY > 0)
+                {
+                    scrollY = Math.Clamp(scrollY, 0, maxScrollY);
+                    if (Math.Abs(scrollY - box.ScrollY) > 0.5f)
+                    {
+                        box.ScrollY = scrollY;
+                        _pendingRelayout = true;
+                        return true;
+                    }
+                }
+                float scrollX = box.ScrollX - (float)deltaX;
+                float maxScrollX = box.ScrollContentWidth - box.ContentBox.Width;
+                if (maxScrollX > 0)
+                {
+                    scrollX = Math.Clamp(scrollX, 0, maxScrollX);
+                    if (Math.Abs(scrollX - box.ScrollX) > 0.5f)
+                    {
+                        box.ScrollX = scrollX;
+                        _pendingRelayout = true;
+                        return true;
+                    }
+                }
+            }
+            el = el.ParentElement;
+        }
+        return false;
+    }
+
     private void HandleDomMouseMove(float x, float y)
     {
         if (_currentLoad == null) return;
@@ -1412,7 +1462,24 @@ public class BrowserApp : IDisposable
                 };
                 _jsEngine.DispatchEvent(element, overEvt);
             }
+            // Update CSS :hover pseudo-class state
+            // Clear hover on old element's ancestor chain
+            var oldHover = _hoveredElement;
+            var ptr = oldHover;
+            while (ptr != null)
+            {
+                ptr.IsHovered = false;
+                ptr = ptr.ParentElement;
+            }
+            // Set hover on new element's ancestor chain
             _hoveredElement = element;
+            ptr = _hoveredElement;
+            while (ptr != null)
+            {
+                ptr.IsHovered = true;
+                ptr = ptr.ParentElement;
+            }
+            _pendingRelayout = true;
         }
 
         if (element != null)
@@ -1541,8 +1608,6 @@ public class BrowserApp : IDisposable
     private bool IsCtrlPressed() => _input.IsCtrlDown;
     private bool IsShiftPressed() => _input.IsShiftDown;
     private bool IsAltPressed() => _input.IsAltDown;
-
-    #endregion
 
     private bool DevToolsHandleInput(char c, Key key)
     {
@@ -1700,4 +1765,6 @@ public class BrowserApp : IDisposable
         _eventLoop.Stop();
         GC.SuppressFinalize(this);
     }
+
+    #endregion
 }

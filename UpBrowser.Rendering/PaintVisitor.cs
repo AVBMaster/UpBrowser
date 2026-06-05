@@ -130,14 +130,7 @@ public class PaintVisitor
 
         if (!isVisibilityHidden)
         {
-            DrawElementBackground(element, layoutBox, style, offsetBorderBox);
-            DrawElementBorder(element, layoutBox, style, offsetBorderBox);
-            DrawElementOutline(element, layoutBox, style, offsetBorderBox);
-        }
-
-        if (!isVisibilityHidden)
-        {
-            // Apply CSS transform
+            // Apply CSS transform BEFORE background so the entire element (including background) is transformed
             bool hasTransform = !string.IsNullOrEmpty(style.Transform) && style.Transform != "none";
             SKMatrix transformMatrix = SKMatrix.Identity;
             if (hasTransform)
@@ -154,6 +147,10 @@ public class PaintVisitor
                 }
             }
 
+            DrawElementBackground(element, layoutBox, style, offsetBorderBox);
+            DrawElementBorder(element, layoutBox, style, offsetBorderBox);
+            DrawElementOutline(element, layoutBox, style, offsetBorderBox);
+
             if (element.TagName.Equals("HR", StringComparison.OrdinalIgnoreCase))
             {
                 float y = layoutBox.ContentBox.Top + TotalOffsetY + layoutBox.ContentBox.Height / 2;
@@ -168,6 +165,46 @@ public class PaintVisitor
                 lineOp.StrokeWidth = style.BorderTopWidth;
                 lineOp.Bounds = new SKRect(x1, y - 1, x2, y + 1);
                 _displayList.Add(lineOp);
+            }
+
+            // Draw disclosure triangle for <summary> elements
+            if (element.TagName.Equals("SUMMARY", StringComparison.OrdinalIgnoreCase))
+            {
+                float arrowSize = Math.Min(10, layoutBox.ContentBox.Height * 0.6f);
+                float arrowX = layoutBox.ContentBox.Left + 4;
+                float arrowY = layoutBox.ContentBox.Top + TotalOffsetY + (layoutBox.ContentBox.Height - arrowSize) / 2;
+
+                // Check if parent <details> has 'open' attribute
+                bool isOpen = false;
+                var detailsParent = element.ParentElement;
+                while (detailsParent != null && detailsParent.TagName != "DETAILS")
+                    detailsParent = detailsParent.ParentElement;
+                if (detailsParent != null && detailsParent.HasAttribute("open"))
+                    isOpen = true;
+
+                var arrowPath = new SKPath();
+                if (isOpen)
+                {
+                    // Downward-pointing triangle
+                    arrowPath.MoveTo(arrowX, arrowY);
+                    arrowPath.LineTo(arrowX + arrowSize, arrowY);
+                    arrowPath.LineTo(arrowX + arrowSize * 0.5f, arrowY + arrowSize);
+                    arrowPath.Close();
+                }
+                else
+                {
+                    // Rightward-pointing triangle
+                    arrowPath.MoveTo(arrowX, arrowY);
+                    arrowPath.LineTo(arrowX, arrowY + arrowSize);
+                    arrowPath.LineTo(arrowX + arrowSize, arrowY + arrowSize * 0.5f);
+                    arrowPath.Close();
+                }
+
+                var arrowOp = PaintOpPool.GetDrawPathOp();
+                arrowOp.Path = arrowPath;
+                arrowOp.FillPaint = new SKPaint { Color = style.Color, Style = SKPaintStyle.Fill, IsAntialias = true };
+                arrowOp.Bounds = new SKRect(arrowX, arrowY, arrowX + arrowSize, arrowY + arrowSize);
+                _displayList.Add(arrowOp);
             }
 
             bool hasOverflowHidden = style.Overflow == OverflowType.Hidden || style.OverflowX == OverflowType.Hidden || style.OverflowY == OverflowType.Hidden;
@@ -321,9 +358,42 @@ public class PaintVisitor
 
     private void DrawElementBackground(Element element, LayoutBox box, ComputedStyle style, SKRect borderRect)
     {
-        var bgRect = new SKRect(borderRect.Left + style.BorderLeftWidth, borderRect.Top + style.BorderTopWidth,
-                                borderRect.Right - style.BorderRightWidth, borderRect.Bottom - style.BorderBottomWidth);
-        if (bgRect.Width <= 0 || bgRect.Height <= 0) return;
+        var paddingRect = new SKRect(borderRect.Left + style.BorderLeftWidth, borderRect.Top + style.BorderTopWidth,
+                                     borderRect.Right - style.BorderRightWidth, borderRect.Bottom - style.BorderBottomWidth);
+        if (paddingRect.Width <= 0 || paddingRect.Height <= 0) return;
+
+        // Determine the background clip rect based on background-clip property
+        SKRect bgClipRect;
+        switch (style.BackgroundClip?.ToLowerInvariant())
+        {
+            case "border-box":
+                bgClipRect = borderRect;
+                break;
+            case "content-box":
+                float padL = style.PaddingLeft is PixelLength pl ? pl.Value : 0;
+                float padT = style.PaddingTop is PixelLength pt ? pt.Value : 0;
+                float padR = style.PaddingRight is PixelLength pr ? pr.Value : 0;
+                float padB = style.PaddingBottom is PixelLength pb ? pb.Value : 0;
+                bgClipRect = new SKRect(paddingRect.Left + padL, paddingRect.Top + padT,
+                                        paddingRect.Right - padR, paddingRect.Bottom - padB);
+                if (bgClipRect.Width <= 0) bgClipRect.Right = bgClipRect.Left;
+                if (bgClipRect.Height <= 0) bgClipRect.Bottom = bgClipRect.Top;
+                break;
+            default: // padding-box
+                bgClipRect = paddingRect;
+                break;
+        }
+
+        // Push clip to background clip rect
+        bool needsClip = style.BackgroundClip != null && style.BackgroundClip != "" &&
+                         style.BackgroundClip.ToLowerInvariant() != "padding-box";
+        if (needsClip)
+        {
+            var clipOp = PaintOpPool.GetPushClipOp();
+            clipOp.ClipRect = bgClipRect;
+            clipOp.Bounds = borderRect;
+            _displayList.Add(clipOp);
+        }
 
         DrawBoxShadow(borderRect, style);
 
@@ -337,19 +407,27 @@ public class PaintVisitor
                 bgColor = bgColor.WithAlpha((byte)(bgColor.Alpha * style.Opacity));
 
             var op = PaintOpPool.GetDrawRectOp();
-            op.Rect = bgRect;
+            op.Rect = paddingRect;
             op.FillColor = bgColor;
             op.BorderRadius = Math.Max(style.BorderTopLeftRadius, Math.Max(style.BorderTopRightRadius, Math.Max(style.BorderBottomLeftRadius, style.BorderBottomRightRadius)));
             op.Bounds = borderRect;
             _displayList.Add(op);
         }
 
-        if (hasBackgroundImage)
+        if (hasBackgroundImage && style.BackgroundImage != null)
         {
             if (style.BackgroundImage.Contains("gradient", StringComparison.OrdinalIgnoreCase))
-                DrawGradientBackground(style, bgRect);
+                DrawGradientBackground(style, paddingRect);
             else
-                DrawBackgroundImage(element, style, bgRect);
+                DrawBackgroundImage(element, style, paddingRect);
+        }
+
+        // Pop clip if we pushed one
+        if (needsClip)
+        {
+            var popOp = PaintOpPool.GetPopClipOp();
+            popOp.Bounds = borderRect;
+            _displayList.Add(popOp);
         }
     }
 
@@ -723,13 +801,27 @@ public class PaintVisitor
         if (clipPath.StartsWith("circle("))
         {
             var inner = clipPath[7..^1];
-            var parts = inner.Split(',', StringSplitOptions.RemoveEmptyEntries);
-            float radius = rect.Width / 2f;
+            var parts = inner.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            float radius = Math.Min(rect.Width, rect.Height) / 2f;
             float cx = rect.MidX, cy = rect.MidY;
-            if (parts.Length >= 1) float.TryParse(parts[0].Replace("px", "").Trim(), out radius);
-            if (parts.Length >= 2)
+            if (parts.Length >= 1)
             {
-                var cxStr = parts[1].Replace("px", "").Trim();
+                var rStr = parts[0].Trim();
+                if (rStr.EndsWith("%"))
+                {
+                    if (float.TryParse(rStr[..^1].Trim(), out var pct))
+                        radius = Math.Min(rect.Width, rect.Height) * pct / 100f;
+                }
+                else
+                {
+                    float.TryParse(rStr.Replace("px", "").Trim(), out radius);
+                }
+            }
+            // at keyword for center: circle(50% at 30% 40%)
+            int atIdx = Array.FindIndex(parts, p => p.Equals("at", StringComparison.OrdinalIgnoreCase));
+            if (atIdx >= 0 && parts.Length > atIdx + 2)
+            {
+                var cxStr = parts[atIdx + 1];
                 if (cxStr.EndsWith("%"))
                 {
                     if (float.TryParse(cxStr[..^1].Trim(), out var pct))
@@ -737,13 +829,10 @@ public class PaintVisitor
                 }
                 else
                 {
-                    if (float.TryParse(cxStr, out cx))
-                        cx += rect.Left;
+                    if (float.TryParse(cxStr.Replace("px", "").Trim(), out var v))
+                        cx = rect.Left + v;
                 }
-            }
-            if (parts.Length >= 3)
-            {
-                var cyStr = parts[2].Replace("px", "").Trim();
+                var cyStr = parts[atIdx + 2];
                 if (cyStr.EndsWith("%"))
                 {
                     if (float.TryParse(cyStr[..^1].Trim(), out var pct))
@@ -751,76 +840,131 @@ public class PaintVisitor
                 }
                 else
                 {
-                    if (float.TryParse(cyStr, out cy))
-                        cy += rect.Top;
+                    if (float.TryParse(cyStr.Replace("px", "").Trim(), out var v))
+                        cy = rect.Top + v;
                 }
             }
-            path.AddCircle(cx, cy, radius);
+            path.AddCircle(cx, cy, Math.Max(0, radius));
         }
         else if (clipPath.StartsWith("ellipse("))
         {
             var inner = clipPath[8..^1];
-            var parts = inner.Split(',', StringSplitOptions.RemoveEmptyEntries);
+            var parts = inner.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            float rx = rect.Width / 2f, ry = rect.Height / 2f;
+            float cx = rect.MidX, cy = rect.MidY;
             if (parts.Length >= 2)
             {
-                float cxVal = rect.MidX, cyVal = rect.MidY;
-                float rx, ry;
-
-                var rxStr = parts[0].Replace("px", "").Trim();
+                var rxStr = parts[0];
                 if (rxStr.EndsWith("%"))
                 {
-                    float.TryParse(rxStr[..^1].Trim(), out rx);
-                    rx = rect.Width * rx / 100f;
+                    if (float.TryParse(rxStr[..^1].Trim(), out var pct))
+                        rx = rect.Width * pct / 100f;
                 }
                 else
                 {
-                    float.TryParse(rxStr, out rx);
+                    float.TryParse(rxStr.Replace("px", "").Trim(), out rx);
                 }
-
-                var ryStr = parts[1].Replace("px", "").Trim();
+                var ryStr = parts[1];
                 if (ryStr.EndsWith("%"))
                 {
-                    float.TryParse(ryStr[..^1].Trim(), out ry);
-                    ry = rect.Height * ry / 100f;
+                    if (float.TryParse(ryStr[..^1].Trim(), out var pct))
+                        ry = rect.Height * pct / 100f;
                 }
                 else
                 {
-                    float.TryParse(ryStr, out ry);
+                    float.TryParse(ryStr.Replace("px", "").Trim(), out ry);
                 }
-
-                path.AddOval(new SKRect(cxVal - rx, cyVal - ry, cxVal + rx, cyVal + ry));
             }
-            else
-                path.AddOval(rect);
+            int atIdx = Array.FindIndex(parts, p => p.Equals("at", StringComparison.OrdinalIgnoreCase));
+            if (atIdx >= 0 && parts.Length > atIdx + 2)
+            {
+                var cxStr = parts[atIdx + 1];
+                if (cxStr.EndsWith("%"))
+                {
+                    if (float.TryParse(cxStr[..^1].Trim(), out var pct))
+                        cx = rect.Left + rect.Width * pct / 100f;
+                }
+                else
+                {
+                    if (float.TryParse(cxStr.Replace("px", "").Trim(), out var v))
+                        cx = rect.Left + v;
+                }
+                var cyStr = parts[atIdx + 2];
+                if (cyStr.EndsWith("%"))
+                {
+                    if (float.TryParse(cyStr[..^1].Trim(), out var pct))
+                        cy = rect.Top + rect.Height * pct / 100f;
+                }
+                else
+                {
+                    if (float.TryParse(cyStr.Replace("px", "").Trim(), out var v))
+                        cy = rect.Top + v;
+                }
+            }
+            path.AddOval(new SKRect(cx - Math.Max(0, rx), cy - Math.Max(0, ry), cx + Math.Max(0, rx), cy + Math.Max(0, ry)));
         }
         else if (clipPath.StartsWith("inset("))
         {
             var inner = clipPath[6..^1];
-            var parts = inner.Split(',', StringSplitOptions.RemoveEmptyEntries);
+            // Split by spaces, handling round keyword
+            var parts = inner.Split(' ', StringSplitOptions.RemoveEmptyEntries).ToList();
             float top = 0, right = 0, bottom = 0, left = 0;
-            if (parts.Length >= 1) float.TryParse(parts[0].Replace("px", "").Trim(), out top);
-            if (parts.Length >= 2) float.TryParse(parts[1].Replace("px", "").Trim(), out right);
-            if (parts.Length >= 3) float.TryParse(parts[2].Replace("px", "").Trim(), out bottom);
-            if (parts.Length >= 4) float.TryParse(parts[3].Replace("px", "").Trim(), out left);
-            if (bottom == 0) bottom = top;
-            if (left == 0) left = right;
+            int count = 0;
+            foreach (var p in parts)
+            {
+                if (p.Equals("round", StringComparison.OrdinalIgnoreCase)) break;
+                float val = 0;
+                var trimmed = p.Replace("px", "").Trim();
+                if (trimmed.EndsWith("%"))
+                {
+                    if (float.TryParse(trimmed[..^1].Trim(), out var pct))
+                        val = pct / 100f;
+                }
+                else
+                {
+                    float.TryParse(trimmed, out val);
+                }
+                if (count == 0) top = val;
+                else if (count == 1) right = val;
+                else if (count == 2) bottom = val;
+                else if (count == 3) left = val;
+                count++;
+            }
+            if (count == 1) right = bottom = left = top;
+            else if (count == 2) { bottom = top; left = right; }
+            else if (count == 3) { left = right; }
+            // Convert percentages to absolute values
+            if (top < 1 && top >= 0 && parts[0].EndsWith("%")) top = rect.Height * top;
+            if (right < 1 && right >= 0 && parts[Math.Min(1, parts.Count - 1)].EndsWith("%")) right = rect.Width * right;
+            if (bottom < 1 && bottom >= 0 && parts[Math.Min(2, parts.Count - 1)].EndsWith("%")) bottom = rect.Height * bottom;
+            if (left < 1 && left >= 0 && parts[Math.Min(3, parts.Count - 1)].EndsWith("%")) left = rect.Width * left;
             var insetRect = new SKRect(rect.Left + left, rect.Top + top, rect.Right - right, rect.Bottom - bottom);
             path.AddRect(insetRect);
         }
         else if (clipPath.StartsWith("polygon("))
         {
             var inner = clipPath[8..^1];
-            var points = inner.Split(',', StringSplitOptions.RemoveEmptyEntries);
-            bool first = true;
-            foreach (var pt in points)
+            var parts = inner.Split(',', StringSplitOptions.RemoveEmptyEntries);
+            // Skip optional "fill" or "nonzero"/"evenodd" keywords
+            int firstPt = 0;
+            if (parts.Length > 0)
             {
-                var coords = pt.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                var trimmed = parts[0].Trim();
+                if (trimmed.Equals("fill", StringComparison.OrdinalIgnoreCase) ||
+                    trimmed.Equals("nonzero", StringComparison.OrdinalIgnoreCase) ||
+                    trimmed.Equals("evenodd", StringComparison.OrdinalIgnoreCase))
+                    firstPt = 1;
+            }
+            bool first = true;
+            for (int pi = firstPt; pi < parts.Length; pi++)
+            {
+                var coords = parts[pi].Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
                 if (coords.Length < 2) continue;
                 float x = 0, y = 0;
                 if (coords[0].EndsWith("%"))
                 {
-                    float.TryParse(coords[0][..^1].Trim(), out var pct);
-                    x = rect.Left + rect.Width * pct / 100f;
+                    if (float.TryParse(coords[0][..^1].Trim(), out var pct))
+                        x = rect.Left + rect.Width * pct / 100f;
                 }
                 else
                 {
@@ -829,8 +973,8 @@ public class PaintVisitor
                 }
                 if (coords[1].EndsWith("%"))
                 {
-                    float.TryParse(coords[1][..^1].Trim(), out var pct);
-                    y = rect.Top + rect.Height * pct / 100f;
+                    if (float.TryParse(coords[1][..^1].Trim(), out var pct))
+                        y = rect.Top + rect.Height * pct / 100f;
                 }
                 else
                 {
@@ -1216,6 +1360,7 @@ public class PaintVisitor
         op.Underline = parentStyle?.TextDecorationLine == TextDecorationLineType.Underline || parentStyle?.TextDecoration == TextDecorationType.Underline;
         op.LineThrough = parentStyle?.TextDecorationLine == TextDecorationLineType.LineThrough || parentStyle?.TextDecoration == TextDecorationType.LineThrough;
         if (parentStyle != null) op.UnderlineColor = parentStyle.TextDecorationColor;
+        op.DecorationStyle = parentStyle?.TextDecorationStyle ?? TextDecorationStyleType.Solid;
         if (parentStyle?.TextShadow != null && parentStyle.TextShadow.Count > 0)
             op.TextShadows = parentStyle.TextShadow;
         op.Bounds = new SKRect(contentBox.Left, contentBox.Top + TotalOffsetY, contentBox.Right, contentBox.Bottom + TotalOffsetY);
@@ -1344,6 +1489,7 @@ public class PaintVisitor
                         op.Underline = parentStyle?.TextDecorationLine == TextDecorationLineType.Underline || parentStyle?.TextDecoration == TextDecorationType.Underline;
                         op.LineThrough = parentStyle?.TextDecorationLine == TextDecorationLineType.LineThrough || parentStyle?.TextDecoration == TextDecorationType.LineThrough;
                         if (parentStyle != null) op.UnderlineColor = parentStyle.TextDecorationColor;
+                        op.DecorationStyle = parentStyle?.TextDecorationStyle ?? TextDecorationStyleType.Solid;
                         if (parentStyle?.TextShadow != null && parentStyle.TextShadow.Count > 0)
                             op.TextShadows = parentStyle.TextShadow;
                         op.Bounds = new SKRect(currentX + lineOffsetX, lineY, currentX + run.Width + lineOffsetX, lineY + line.Height);
@@ -1391,6 +1537,7 @@ public class PaintVisitor
                     op.Underline = parentStyle?.TextDecorationLine == TextDecorationLineType.Underline || parentStyle?.TextDecoration == TextDecorationType.Underline;
                     op.LineThrough = parentStyle?.TextDecorationLine == TextDecorationLineType.LineThrough || parentStyle?.TextDecoration == TextDecorationType.LineThrough;
                     if (parentStyle != null) op.UnderlineColor = parentStyle.TextDecorationColor;
+                    op.DecorationStyle = parentStyle?.TextDecorationStyle ?? TextDecorationStyleType.Solid;
                     if (parentStyle?.TextShadow != null && parentStyle.TextShadow.Count > 0)
                         op.TextShadows = parentStyle.TextShadow;
                     op.Bounds = new SKRect(x, boxTop, x + run.Width, boxTop + run.Height);

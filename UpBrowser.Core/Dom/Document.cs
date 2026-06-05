@@ -175,6 +175,7 @@ public abstract class Element : Node
     public int SelectionStart { get; set; }
     public int SelectionEnd { get; set; }
     public bool IsFocused { get; set; }
+    public bool IsHovered { get; set; }
 
     // ===== 新增标准 DOM 布局属性（修复问题1、2） =====
 

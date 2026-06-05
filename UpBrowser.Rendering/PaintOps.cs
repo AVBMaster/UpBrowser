@@ -200,6 +200,7 @@ public class DrawTextOp : PaintOp
     public bool Underline { get; set; }
     public bool LineThrough { get; set; }
     public SKColor UnderlineColor { get; set; }
+    public TextDecorationStyleType DecorationStyle { get; set; } = TextDecorationStyleType.Solid;
     public List<TextShadowValue>? TextShadows { get; set; }
 
     public override void Reset()
@@ -215,6 +216,7 @@ public class DrawTextOp : PaintOp
         MaxWidth = null;
         Underline = LineThrough = false;
         UnderlineColor = default;
+        DecorationStyle = TextDecorationStyleType.Solid;
         TextShadows = null;
     }
 
@@ -276,14 +278,71 @@ public class DrawTextOp : PaintOp
         {
             float underlineY = drawY + 2;
             var underlineColor = UnderlineColor.Alpha > 0 ? UnderlineColor : Color;
-            using var underlinePaint = new SKPaint
+            if (DecorationStyle == TextDecorationStyleType.Wavy)
             {
-                Color = underlineColor,
-                StrokeWidth = 1,
-                Style = SKPaintStyle.Stroke,
-                IsAntialias = true
-            };
-            canvas.DrawLine(drawX, underlineY, drawX + actualWidth, underlineY, underlinePaint);
+                using var wavyPath = new SKPath();
+                float waveLength = MathF.Max(4, FontSize * 0.15f);
+                float amplitude = MathF.Max(1.5f, FontSize * 0.05f);
+                float endX = drawX + actualWidth;
+                float x0 = drawX;
+                wavyPath.MoveTo(x0, underlineY);
+                int segments = Math.Max(1, (int)((endX - x0) / waveLength));
+                for (int i = 0; i < segments; i++)
+                {
+                    float t0 = (float)i / segments;
+                    float t1 = (float)(i + 0.5f) / segments;
+                    float t2 = (float)(i + 1) / segments;
+                    float cx1 = x0 + (endX - x0) * t1;
+                    float cy1 = underlineY - amplitude;
+                    float cx2 = x0 + (endX - x0) * t2;
+                    float cy2 = underlineY;
+                    wavyPath.QuadTo(cx1, cy1, cx2, cy2);
+                }
+                using var wavyPaint = new SKPaint
+                {
+                    Color = underlineColor,
+                    StrokeWidth = 1,
+                    Style = SKPaintStyle.Stroke,
+                    IsAntialias = true
+                };
+                canvas.DrawPath(wavyPath, wavyPaint);
+            }
+            else if (DecorationStyle == TextDecorationStyleType.Double)
+            {
+                using var doublePaint = new SKPaint
+                {
+                    Color = underlineColor,
+                    StrokeWidth = 1,
+                    Style = SKPaintStyle.Stroke,
+                    IsAntialias = true
+                };
+                canvas.DrawLine(drawX, underlineY - 1, drawX + actualWidth, underlineY - 1, doublePaint);
+                canvas.DrawLine(drawX, underlineY + 1, drawX + actualWidth, underlineY + 1, doublePaint);
+            }
+            else if (DecorationStyle == TextDecorationStyleType.Dotted || DecorationStyle == TextDecorationStyleType.Dashed)
+            {
+                float[] intervals = DecorationStyle == TextDecorationStyleType.Dotted ? new[] { 1f, 3f } : new[] { 5f, 3f };
+                using var dashPaint = new SKPaint
+                {
+                    Color = underlineColor,
+                    StrokeWidth = 1,
+                    Style = SKPaintStyle.Stroke,
+                    IsAntialias = true,
+                    PathEffect = SKPathEffect.CreateDash(intervals, 0)
+                };
+                canvas.DrawLine(drawX, underlineY, drawX + actualWidth, underlineY, dashPaint);
+            }
+            else
+            {
+                using var underlinePaint = new SKPaint
+                {
+                    Color = underlineColor,
+                    StrokeWidth = 1,
+                    Style = SKPaintStyle.Stroke,
+                    IsAntialias = true
+                };
+                canvas.DrawLine(drawX, underlineY, drawX + actualWidth, underlineY, underlinePaint);
+            }
         }
 
         if (LineThrough)

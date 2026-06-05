@@ -369,8 +369,8 @@ public class DocumentManager
     private static string GetUserAgentStylesStatic()
     {
         return @"
-            html { display: block; }
-            body { font-family: Arial, sans-serif; display: block; margin: 8px; }
+            html { display: block; overflow-x: hidden; overflow-y: auto; width: 100%; }
+            body { font-family: Arial, sans-serif; display: block; margin: 8px; box-sizing: border-box; }
             h1 { display: block; margin: 0.67em 0; font-size: 2em; font-weight: bold; }
             h2 { display: block; margin: 0.83em 0; font-size: 1.5em; font-weight: bold; }
             h3 { display: block; margin: 1em 0; font-size: 1.17em; font-weight: bold; }

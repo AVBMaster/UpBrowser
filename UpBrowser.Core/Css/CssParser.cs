@@ -1235,7 +1235,7 @@ public class CssSelector
             PseudoClassType.Link => element.TagName == "A" && element.HasAttribute("href"),
             PseudoClassType.Visited => element.TagName == "A" && element.HasAttribute("href"),
             PseudoClassType.Active => element.IsFocused,
-            PseudoClassType.Hover => element.IsFocused,
+            PseudoClassType.Hover => element.IsHovered,
             PseudoClassType.Focus => element.IsFocused,
             PseudoClassType.FocusVisible => element.IsFocused,
             PseudoClassType.FocusWithin => IsFocusWithin(element),

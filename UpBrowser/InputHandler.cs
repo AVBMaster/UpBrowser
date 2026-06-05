@@ -36,6 +36,7 @@ public class InputHandler
     public Func<float, float, bool, bool>? OnDevToolsClick { get; set; }
     public Func<double, float, float, bool>? OnDevToolsWheel { get; set; }
     public Func<float, float, bool>? OnDialogClick { get; set; }
+    public Func<double, double, float, float, bool>? OnScrollContainerWheel { get; set; }
     public Action<char>? OnImeChar { get; set; }
     public Action? OnCopy { get; set; }
     public Action? OnPaste { get; set; }
@@ -376,6 +377,14 @@ public class InputHandler
 
         if (!_chrome.IsUrlBarFocused())
         {
+            // Try per-element scroll container first
+            if (OnScrollContainerWheel != null &&
+                OnScrollContainerWheel(deltaX, deltaY, _mouseX, _mouseY))
+            {
+                NeedsRedraw = true;
+                return;
+            }
+
             if (IsShiftDown)
                 _scroll.ScrollBy((float)deltaY, 0);
             else
@@ -385,7 +394,7 @@ public class InputHandler
                 else
                     _scroll.ScrollBy((float)deltaY);
             }
-            NeedsRedraw = true;
+            // Don't set NeedsRedraw here - scrollChanged will trigger re-render without layout rebuild
         }
     }
 

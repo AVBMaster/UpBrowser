@@ -1409,6 +1409,9 @@ public class CascadeResolver
             style.FlexGrow = g; i++;
             if (i < parts.Length && float.TryParse(parts[i], out var s))
             { style.FlexShrink = s; i++; }
+            // Per CSS spec, when flex-grow is specified as a number and no third value,
+            // flex-basis defaults to 0%
+            style.FlexBasis = new PercentLength(0);
         }
         else
         {
@@ -1622,7 +1625,16 @@ public class CascadeResolver
         {
             var lower = part.ToLowerInvariant();
             if (lower == "none" || lower == "underline" || lower == "overline" || lower == "line-through")
+            {
                 style.TextDecorationLine = ParseTextDecorationLine(part);
+                style.TextDecoration = style.TextDecorationLine switch
+                {
+                    TextDecorationLineType.Underline => TextDecorationType.Underline,
+                    TextDecorationLineType.Overline => TextDecorationType.Overline,
+                    TextDecorationLineType.LineThrough => TextDecorationType.LineThrough,
+                    _ => TextDecorationType.None
+                };
+            }
             else if (lower == "solid" || lower == "double" || lower == "dotted" || lower == "dashed" || lower == "wavy")
                 style.TextDecorationStyle = ParseTextDecorationStyle(part);
             else

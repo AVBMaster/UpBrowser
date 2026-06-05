@@ -86,9 +86,13 @@ public static class GradientRenderer
             var colors = stops.Select(s => s.Color).ToArray();
             var positions = stops.Select(s => s.Position).ToArray();
 
-            return SKShader.CreateSweepGradient(
-                new SKPoint(rect.MidX, rect.MidY),
-                colors, positions);
+            var center = new SKPoint(rect.MidX, rect.MidY);
+            var sweep = SKShader.CreateSweepGradient(center, colors, positions);
+
+            // CSS conic-gradient starts at top (12 o'clock), Skia sweep starts at right (3 o'clock).
+            // Rotate by -90 degrees (270 degrees clockwise) to align.
+            var rotation = SKMatrix.CreateRotationDegrees(-90, center.X, center.Y);
+            return sweep.WithLocalMatrix(rotation);
         }
         catch { return null; }
     }
@@ -137,7 +141,17 @@ public static class GradientRenderer
 
     private static bool TryParseAngle(string s, out float angle)
     {
-        s = s.Trim();
+        s = s.Trim().ToLowerInvariant();
+        // CSS direction keywords
+        if (s == "to top") { angle = 0; return true; }
+        if (s == "to right") { angle = 90; return true; }
+        if (s == "to bottom") { angle = 180; return true; }
+        if (s == "to left") { angle = 270; return true; }
+        if (s == "to top right" || s == "to right top") { angle = 45; return true; }
+        if (s == "to top left" || s == "to left top") { angle = 315; return true; }
+        if (s == "to bottom right" || s == "to right bottom") { angle = 135; return true; }
+        if (s == "to bottom left" || s == "to left bottom") { angle = 225; return true; }
+
         if (s.EndsWith("deg"))
         {
             if (float.TryParse(s[..^3], out angle)) return true;
@@ -191,29 +205,29 @@ public static class GradientRenderer
 
         if (stops.Count > 0)
         {
-            float lastPos = 0;
+            // First: set first stop to 0% and last stop to 100% if unspecified
+            if (stops[0].Position < 0) stops[0] = new ColorStop { Color = stops[0].Color, Position = 0f };
+            if (stops[^1].Position < 0) stops[^1] = new ColorStop { Color = stops[^1].Color, Position = 1f };
+
+            // Distribute remaining unpositioned stops evenly between known positions
             for (int i = 0; i < stops.Count; i++)
             {
-                if (stops[i].Position < 0)
+                if (stops[i].Position >= 0) continue;
+
+                int start = i - 1;
+                // find the next assigned position
+                int end = stops.FindIndex(i + 1, s => s.Position >= 0);
+                if (end < 0) end = stops.Count - 1;
+
+                float startPos = stops[start].Position;
+                float endPos = stops[end].Position;
+                int count = end - start;
+                float step = (endPos - startPos) / count;
+                for (int j = start + 1; j < end; j++)
                 {
-                    int nextAssigned = stops.FindIndex(i + 1, s => s.Position >= 0);
-                    if (nextAssigned < 0) nextAssigned = stops.Count - 1;
-                    float range = (nextAssigned == stops.Count - 1 ? 1f : stops[nextAssigned].Position) - lastPos;
-                    float step = range / (nextAssigned - i + 1);
-                    for (int j = i; j <= nextAssigned && j < stops.Count; j++)
-                    {
-                        var stop = stops[j];
-                        stop.Position = lastPos + step * (j - i + 1);
-                        stops[j] = stop;
-                    }
+                    stops[j] = new ColorStop { Color = stops[j].Color, Position = startPos + step * (j - start) };
                 }
-                lastPos = stops[i].Position;
-            }
-            if (stops.Count > 0 && stops[^1].Position < 0)
-            {
-                var last = stops[^1];
-                last.Position = 1f;
-                stops[^1] = last;
+                i = end; // skip ahead
             }
         }
 
@@ -223,14 +237,21 @@ public static class GradientRenderer
     private static int FindColorStopSplit(string s)
     {
         int depth = 0;
+        int lastSpace = -1;
         for (int i = s.Length - 1; i >= 0; i--)
         {
             if (s[i] == ')') depth++;
             else if (s[i] == '(') depth--;
-            else if (depth == 0 && s[i] == ' ' && i > 0 && char.IsDigit(s[i - 1]))
-                return i;
+            else if (depth == 0 && s[i] == ' ')
+            {
+                lastSpace = i;
+                // Check if the part after the space looks like a position (starts with digit, ., +, -, or ends with %)
+                string after = s[(i + 1)..].TrimStart();
+                if (after.Length > 0 && (char.IsDigit(after[0]) || after[0] == '.' || after[0] == '+' || after[0] == '-' || after[^1] == '%'))
+                    return i;
+            }
         }
-        return -1;
+        return lastSpace;
     }
 
     private static SKColor? ParseColor(string s)

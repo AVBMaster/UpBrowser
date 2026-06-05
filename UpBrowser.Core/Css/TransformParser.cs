@@ -39,9 +39,9 @@ public static class TransformParser
             var m = OperationToMatrix(op);
             var toOrigin = SKMatrix.CreateTranslation(-originX, -originY);
             var fromOrigin = SKMatrix.CreateTranslation(originX, originY);
-            matrix = SKMatrix.Concat(matrix, toOrigin);
-            matrix = SKMatrix.Concat(matrix, m);
             matrix = SKMatrix.Concat(matrix, fromOrigin);
+            matrix = SKMatrix.Concat(matrix, m);
+            matrix = SKMatrix.Concat(matrix, toOrigin);
         }
 
         return matrix;

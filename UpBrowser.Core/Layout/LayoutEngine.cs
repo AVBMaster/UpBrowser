@@ -270,9 +270,7 @@ public class LayoutEngine
 
         float childX = box.ContentBox.Left;
         float childY = box.ContentBox.Top;
-        float childPaddingLeft = style.PaddingLeft.ToPixels(style.FontSize, _rootFontSize, _viewportWidth, _viewportHeight);
-        float childPaddingRight = style.PaddingRight.ToPixels(style.FontSize, _rootFontSize, _viewportWidth, _viewportHeight);
-        float childAvailableWidth = Math.Max(0, box.ContentBox.Width - childPaddingLeft - childPaddingRight);
+        float childAvailableWidth = Math.Max(0, box.ContentBox.Width);
 
         // 绝对定位处理
         if (style.Position == PositionType.Absolute)
@@ -831,12 +829,14 @@ public class LayoutEngine
                             if (hasSpacesInline)
                             {
                                 var words = text.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                                // Don't wrap if available width is too small for any word
+                                float effectiveAvailW = availableWidth < 10f ? 999999f : availableWidth;
                                 for (int wi = 0; wi < words.Length; wi++)
                                 {
                                     bool isLastWord = (wi == words.Length - 1);
                                     string token = isLastWord ? words[wi] : words[wi] + " ";
                                     float tokenWidth = MeasureTextWidth(token, inlineFontSize, childStyle.FontFamily ?? style?.FontFamily);
-                                    if (allowWrapping && inlineCurrentX + tokenWidth > x + availableWidth - 0.01f && inlineCurrentX > x)
+                                    if (allowWrapping && inlineCurrentX + tokenWidth > x + effectiveAvailW - 0.01f && inlineCurrentX > x)
                                     {
                                         inlineCurrentLine.Height = inlineMaxHeightInLine > 0 ? inlineMaxHeightInLine : inlineLineHeight;
                                         currentY += inlineCurrentLine.Height;
@@ -1806,9 +1806,9 @@ public class LayoutEngine
             : style.ColumnGap.ToPixels(style.FontSize, _rootFontSize, _viewportWidth, _viewportHeight);
         var lines = new List<FlexLine>();
         if (isWrap)
-            lines = WrapFlexItems(flexItems, mainAxisSize, isRow);
+            lines = WrapFlexItems(flexItems, mainAxisSize, mainGap, isRow);
         else
-            lines.Add(new FlexLine { Items = flexItems, MainSize = mainAxisSize });
+            lines.Add(new FlexLine { Items = flexItems, MainSize = mainAxisSize, MainGap = mainGap });
 
         foreach (var line in lines)
             DistributeFlexSpace(line, isRow);
@@ -1950,21 +1950,31 @@ public class LayoutEngine
     {
         float totalTextWidth = 0;
         CollectTextWidth(element, style, ref totalTextWidth);
-        if (totalTextWidth > 0) return totalTextWidth;
+        if (totalTextWidth <= 0)
+            totalTextWidth = MeasureTextWidth(element.TextContent ?? "", style.FontSize, style.FontFamily);
 
-        float childrenMaxRight = 0;
-        foreach (var child in element.Children)
+        if (totalTextWidth <= 0)
         {
-            if (child is Element childEl && childEl.LayoutBox != null)
+            float childrenMaxRight = 0;
+            foreach (var child in element.Children)
             {
-                float right = childEl.LayoutBox.MarginBox.Right;
-                if (right > childrenMaxRight) childrenMaxRight = right;
+                if (child is Element childEl && childEl.LayoutBox != null)
+                {
+                    float right = childEl.LayoutBox.MarginBox.Right;
+                    if (right > childrenMaxRight) childrenMaxRight = right;
+                }
             }
+            if (childrenMaxRight > 0) return childrenMaxRight;
         }
-        if (childrenMaxRight > 0) return childrenMaxRight;
 
-        float fallback = MeasureTextWidth(element.TextContent ?? "", style.FontSize, style.FontFamily);
-        return fallback > 0 ? fallback : 50;
+        // Add padding and border since flex-basis:auto should reflect the element's min-content width
+        float padLeft = style.PaddingLeft.ToPixels(style.FontSize, _rootFontSize, _viewportWidth, _viewportHeight);
+        float padRight = style.PaddingRight.ToPixels(style.FontSize, _rootFontSize, _viewportWidth, _viewportHeight);
+        float borderLeft = style.BorderLeftWidth;
+        float borderRight = style.BorderRightWidth;
+        float minContentWidth = totalTextWidth + padLeft + padRight + borderLeft + borderRight;
+
+        return Math.Max(minContentWidth, 50);
     }
 
     private void CollectTextWidth(Element element, ComputedStyle parentStyle, ref float maxWidth)
@@ -1987,23 +1997,23 @@ public class LayoutEngine
         }
     }
 
-    private List<FlexLine> WrapFlexItems(List<FlexItem> items, float mainSize, bool isRow)
+    private List<FlexLine> WrapFlexItems(List<FlexItem> items, float mainSize, float mainGap, bool isRow)
     {
         var lines = new List<FlexLine>();
-        var currentLine = new FlexLine();
+        var currentLine = new FlexLine { MainGap = mainGap };
         float currentMain = 0;
         foreach (var item in items)
         {
             float itemSize = item.Basis + item.MarginLeft + item.MarginRight;
-            if (currentLine.Items.Count > 0 && currentMain + itemSize > mainSize)
+            if (currentLine.Items.Count > 0 && currentMain + itemSize + mainGap > mainSize)
             {
                 currentLine.MainSize = currentMain;
                 lines.Add(currentLine);
-                currentLine = new FlexLine();
+                currentLine = new FlexLine { MainGap = mainGap };
                 currentMain = 0;
             }
             currentLine.Items.Add(item);
-            currentMain += itemSize;
+            currentMain += itemSize + (currentLine.Items.Count > 1 ? mainGap : 0);
         }
         if (currentLine.Items.Count > 0)
         {
@@ -2023,13 +2033,14 @@ public class LayoutEngine
         float totalGrow = 0;
         float totalShrink = 0;
         float usedSpace = 0;
+        float gapTotal = line.Items.Count > 1 ? line.MainGap * (line.Items.Count - 1) : 0;
         foreach (var item in line.Items)
         {
             totalGrow += item.Grow;
             totalShrink += item.Shrink * item.Basis;
             usedSpace += item.Basis + item.MarginLeft + item.MarginRight;
         }
-        float remainingSpace = line.MainSize - usedSpace;
+        float remainingSpace = line.MainSize - usedSpace - gapTotal;
         if (remainingSpace > 0 && totalGrow > 0)
         {
             foreach (var item in line.Items)
@@ -2063,7 +2074,13 @@ public class LayoutEngine
                 item.ComputedMainSize = item.Basis;
         }
         foreach (var item in line.Items)
-            item.ComputedMainSize = LayoutMath.RoundToDevicePixel(item.ComputedMainSize, _dpiScale);
+        {
+            float capped = item.ComputedMainSize;
+            if (item.Max > 0 && capped > item.Max) capped = item.Max;
+            if (item.Min > 0 && capped < item.Min) capped = item.Min;
+            if (capped < 0) capped = 0;
+            item.ComputedMainSize = LayoutMath.RoundToDevicePixel(capped, _dpiScale);
+        }
     }
 
     private float ApplyJustifyContent(JustifyContentType justifyContent, float remainingSpace, int itemCount, bool isReverse)
@@ -2098,6 +2115,7 @@ public class LayoutEngine
     {
         public List<FlexItem> Items { get; set; } = new();
         public float MainSize { get; set; }
+        public float MainGap { get; set; }
     }
 
     private LayoutBox LayoutAbsolute(Element element, float finalHeight, float finalWidth, LayoutBox containingBlock, LayoutBox? parentBox)

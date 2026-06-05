@@ -259,6 +259,7 @@ public static class BlockElements
                 style.Display = DisplayType.Block;
                 style.FontWeight = FontWeight.Bold;
                 style.Cursor = "pointer";
+                style.PaddingLeft = new PixelLength(16);
                 break;
             case "dialog":
                 style.Display = DisplayType.Block;

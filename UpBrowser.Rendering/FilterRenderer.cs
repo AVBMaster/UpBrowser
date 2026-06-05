@@ -54,11 +54,30 @@ public static class FilterRenderer
         {
             var name = s[..parenIdx].Trim().ToLowerInvariant();
             var argStr = s[(parenIdx + 1)..^1].Trim();
-            var args = argStr.Split(',', StringSplitOptions.RemoveEmptyEntries)
-                .Select(a => a.Trim()).ToArray();
+            // Split by commas at depth 0 (respect nested parens)
+            var args = SplitFilterArgs(argStr);
             return new FilterEntry { Name = name, Args = args };
         }
         return new FilterEntry { Name = s.Trim().ToLowerInvariant(), Args = Array.Empty<string>() };
+    }
+
+    private static string[] SplitFilterArgs(string argStr)
+    {
+        var args = new List<string>();
+        int depth = 0;
+        int start = 0;
+        for (int i = 0; i < argStr.Length; i++)
+        {
+            if (argStr[i] == '(') depth++;
+            else if (argStr[i] == ')') depth--;
+            else if (argStr[i] == ',' && depth == 0)
+            {
+                args.Add(argStr[start..i].Trim());
+                start = i + 1;
+            }
+        }
+        args.Add(argStr[start..].Trim());
+        return args.Where(s => !string.IsNullOrEmpty(s)).ToArray();
     }
 
     private static SKImageFilter? CreateFilter(FilterEntry entry)
@@ -240,19 +259,30 @@ public static class FilterRenderer
         float offsetX = 0, offsetY = 0, blur = 0;
         SKColor color = SKColors.Black;
 
-        if (args.Length >= 2)
+        // Split all args by spaces (drop-shadow uses space-separated values)
+        var tokens = new List<string>();
+        foreach (var a in args)
         {
-            float.TryParse(args[0].Replace("px", "").Trim(), out offsetX);
-            float.TryParse(args[1].Replace("px", "").Trim(), out offsetY);
+            var parts = a.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            tokens.AddRange(parts);
         }
-        if (args.Length >= 3)
+
+        int idx = 0;
+        if (tokens.Count > idx) float.TryParse(tokens[idx].Replace("px", "").Trim(), out offsetX); idx++;
+        if (tokens.Count > idx) float.TryParse(tokens[idx].Replace("px", "").Trim(), out offsetY); idx++;
+        if (tokens.Count > idx)
         {
-            var blurStr = args[2].Replace("px", "").Trim();
-            float.TryParse(blurStr, out blur);
+            var blurStr = tokens[idx].Replace("px", "").Trim();
+            if (float.TryParse(blurStr, out var b)) { blur = b; idx++; }
         }
-        if (args.Length >= 4)
+        if (tokens.Count > idx)
         {
-            color = ParseFilterColor(args[3]) ?? SKColors.Black;
+            var col = tokens[idx].Trim();
+            // If it looks like a color function, join remaining tokens
+            if (col.StartsWith("rgb") || col.StartsWith('#'))
+            {
+                color = ParseFilterColor(col) ?? SKColors.Black;
+            }
         }
 
         return SKImageFilter.CreateDropShadow(offsetX, offsetY, blur, blur, color);

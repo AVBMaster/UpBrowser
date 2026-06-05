@@ -222,26 +222,62 @@ public static class ShorthandExpander
     private static void ExpandFlex(Dictionary<string, string> result, string value)
     {
         var parts = SplitShorthand(value);
-        string grow = "0", shrink = "1", basis = "auto";
+        if (parts.Count == 0) return;
+
+        string grow = null, shrink = null, basis = null;
+        int numberCount = 0;
 
         foreach (var part in parts)
         {
             var p = part.Trim().ToLowerInvariant();
-            if (p == "none") { grow = "0"; shrink = "0"; basis = "auto"; }
-            else if (p == "auto") { basis = "auto"; }
-            else if (p == "initial") { grow = "0"; shrink = "1"; basis = "auto"; }
-            else if (p.Contains("px") || p.Contains("em") || p.Contains("%") || p == "0")
-                basis = p;
-            else if (float.TryParse(p, out var num))
+            if (p == "none")
             {
-                if (grow == "0" && shrink == "1") grow = p;
-                else shrink = p;
+                grow = "0"; shrink = "0"; basis = "auto";
+                numberCount = 0;
             }
+            else if (p == "auto")
+            {
+                if (basis == null) basis = "auto";
+            }
+            else if (p == "initial")
+            {
+                grow = "0"; shrink = "1"; basis = "auto";
+            }
+            else if (IsFlexBasisLength(p))
+            {
+                basis = p;
+            }
+            else if (float.TryParse(p, out _))
+            {
+                numberCount++;
+                if (grow == null) grow = p;
+                else if (shrink == null) shrink = p;
+            }
+        }
+
+        if (grow == null) grow = numberCount > 0 ? "0" : "1";
+        if (shrink == null) shrink = "1";
+        if (basis == null)
+        {
+            basis = numberCount > 0 ? "0%" : "auto";
         }
 
         result["flex-grow"] = grow;
         result["flex-shrink"] = shrink;
         result["flex-basis"] = basis;
+    }
+
+    private static bool IsFlexBasisLength(string p)
+    {
+        if (string.IsNullOrEmpty(p)) return false;
+        if (p.EndsWith("px", StringComparison.OrdinalIgnoreCase)) return true;
+        if (p.EndsWith("em", StringComparison.OrdinalIgnoreCase)) return true;
+        if (p.EndsWith("rem", StringComparison.OrdinalIgnoreCase)) return true;
+        if (p.EndsWith("%", StringComparison.OrdinalIgnoreCase)) return true;
+        if (p.EndsWith("vh", StringComparison.OrdinalIgnoreCase)) return true;
+        if (p.EndsWith("vw", StringComparison.OrdinalIgnoreCase)) return true;
+        if (p == "0") return true;
+        return false;
     }
 
     private static void ExpandFlexFlow(Dictionary<string, string> result, string value)
