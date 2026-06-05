@@ -71,6 +71,10 @@ public class ChromeRenderer : IImeSupport
     private int _hoveredCloseIndex = -1;
     private bool _newTabHovered;
 
+    private int _selStart = -1;
+    private SKPaint _selectionPaint = null!;
+    private bool _urlBarMouseDown;
+
     private List<string> _history = new();
     private int _historyIndex = -1;
 
@@ -141,6 +145,7 @@ public class ChromeRenderer : IImeSupport
         _closeBtnBgPaint = new SKPaint { Color = SKColor.Parse("#E8EAED"), Style = SKPaintStyle.Fill, IsAntialias = true };
         _closeBtnX = new SKPaint { Color = SKColor.Parse("#5F6368"), IsAntialias = true };
         _cursorPaint = new SKPaint { Color = SKColor.Parse("#1A73E8"), Style = SKPaintStyle.Fill, StrokeWidth = 1.5f };
+        _selectionPaint = new SKPaint { Color = SKColor.Parse("#D2E3FC"), Style = SKPaintStyle.Fill };
 
         _lockPaint = new SKPaint { Color = SKColor.Parse("#34A853"), IsAntialias = true, Style = SKPaintStyle.Stroke, StrokeWidth = 1.5f };
         _infoPaint = new SKPaint { Color = SKColor.Parse("#F9AB00"), IsAntialias = true };
@@ -406,6 +411,17 @@ public class ChromeRenderer : IImeSupport
                 displayUrl += "…";
         }
 
+        // Selection highlight
+        if (_urlBarFocused && _selStart >= 0 && _selStart != _cursorPosition)
+        {
+            int selMin = Math.Min(_selStart, _cursorPosition);
+            int selMax = Math.Max(_selStart, _cursorPosition);
+            string beforeSel = _urlBarText[..Math.Min(selMin, _urlBarText.Length)];
+            float selX = textX + _font14.MeasureText(beforeSel);
+            float selW = _font14.MeasureText(_urlBarText[selMin..selMax]);
+            canvas.DrawRect(selX, textY - 11, selW, 15, _selectionPaint);
+        }
+
         _textPrimary.Color = _urlBarFocused ? SKColor.Parse("#1A73E8") : SKColor.Parse("#3C4043");
         canvas.DrawText(displayUrl, textX, textY, SKTextAlign.Left, _font14, _textPrimary);
 
@@ -594,8 +610,64 @@ public class ChromeRenderer : IImeSupport
 
     // ==================== 输入处理方法 ====================
 
+    private float GetUrlBarTextStart()
+    {
+        float iconX = _urlBarRect.Left + 10;
+        if (_currentUrl.StartsWith("https")) return iconX + 20;
+        if (_currentUrl.StartsWith("upbrowser://")) return iconX;
+        return iconX + 20;
+    }
+
+    private int GetCharIndexAtX(float x)
+    {
+        float textStart = GetUrlBarTextStart();
+        float rx = x - textStart;
+        if (rx <= 0) return 0;
+        // binary search for character index
+        int lo = 0, hi = _urlBarText.Length;
+        while (lo < hi)
+        {
+            int mid = (lo + hi + 1) / 2;
+            string sub = _urlBarText[..Math.Min(mid, _urlBarText.Length)];
+            float w = _font14.MeasureText(sub);
+            if (w <= rx) lo = mid;
+            else hi = mid - 1;
+        }
+        return lo;
+    }
+
+    public string? UrlBarSelectedText
+    {
+        get
+        {
+            if (_selStart < 0 || _selStart == _cursorPosition) return null;
+            int a = Math.Min(_selStart, _cursorPosition);
+            int b = Math.Max(_selStart, _cursorPosition);
+            return _urlBarText[a..b];
+        }
+    }
+
+    public void SelectAllInUrlBar()
+    {
+        if (!_urlBarFocused) return;
+        _selStart = 0;
+        _cursorPosition = _urlBarText.Length;
+    }
+
     public void HandleMouseMove(float x, float y)
     {
+        // Selection drag in URL bar
+        if (_urlBarMouseDown && _urlBarFocused)
+        {
+            int newPos = GetCharIndexAtX(x);
+            if (newPos != _cursorPosition)
+            {
+                if (_selStart < 0) _selStart = _cursorPosition;
+                _cursorPosition = newPos;
+                OnChanged?.Invoke();
+            }
+        }
+
         bool oldBack = _backHovered;
         bool oldForward = _forwardHovered;
         bool oldRefresh = _refreshHovered;
@@ -675,9 +747,12 @@ public class ChromeRenderer : IImeSupport
             {
                 _urlBarFocused = true;
                 _urlBarText = _currentUrl;
-                _cursorPosition = _urlBarText.Length;
+                _urlBarMouseDown = true;
                 OnUrlBarFocus?.Invoke();
             }
+            _selStart = -1;
+            _cursorPosition = GetCharIndexAtX(x);
+            _urlBarMouseDown = true;
             return true;
         }
 
@@ -720,16 +795,23 @@ public class ChromeRenderer : IImeSupport
         return false;
     }
 
+    public void HandleMouseUp()
+    {
+        _urlBarMouseDown = false;
+    }
+
     private void BlurUrlBar()
     {
         if (_urlBarFocused)
         {
             _urlBarFocused = false;
+            _selStart = -1;
+            _urlBarMouseDown = false;
             OnUrlBarBlur?.Invoke();
         }
     }
 
-    public bool HandleKeyPress(char keyChar, SKKey key)
+    public bool HandleKeyPress(char keyChar, SKKey key, bool shift = false)
     {
         if (!_urlBarFocused) return false;
 
@@ -745,36 +827,85 @@ public class ChromeRenderer : IImeSupport
             return true;
         }
 
+        // Clear selection on non-shift navigation, or set anchor on first shift
+        if (!shift && _selStart >= 0 && _selStart != _cursorPosition)
+        {
+            if (key == SKKey.Left || key == SKKey.Right || key == SKKey.Home || key == SKKey.End)
+                _selStart = -1;
+        }
+
         switch (key)
         {
             case SKKey.Enter:
+                _selStart = -1;
                 NavigateToUrl(_urlBarText);
                 _urlBarFocused = false;
                 return true;
 
             case SKKey.Escape:
+                _selStart = -1;
                 _urlBarFocused = false;
                 _urlBarText = _currentUrl;
                 return true;
 
             case SKKey.Left:
-                if (_cursorPosition > 0) _cursorPosition--;
+                if (shift)
+                {
+                    if (_selStart < 0) _selStart = _cursorPosition;
+                    if (_cursorPosition > 0) _cursorPosition--;
+                }
+                else
+                {
+                    if (_cursorPosition > 0) _cursorPosition--;
+                }
                 return true;
 
             case SKKey.Right:
-                if (_cursorPosition < _urlBarText.Length) _cursorPosition++;
+                if (shift)
+                {
+                    if (_selStart < 0) _selStart = _cursorPosition;
+                    if (_cursorPosition < _urlBarText.Length) _cursorPosition++;
+                }
+                else
+                {
+                    if (_cursorPosition < _urlBarText.Length) _cursorPosition++;
+                }
                 return true;
 
             case SKKey.Home:
-                _cursorPosition = 0;
+                if (shift)
+                {
+                    if (_selStart < 0) _selStart = _cursorPosition;
+                    _cursorPosition = 0;
+                }
+                else
+                {
+                    _cursorPosition = 0;
+                }
                 return true;
 
             case SKKey.End:
-                _cursorPosition = _urlBarText.Length;
+                if (shift)
+                {
+                    if (_selStart < 0) _selStart = _cursorPosition;
+                    _cursorPosition = _urlBarText.Length;
+                }
+                else
+                {
+                    _cursorPosition = _urlBarText.Length;
+                }
                 return true;
 
             case SKKey.Backspace:
-                if (_cursorPosition > 0)
+                if (_selStart >= 0 && _selStart != _cursorPosition)
+                {
+                    int a = Math.Min(_selStart, _cursorPosition);
+                    int b = Math.Max(_selStart, _cursorPosition);
+                    _urlBarText = _urlBarText[..a] + _urlBarText[b..];
+                    _cursorPosition = a;
+                    _selStart = -1;
+                }
+                else if (_cursorPosition > 0)
                 {
                     _urlBarText = _urlBarText[..(_cursorPosition - 1)] + _urlBarText[_cursorPosition..];
                     _cursorPosition--;
@@ -782,15 +913,34 @@ public class ChromeRenderer : IImeSupport
                 return true;
 
             case SKKey.Delete:
-                if (_cursorPosition < _urlBarText.Length)
+                if (_selStart >= 0 && _selStart != _cursorPosition)
+                {
+                    int a = Math.Min(_selStart, _cursorPosition);
+                    int b = Math.Max(_selStart, _cursorPosition);
+                    _urlBarText = _urlBarText[..a] + _urlBarText[b..];
+                    _cursorPosition = a;
+                    _selStart = -1;
+                }
+                else if (_cursorPosition < _urlBarText.Length)
                     _urlBarText = _urlBarText[.._cursorPosition] + _urlBarText[(_cursorPosition + 1)..];
                 return true;
 
             default:
                 if (!char.IsControl(keyChar))
                 {
-                    _urlBarText = _urlBarText[.._cursorPosition] + keyChar + _urlBarText[_cursorPosition..];
-                    _cursorPosition++;
+                    if (_selStart >= 0 && _selStart != _cursorPosition)
+                    {
+                        int a = Math.Min(_selStart, _cursorPosition);
+                        int b = Math.Max(_selStart, _cursorPosition);
+                        _urlBarText = _urlBarText[..a] + keyChar + _urlBarText[b..];
+                        _cursorPosition = a + 1;
+                        _selStart = -1;
+                    }
+                    else
+                    {
+                        _urlBarText = _urlBarText[.._cursorPosition] + keyChar + _urlBarText[_cursorPosition..];
+                        _cursorPosition++;
+                    }
                 }
                 return true;
         }
@@ -903,7 +1053,7 @@ public class ChromeRenderer : IImeSupport
         _tabs[_activeTabIndex].IsActive = false;
         _activeTabIndex = index;
         _tabs[_activeTabIndex].IsActive = true;
-        _urlBarFocused = false;
+        BlurUrlBar();
         _currentUrl = _tabs[_activeTabIndex].Url;
         OnTabChanged?.Invoke(_currentUrl);
     }
@@ -1031,7 +1181,7 @@ public class ChromeRenderer : IImeSupport
         _cursorPaint.Dispose(); _lockPaint.Dispose(); _infoPaint.Dispose();
         _newTabBgPaint.Dispose(); _newTabHoverBgPaint.Dispose(); _newTabPlusPaint.Dispose();
         _statusTextPaint.Dispose(); _separatorPaint.Dispose();
-        _progressPaint.Dispose(); _progressBgPaint.Dispose(); _shadowPaint.Dispose();
+        _progressPaint.Dispose(); _progressBgPaint.Dispose(); _shadowPaint.Dispose(); _selectionPaint.Dispose();
     }
 
     #region IImeSupport

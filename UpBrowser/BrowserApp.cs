@@ -1739,9 +1739,15 @@ public class BrowserApp : IDisposable
         }
         else if (_chrome.IsUrlBarFocused())
         {
-            string url = _chrome.GetCurrentUrl() ?? "";
-            if (!string.IsNullOrEmpty(url))
-                Clipboard.SetText(url);
+            string? sel = _chrome.UrlBarSelectedText;
+            if (sel != null)
+                Clipboard.SetText(sel);
+            else
+            {
+                string url = _chrome.GetCurrentUrl() ?? "";
+                if (!string.IsNullOrEmpty(url))
+                    Clipboard.SetText(url);
+            }
         }
         else
         {
@@ -1756,8 +1762,19 @@ public class BrowserApp : IDisposable
         string? text = Clipboard.GetText();
         if (string.IsNullOrEmpty(text)) return;
 
-        foreach (char c in text)
-            HandleImeChar(c);
+        if (_chrome.IsUrlBarFocused())
+        {
+            // Delete selection first if any
+            if (_chrome.UrlBarSelectedText != null)
+                _chrome.HandleKeyPress('\0', SKKey.Backspace);
+            foreach (char c in text)
+                HandleImeChar(c);
+        }
+        else
+        {
+            foreach (char c in text)
+                HandleImeChar(c);
+        }
     }
 
     private void PerformCut()
@@ -1765,10 +1782,14 @@ public class BrowserApp : IDisposable
         PerformCopy();
         if (_devTools.Visible && _devTools.IsInputField(_input.GetMousePosition().x, _input.GetMousePosition().y))
             HandleImeChar('\b');
+        else if (_chrome.IsUrlBarFocused() && _chrome.UrlBarSelectedText != null)
+            _chrome.HandleKeyPress('\0', SKKey.Backspace);
     }
 
     private void PerformSelectAll()
     {
+        if (_chrome.IsUrlBarFocused())
+            _chrome.SelectAllInUrlBar();
     }
 
     public void InjectImeChar(char c)

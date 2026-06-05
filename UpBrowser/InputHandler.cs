@@ -120,6 +120,7 @@ public class InputHandler
             _mouseDown = false;
             _pageThumbDragging = false;
             _pageThumbXDragging = false;
+            _chrome.HandleMouseUp();
             OnSettingsPageClick?.Invoke(logicalX, logicalY, true);
             OnDomMouseUp?.Invoke(logicalX, logicalY, false);
         }
@@ -289,7 +290,7 @@ public class InputHandler
         // Dispatch keydown to DOM before Chrome handles it
         OnDomKeyDown?.Invoke(charCode, key, false);
 
-        bool handledByChrome = _chrome.HandleKeyPress(charCode, chromeKey);
+        bool handledByChrome = _chrome.HandleKeyPress(charCode, chromeKey, IsShiftDown);
         NeedsRedraw = true;
 
         if (handledByChrome)
