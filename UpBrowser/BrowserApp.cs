@@ -584,6 +584,7 @@ public class BrowserApp : IDisposable
     }
 
     private bool _isNavigating;
+    private int _navigationSeq;
     private int _lastActiveTabIndex = -1;
     private string? _currentBaseUrl;
     private readonly Dictionary<int, TabState> _tabStates = new();
@@ -744,11 +745,8 @@ public class BrowserApp : IDisposable
 
     private void NavigateToHttp(string url)
     {
-        if (_isNavigating)
-        {
-            // Allow new navigation even if previous one is stuck
-            _isNavigating = false;
-        }
+        _isNavigating = false; // allow new navigation to interrupt previous one
+        int seq = Interlocked.Increment(ref _navigationSeq);
         _isNavigating = true;
         _chrome.SetLoadingState(true);
         _input.NeedsRedraw = true;
@@ -771,21 +769,29 @@ public class BrowserApp : IDisposable
                 // Use final URL after any redirects as the base URL for relative links
                 var finalUrl = response.RequestMessage?.RequestUri?.ToString() ?? url;
 
-                // Update URL bar to reflect the final URL (e.g. https://baidu.com → https://www.baidu.com)
                 _eventLoop.PostTask(() =>
                 {
+                    if (seq != _navigationSeq) return; // stale navigation
                     var savedUrl = finalUrl;
-                    _chrome.UpdateUrl(savedUrl);  // update the chrome URL display
+                    _chrome.UpdateUrl(savedUrl);
                     LoadAndRenderHtml(webHtml, savedUrl);
                 });
             }
             catch (TaskCanceledException)
             {
-                _eventLoop.PostTask(() => ShowErrorPage(url, "Request timed out"));
+                _eventLoop.PostTask(() =>
+                {
+                    if (seq != _navigationSeq) return;
+                    ShowErrorPage(url, "Request timed out");
+                });
             }
             catch (Exception ex)
             {
-                _eventLoop.PostTask(() => ShowErrorPage(url, ex.Message));
+                _eventLoop.PostTask(() =>
+                {
+                    if (seq != _navigationSeq) return;
+                    ShowErrorPage(url, ex.Message);
+                });
             }
         });
     }

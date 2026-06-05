@@ -90,8 +90,6 @@ public class ChromeRenderer : IImeSupport
 
     public Action<string>? OnNavigate { get; set; }
     public Action? OnRefresh { get; set; }
-    public Action? OnBack { get; set; }
-    public Action? OnForward { get; set; }
     public Action? OnHome { get; set; }
     public Action<string>? OnTabChanged { get; set; }
     public Action? OnNewTab { get; set; }
@@ -286,7 +284,7 @@ public class ChromeRenderer : IImeSupport
             _closeBtnX.Color = closeHovered ? SKColor.Parse("#202124") : SKColor.Parse("#80868B");
             float cx = closeRect.Left + closeS / 2;
             float cy = closeRect.Top + closeS * 0.72f;
-            canvas.DrawText("✕", cx - _fontClose.MeasureText("✕") / 2, cy, SKTextAlign.Left, _fontClose, _closeBtnX);
+            canvas.DrawText("X", cx - _fontClose.MeasureText("X") / 2, cy, SKTextAlign.Left, _fontClose, _closeBtnX);
 
             // Separator between tabs (only inactive, non-hovered)
             if (!isActive && !isHovered && i > 0)
@@ -844,7 +842,7 @@ public class ChromeRenderer : IImeSupport
         {
             _historyIndex--;
             _currentUrl = _history[_historyIndex];
-            OnBack?.Invoke();
+            OnNavigate?.Invoke(_currentUrl);
         }
     }
 
@@ -854,7 +852,7 @@ public class ChromeRenderer : IImeSupport
         {
             _historyIndex++;
             _currentUrl = _history[_historyIndex];
-            OnForward?.Invoke();
+            OnNavigate?.Invoke(_currentUrl);
         }
     }
 
