@@ -26,6 +26,7 @@ public class InputHandler
 
     public Action<float, float>? OnDomClick { get; set; }
     public Action<float, float>? OnDomMouseMove { get; set; }
+    public Action<float, float>? OnDevToolsMouseMove { get; set; }
     public Action<float, float, bool>? OnDomMouseDown { get; set; }
     public Action<float, float, bool>? OnDomMouseUp { get; set; }
     public Action<char, Key, bool>? OnDomKeyDown { get; set; }
@@ -83,6 +84,7 @@ public class InputHandler
         if (!handledBySettings)
             _chrome.HandleMouseMove(logicalX, logicalY);
         OnDomMouseMove?.Invoke(logicalX, logicalY);
+        OnDevToolsMouseMove?.Invoke(logicalX, logicalY);
     }
 
     private void OnMouseClick(float x, float y, bool isDown)

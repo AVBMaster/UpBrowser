@@ -319,22 +319,22 @@ public class DevToolsSource : IImeSupport
         return false;
     }
 
-    public void Render(SKCanvas canvas, float x, float y, float width, float height)
+    public void Render(SKCanvas canvas, float x, float y, float width, float height, DevToolsTheme theme)
     {
         _renderX = x; _renderY = y; _renderW = width; _renderH = height;
         _viewHeight = height;
 
-        using var bg = new SKPaint { Color = SKColor.Parse("#1E1E1E"), Style = SKPaintStyle.Fill };
+        using var bg = new SKPaint { Color = theme.PanelBg, Style = SKPaintStyle.Fill };
         canvas.DrawRect(x, y, width, height, bg);
 
         using var font = new SKPaint { IsAntialias = true };
         using var skFont = FontHelper.CreateDevToolsFont(12);
-        using var lineNumPaint = new SKPaint { IsAntialias = true };
-        using var tagPaint = new SKPaint { IsAntialias = true };
-        using var attrPaint = new SKPaint { IsAntialias = true };
-        using var strPaint = new SKPaint { IsAntialias = true };
-        using var commentPaint = new SKPaint { IsAntialias = true };
-        using var defPaint = new SKPaint { IsAntialias = true };
+
+        using var tagPaint = new SKPaint { Color = theme.AccentBlue, IsAntialias = true };
+        using var attrPaint = new SKPaint { Color = theme.AccentOrange, IsAntialias = true };
+        using var strPaint = new SKPaint { Color = theme.AccentOrange, IsAntialias = true };
+        using var commentPaint = new SKPaint { Color = theme.AccentGreen, IsAntialias = true };
+        using var defPaint = new SKPaint { Color = theme.TextPrimary, IsAntialias = true };
 
         float lh = 18;
         float lnW = 50;
@@ -353,11 +353,11 @@ public class DevToolsSource : IImeSupport
 
             if (_editing && i == _editLine)
             {
-                using var hl = new SKPaint { Color = SKColor.Parse("#2A2D2E"), Style = SKPaintStyle.Fill };
+                using var hl = new SKPaint { Color = theme.LineHighlight, Style = SKPaintStyle.Fill };
                 canvas.DrawRect(x + lnW, lineDrawY - lh + 4, width - lnW, lh, hl);
             }
 
-            lineNumPaint.Color = SKColor.Parse("#858585");
+            using var lineNumPaint = new SKPaint { Color = theme.LineNumberText, IsAntialias = true };
             string ln = (i + 1).ToString().PadLeft(4);
             canvas.DrawText(ln, x + 4, lineDrawY, SKTextAlign.Left, skFont, lineNumPaint);
 
@@ -367,7 +367,7 @@ public class DevToolsSource : IImeSupport
             if (_editing && i == _editLine && _showCursor)
             {
                 float cursorX = tx + skFont.MeasureText(_lines[i][..Math.Min(_editCol, _lines[i].Length)]);
-                using var cp = new SKPaint { Color = SKColors.White, Style = SKPaintStyle.Fill, StrokeWidth = 1 };
+                using var cp = new SKPaint { Color = theme.CursorColor, Style = SKPaintStyle.Fill, StrokeWidth = 1 };
                 canvas.DrawLine(cursorX, lineDrawY - lh + 4, cursorX, lineDrawY + 2, cp);
             }
 
@@ -381,7 +381,7 @@ public class DevToolsSource : IImeSupport
             float sh = _viewHeight * _viewHeight / _contentHeight;
             float maxScrollBar = Math.Max(0, _contentHeight - _viewHeight);
             float sy = y + (maxScrollBar > 0 ? (_scrollOffset / maxScrollBar) * (_viewHeight - sh) : 0);
-            using var sp = new SKPaint { Color = new SKColor(80, 80, 80), Style = SKPaintStyle.Fill };
+            using var sp = new SKPaint { Color = theme.ScrollbarThumb, Style = SKPaintStyle.Fill };
             canvas.DrawRoundRect(x + width - 6, sy, 4, sh, 2, 2, sp);
         }
     }

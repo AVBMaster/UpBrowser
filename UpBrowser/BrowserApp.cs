@@ -165,6 +165,7 @@ public class BrowserApp : IDisposable
         _input.OnDevToolsInput = (c, key) => DevToolsHandleInput(c, key);
         _input.OnDevToolsClick = (x, y, isDown) => HandleDevToolsClick(x, y, isDown);
         _input.OnDevToolsWheel = (delta, mx, my) => _devTools.HandleWheel(delta, mx, my);
+        _input.OnDevToolsMouseMove = (x, y) => _devTools.HandleMouseMove(x, y);
         _input.OnScrollContainerWheel = (dx, dy, mx, my) => HandleScrollContainerWheel(dx, dy, mx, my);
         _input.OnImeChar = HandleImeChar;
         _input.OnImeTargetChanged = UpdateImeTarget;

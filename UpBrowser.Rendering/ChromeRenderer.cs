@@ -6,51 +6,47 @@ namespace UpBrowser.Rendering;
 public class ChromeRenderer : IImeSupport
 {
     private const float UrlBarHeight = 30;
-    private const float TabBarHeight = 35;
-    private const float ToolbarHeight = 40;
-    private const float StatusBarHeight = 20;
-    private const float BorderRadius = 4;
+    private const float TabBarHeight = 36;
+    private const float ToolbarHeight = 44;
+    private const float StatusBarHeight = 22;
+    private const float BorderRadius = 6;
 
-    private SKPaint _backgroundPaint = null!;
-    private SKPaint _borderPaint = null!;
-    private SKPaint _textPaint = null!;
-    private SKPaint _buttonPaint = null!;
-    private SKPaint _urlBarPaint = null!;
-    private SKPaint _urlTextPaint = null!;
-    private SKPaint _buttonHoverPaint = null!;
-    private SKPaint _buttonActivePaint = null!;
-    private SKPaint _tabCloseHoverPaint = null!;
-    private SKPaint _tabCloseActivePaint = null!;
     private SKTypeface? _chineseTypeface;
+    private SKFont _font12 = null!;
+    private SKFont _font13 = null!;
+    private SKFont _font14 = null!;
+    private SKFont _font22 = null!;
+    private SKFont _font11 = null!;
+    private SKFont _fontClose = null!;
 
-    // 缓存的 paint 对象
-    private SKPaint _cachedTabActivePaint = null!;
-    private SKPaint _cachedTabInactivePaint = null!;
-    private SKPaint _cachedLockPaint = null!;
-    private SKPaint _cachedBrowserPaint = null!;
-    private SKPaint _cachedInfoPaint = null!;
-    private SKPaint _cachedNewTabPaint = null!;
-    private SKPaint _cachedTitlePaint = null!;
-    private SKPaint _cachedStatusPaint = null!;
-    private SKPaint _cachedSymbolPaint = null!;
-    private SKPaint _cachedCursorPaint = null!;
-
-    private SKFont _textFont = null!;
-    private SKFont _urlTextFont = null!;
-    private SKFont _cachedLockFont = null!;
-    private SKFont _cachedBrowserFont = null!;
-    private SKFont _cachedInfoFont = null!;
-    private SKFont _cachedNewTabFont = null!;
-    private SKFont _cachedTitleFont = null!;
-    private SKFont _cachedStatusFont = null!;
-    private SKFont _cachedSymbolFont = null!;
-    private SKFont _cachedCloseFont = null!;
-
-    // Cached per-frame paints
-    private SKPaint _scrollbarTrackPaint = null!;
-    private SKPaint _scrollbarThumbPaint = null!;
-    private SKPaint _closeBtnHoverPaint = null!;
-    private SKPaint _closeBtnHoverBgPaint = null!;
+    private SKPaint _tabBgPaint = null!;
+    private SKPaint _tabActivePaint = null!;
+    private SKPaint _tabHoverPaint = null!;
+    private SKPaint _toolbarBgPaint = null!;
+    private SKPaint _statusBgPaint = null!;
+    private SKPaint _urlBgPaint = null!;
+    private SKPaint _urlBorderPaint = null!;
+    private SKPaint _urlFocusBorderPaint = null!;
+    private SKPaint _textPrimary = null!;
+    private SKPaint _textSecondary = null!;
+    private SKPaint _textBlue = null!;
+    private SKPaint _iconPaint = null!;
+    private SKPaint _iconDisabledPaint = null!;
+    private SKPaint _btnHoverPaint = null!;
+    private SKPaint _btnActivePaint = null!;
+    private SKPaint _closeBtnBgPaint = null!;
+    private SKPaint _closeBtnX = null!;
+    private SKPaint _cursorPaint = null!;
+    private SKPaint _lockPaint = null!;
+    private SKPaint _infoPaint = null!;
+    private SKPaint _newTabBgPaint = null!;
+    private SKPaint _newTabHoverBgPaint = null!;
+    private SKPaint _newTabPlusPaint = null!;
+    private SKPaint _statusTextPaint = null!;
+    private SKPaint _separatorPaint = null!;
+    private SKPaint _progressPaint = null!;
+    private SKPaint _progressBgPaint = null!;
+    private SKPaint _shadowPaint = null!;
 
     private bool _backHovered;
     private bool _forwardHovered;
@@ -66,15 +62,14 @@ public class ChromeRenderer : IImeSupport
     private SKRect _settingsButtonRect;
     private SKRect _urlBarRect;
 
-    // 标签页相关
     private List<TabInfo> _tabs = new();
     private int _activeTabIndex = 0;
-    private List<SKRect> _tabRects = new();       // 每个标签页的矩形区域
-    private List<SKRect> _tabCloseRects = new();   // 每个标签页关闭按钮的矩形区域
-    private SKRect _newTabButtonRect;              // 新建标签按钮区域
-    private int _hoveredTabIndex = -1;             // 鼠标悬停的标签索引
-    private int _hoveredCloseIndex = -1;           // 鼠标悬停的关闭按钮索引
-    private bool _newTabHovered;                   // 新建标签按钮悬停
+    private List<SKRect> _tabRects = new();
+    private List<SKRect> _tabCloseRects = new();
+    private SKRect _newTabButtonRect;
+    private int _hoveredTabIndex = -1;
+    private int _hoveredCloseIndex = -1;
+    private bool _newTabHovered;
 
     private List<string> _history = new();
     private int _historyIndex = -1;
@@ -98,12 +93,12 @@ public class ChromeRenderer : IImeSupport
     public Action? OnBack { get; set; }
     public Action? OnForward { get; set; }
     public Action? OnHome { get; set; }
-    public Action<string>? OnTabChanged { get; set; }      // 标签切换回调
-    public Action? OnNewTab { get; set; }                  // 新建标签页回调
-    public Action<int>? OnCloseTab { get; set; }           // 关闭标签页回调
-    public Action? OnUrlBarFocus { get; set; }    // URL 栏获得焦点回调
-    public Action? OnUrlBarBlur { get; set; }    // URL 栏失去焦点回调
-    public Action? OnSettingsClick { get; set; } // 设置按钮点击回调
+    public Action<string>? OnTabChanged { get; set; }
+    public Action? OnNewTab { get; set; }
+    public Action<int>? OnCloseTab { get; set; }
+    public Action? OnUrlBarFocus { get; set; }
+    public Action? OnUrlBarBlur { get; set; }
+    public Action? OnSettingsClick { get; set; }
 
     public class TabInfo
     {
@@ -117,45 +112,58 @@ public class ChromeRenderer : IImeSupport
     public void Initialize()
     {
         _chineseTypeface = FontHelper.GetChineseTypeface();
+        _font11 = new SKFont(_chineseTypeface, 11) { Hinting = SKFontHinting.Normal, Edging = SKFontEdging.Antialias };
+        _font12 = new SKFont(_chineseTypeface, 12) { Hinting = SKFontHinting.Normal, Edging = SKFontEdging.Antialias };
+        _font13 = new SKFont(_chineseTypeface, 13) { Hinting = SKFontHinting.Normal, Edging = SKFontEdging.Antialias };
+        _font14 = new SKFont(_chineseTypeface, 14) { Hinting = SKFontHinting.Normal, Edging = SKFontEdging.Antialias };
+        _font22 = new SKFont(_chineseTypeface, 22) { Hinting = SKFontHinting.Normal, Edging = SKFontEdging.Antialias };
+        _fontClose = new SKFont(_chineseTypeface ?? SKTypeface.Default, 10) { Hinting = SKFontHinting.Normal, Edging = SKFontEdging.Antialias };
 
-        _backgroundPaint = new SKPaint { Color = SKColor.Parse("#E8EAED"), Style = SKPaintStyle.Fill };
-        _borderPaint = new SKPaint { Color = SKColor.Parse("#DADCE0"), Style = SKPaintStyle.Stroke, StrokeWidth = 1 };
-        _textPaint = new SKPaint { Color = SKColors.Black, IsAntialias = true };
-        _textFont = new SKFont(_chineseTypeface, 13) { Hinting = SKFontHinting.Normal, Edging = SKFontEdging.Antialias };
-        _urlTextPaint = new SKPaint { Color = SKColor.Parse("#3C4043"), IsAntialias = true };
-        _urlTextFont = new SKFont(_chineseTypeface, 14) { Hinting = SKFontHinting.Normal, Edging = SKFontEdging.Antialias };
-        _buttonPaint = new SKPaint { Color = SKColor.Parse("#E8EAED"), Style = SKPaintStyle.Fill };
-        _buttonHoverPaint = new SKPaint { Color = SKColor.Parse("#DADCE0"), Style = SKPaintStyle.Fill, IsAntialias = true };
-        _buttonActivePaint = new SKPaint { Color = SKColor.Parse("#BDC1C6"), Style = SKPaintStyle.Fill, IsAntialias = true };
-        _urlBarPaint = new SKPaint { Color = SKColors.White, Style = SKPaintStyle.Fill };
-        _tabCloseHoverPaint = new SKPaint { Color = SKColor.Parse("#DADCE0"), Style = SKPaintStyle.Fill, IsAntialias = true };
-        _tabCloseActivePaint = new SKPaint { Color = SKColor.Parse("#BDC1C6"), Style = SKPaintStyle.Fill, IsAntialias = true };
+        _tabBgPaint = new SKPaint { Color = SKColor.Parse("#F1F3F4"), Style = SKPaintStyle.Fill };
+        _tabActivePaint = new SKPaint { Color = SKColors.White, Style = SKPaintStyle.Fill };
+        _tabHoverPaint = new SKPaint { Color = SKColor.Parse("#E8EAED"), Style = SKPaintStyle.Fill, IsAntialias = true };
 
-        _cachedTabActivePaint = new SKPaint { Color = SKColors.White, Style = SKPaintStyle.Fill };
-        _cachedTabInactivePaint = new SKPaint { Color = SKColor.Parse("#DADCE0"), Style = SKPaintStyle.Fill };
-        _cachedLockPaint = new SKPaint { Color = SKColor.Parse("#34A853") };
-        _cachedLockFont = new SKFont(_chineseTypeface, 14) { Hinting = SKFontHinting.Normal, Edging = SKFontEdging.Antialias };
-        _cachedBrowserPaint = new SKPaint { Color = SKColor.Parse("#1A73E8") };
-        _cachedBrowserFont = new SKFont(_chineseTypeface, 14) { Hinting = SKFontHinting.Normal, Edging = SKFontEdging.Antialias };
-        _cachedInfoPaint = new SKPaint { Color = SKColor.Parse("#F9AB00") };
-        _cachedInfoFont = new SKFont(_chineseTypeface, 14) { Hinting = SKFontHinting.Normal, Edging = SKFontEdging.Antialias };
-        _cachedNewTabPaint = new SKPaint { Color = SKColor.Parse("#5F6368"), IsAntialias = true };
-        _cachedNewTabFont = new SKFont(_chineseTypeface, 22) { Hinting = SKFontHinting.Normal, Edging = SKFontEdging.Antialias };
-        _cachedTitlePaint = new SKPaint { Color = SKColor.Parse("#202124") };
-        _cachedTitleFont = new SKFont(_chineseTypeface, 12) { Hinting = SKFontHinting.Normal, Edging = SKFontEdging.Antialias };
-        _cachedStatusPaint = new SKPaint { Color = SKColor.Parse("#5F6368") };
-        _cachedStatusFont = new SKFont(_chineseTypeface, 11) { Hinting = SKFontHinting.Normal, Edging = SKFontEdging.Antialias };
-        _cachedSymbolPaint = new SKPaint { Color = SKColor.Parse("#3C4043"), IsAntialias = true };
-        _cachedSymbolFont = new SKFont(_chineseTypeface, 14) { Hinting = SKFontHinting.Normal, Edging = SKFontEdging.Antialias };
-        _cachedCloseFont = new SKFont(_chineseTypeface ?? SKTypeface.Default, 11) { Hinting = SKFontHinting.Normal, Edging = SKFontEdging.Antialias };
-        _cachedCursorPaint = new SKPaint { Color = SKColor.Parse("#1A73E8"), Style = SKPaintStyle.Fill, StrokeWidth = 1 };
+        _toolbarBgPaint = new SKPaint { Color = SKColors.White, Style = SKPaintStyle.Fill };
+        _statusBgPaint = new SKPaint { Color = SKColors.White, Style = SKPaintStyle.Fill };
 
-        _scrollbarTrackPaint = new SKPaint { Color = new SKColor(230, 230, 230), Style = SKPaintStyle.Fill };
-        _scrollbarThumbPaint = new SKPaint { Color = new SKColor(180, 180, 180), Style = SKPaintStyle.Fill, IsAntialias = true };
-        _closeBtnHoverBgPaint = new SKPaint { Color = SKColor.Parse("#DADCE0"), Style = SKPaintStyle.Fill, IsAntialias = true };
-        _closeBtnHoverPaint = new SKPaint { Color = SKColor.Parse("#202124"), IsAntialias = true };
+        _urlBgPaint = new SKPaint { Color = SKColor.Parse("#F1F3F4"), Style = SKPaintStyle.Fill, IsAntialias = true };
+        _urlBorderPaint = new SKPaint { Color = SKColor.Parse("#DADCE0"), Style = SKPaintStyle.Stroke, StrokeWidth = 1, IsAntialias = true };
+        _urlFocusBorderPaint = new SKPaint { Color = SKColor.Parse("#1A73E8"), Style = SKPaintStyle.Stroke, StrokeWidth = 2, IsAntialias = true };
 
-        // 默认打开一个新标签页
+        _textPrimary = new SKPaint { Color = SKColor.Parse("#202124"), IsAntialias = true };
+        _textSecondary = new SKPaint { Color = SKColor.Parse("#5F6368"), IsAntialias = true };
+        _textBlue = new SKPaint { Color = SKColor.Parse("#1A73E8"), IsAntialias = true };
+
+        _iconPaint = new SKPaint { Color = SKColor.Parse("#5F6368"), IsAntialias = true, Style = SKPaintStyle.Fill, StrokeWidth = 0 };
+        _iconDisabledPaint = new SKPaint { Color = SKColor.Parse("#BDC1C6"), IsAntialias = true, Style = SKPaintStyle.Fill };
+        _btnHoverPaint = new SKPaint { Color = SKColor.Parse("#E8F0FE"), Style = SKPaintStyle.Fill, IsAntialias = true };
+        _btnActivePaint = new SKPaint { Color = SKColor.Parse("#D2E3FC"), Style = SKPaintStyle.Fill, IsAntialias = true };
+
+        _closeBtnBgPaint = new SKPaint { Color = SKColor.Parse("#E8EAED"), Style = SKPaintStyle.Fill, IsAntialias = true };
+        _closeBtnX = new SKPaint { Color = SKColor.Parse("#5F6368"), IsAntialias = true };
+        _cursorPaint = new SKPaint { Color = SKColor.Parse("#1A73E8"), Style = SKPaintStyle.Fill, StrokeWidth = 1.5f };
+
+        _lockPaint = new SKPaint { Color = SKColor.Parse("#34A853"), IsAntialias = true, Style = SKPaintStyle.Stroke, StrokeWidth = 1.5f };
+        _infoPaint = new SKPaint { Color = SKColor.Parse("#F9AB00"), IsAntialias = true };
+
+        _newTabBgPaint = new SKPaint { Color = SKColor.Parse("#E8EAED"), Style = SKPaintStyle.Fill, IsAntialias = true };
+        _newTabHoverBgPaint = new SKPaint { Color = SKColor.Parse("#DADCE0"), Style = SKPaintStyle.Fill, IsAntialias = true };
+        _newTabPlusPaint = new SKPaint { Color = SKColor.Parse("#5F6368"), IsAntialias = true, Style = SKPaintStyle.Stroke, StrokeWidth = 2 };
+
+        _statusTextPaint = new SKPaint { Color = SKColor.Parse("#5F6368"), IsAntialias = true };
+        _separatorPaint = new SKPaint { Color = SKColor.Parse("#E8EAED"), Style = SKPaintStyle.Fill };
+
+        _progressPaint = new SKPaint { Color = SKColor.Parse("#1A73E8"), Style = SKPaintStyle.Fill };
+        _progressBgPaint = new SKPaint { Color = SKColor.Parse("#E8EAED"), Style = SKPaintStyle.Fill };
+
+        _shadowPaint = new SKPaint
+        {
+            Color = new SKColor(0, 0, 0, 12),
+            Style = SKPaintStyle.Fill,
+            IsAntialias = true,
+            MaskFilter = SKMaskFilter.CreateBlur(SKBlurStyle.Normal, 4)
+        };
+
         _tabs.Add(new TabInfo { Title = "New Tab", Url = "upbrowser://newtab", IsActive = true });
     }
 
@@ -164,242 +172,425 @@ public class ChromeRenderer : IImeSupport
     public void RenderChrome(SKCanvas canvas, float width, float height, string url, string title)
     {
         _currentUrl = url;
-
         if (_activeTabIndex >= 0 && _activeTabIndex < _tabs.Count)
         {
             _tabs[_activeTabIndex].Title = title;
             _tabs[_activeTabIndex].Url = url;
         }
-
-        RenderTabBar(canvas, width, title);
+        RenderTabBar(canvas, width);
+        RenderLoadingProgress(canvas, width);
         RenderToolbar(canvas, width, url);
         RenderStatusBar(canvas, width, height);
     }
 
-    private void RenderTabBar(SKCanvas canvas, float width, string title)
+    private void RenderTabBar(SKCanvas canvas, float width)
     {
-        // 背景
-        canvas.DrawRect(0, 0, width, TabBarHeight, _backgroundPaint);
-
-        // 清除上次的 tab 矩形记录
         _tabRects.Clear();
         _tabCloseRects.Clear();
 
-        float newTabButtonWidth = 36;
-        float controlArea = 135;
-        float tabsArea = width - controlArea - newTabButtonWidth - 5;
+        float tabTop = 0;
+        float tabHeight = TabBarHeight;
+        float newTabBtnSize = 28;
 
-        float tabX = 5;
-        float tabY = 5;
-        float tabHeight = TabBarHeight - 5;
-        float maxTabWidth = 180;
+        // Tab area background
+        canvas.DrawRect(0, 0, width, tabHeight, _tabBgPaint);
 
-        // 计算每个标签页的宽度
+        // Right side: window control area placeholder + new tab button
+        float rightArea = 135;
+        float tabsMaxX = width - rightArea - newTabBtnSize - 8;
+
+        // Calculate tabs
         int tabCount = _tabs.Count;
-        float tabWidth = maxTabWidth;
-        if (tabCount > 0 && tabX + tabCount * tabWidth > tabsArea)
-        {
-            tabWidth = Math.Max(80, (tabsArea - tabX) / tabCount);
-        }
+        float tabStartX = 0;
+        float tabGap = 2;
+        float maxTabWidth = 200;
+        float tabWidth = Math.Min(maxTabWidth, (tabsMaxX - tabStartX - tabGap * (tabCount - 1)) / Math.Max(1, tabCount));
+        tabWidth = Math.Max(60, tabWidth);
 
-        for (int i = 0; i < _tabs.Count; i++)
-        {
-            if (tabX + tabWidth > tabsArea)
-                tabWidth = tabsArea - tabX;
-            if (tabWidth < 40) break;
+        float tabX = tabStartX;
+        float tabY = 6;
+        float tabH = tabHeight - tabY;
 
-            var tab = _tabs[i];
-            var tabRect = new SKRect(tabX, tabY, tabX + tabWidth, tabY + tabHeight);
+        for (int i = 0; i < tabCount; i++)
+        {
+            float actualWidth = tabWidth;
+            if (tabX + actualWidth > tabsMaxX - 8)
+                actualWidth = Math.Max(40, tabsMaxX - tabX - 8);
+            if (actualWidth < 40) break;
+
+            var tabRect = new SKRect(tabX, tabY, tabX + actualWidth, tabY + tabH);
             _tabRects.Add(tabRect);
 
-            // 活动标签页稍微高一点
-            float actualTabY = (i == _activeTabIndex) ? tabY - 1 : tabY;
-            float actualTabHeight = (i == _activeTabIndex) ? tabHeight + 1 : tabHeight;
+            bool isActive = i == _activeTabIndex;
+            bool isHovered = i == _hoveredTabIndex;
 
-            var drawRect = new SKRect(tabX, actualTabY, tabX + tabWidth, actualTabY + actualTabHeight);
+            // Draw tab background with rounded top corners
+            using var tabPath = new SKPath();
+            float r = 8;
+            tabPath.MoveTo(tabRect.Left + r, tabRect.Top);
+            tabPath.LineTo(tabRect.Right - r, tabRect.Top);
+            tabPath.QuadTo(tabRect.Right, tabRect.Top, tabRect.Right, tabRect.Top + r);
+            tabPath.LineTo(tabRect.Right, tabRect.Bottom);
+            tabPath.LineTo(tabRect.Left, tabRect.Bottom);
+            tabPath.LineTo(tabRect.Left, tabRect.Top + r);
+            tabPath.QuadTo(tabRect.Left, tabRect.Top, tabRect.Left + r, tabRect.Top);
+            tabPath.Close();
 
-            // 标签背景
-            SKPaint tabBgPaint;
-            if (i == _activeTabIndex)
+            if (isActive)
+                canvas.DrawPath(tabPath, _tabActivePaint);
+            else if (isHovered)
+                canvas.DrawPath(tabPath, _tabHoverPaint);
+
+            // Active tab indicator underline
+            if (isActive)
             {
-                tabBgPaint = _cachedTabActivePaint;
+                using var indicatorPaint = new SKPaint
+                {
+                    Color = SKColor.Parse("#1A73E8"),
+                    Style = SKPaintStyle.Fill,
+                    StrokeWidth = 0
+                };
+                canvas.DrawRoundRect(tabRect.Left + 8, tabRect.Bottom - 3, tabRect.Width - 16, 3, 1.5f, 1.5f, indicatorPaint);
             }
-            else if (i == _hoveredTabIndex && i != _activeTabIndex)
-            {
-                tabBgPaint = _buttonHoverPaint;
-            }
-            else
-            {
-                tabBgPaint = _cachedTabInactivePaint;
-            }
 
-            canvas.DrawRoundRect(drawRect, new SKSize(BorderRadius, BorderRadius), tabBgPaint);
+            // Tab title
+            string tabTitle = _tabs[i].Title;
+            float closeBtnW = 20;
+            float textMaxW = tabRect.Width - 16 - closeBtnW;
 
-            // 标签底部不显示圆角（与工具栏连接）
-            if (i == _activeTabIndex)
-            {
-                canvas.DrawRect(drawRect.Left, drawRect.Bottom - BorderRadius, drawRect.Width, BorderRadius, _cachedTabActivePaint);
-            }
-
-            // 标签标题
-            string tabTitle = tab.Title;
-            float closeButtonWidth = 20;
-            float textMaxWidth = tabWidth - 25 - closeButtonWidth;
-
-            _textFont.Size = 12;
-            _textPaint.Color = (i == _activeTabIndex) ? SKColor.Parse("#1A73E8") : SKColor.Parse("#5F6368");
-
-            // 截断过长标题
-            while (tabTitle.Length > 0 && _textFont.MeasureText(tabTitle + "…") > textMaxWidth)
-            {
+            _font12.Size = 12;
+            while (tabTitle.Length > 1 && _font12.MeasureText(tabTitle + "…") > textMaxW)
                 tabTitle = tabTitle[..^1];
-            }
-            if (tabTitle.Length < tab.Title.Length)
+            if (tabTitle.Length < _tabs[i].Title.Length)
                 tabTitle += "…";
 
-            float textX = tabRect.Left + 10;
-            float textY = tabRect.Top + tabHeight * 0.65f;
-            canvas.DrawText(tabTitle, textX, textY, SKTextAlign.Left, _textFont, _textPaint);
+            var titleColor = isActive ? _textPrimary : _textSecondary;
+            float textX = tabRect.Left + 8;
+            float textY = tabRect.Top + tabH * 0.62f;
+            canvas.DrawText(tabTitle, textX, textY, SKTextAlign.Left, _font12, titleColor);
 
-            // 关闭按钮
-            float closeBtnSize = 14;
-            float closeX = tabRect.Right - closeBtnSize - 6;
-            float closeY = tabRect.Top + (tabHeight - closeBtnSize) / 2;
-            var closeRect = new SKRect(closeX, closeY, closeX + closeBtnSize, closeY + closeBtnSize);
+            // Close button
+            float closeS = 16;
+            float closeX = tabRect.Right - closeS - 5;
+            float closeY = tabRect.Top + (tabH - closeS) / 2;
+            var closeRect = new SKRect(closeX, closeY, closeX + closeS, closeY + closeS);
             _tabCloseRects.Add(closeRect);
 
-            // 关闭按钮背景
-            if (i == _hoveredCloseIndex)
+            bool closeHovered = i == _hoveredCloseIndex;
+            if (closeHovered)
+                canvas.DrawRoundRect(closeRect, 3, 3, _closeBtnBgPaint);
+
+            // Draw ×
+            _fontClose.Size = 10;
+            _closeBtnX.Color = closeHovered ? SKColor.Parse("#202124") : SKColor.Parse("#80868B");
+            float cx = closeRect.Left + closeS / 2;
+            float cy = closeRect.Top + closeS * 0.72f;
+            canvas.DrawText("✕", cx - _fontClose.MeasureText("✕") / 2, cy, SKTextAlign.Left, _fontClose, _closeBtnX);
+
+            // Separator between tabs (only inactive, non-hovered)
+            if (!isActive && !isHovered && i > 0)
             {
-                canvas.DrawRoundRect(closeRect, new SKSize(2, 2), _tabCloseActivePaint);
+                var prevTab = _tabRects[i - 1];
+                using var sepPaint = new SKPaint { Color = SKColor.Parse("#DADCE0"), Style = SKPaintStyle.Stroke, StrokeWidth = 1 };
+                canvas.DrawLine(tabRect.Left, tabRect.Top + 8, tabRect.Left, tabRect.Bottom - 4, sepPaint);
             }
 
-            // 关闭按钮 X
-            _closeBtnHoverPaint.Color = (i == _hoveredCloseIndex) ? SKColor.Parse("#202124") : SKColor.Parse("#80868B");
-            float cx = closeRect.Left + closeBtnSize / 2;
-            float cy = closeRect.Top + closeBtnSize * 0.7f;
-            string closeSymbol = "✕";
-            float symWidth = _cachedCloseFont.MeasureText(closeSymbol);
-            canvas.DrawText(closeSymbol, cx - symWidth / 2, cy, SKTextAlign.Left, _cachedCloseFont, _closeBtnHoverPaint);
-
-            tabX += tabWidth + 3;
+            tabX += actualWidth + tabGap;
         }
 
-        // 新建标签按钮
-        float newTabX = tabX + 2;
-        float newTabY = tabY + 4;
-        float newTabSize = tabHeight - 8;
-        _newTabButtonRect = new SKRect(newTabX, newTabY, newTabX + newTabSize, newTabY + newTabSize);
+        // New tab button
+        float newTabX = Math.Max(tabX, tabsMaxX - newTabBtnSize) + 4;
+        float newTabY = tabY + (tabH - newTabBtnSize) / 2;
+        _newTabButtonRect = new SKRect(newTabX, newTabY, newTabX + newTabBtnSize, newTabY + newTabBtnSize);
 
-        var newTabBgPaint = _newTabHovered ? _buttonHoverPaint : _buttonPaint;
-        canvas.DrawRoundRect(_newTabButtonRect, new SKSize(BorderRadius, BorderRadius), newTabBgPaint);
+        var ntBg = _newTabHovered ? _newTabHoverBgPaint : _newTabBgPaint;
+        canvas.DrawRoundRect(_newTabButtonRect, 6, 6, ntBg);
 
-        _cachedNewTabPaint.Color = _newTabHovered ? SKColor.Parse("#202124") : SKColor.Parse("#5F6368");
-        string plusSymbol = "+";
-        float plusWidth = _cachedNewTabFont.MeasureText(plusSymbol);
-        canvas.DrawText(plusSymbol,
-            _newTabButtonRect.Left + (_newTabButtonRect.Width - plusWidth) / 2,
-            _newTabButtonRect.Top + _newTabButtonRect.Height * 0.7f,
-            SKTextAlign.Left, _cachedNewTabFont, _cachedNewTabPaint);
+        // Draw + with SKPath
+        float plusPad = 7;
+        float plusCx = _newTabButtonRect.MidX;
+        float plusCy = _newTabButtonRect.MidY;
+        float plusHalf = (_newTabButtonRect.Width - plusPad * 2) / 2;
+        using var plusPath = new SKPath();
+        plusPath.MoveTo(plusCx - plusHalf, plusCy);
+        plusPath.LineTo(plusCx + plusHalf, plusCy);
+        plusPath.MoveTo(plusCx, plusCy - plusHalf);
+        plusPath.LineTo(plusCx, plusCy + plusHalf);
+        canvas.DrawPath(plusPath, _newTabPlusPaint);
+    }
 
-        // 窗口标题
-        _cachedTitleFont.Size = 12;
-        _cachedTitlePaint.Color = SKColor.Parse("#202124");
-        string windowTitle = "UpBrowser";
-        float titleWidth = _cachedTitleFont.MeasureText(windowTitle);
-        canvas.DrawText(windowTitle, width - controlArea + 5, TabBarHeight * 0.65f, SKTextAlign.Left, _cachedTitleFont, _cachedTitlePaint);
+    private void RenderLoadingProgress(SKCanvas canvas, float width)
+    {
+        if (!_isLoading && _loadingProgress >= 1f) return;
+
+        UpdateLoadingProgress();
+        float progressY = TabBarHeight - 2;
+        float barHeight = 2;
+
+        canvas.DrawRect(0, progressY, width, barHeight, _progressBgPaint);
+        float pct = _loadingProgress > 0 ? _loadingProgress : 0.05f;
+        canvas.DrawRect(0, progressY, width * pct, barHeight, _progressPaint);
     }
 
     private void RenderToolbar(SKCanvas canvas, float width, string url)
     {
-        float toolbarTop = TabBarHeight;
-        float toolbarCenter = toolbarTop + ToolbarHeight / 2;
+        float tTop = TabBarHeight;
+        float tH = ToolbarHeight;
+        float tCenter = tTop + tH / 2;
 
-        canvas.DrawRect(0, toolbarTop, width, ToolbarHeight, _backgroundPaint);
+        // Toolbar background
+        canvas.DrawRect(0, tTop, width, tH, _toolbarBgPaint);
 
-        float btnY = toolbarTop + 8;
-        float btnSize = 24;
+        // Subtle separator below toolbar
+        using var sep = new SKPaint { Color = SKColor.Parse("#E8EAED"), Style = SKPaintStyle.Fill };
+        canvas.DrawRect(0, tTop + tH - 1, width, 1, sep);
 
-        _backButtonRect = new SKRect(10, btnY, 10 + btnSize, btnY + btnSize);
-        RenderNavButton(canvas, _backButtonRect, "◀", _backHovered, CanGoBack());
+        // Navigation buttons
+        float btnY = tTop + (tH - 28) / 2;
+        float btnSize = 28;
+
+        _backButtonRect = new SKRect(8, btnY, 8 + btnSize, btnY + btnSize);
+        DrawNavButton(canvas, _backButtonRect, _backHovered, CanGoBack());
+        DrawArrowLeft(canvas, _backButtonRect, CanGoBack());
 
         _forwardButtonRect = new SKRect(40, btnY, 40 + btnSize, btnY + btnSize);
-        RenderNavButton(canvas, _forwardButtonRect, "▶", _forwardHovered, CanGoForward());
+        DrawNavButton(canvas, _forwardButtonRect, _forwardHovered, CanGoForward());
+        DrawArrowRight(canvas, _forwardButtonRect, CanGoForward());
 
-        _refreshButtonRect = new SKRect(70, btnY, 70 + btnSize, btnY + btnSize);
-        RenderNavButton(canvas, _refreshButtonRect, "⟳", _refreshHovered, true);
+        _refreshButtonRect = new SKRect(72, btnY, 72 + btnSize, btnY + btnSize);
+        DrawNavButton(canvas, _refreshButtonRect, _refreshHovered, true);
+        DrawRefresh(canvas, _refreshButtonRect);
 
-        _homeButtonRect = new SKRect(100, btnY, 100 + btnSize, btnY + btnSize);
-        RenderNavButton(canvas, _homeButtonRect, "🏠", _homeHovered, true);
+        _homeButtonRect = new SKRect(104, btnY, 104 + btnSize, btnY + btnSize);
+        DrawNavButton(canvas, _homeButtonRect, _homeHovered, true);
+        DrawHome(canvas, _homeButtonRect);
 
-        // Settings gear button
-        float settingsBtnX = 132;
-        _settingsButtonRect = new SKRect(settingsBtnX, btnY, settingsBtnX + btnSize, btnY + btnSize);
-        RenderNavButton(canvas, _settingsButtonRect, "⚙", _settingsHovered, true);
+        // Settings
+        _settingsButtonRect = new SKRect(136, btnY, 136 + btnSize, btnY + btnSize);
+        DrawNavButton(canvas, _settingsButtonRect, _settingsHovered, true);
+        DrawSettings(canvas, _settingsButtonRect);
 
-        float urlBarLeft = 165;
-        float urlBarWidth = width - urlBarLeft - 10;
-        _urlBarRect = new SKRect(urlBarLeft, toolbarTop + 5, urlBarLeft + urlBarWidth, toolbarTop + ToolbarHeight - 5);
+        // URL bar
+        float urlLeft = 172;
+        float urlW = Math.Max(60, width - urlLeft - 10);
+        float urlTop = tTop + 6;
+        float urlH = tH - 12;
+        _urlBarRect = new SKRect(urlLeft, urlTop, urlLeft + urlW, urlTop + urlH);
 
-        canvas.DrawRoundRect(_urlBarRect, new SKSize(BorderRadius, BorderRadius), _urlBarPaint);
-        canvas.DrawRoundRect(_urlBarRect, new SKSize(BorderRadius, BorderRadius), _borderPaint);
+        // URL bar shadow
+        canvas.DrawRoundRect(_urlBarRect, BorderRadius, BorderRadius, _shadowPaint);
+        canvas.DrawRoundRect(_urlBarRect, BorderRadius, BorderRadius, _urlBgPaint);
 
-        float iconX = urlBarLeft + 10;
-        float iconY = toolbarCenter + 5;
-
-        if (url.StartsWith("https"))
-            canvas.DrawText("🔒", iconX, iconY, SKTextAlign.Left, _cachedLockFont, _cachedLockPaint);
-        else if (url.StartsWith("upbrowser://"))
-            canvas.DrawText("🌐", iconX, iconY, SKTextAlign.Left, _cachedBrowserFont, _cachedBrowserPaint);
+        if (_urlBarFocused)
+            canvas.DrawRoundRect(_urlBarRect, BorderRadius, BorderRadius, _urlFocusBorderPaint);
         else
-            canvas.DrawText("ℹ", iconX, iconY, SKTextAlign.Left, _cachedInfoFont, _cachedInfoPaint);
+            canvas.DrawRoundRect(_urlBarRect, BorderRadius, BorderRadius, _urlBorderPaint);
 
-        float textX = iconX + 20;
-        float textY = toolbarCenter + 5;
+        // Security icon
+        float iconX = urlLeft + 10;
+        float iconY = tCenter + 2;
+        if (url.StartsWith("https"))
+            DrawLockIcon(canvas, iconX, iconY);
+        else if (!url.StartsWith("upbrowser://"))
+            DrawInfoIcon(canvas, iconX, iconY);
+
+        // URL text
+        float textX = url.StartsWith("https") ? iconX + 20 : (url.StartsWith("upbrowser://") ? iconX : iconX + 20);
+        float textY = tCenter + 2;
 
         string displayUrl = _urlBarFocused ? _urlBarText : url;
-        if (!_urlBarFocused && displayUrl.Length > 60)
-            displayUrl = displayUrl[..60] + "...";
+        if (!_urlBarFocused && _font14.MeasureText(displayUrl) > urlW - (textX - urlLeft) - 16)
+        {
+            while (_font14.MeasureText(displayUrl + "…") > urlW - (textX - urlLeft) - 16 && displayUrl.Length > 4)
+                displayUrl = displayUrl[..^1];
+            if (displayUrl.Length < url.Length)
+                displayUrl += "…";
+        }
 
-        _urlTextPaint.Color = _urlBarFocused ? SKColor.Parse("#1A73E8") : SKColor.Parse("#3C4043");
-        canvas.DrawText(displayUrl, textX, textY, SKTextAlign.Left, _urlTextFont, _urlTextPaint);
+        _textPrimary.Color = _urlBarFocused ? SKColor.Parse("#1A73E8") : SKColor.Parse("#3C4043");
+        canvas.DrawText(displayUrl, textX, textY, SKTextAlign.Left, _font14, _textPrimary);
 
+        // Cursor
         if (_urlBarFocused && _showCursor)
         {
-            string textBeforeCursor = _urlBarText[..Math.Min(_cursorPosition, _urlBarText.Length)];
-            float cursorX = textX + _urlTextFont.MeasureText(textBeforeCursor);
-            canvas.DrawLine(cursorX, iconY - 12, cursorX, iconY + 2, _cachedCursorPaint);
+            string beforeCursor = _urlBarText[..Math.Min(_cursorPosition, _urlBarText.Length)];
+            float cursorX = textX + _font14.MeasureText(beforeCursor);
+            canvas.DrawLine(cursorX, iconY - 10, cursorX, iconY + 4, _cursorPaint);
         }
     }
 
-    private void RenderNavButton(SKCanvas canvas, SKRect rect, string symbol, bool hovered, bool enabled)
+    private void DrawNavButton(SKCanvas canvas, SKRect rect, bool hovered, bool enabled)
     {
-        var paint = enabled ? (hovered ? _buttonHoverPaint : _buttonPaint) : _buttonPaint;
-        canvas.DrawRoundRect(rect, new SKSize(BorderRadius, BorderRadius), paint);
+        if (!enabled) return;
+        if (hovered)
+        {
+            canvas.DrawRoundRect(rect, 6, 6, _btnHoverPaint);
+        }
+    }
 
-        _cachedSymbolPaint.Color = enabled ? SKColor.Parse("#3C4043") : SKColor.Parse("#BDC1C6");
-        float symWidth = _cachedSymbolFont.MeasureText(symbol);
-        canvas.DrawText(symbol,
-            rect.Left + (rect.Width - symWidth) / 2,
-            rect.Top + rect.Height * 0.7f,
-            SKTextAlign.Left, _cachedSymbolFont, _cachedSymbolPaint);
+    private void DrawArrowLeft(SKCanvas canvas, SKRect rect, bool enabled)
+    {
+        var paint = enabled ? _iconPaint : _iconDisabledPaint;
+        float cx = rect.MidX;
+        float cy = rect.MidY;
+        float s = 6;
+        using var path = new SKPath();
+        path.MoveTo(cx + s * 0.5f, cy - s);
+        path.LineTo(cx - s * 0.5f, cy);
+        path.LineTo(cx + s * 0.5f, cy + s);
+        canvas.DrawPath(path, paint);
+    }
+
+    private void DrawArrowRight(SKCanvas canvas, SKRect rect, bool enabled)
+    {
+        var paint = enabled ? _iconPaint : _iconDisabledPaint;
+        float cx = rect.MidX;
+        float cy = rect.MidY;
+        float s = 6;
+        using var path = new SKPath();
+        path.MoveTo(cx - s * 0.5f, cy - s);
+        path.LineTo(cx + s * 0.5f, cy);
+        path.LineTo(cx - s * 0.5f, cy + s);
+        canvas.DrawPath(path, paint);
+    }
+
+    private void DrawRefresh(SKCanvas canvas, SKRect rect)
+    {
+        float cx = rect.MidX;
+        float cy = rect.MidY;
+        float r = 5;
+        using var path = new SKPath();
+        // Arrow circle
+        path.AddCircle(cx, cy, r);
+        // Arrow head
+        float ax = cx;
+        float ay = cy - r - 2;
+        path.MoveTo(ax, ay);
+        path.LineTo(ax - 3, ay + 3);
+        path.MoveTo(ax, ay);
+        path.LineTo(ax + 3, ay + 3);
+
+        using var refreshPaint = new SKPaint
+        {
+            Color = _iconPaint.Color,
+            IsAntialias = true,
+            Style = SKPaintStyle.Stroke,
+            StrokeWidth = 1.5f
+        };
+        canvas.DrawPath(path, refreshPaint);
+    }
+
+    private void DrawHome(SKCanvas canvas, SKRect rect)
+    {
+        float cx = rect.MidX;
+        float cy = rect.MidY;
+        float s = 7;
+        using var path = new SKPath();
+        // House shape
+        path.MoveTo(cx, cy - s);
+        path.LineTo(cx - s, cy - 1);
+        path.LineTo(cx - s + 2, cy - 1);
+        path.LineTo(cx - s + 2, cy + s - 2);
+        path.LineTo(cx + s - 2, cy + s - 2);
+        path.LineTo(cx + s - 2, cy - 1);
+        path.LineTo(cx + s, cy - 1);
+        path.Close();
+        // Chimney
+        path.MoveTo(cx + 2, cy - s);
+        path.LineTo(cx + 4, cy - s + 3);
+        path.LineTo(cx + 4, cy - s + 1);
+        path.LineTo(cx + 2, cy - s + 1);
+        path.Close();
+
+        using var homePaint = new SKPaint
+        {
+            Color = _iconPaint.Color,
+            IsAntialias = true,
+            Style = SKPaintStyle.Fill
+        };
+        canvas.DrawPath(path, homePaint);
+    }
+
+    private void DrawSettings(SKCanvas canvas, SKRect rect)
+    {
+        float cx = rect.MidX;
+        float cy = rect.MidY;
+        float r = 5;
+        using var path = new SKPath();
+        path.AddCircle(cx, cy, r);
+        // Gear teeth (simplified as dots)
+        for (int i = 0; i < 6; i++)
+        {
+            float angle = i * MathF.PI / 3 - MathF.PI / 6;
+            float tx = cx + MathF.Cos(angle) * (r + 2);
+            float ty = cy + MathF.Sin(angle) * (r + 2);
+            path.AddCircle(tx, ty, 1.5f);
+        }
+
+        using var settingsPaint = new SKPaint
+        {
+            Color = _iconPaint.Color,
+            IsAntialias = true,
+            Style = SKPaintStyle.Fill
+        };
+        canvas.DrawPath(path, settingsPaint);
+    }
+
+    private void DrawLockIcon(SKCanvas canvas, float x, float y)
+    {
+        float s = 5;
+        using var path = new SKPath();
+        // Lock body
+        path.MoveTo(x - s * 0.7f, y + s * 0.5f);
+        path.LineTo(x + s * 0.7f, y + s * 0.5f);
+        path.LineTo(x + s * 0.7f, y - s * 0.1f);
+        path.LineTo(x - s * 0.7f, y - s * 0.1f);
+        path.Close();
+        // Lock shackle
+        path.MoveTo(x - s * 0.45f, y - s * 0.1f);
+        path.LineTo(x - s * 0.45f, y - s * 0.6f);
+        path.ArcTo(x + s * 0.45f, y - s * 0.1f, x + s * 0.45f, y - s * 0.6f, s * 0.45f);
+        path.LineTo(x + s * 0.45f, y - s * 0.1f);
+
+        _lockPaint.Style = SKPaintStyle.Stroke;
+        canvas.DrawPath(path, _lockPaint);
+        // Keyhole
+        canvas.DrawCircle(x, y + s * 0.15f, 1.2f, _lockPaint);
+    }
+
+    private void DrawInfoIcon(SKCanvas canvas, float x, float y)
+    {
+        float r = 5;
+        canvas.DrawCircle(x, y, r, _infoPaint);
+        _infoPaint.Color = SKColors.White;
+        _infoPaint.Style = SKPaintStyle.Fill;
+        canvas.DrawText("i", x - 2, y + 3.5f, SKTextAlign.Left, _font11, _infoPaint);
+        _infoPaint.Style = SKPaintStyle.Stroke;
+        _infoPaint.Color = SKColor.Parse("#F9AB00");
     }
 
     private void RenderStatusBar(SKCanvas canvas, float width, float height)
     {
-        float statusTop = height - StatusBarHeight;
+        float sTop = height - StatusBarHeight;
 
-        canvas.DrawRect(0, statusTop, width, StatusBarHeight, _backgroundPaint);
-        canvas.DrawLine(0, statusTop, width, statusTop, _borderPaint);
+        canvas.DrawRect(0, sTop, width, StatusBarHeight, _statusBgPaint);
+        using var topLine = new SKPaint { Color = SKColor.Parse("#E8EAED"), Style = SKPaintStyle.Fill };
+        canvas.DrawRect(0, sTop, width, 1, topLine);
 
-        string statusText = string.IsNullOrEmpty(_currentUrl) ? "Ready" : _currentUrl;
-        if (statusText.Length > 80)
-            statusText = statusText[..80] + "...";
-        canvas.DrawText(statusText, 10, statusTop + StatusBarHeight * 0.7f, SKTextAlign.Left, _cachedStatusFont, _cachedStatusPaint);
+        string statusText = _isLoading ? "Loading..." : (string.IsNullOrEmpty(_currentUrl) ? "Ready" : _currentUrl);
+        if (_font12.MeasureText(statusText) > width - 150)
+        {
+            while (_font12.MeasureText(statusText + "…") > width - 150 && statusText.Length > 4)
+                statusText = statusText[..^1];
+            if (statusText.Length < (string.IsNullOrEmpty(_currentUrl) ? 5 : _currentUrl.Length))
+                statusText += "…";
+        }
 
-        string tabCount = $"Tab {_activeTabIndex + 1}/{_tabs.Count}";
-        float tcWidth = _cachedStatusFont.MeasureText(tabCount);
-        canvas.DrawText(tabCount, width - tcWidth - 10, statusTop + StatusBarHeight * 0.7f, SKTextAlign.Left, _cachedStatusFont, _cachedStatusPaint);
+        canvas.DrawText(statusText, 12, sTop + StatusBarHeight * 0.68f, SKTextAlign.Left, _font12, _statusTextPaint);
+
+        string tabInfo = $"{_tabs.Count} tabs";
+        float tiW = _font12.MeasureText(tabInfo);
+        canvas.DrawText(tabInfo, width - tiW - 12, sTop + StatusBarHeight * 0.68f, SKTextAlign.Left, _font12, _statusTextPaint);
     }
 
     // ==================== 输入处理方法 ====================
@@ -413,7 +604,6 @@ public class ChromeRenderer : IImeSupport
         _settingsHovered = _settingsButtonRect.Contains(x, y);
         _newTabHovered = _newTabButtonRect.Contains(x, y);
 
-        // 检测标签页悬停
         _hoveredTabIndex = -1;
         _hoveredCloseIndex = -1;
 
@@ -438,14 +628,12 @@ public class ChromeRenderer : IImeSupport
 
     public bool HandleMouseClick(float x, float y)
     {
-        // 检查新建标签按钮
         if (_newTabButtonRect.Contains(x, y))
         {
             AddTab();
             return true;
         }
 
-        // 检查标签关闭按钮
         for (int i = 0; i < _tabCloseRects.Count; i++)
         {
             if (_tabCloseRects[i].Contains(x, y))
@@ -455,20 +643,16 @@ public class ChromeRenderer : IImeSupport
             }
         }
 
-        // 检查标签切换
         for (int i = 0; i < _tabRects.Count; i++)
         {
             if (_tabRects[i].Contains(x, y))
             {
                 if (i != _activeTabIndex)
-                {
                     SwitchToTab(i);
-                }
                 return true;
             }
         }
 
-        // 检查 URL 栏点击
         if (_urlBarRect.Contains(x, y))
         {
             if (!_urlBarFocused)
@@ -481,7 +665,6 @@ public class ChromeRenderer : IImeSupport
             return true;
         }
 
-        // 检查导航按钮点击
         if (_backButtonRect.Contains(x, y) && CanGoBack())
         {
             BlurUrlBar();
@@ -620,7 +803,6 @@ public class ChromeRenderer : IImeSupport
         _history.Add(url);
         _historyIndex = _history.Count - 1;
 
-        // 更新当前标签页信息
         if (_activeTabIndex >= 0 && _activeTabIndex < _tabs.Count)
         {
             _tabs[_activeTabIndex].Url = url;
@@ -630,17 +812,11 @@ public class ChromeRenderer : IImeSupport
         OnNavigate?.Invoke(url);
     }
 
-    /// <summary>
-    /// Update the displayed URL in the URL bar and tab without triggering a navigation.
-    /// Used to reflect the effective URL after HTTP redirects.
-    /// </summary>
     public void UpdateUrl(string url)
     {
         _currentUrl = url;
         if (_activeTabIndex >= 0 && _activeTabIndex < _tabs.Count)
-        {
             _tabs[_activeTabIndex].Url = url;
-        }
         _urlBarText = "";
     }
 
@@ -674,7 +850,6 @@ public class ChromeRenderer : IImeSupport
         _tabs.Add(new TabInfo { Title = "New Tab", Url = url });
         _activeTabIndex = _tabs.Count - 1;
         _urlBarFocused = false;
-
         _currentUrl = url;
         OnTabChanged?.Invoke(url);
     }
@@ -691,14 +866,12 @@ public class ChromeRenderer : IImeSupport
         }
 
         if (index < 0 || index >= _tabs.Count) return;
-
         _tabs.RemoveAt(index);
 
         if (index == _activeTabIndex)
         {
             if (_activeTabIndex >= _tabs.Count)
                 _activeTabIndex = _tabs.Count - 1;
-
             _currentUrl = _tabs[_activeTabIndex].Url;
             OnTabChanged?.Invoke(_currentUrl);
         }
@@ -711,14 +884,11 @@ public class ChromeRenderer : IImeSupport
     public void SwitchToTab(int index)
     {
         if (index < 0 || index >= _tabs.Count || index == _activeTabIndex) return;
-
         _tabs[_activeTabIndex].IsActive = false;
         _activeTabIndex = index;
         _tabs[_activeTabIndex].IsActive = true;
-
         _urlBarFocused = false;
         _currentUrl = _tabs[_activeTabIndex].Url;
-
         OnTabChanged?.Invoke(_currentUrl);
     }
 
@@ -773,7 +943,7 @@ public class ChromeRenderer : IImeSupport
     {
         if (!_isLoading) return;
         var elapsed = Environment.TickCount64 - _loadingStartTime;
-        _loadingProgress = Math.Min(0.95f, elapsed / 3000f);
+        _loadingProgress = Math.Min(0.95f, elapsed / 2000f);
     }
 
     public float GetContentOffset() => TabBarHeight + ToolbarHeight;
@@ -784,111 +954,81 @@ public class ChromeRenderer : IImeSupport
     public void RenderScrollbars(SKCanvas canvas, float width, float height, ScrollManager scrollManager)
     {
         float contentTop = GetContentOffset();
-        float viewportHeight = scrollManager.ViewportHeight;
-        float viewportWidth = scrollManager.ViewportWidth;
+        float vH = scrollManager.ViewportHeight;
+        float vW = scrollManager.ViewportWidth;
 
-        if (scrollManager.CanScrollY && viewportHeight > 0)
+        if (scrollManager.CanScrollY && vH > 0)
         {
-            float scrollbarLeft = width - ScrollManager.ScrollbarWidth;
-            float trackTop = contentTop;
-            float trackHeight = viewportHeight;
-            float contentHeight = scrollManager.ContentHeight;
+            float sbL = width - ScrollManager.ScrollbarWidth;
+            float tTop = contentTop;
+            float tH = vH;
+            float cH = scrollManager.ContentHeight;
+            if (cH <= vH) return;
 
-            if (contentHeight <= viewportHeight) return;
+            using var trackPaint = new SKPaint { Color = new SKColor(0, 0, 0, 8), Style = SKPaintStyle.Fill };
+            canvas.DrawRoundRect(sbL + 2, tTop, ScrollManager.ScrollbarWidth - 4, tH, 3, 3, trackPaint);
 
-            canvas.DrawRect(scrollbarLeft, trackTop, ScrollManager.ScrollbarWidth, trackHeight, _scrollbarTrackPaint);
+            float thumbH = Math.Max(ScrollManager.ScrollbarMinThumbSize, tH * vH / cH);
+            float maxS = cH - vH;
+            float thumbT = tTop;
+            if (maxS > 0)
+                thumbT += (scrollManager.ScrollY / maxS) * (tH - thumbH);
 
-            float thumbHeight = Math.Max(ScrollManager.ScrollbarMinThumbSize,
-                trackHeight * viewportHeight / contentHeight);
-
-            float maxScrollY = contentHeight - viewportHeight;
-            float thumbTop = trackTop;
-            if (maxScrollY > 0)
-                thumbTop += (scrollManager.ScrollY / maxScrollY) * (trackHeight - thumbHeight);
-
-            var thumbRect = new SKRect(scrollbarLeft + 2, thumbTop,
-                scrollbarLeft + ScrollManager.ScrollbarWidth - 2, thumbTop + thumbHeight);
-            canvas.DrawRoundRect(thumbRect, 4, 4, _scrollbarThumbPaint);
+            using var thumbPaint = new SKPaint { Color = new SKColor(0, 0, 0, 80), Style = SKPaintStyle.Fill, IsAntialias = true };
+            canvas.DrawRoundRect(sbL + 3, thumbT, ScrollManager.ScrollbarWidth - 6, thumbH, 3, 3, thumbPaint);
         }
 
-        if (scrollManager.CanScrollX && viewportWidth > 0)
+        if (scrollManager.CanScrollX && vW > 0)
         {
-            float contentBottom = height - StatusBarHeight;
-            float scrollbarTop = contentBottom - ScrollManager.ScrollbarWidth;
-            float trackLeft = 0;
-            float trackWidth = viewportWidth;
-            float contentWidth = scrollManager.ContentWidth;
+            float cB = height - StatusBarHeight;
+            float sbT = cB - ScrollManager.ScrollbarWidth;
+            float tL = 0;
+            float tW = vW;
+            float cW = scrollManager.ContentWidth;
+            if (cW <= vW) return;
 
-            if (contentWidth <= viewportWidth) return;
+            using var trackPaint = new SKPaint { Color = new SKColor(0, 0, 0, 8), Style = SKPaintStyle.Fill };
+            canvas.DrawRoundRect(tL, sbT + 2, tW, ScrollManager.ScrollbarWidth - 4, 3, 3, trackPaint);
 
-            canvas.DrawRect(trackLeft, scrollbarTop, trackWidth, ScrollManager.ScrollbarWidth, _scrollbarTrackPaint);
+            float thumbW = Math.Max(ScrollManager.ScrollbarMinThumbSize, tW * vW / cW);
+            float maxS = cW - vW;
+            float thumbL = tL;
+            if (maxS > 0)
+                thumbL += (scrollManager.ScrollX / maxS) * (tW - thumbW);
 
-            float thumbWidth = Math.Max(ScrollManager.ScrollbarMinThumbSize,
-                trackWidth * viewportWidth / contentWidth);
-
-            float maxScrollX = contentWidth - viewportWidth;
-            float thumbLeft = trackLeft;
-            if (maxScrollX > 0)
-                thumbLeft += (scrollManager.ScrollX / maxScrollX) * (trackWidth - thumbWidth);
-
-            var thumbRect = new SKRect(thumbLeft, scrollbarTop + 2,
-                thumbLeft + thumbWidth, scrollbarTop + ScrollManager.ScrollbarWidth - 2);
-            canvas.DrawRoundRect(thumbRect, 4, 4, _scrollbarThumbPaint);
+            using var thumbPaint = new SKPaint { Color = new SKColor(0, 0, 0, 80), Style = SKPaintStyle.Fill, IsAntialias = true };
+            canvas.DrawRoundRect(thumbL, sbT + 3, thumbW, ScrollManager.ScrollbarWidth - 6, 3, 3, thumbPaint);
         }
     }
 
     public void Dispose()
     {
-        _backgroundPaint.Dispose();
-        _borderPaint.Dispose();
-        _textPaint.Dispose();
-        _urlTextPaint.Dispose();
-        _buttonPaint.Dispose();
-        _buttonHoverPaint.Dispose();
-        _buttonActivePaint.Dispose();
-        _urlBarPaint.Dispose();
-        _tabCloseHoverPaint?.Dispose();
-        _tabCloseActivePaint?.Dispose();
-
-        _cachedTabActivePaint.Dispose();
-        _cachedTabInactivePaint.Dispose();
-        _cachedLockPaint.Dispose();
-        _cachedBrowserPaint.Dispose();
-        _cachedInfoPaint.Dispose();
-        _cachedNewTabPaint.Dispose();
-        _cachedTitlePaint.Dispose();
-        _cachedStatusPaint.Dispose();
-        _cachedSymbolPaint.Dispose();
-        _cachedCursorPaint.Dispose();
-
-        _textFont.Dispose();
-        _urlTextFont.Dispose();
-        _cachedLockFont.Dispose();
-        _cachedBrowserFont.Dispose();
-        _cachedInfoFont.Dispose();
-        _cachedNewTabFont.Dispose();
-        _cachedTitleFont.Dispose();
-        _cachedStatusFont.Dispose();
-        _cachedSymbolFont.Dispose();
-        _cachedCloseFont.Dispose();
-
-        _scrollbarTrackPaint.Dispose();
-        _scrollbarThumbPaint.Dispose();
-        _closeBtnHoverPaint.Dispose();
-        _closeBtnHoverBgPaint.Dispose();
+        _font11.Dispose(); _font12.Dispose(); _font13.Dispose(); _font14.Dispose();
+        _font22.Dispose(); _fontClose.Dispose();
+        _tabBgPaint.Dispose(); _tabActivePaint.Dispose(); _tabHoverPaint.Dispose();
+        _toolbarBgPaint.Dispose(); _statusBgPaint.Dispose();
+        _urlBgPaint.Dispose(); _urlBorderPaint.Dispose(); _urlFocusBorderPaint.Dispose();
+        _textPrimary.Dispose(); _textSecondary.Dispose(); _textBlue.Dispose();
+        _iconPaint.Dispose(); _iconDisabledPaint.Dispose();
+        _btnHoverPaint.Dispose(); _btnActivePaint.Dispose();
+        _closeBtnBgPaint.Dispose(); _closeBtnX.Dispose();
+        _cursorPaint.Dispose(); _lockPaint.Dispose(); _infoPaint.Dispose();
+        _newTabBgPaint.Dispose(); _newTabHoverBgPaint.Dispose(); _newTabPlusPaint.Dispose();
+        _statusTextPaint.Dispose(); _separatorPaint.Dispose();
+        _progressPaint.Dispose(); _progressBgPaint.Dispose(); _shadowPaint.Dispose();
     }
 
-    #region IImeSupport Implementation
+    #region IImeSupport
 
     public Point GetImeCaretPosition()
     {
         if (!_urlBarFocused)
             return new Point(0, 0);
 
-        float textX = 165;
-        float textY = TabBarHeight + ToolbarHeight / 2 + 5;
-        string textBeforeCursor = _urlBarText[..Math.Min(_cursorPosition, _urlBarText.Length)];
-        float cursorX = textX + _urlTextFont.MeasureText(textBeforeCursor);
+        float textX = 172 + (string.IsNullOrEmpty(_currentUrl) || _currentUrl.StartsWith("upbrowser://") ? 10 : 30);
+        float textY = TabBarHeight + ToolbarHeight / 2 + 2;
+        string beforeCursor = _urlBarText[..Math.Min(_cursorPosition, _urlBarText.Length)];
+        float cursorX = textX + _font14.MeasureText(beforeCursor);
 
         return new Point(cursorX, textY);
     }

@@ -66,12 +66,12 @@ public class DevToolsElements
 
     public void HandleThumbDragEnd() { _thumbDragging = false; }
 
-    public void Render(SKCanvas canvas, float x, float y, float width, float height)
+    public void Render(SKCanvas canvas, float x, float y, float width, float height, DevToolsTheme theme)
     {
         _renderX = x; _renderY = y; _renderW = width; _renderH = height;
         _viewHeight = height;
 
-        using var bg = new SKPaint { Color = SKColor.Parse("#1E1E1E"), Style = SKPaintStyle.Fill };
+        using var bg = new SKPaint { Color = theme.PanelBg, Style = SKPaintStyle.Fill };
         canvas.DrawRect(x, y, width, height, bg);
 
         float dy = y + 16;
@@ -83,11 +83,11 @@ public class DevToolsElements
         var rootEl = _document?.DocumentElement ?? _document?.Body;
         if (rootEl != null)
         {
-            _font.Color = SKColor.Parse("#569CD6");
+            _font.Color = theme.AccentBlue;
             string rootTag = rootEl.TagName.ToLowerInvariant();
             canvas.DrawText($"#{rootTag}", x + 4, dy - _scrollOffset, SKTextAlign.Left, _skFont, _font);
             dy += 18;
-            RenderTree(canvas, rootEl, 1, x + 4, ref dy, width - 8);
+            RenderTree(canvas, rootEl, 1, x + 4, ref dy, width - 8, theme);
         }
         else if (_document != null)
         {
@@ -100,25 +100,25 @@ public class DevToolsElements
                         float adjustY = dy - _scrollOffset;
                         if (adjustY + 18 >= y && adjustY <= y + height)
                         {
-                            _font.Color = SKColor.Parse("#569CD6");
+                            _font.Color = theme.AccentBlue;
                             string tn = ce.TagName.ToLowerInvariant();
                             canvas.DrawText(tn, x + 4, adjustY, SKTextAlign.Left, _skFont, _font);
                         }
                         dy += 18;
-                        RenderTree(canvas, ce, 1, x + 4, ref dy, width - 8);
+                        RenderTree(canvas, ce, 1, x + 4, ref dy, width - 8, theme);
                     }
                 }
             }
             else
             {
-            _font.Color = SKColor.Parse("#D4D4D4");
+            _font.Color = theme.TextSecondary;
             canvas.DrawText("(empty document)", x + 4, dy - _scrollOffset, SKTextAlign.Left, _skFont, _font);
             dy += 18;
             }
         }
         else
         {
-            _font.Color = SKColor.Parse("#D4D4D4");
+            _font.Color = theme.TextSecondary;
             canvas.DrawText("(no document loaded)", x + 4, dy - _scrollOffset, SKTextAlign.Left, _skFont, _font);
             dy += 18;
         }
@@ -133,32 +133,36 @@ public class DevToolsElements
         {
             float sh = height * height / Math.Max(1, _contentHeight);
             float sy = y + (maxScroll > 0 ? (_scrollOffset / maxScroll) * (height - sh) : 0);
-            using var sp = new SKPaint { Color = new SKColor(80, 80, 80), Style = SKPaintStyle.Fill };
+            using var sp = new SKPaint { Color = theme.ScrollbarThumb, Style = SKPaintStyle.Fill };
             canvas.DrawRoundRect(x + width - 6, sy, 4, sh, 2, 2, sp);
         }
 
         if (_selectedElement != null)
         {
             float iy = y + height - 60;
-            using var ibg = new SKPaint { Color = SKColor.Parse("#252526"), Style = SKPaintStyle.Fill };
+            using var ibg = new SKPaint { Color = theme.InfoBg, Style = SKPaintStyle.Fill };
             canvas.DrawRect(x, iy, width, 60, ibg);
+
+            using var iSep = new SKPaint { Color = theme.Separator, Style = SKPaintStyle.Stroke, StrokeWidth = 1 };
+            canvas.DrawLine(x, iy, x + width, iy, iSep);
+
             using var ifont = FontHelper.CreateMonoPaint(11);
             using var ifontFont = FontHelper.CreateMonoFont(11);
 
-            ifont.Color = SKColor.Parse("#569CD6");
-            canvas.DrawText($"<{_selectedElement.TagName.ToLowerInvariant()}>", x + 4, iy + 16, SKTextAlign.Left, ifontFont, ifont);
+            ifont.Color = theme.AccentBlue;
+            canvas.DrawText($"<{_selectedElement.TagName.ToLowerInvariant()}>", x + 8, iy + 16, SKTextAlign.Left, ifontFont, ifont);
 
             var cs = _selectedElement.ComputedStyle;
             if (cs != null)
             {
-                ifont.Color = SKColor.Parse("#D4D4D4");
-                canvas.DrawText($"font-size: {cs.FontSize}px  color: #{cs.Color.Red:X2}{cs.Color.Green:X2}{cs.Color.Blue:X2}", x + 4, iy + 32, SKTextAlign.Left, ifontFont, ifont);
-                canvas.DrawText($"display: {cs.Display}  position: {cs.Position}", x + 4, iy + 48, SKTextAlign.Left, ifontFont, ifont);
+                ifont.Color = theme.TextPrimary;
+                canvas.DrawText($"font-size: {cs.FontSize}px  color: #{cs.Color.Red:X2}{cs.Color.Green:X2}{cs.Color.Blue:X2}", x + 8, iy + 32, SKTextAlign.Left, ifontFont, ifont);
+                canvas.DrawText($"display: {cs.Display}  position: {cs.Position}", x + 8, iy + 48, SKTextAlign.Left, ifontFont, ifont);
             }
         }
     }
 
-    private void RenderTree(SKCanvas canvas, Element el, int depth, float x, ref float y, float maxW)
+    private void RenderTree(SKCanvas canvas, Element el, int depth, float x, ref float y, float maxW, DevToolsTheme theme)
     {
         float indent = depth * 16;
         float lx = x + indent;
@@ -170,18 +174,18 @@ public class DevToolsElements
         {
             if (el == _selectedElement)
             {
-                using var sbg = new SKPaint { Color = SKColor.Parse("#264F78"), Style = SKPaintStyle.Fill };
+                using var sbg = new SKPaint { Color = theme.SelectionBg, Style = SKPaintStyle.Fill };
                 canvas.DrawRect(x, lineY - 2, maxW, 18, sbg);
             }
 
             bool hasKids = el.Children.Any(c => c is Element);
             string marker = hasKids ? "▼ " : "  ";
 
-            _font.Color = SKColor.Parse("#808080");
+            _font.Color = theme.TextSecondary;
             canvas.DrawText(marker, lx, lineY, SKTextAlign.Left, _skFont, _font);
             float mw = _skFont.MeasureText(marker);
 
-            _font.Color = SKColor.Parse("#569CD6");
+            _font.Color = theme.AccentBlue;
             string tn = el.TagName.ToLowerInvariant();
             canvas.DrawText(tn, lx + mw, lineY, SKTextAlign.Left, _skFont, _font);
             float tw = _skFont.MeasureText(tn);
@@ -189,7 +193,7 @@ public class DevToolsElements
             float ax = lx + mw + tw;
             if (!string.IsNullOrEmpty(el.Id))
             {
-                _font.Color = SKColor.Parse("#CE9178");
+                _font.Color = theme.AccentOrange;
                 canvas.DrawText($"#{el.Id}", ax, lineY, SKTextAlign.Left, _skFont, _font);
                 ax += _skFont.MeasureText($"#{el.Id}");
             }
@@ -197,7 +201,7 @@ public class DevToolsElements
             var cn = el.ClassName;
             if (!string.IsNullOrEmpty(cn))
             {
-                _font.Color = SKColor.Parse("#D7BA7D");
+                _font.Color = theme.AccentYellow;
                 canvas.DrawText($".{cn.Replace(' ', '.')}", ax, lineY, SKTextAlign.Left, _skFont, _font);
             }
         }
@@ -209,7 +213,7 @@ public class DevToolsElements
         {
             foreach (var child in el.Children)
             {
-                if (child is Element ce) RenderTree(canvas, ce, depth + 1, x, ref y, maxW);
+                if (child is Element ce) RenderTree(canvas, ce, depth + 1, x, ref y, maxW, theme);
                 else if (child is TextNode tn2 && !tn2.IsWhitespaceOnly)
                 {
                     float textLineY = y - _scrollOffset;
@@ -217,7 +221,7 @@ public class DevToolsElements
                     {
                         string t = tn2.TextContent?.Trim() ?? "";
                         if (t.Length > 80) t = t[..80] + "...";
-                        _font.Color = SKColor.Parse("#D4D4D4");
+                        _font.Color = theme.TextPrimary;
                         canvas.DrawText($"\"{t}\"", x + (depth + 1) * 16, textLineY, SKTextAlign.Left, _skFont, _font);
                     }
                     y += 16;
