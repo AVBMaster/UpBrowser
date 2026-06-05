@@ -140,6 +140,7 @@ public class BrowserApp : IDisposable
             _skiaRenderer.TrySetGpu(enable);
         };
 
+        _chrome.OnChanged += () => _input.NeedsRedraw = true;
         _devTools.SetJavaScriptEngine(_jsEngine);
         _devTools.SetSourceChangeHandler(async (html) =>
         {
@@ -165,7 +166,13 @@ public class BrowserApp : IDisposable
         _input.OnDevToolsInput = (c, key) => DevToolsHandleInput(c, key);
         _input.OnDevToolsClick = (x, y, isDown) => HandleDevToolsClick(x, y, isDown);
         _input.OnDevToolsWheel = (delta, mx, my) => _devTools.HandleWheel(delta, mx, my);
-        _input.OnDevToolsMouseMove = (x, y) => _devTools.HandleMouseMove(x, y);
+        _input.OnDevToolsMouseMove = (x, y) =>
+        {
+            var (pw, ph) = _window.GetClientSize();
+            int ww = (int)(pw / _dpiScale);
+            int wh = (int)(ph / _dpiScale);
+            _devTools.HandleMouseMove(x, y, ww, wh);
+        };
         _input.OnScrollContainerWheel = (dx, dy, mx, my) => HandleScrollContainerWheel(dx, dy, mx, my);
         _input.OnImeChar = HandleImeChar;
         _input.OnImeTargetChanged = UpdateImeTarget;

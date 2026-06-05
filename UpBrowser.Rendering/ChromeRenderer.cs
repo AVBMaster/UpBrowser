@@ -99,6 +99,7 @@ public class ChromeRenderer : IImeSupport
     public Action? OnUrlBarFocus { get; set; }
     public Action? OnUrlBarBlur { get; set; }
     public Action? OnSettingsClick { get; set; }
+    public Action? OnChanged { get; set; }
 
     public class TabInfo
     {
@@ -597,6 +598,15 @@ public class ChromeRenderer : IImeSupport
 
     public void HandleMouseMove(float x, float y)
     {
+        bool oldBack = _backHovered;
+        bool oldForward = _forwardHovered;
+        bool oldRefresh = _refreshHovered;
+        bool oldHome = _homeHovered;
+        bool oldSettings = _settingsHovered;
+        bool oldNewTab = _newTabHovered;
+        int oldTab = _hoveredTabIndex;
+        int oldClose = _hoveredCloseIndex;
+
         _backHovered = _backButtonRect.Contains(x, y);
         _forwardHovered = _forwardButtonRect.Contains(x, y);
         _refreshHovered = _refreshButtonRect.Contains(x, y);
@@ -623,6 +633,14 @@ public class ChromeRenderer : IImeSupport
                 _hoveredCloseIndex = i;
                 break;
             }
+        }
+
+        if (oldBack != _backHovered || oldForward != _forwardHovered ||
+            oldRefresh != _refreshHovered || oldHome != _homeHovered ||
+            oldSettings != _settingsHovered || oldNewTab != _newTabHovered ||
+            oldTab != _hoveredTabIndex || oldClose != _hoveredCloseIndex)
+        {
+            OnChanged?.Invoke();
         }
     }
 

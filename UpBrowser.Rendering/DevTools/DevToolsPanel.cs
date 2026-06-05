@@ -27,6 +27,7 @@ public class DevToolsPanel
     private int _thumbDragTab = -1;
     private int _hoveredTab = -1;
     private bool _hoveredClose;
+    private bool _hoveredThemeBtn;
 
     public bool Visible => _visible;
     public float PanelHeight => _panelHeight;
@@ -45,7 +46,7 @@ public class DevToolsPanel
         OnChanged?.Invoke();
     }
     public void Show() { _visible = true; OnChanged?.Invoke(); }
-    public void Hide() { _visible = false; _dragging = false; _thumbDragTab = -1; OnChanged?.Invoke(); }
+    public void Hide() { _visible = false; _dragging = false; _thumbDragTab = -1; _hoveredTab = -1; _hoveredClose = false; _hoveredThemeBtn = false; OnChanged?.Invoke(); }
 
     public void SetJavaScriptEngine(JavaScriptEngine engine) { _console.SetJavaScriptEngine(engine); }
     public void SetSourceChangeHandler(Action<string> handler) { _source.OnHtmlChanged = handler; }
@@ -87,18 +88,48 @@ public class DevToolsPanel
         };
     }
 
-    public void HandleMouseMove(float x, float y)
+    public void HandleMouseMove(float x, float y, float windowWidth, float windowHeight)
     {
         if (!_visible) return;
-        _hoveredTab = -1;
-        _hoveredClose = CloseButtonRect.Contains(x, y);
-        for (int i = 0; i < TabRects.Count; i++)
+
+        _panelLeft = 0;
+        _panelWidth = windowWidth;
+        _panelTop = windowHeight - _panelHeight;
+
+        bool inPanel = x >= _panelLeft && x <= _panelLeft + _panelWidth &&
+                       y >= _panelTop - 5 && y <= _panelTop + _panelHeight;
+        int newTab = -1;
+        bool newClose = false;
+        bool newTheme = false;
+        if (inPanel)
         {
-            if (TabRects[i].Contains(x, y))
+            float tabBarTop = _panelTop;
+            float tabX = 10;
+            var tabSkFont = FontHelper.CreateDevToolsFont(12);
+            for (int i = 0; i < _tabNames.Length; i++)
             {
-                _hoveredTab = i;
-                break;
+                float tw = tabSkFont.MeasureText(_tabNames[i]) + 24;
+                var tr = new SKRect(tabX, tabBarTop, tabX + tw, tabBarTop + _tabBarHeight);
+                if (tr.Contains(x, y))
+                {
+                    newTab = i;
+                    break;
+                }
+                tabX += tw;
             }
+
+            float cx_close = _panelWidth - 30;
+            float cy_close = tabBarTop + 4;
+            newClose = new SKRect(cx_close, cy_close, cx_close + 20, cy_close + 20).Contains(x, y);
+            newTheme = new SKRect(cx_close - 30, cy_close, cx_close - 10, cy_close + 20).Contains(x, y);
+        }
+
+        if (newTab != _hoveredTab || newClose != _hoveredClose || newTheme != _hoveredThemeBtn)
+        {
+            _hoveredTab = newTab;
+            _hoveredClose = newClose;
+            _hoveredThemeBtn = newTheme;
+            OnChanged?.Invoke();
         }
     }
 
@@ -287,6 +318,26 @@ public class DevToolsPanel
         _panelWidth = windowWidth;
         _panelTop = windowHeight - _panelHeight;
 
+        float tabBarTop = _panelTop;
+        float tabX = 10;
+        var tabSkFont = FontHelper.CreateDevToolsFont(12);
+
+        TabRects.Clear();
+        for (int i = 0; i < _tabNames.Length; i++)
+        {
+            float tw = tabSkFont.MeasureText(_tabNames[i]) + 24;
+            TabRects.Add(new SKRect(tabX, tabBarTop, tabX + tw, tabBarTop + _tabBarHeight));
+            tabX += tw;
+        }
+
+        float cx_close = _panelWidth - 30;
+        float cy_close = tabBarTop + 4;
+        CloseButtonRect = new SKRect(cx_close, cy_close, cx_close + 20, cy_close + 20);
+
+        float themeBtnX = cx_close - 30;
+        ThemeToggleRect = new SKRect(themeBtnX, cy_close, themeBtnX + 20, cy_close + 20);
+
+        // --- Phase 3: draw everything using hover state ---
         using var bg = new SKPaint { Color = theme.PanelBg, Style = SKPaintStyle.Fill };
         canvas.DrawRect(_panelLeft, _panelTop - 1, _panelWidth, _panelHeight + 1, bg);
 
@@ -301,19 +352,11 @@ public class DevToolsPanel
         float cy1 = _panelTop - 1;
         canvas.DrawLine(cx1, cy1, cx1 + 40, cy1, dragLine);
 
-        float tabBarTop = _panelTop;
-        float tabX = 10;
-
-        var tabSkFont = FontHelper.CreateDevToolsFont(12);
-
-        TabRects.Clear();
+        float tabX2 = 10;
         for (int i = 0; i < _tabNames.Length; i++)
         {
-            float tw = tabSkFont.MeasureText(_tabNames[i]) + 24;
-            var tr = new SKRect(tabX, tabBarTop, tabX + tw, tabBarTop + _tabBarHeight);
-            TabRects.Add(tr);
-
-            float tx = tabX + 12;
+            var tr = TabRects[i];
+            float tx = tabX2 + 12;
             float ty = tabBarTop + _tabBarHeight * 0.7f;
 
             if (i == _activeTab)
@@ -340,12 +383,8 @@ public class DevToolsPanel
                 canvas.DrawText(_tabNames[i], tx, ty, SKTextAlign.Left, tabSkFont, tabTextPaint);
             }
 
-            tabX += tw;
+            tabX2 += tr.Width;
         }
-
-        float cx_close = _panelWidth - 30;
-        float cy_close = tabBarTop + 4;
-        CloseButtonRect = new SKRect(cx_close, cy_close, cx_close + 20, cy_close + 20);
 
         if (_hoveredClose)
         {
@@ -357,12 +396,15 @@ public class DevToolsPanel
         using var cp = new SKPaint { Color = _hoveredClose ? theme.CloseBtnHoverText : theme.CloseBtnText, IsAntialias = true };
         canvas.DrawText("✕", cx_close + 3, cy_close + 15, SKTextAlign.Left, cpFont, cp);
 
-        float themeBtnX = cx_close - 30;
-        ThemeToggleRect = new SKRect(themeBtnX, cy_close, themeBtnX + 20, cy_close + 20);
+        if (_hoveredThemeBtn)
+        {
+            using var themeHover = new SKPaint { Color = theme.BtnHoverBg, Style = SKPaintStyle.Fill };
+            canvas.DrawRoundRect(ThemeToggleRect, 4, 4, themeHover);
+        }
 
         string themeIcon = theme.IsLight ? "☀" : "☾";
         using var themeFont = FontHelper.CreateFont(13);
-        using var themePaint = new SKPaint { Color = theme.BtnDefault, IsAntialias = true };
+        using var themePaint = new SKPaint { Color = _hoveredThemeBtn ? theme.CloseBtnHoverText : theme.BtnDefault, IsAntialias = true };
         canvas.DrawText(themeIcon, themeBtnX + 3, cy_close + 15, SKTextAlign.Left, themeFont, themePaint);
 
         float cl = 0, ct = tabBarTop + _tabBarHeight, cw = _panelWidth, ch = _panelHeight - _tabBarHeight;

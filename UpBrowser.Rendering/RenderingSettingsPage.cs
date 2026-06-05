@@ -469,9 +469,12 @@ public class RenderingSettingsPage
             return true;
         }
 
+        int oldHovered = _hoveredItem;
+
         if (x < panelLeft || x > panelLeft + _panelWidth || y < panelTop)
         {
             _hoveredItem = -1;
+            if (oldHovered != -1) OnChanged?.Invoke();
             return false;
         }
 
@@ -496,7 +499,11 @@ public class RenderingSettingsPage
             itemY += itemHeight;
         }
 
-        _hoveredItem = hovered;
+        if (_hoveredItem != hovered)
+        {
+            _hoveredItem = hovered;
+            OnChanged?.Invoke();
+        }
         return true;
     }
 
