@@ -36,6 +36,9 @@ public class InputHandler
     public Func<float, float, bool, bool>? OnDevToolsClick { get; set; }
     public Func<double, float, float, bool>? OnDevToolsWheel { get; set; }
     public Func<float, float, bool>? OnDialogClick { get; set; }
+    public Func<float, float, bool, bool>? OnSettingsPageClick { get; set; }
+    public Func<float, float, bool>? OnSettingsPageMove { get; set; }
+    public Func<float, bool>? OnSettingsPageWheel { get; set; }
     public Func<double, double, float, float, bool>? OnScrollContainerWheel { get; set; }
     public Action<char>? OnImeChar { get; set; }
     public Action? OnCopy { get; set; }
@@ -76,7 +79,9 @@ public class InputHandler
         float logicalY = y / _dpiScale;
         _mouseX = logicalX;
         _mouseY = logicalY;
-        _chrome.HandleMouseMove(logicalX, logicalY);
+        bool handledBySettings = OnSettingsPageMove?.Invoke(logicalX, logicalY) ?? false;
+        if (!handledBySettings)
+            _chrome.HandleMouseMove(logicalX, logicalY);
         OnDomMouseMove?.Invoke(logicalX, logicalY);
     }
 
@@ -96,7 +101,9 @@ public class InputHandler
                 NeedsRedraw = true;
                 return;
             }
-            bool handled = _chrome.HandleMouseClick(logicalX, logicalY);
+            bool handled = OnSettingsPageClick?.Invoke(logicalX, logicalY, false) ?? false;
+            if (!handled)
+                handled = _chrome.HandleMouseClick(logicalX, logicalY);
             if (!handled)
                 handled = OnDevToolsClick?.Invoke(logicalX, logicalY, false) ?? false;
             NeedsRedraw = true;
@@ -111,6 +118,7 @@ public class InputHandler
             _mouseDown = false;
             _pageThumbDragging = false;
             _pageThumbXDragging = false;
+            OnSettingsPageClick?.Invoke(logicalX, logicalY, true);
             OnDomMouseUp?.Invoke(logicalX, logicalY, false);
         }
         if (isDown)
@@ -369,6 +377,12 @@ public class InputHandler
 
     private void OnMouseWheel(double deltaX, double deltaY)
     {
+        if (OnSettingsPageWheel?.Invoke((float)deltaY) == true)
+        {
+            NeedsRedraw = true;
+            return;
+        }
+
         if (OnDevToolsWheel != null && OnDevToolsWheel(deltaY, _mouseX, _mouseY))
         {
             NeedsRedraw = true;

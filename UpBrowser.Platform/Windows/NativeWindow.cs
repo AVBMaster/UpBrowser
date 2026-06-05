@@ -278,6 +278,9 @@ public static class NativeWindow
     public static extern bool BitBlt(IntPtr hdcDest, int xDest, int yDest, int width, int height, IntPtr hdcSrc, int xSrc, int ySrc, uint rop);
 
     [DllImport("user32.dll")]
+    public static extern bool GetClientRect(IntPtr hWnd, out RECT lpRect);
+
+    [DllImport("user32.dll")]
     public static extern IntPtr GetDC(IntPtr hWnd);
 
     [DllImport("user32.dll")]

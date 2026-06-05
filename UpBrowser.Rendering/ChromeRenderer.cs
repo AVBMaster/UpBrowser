@@ -56,12 +56,14 @@ public class ChromeRenderer : IImeSupport
     private bool _forwardHovered;
     private bool _refreshHovered;
     private bool _homeHovered;
+    private bool _settingsHovered;
     private bool _urlBarFocused;
 
     private SKRect _backButtonRect;
     private SKRect _forwardButtonRect;
     private SKRect _refreshButtonRect;
     private SKRect _homeButtonRect;
+    private SKRect _settingsButtonRect;
     private SKRect _urlBarRect;
 
     // 标签页相关
@@ -101,6 +103,7 @@ public class ChromeRenderer : IImeSupport
     public Action<int>? OnCloseTab { get; set; }           // 关闭标签页回调
     public Action? OnUrlBarFocus { get; set; }    // URL 栏获得焦点回调
     public Action? OnUrlBarBlur { get; set; }    // URL 栏失去焦点回调
+    public Action? OnSettingsClick { get; set; } // 设置按钮点击回调
 
     public class TabInfo
     {
@@ -329,7 +332,12 @@ public class ChromeRenderer : IImeSupport
         _homeButtonRect = new SKRect(100, btnY, 100 + btnSize, btnY + btnSize);
         RenderNavButton(canvas, _homeButtonRect, "🏠", _homeHovered, true);
 
-        float urlBarLeft = 135;
+        // Settings gear button
+        float settingsBtnX = 132;
+        _settingsButtonRect = new SKRect(settingsBtnX, btnY, settingsBtnX + btnSize, btnY + btnSize);
+        RenderNavButton(canvas, _settingsButtonRect, "⚙", _settingsHovered, true);
+
+        float urlBarLeft = 165;
         float urlBarWidth = width - urlBarLeft - 10;
         _urlBarRect = new SKRect(urlBarLeft, toolbarTop + 5, urlBarLeft + urlBarWidth, toolbarTop + ToolbarHeight - 5);
 
@@ -402,6 +410,7 @@ public class ChromeRenderer : IImeSupport
         _forwardHovered = _forwardButtonRect.Contains(x, y);
         _refreshHovered = _refreshButtonRect.Contains(x, y);
         _homeHovered = _homeButtonRect.Contains(x, y);
+        _settingsHovered = _settingsButtonRect.Contains(x, y);
         _newTabHovered = _newTabButtonRect.Contains(x, y);
 
         // 检测标签页悬停
@@ -498,6 +507,13 @@ public class ChromeRenderer : IImeSupport
         {
             BlurUrlBar();
             OnHome?.Invoke();
+            return true;
+        }
+
+        if (_settingsButtonRect.Contains(x, y))
+        {
+            BlurUrlBar();
+            OnSettingsClick?.Invoke();
             return true;
         }
 

@@ -28,6 +28,7 @@ public class MacWindow : IWindow
     public int Width => _width;
     public int Height => _height;
     public IImeHandler? ImeHandler => null;
+    public float TargetFrameTimeMs { get; set; } = 16f;
 
     public MacWindow(int width, int height, string title)
     {

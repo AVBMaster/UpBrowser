@@ -23,6 +23,7 @@ public class WindowsWindow : IWindow
     private IntPtr _detachedImeContext;
     private bool _imeContextDetached;
     private float _dpiScale = 1.0f;
+    private float _targetFrameTimeMs = 16.0f;
 
     private Action<char>? _onChar;
     private Action<char>? _onImeChar;
@@ -79,6 +80,12 @@ public class WindowsWindow : IWindow
     {
         get => _onKeyUp;
         set => _onKeyUp = value;
+    }
+
+    public float TargetFrameTimeMs
+    {
+        get => _targetFrameTimeMs;
+        set => _targetFrameTimeMs = Math.Clamp(value, 1f, 100f);
     }
 
     public Action<float>? OnDpiChanged
@@ -482,8 +489,9 @@ public class WindowsWindow : IWindow
             {
                 var now = DateTime.Now;
                 var dt = (now - _lastFrameTime).TotalSeconds;
+                double targetDt = _targetFrameTimeMs / 1000.0;
 
-                if (dt >= 0.016)
+                if (dt >= targetDt)
                 {
                     _lastFrameTime = now;
                     _onFrame(dt);
@@ -491,7 +499,7 @@ public class WindowsWindow : IWindow
                 else if (!hasMessage)
                 {
                     var elapsed = (DateTime.Now - _lastFrameTime).TotalMilliseconds;
-                    int sleepMs = Math.Max(1, (int)(16.5 - elapsed));
+                    int sleepMs = Math.Max(1, (int)(_targetFrameTimeMs + 0.5 - elapsed));
                     if (sleepMs > 0)
                         Thread.Sleep(sleepMs);
                 }
@@ -530,32 +538,19 @@ public class WindowsWindow : IWindow
         bmi.bmiHeader.biBitCount = 32;
         bmi.bmiHeader.biCompression = 0;
 
-        if (_dibMemDC == IntPtr.Zero)
-            _dibMemDC = NativeWindow.CreateCompatibleDC(IntPtr.Zero);
+        var hdc = NativeWindow.GetDC(_hwnd);
 
-        IntPtr bits;
-        var hBitmap = NativeWindow.CreateDIBSection(_dibMemDC, ref bmi,
-            NativeWindow.DIB_RGB_COLORS, out bits, IntPtr.Zero, 0);
+        // Stretch to full window client area to handle ResolutionScale < 1.0
+        NativeWindow.GetClientRect(_hwnd, out var clientRect);
+        int destW = clientRect.Right - clientRect.Left;
+        int destH = clientRect.Bottom - clientRect.Top;
 
-        if (hBitmap != IntPtr.Zero && bits != IntPtr.Zero)
-        {
-            int totalBytes = width * height * 4;
+        NativeWindow.StretchDIBits(hdc, 0, 0, destW, destH,
+            0, 0, width, height, pixels, ref bmi,
+            NativeWindow.DIB_RGB_COLORS, NativeWindow.SRCCOPY);
 
-            fixed (byte* src = pixels)
-            {
-                Buffer.MemoryCopy(src, (void*)bits, totalBytes, totalBytes);
-            }
-
-            var oldBitmap = NativeWindow.SelectObject(_dibMemDC, hBitmap);
-            var hdc = NativeWindow.GetDC(_hwnd);
-            NativeWindow.BitBlt(hdc, 0, 0, width, height, _dibMemDC, 0, 0, NativeWindow.SRCCOPY);
-            NativeWindow.ReleaseDC(_hwnd, hdc);
-            NativeWindow.SelectObject(_dibMemDC, oldBitmap);
-            NativeWindow.DeleteObject(hBitmap);
-        }
+        NativeWindow.ReleaseDC(_hwnd, hdc);
     }
-
-    private IntPtr _dibMemDC;
 
     public void Close()
     {
@@ -570,12 +565,6 @@ public class WindowsWindow : IWindow
     public void Dispose()
     {
         if (_disposed) return;
-
-        if (_dibMemDC != IntPtr.Zero)
-        {
-            NativeWindow.DeleteDC(_dibMemDC);
-            _dibMemDC = IntPtr.Zero;
-        }
 
         Close();
         _disposed = true;

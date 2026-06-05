@@ -29,6 +29,7 @@ public interface IWindow : IDisposable
     void UpdateImeCompositionWindow();
 
     (int width, int height) GetClientSize();
+    float TargetFrameTimeMs { get; set; }
     void Run(Action<double> onFrame);
     void Render(byte[] pixels, int width, int height);
     void Close();

@@ -9,6 +9,7 @@ public class SkiaRenderer : IDisposable
     private SKSurface? _gpuSurface;
     private GRContext? _grContext;
     private bool _useGpu;
+    private bool _gpuFailed;
 
     private SKBitmap? _bitmap;
     private SKCanvas? _canvas;
@@ -16,6 +17,9 @@ public class SkiaRenderer : IDisposable
     private int _width;
     private int _height;
     private float _dpiScale = 1.0f;
+    private float _resolutionScale = 1.0f;
+    private int _physicalWidth;
+    private int _physicalHeight;
 
     private DisplayList? _currentDisplayList;
 
@@ -30,15 +34,121 @@ public class SkiaRenderer : IDisposable
     private IntPtr _glDC;
     private IntPtr _glRC;
 
+    // FPS counter
+    private long _frameCount;
+    private double _currentFps;
+    private long _lastFpsTick = Environment.TickCount64;
+    private SKTypeface? _fpsTypeface;
+
+    // Rendering settings
+    private RenderingSettings? _settings;
+    private AntiAliasMode _currentAaMode = AntiAliasMode.Normal;
+
     public SKCanvas Canvas => _canvas!;
     public DisplayList? CurrentDisplayList => _currentDisplayList;
     public float DpiScale { get => _dpiScale; set => _dpiScale = value; }
+    public float ResolutionScale
+    {
+        get => _resolutionScale;
+        set
+        {
+            if (Math.Abs(_resolutionScale - value) > 0.01f)
+            {
+                _resolutionScale = Math.Clamp(value, 0.25f, 3.0f);
+                RecreateSurface();
+            }
+        }
+    }
     public int Width => _width;
     public int Height => _height;
-    public int PhysicalWidth => _useGpu ? (int)(_width * _dpiScale) : (_bitmap?.Width ?? 0);
-    public int PhysicalHeight => _useGpu ? (int)(_height * _dpiScale) : (_bitmap?.Height ?? 0);
+    public int PhysicalWidth => _physicalWidth;
+    public int PhysicalHeight => _physicalHeight;
     public bool UseGpu => _useGpu;
     public bool IsPageCacheValid => !_pictureDirty && _cachedPicture != null;
+    public RenderingSettings? Settings
+    {
+        get => _settings;
+        set
+        {
+            if (_settings != null)
+                _settings.OnChanged -= ApplySettings;
+            _settings = value;
+            if (_settings != null)
+            {
+                _settings.OnChanged += ApplySettings;
+                ApplySettings();
+            }
+        }
+    }
+
+    private void ApplySettings()
+    {
+        if (_settings == null) return;
+
+        _resolutionScale = _settings.ResolutionScale;
+        _currentAaMode = _settings.AntiAliasing;
+        _useDirtyRegions = _settings.DirtyRegions;
+
+        if (!_settings.DirtyRegions)
+            _dirtyManager?.ClearDirtyRegions();
+
+        if (!_settings.PictureCaching)
+        {
+            _cachedPicture?.Dispose();
+            _cachedPicture = null;
+            _pictureDirty = true;
+        }
+
+        // Handle GPU toggle via settings
+        if (_settings.GpuAcceleration && !_useGpu && !_gpuFailed)
+        {
+            if (TryEnableGpu())
+            {
+                Console.WriteLine("[Settings] GPU acceleration enabled");
+            }
+            else
+            {
+                _gpuFailed = true;
+                Console.WriteLine("[Settings] GPU acceleration failed, staying on CPU");
+            }
+        }
+        else if (!_settings.GpuAcceleration && _useGpu)
+        {
+            DisableGpu();
+            Console.WriteLine("[Settings] GPU acceleration disabled");
+        }
+
+        RecreateSurface();
+    }
+
+    public bool TrySetGpu(bool enable)
+    {
+        if (enable == _useGpu) return true;
+        if (!enable)
+        {
+            DisableGpu();
+            return true;
+        }
+        return TryEnableGpu();
+    }
+
+    private void DisableGpu()
+    {
+        if (!_useGpu) return;
+
+        _gpuSurface?.Dispose();
+        _gpuSurface = null;
+        _grContext?.Dispose();
+        _grContext = null;
+        CleanupGlContext();
+        _useGpu = false;
+
+        _canvas?.Dispose();
+        _canvas = null;
+        CreateCpuBitmap(_width, _height);
+        _pictureDirty = true;
+        Console.WriteLine("[GPU] GPU acceleration disabled, switched to CPU");
+    }
 
     /// <summary>
     /// Attempt to enable GPU acceleration via SkiaSharp GRContext.
@@ -163,6 +273,9 @@ public class SkiaRenderer : IDisposable
         _height = height;
         _pictureDirty = true;
 
+        _physicalWidth = (int)(width * _dpiScale * _resolutionScale);
+        _physicalHeight = (int)(height * _dpiScale * _resolutionScale);
+
         if (_useGpu)
         {
             MakeGlCurrent();
@@ -187,6 +300,9 @@ public class SkiaRenderer : IDisposable
         _height = height;
         _pictureDirty = true;
 
+        _physicalWidth = (int)(width * _dpiScale * _resolutionScale);
+        _physicalHeight = (int)(height * _dpiScale * _resolutionScale);
+
         if (_useGpu)
         {
             MakeGlCurrent();
@@ -205,23 +321,47 @@ public class SkiaRenderer : IDisposable
             _dirtyManager.Invalidate(new SKRect(0, 0, width, height));
     }
 
+    private void RecreateSurface()
+    {
+        if (_width <= 0 || _height <= 0) return;
+
+        _physicalWidth = (int)(_width * _dpiScale * _resolutionScale);
+        _physicalHeight = (int)(_height * _dpiScale * _resolutionScale);
+
+        if (_useGpu)
+        {
+            MakeGlCurrent();
+            _gpuSurface?.Dispose();
+            _gpuSurface = null;
+            CreateGpuSurface(_width, _height);
+        }
+        else
+        {
+            _bitmap?.Dispose();
+            _bitmap = null;
+            CreateCpuBitmap(_width, _height);
+        }
+
+        _pictureDirty = true;
+    }
+
     private void CreateGpuSurface(int width, int height)
     {
-        int pw = (int)(width * _dpiScale);
-        int ph = (int)(height * _dpiScale);
+        int pw = _physicalWidth > 0 ? _physicalWidth : (int)(width * _dpiScale);
+        int ph = _physicalHeight > 0 ? _physicalHeight : (int)(height * _dpiScale);
         var info = new SKImageInfo(pw, ph, SKColorType.Bgra8888, SKAlphaType.Premul);
         _gpuSurface = SKSurface.Create(_grContext!, false, info);
         _canvas = _gpuSurface!.Canvas;
-        _canvas.Scale(_dpiScale, _dpiScale);
+        _canvas.Scale(_dpiScale * _resolutionScale, _dpiScale * _resolutionScale);
     }
 
     private void CreateCpuBitmap(int width, int height)
     {
-        int pw = (int)(width * _dpiScale);
-        int ph = (int)(height * _dpiScale);
+        int pw = _physicalWidth > 0 ? _physicalWidth : (int)(width * _dpiScale);
+        int ph = _physicalHeight > 0 ? _physicalHeight : (int)(height * _dpiScale);
         _bitmap = new SKBitmap(pw, ph, SKColorType.Bgra8888, SKAlphaType.Premul);
         _canvas = new SKCanvas(_bitmap);
-        _canvas.Scale(_dpiScale, _dpiScale);
+        _canvas.Scale(_dpiScale * _resolutionScale, _dpiScale * _resolutionScale);
     }
 
     private void MakeGlCurrent()
@@ -283,6 +423,8 @@ public class SkiaRenderer : IDisposable
 
         if (_useGpu) MakeGlCurrent();
 
+        bool useCaching = _settings?.PictureCaching ?? true;
+
         Canvas.Save();
 
         var clipRect = new SKRect(0, contentOffsetY, viewportWidth, contentOffsetY + viewportHeight);
@@ -290,7 +432,7 @@ public class SkiaRenderer : IDisposable
 
         Canvas.Translate(-scrollX, -scrollY);
 
-        if (!_pictureDirty && _cachedPicture != null)
+        if (useCaching && !_pictureDirty && _cachedPicture != null)
         {
             Canvas.DrawPicture(_cachedPicture);
         }
@@ -341,6 +483,57 @@ public class SkiaRenderer : IDisposable
 
         _dirtyManager!.ClearDirtyRegions();
         _pictureDirty = true;
+    }
+
+    public void TickFrame()
+    {
+        _frameCount++;
+        long now = Environment.TickCount64;
+        double elapsed = now - _lastFpsTick;
+        if (elapsed >= 1000)
+        {
+            _currentFps = _frameCount / (elapsed / 1000.0);
+            _frameCount = 0;
+            _lastFpsTick = now;
+        }
+    }
+
+    public void RenderFpsCounter(SKCanvas canvas, float windowWidth, float windowHeight)
+    {
+        if (_settings == null || !_settings.ShowFps) return;
+
+        _fpsTypeface ??= FontHelper.GetChineseTypeface() ?? SKTypeface.Default;
+
+        using var font = new SKFont(_fpsTypeface, 13);
+        using var bgPaint = new SKPaint
+        {
+            Color = new SKColor(0, 0, 0, 180),
+            Style = SKPaintStyle.Fill
+        };
+        using var textPaint = new SKPaint
+        {
+            Color = _currentFps >= 55 ? SKColor.Parse("#4CAF50") :
+                    _currentFps >= 30 ? SKColor.Parse("#FFC107") :
+                    SKColor.Parse("#F44336"),
+            IsAntialias = true
+        };
+
+        string fpsText = $"FPS: {_currentFps:F0}";
+        if (_useGpu) fpsText += " GPU";
+        else fpsText += " CPU";
+
+        string resText = $"{_resolutionScale:F1}×";
+        string info = $"{fpsText} | {resText}";
+
+        float pad = 6;
+        float textW = font.MeasureText(info);
+        float boxW = textW + pad * 2 + 4;
+        float boxH = 22;
+        float boxX = 8;
+        float boxY = windowHeight - boxH - 8;
+
+        canvas.DrawRoundRect(boxX, boxY, boxW, boxH, 4, 4, bgPaint);
+        canvas.DrawText(info, boxX + pad + 2, boxY + boxH * 0.72f, SKTextAlign.Left, font, textPaint);
     }
 
     public byte[] GetPixelData()

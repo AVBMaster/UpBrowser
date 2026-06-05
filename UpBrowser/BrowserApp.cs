@@ -46,6 +46,9 @@ public class BrowserApp : IDisposable
     private static string[]? _fontFamilies;
     private bool _pendingRelayout;
 
+    private readonly RenderingSettings _renderingSettings = new();
+    private readonly RenderingSettingsPage _renderingSettingsPage;
+
     private long _lastInputTimeTick = Environment.TickCount64;
     private const long InputCooldownMs = 80;
 
@@ -95,6 +98,12 @@ public class BrowserApp : IDisposable
         _eventLoop = new EventLoop();
         _devTools = new DevToolsPanel();
         _pageInputImeHost = new PageInputImeHost(this);
+        // Load persisted config, then apply default GPU
+        RenderingSettingsConfig.Load(_renderingSettings);
+        if (!_skiaRenderer.TrySetGpu(_renderingSettings.GpuAcceleration))
+            Console.WriteLine("[Startup] GPU init failed, using CPU");
+
+        _renderingSettingsPage = new RenderingSettingsPage(_renderingSettings, _dpiScale);
         _contentOffset = _chrome.GetContentOffset();
         _input = new InputHandler(_chrome, _scroll, _window, _dpiScale);
         _input.OnDomClick = HandleDomClick;
@@ -104,6 +113,31 @@ public class BrowserApp : IDisposable
             _devToolsFocused = _devTools.Visible;
             UpdateImeTarget();
             _input.NeedsRedraw = true;
+        };
+
+        _chrome.OnSettingsClick = () =>
+        {
+            _renderingSettingsPage.Toggle();
+            _input.NeedsRedraw = true;
+        };
+
+        _renderingSettingsPage.OnChanged += () =>
+        {
+            _input.NeedsRedraw = true;
+            _skiaRenderer.InvalidatePageCache();
+        };
+
+        _renderingSettings.OnChanged += () =>
+        {
+            RenderingSettingsConfig.Save(_renderingSettings);
+            _window.TargetFrameTimeMs = _renderingSettings.TargetFps > 0
+                ? (float)(1000.0 / _renderingSettings.TargetFps)
+                : 1f;
+        };
+
+        _renderingSettings.OnGpuChanged += (enable) =>
+        {
+            _skiaRenderer.TrySetGpu(enable);
         };
 
         _devTools.SetJavaScriptEngine(_jsEngine);
@@ -181,6 +215,34 @@ public class BrowserApp : IDisposable
         _input.OnDomMouseDown = (x, y, isDown) => { /* handled via OnDomClick */ };
         _input.OnDomMouseUp = (x, y, isDown) => HandleDomMouseUp(x, y);
 
+        _input.OnSettingsPageClick = (x, y, isUp) =>
+        {
+            if (isUp)
+            {
+                _renderingSettingsPage.HandleMouseUp();
+                return false;
+            }
+            var (pw, ph) = _window.GetClientSize();
+            int ww = (int)(pw / _dpiScale);
+            return _renderingSettingsPage.HandleClick(x, y, ww, _contentOffset);
+        };
+
+        _input.OnSettingsPageMove = (x, y) =>
+        {
+            var (pw, ph) = _window.GetClientSize();
+            int ww = (int)(pw / _dpiScale);
+            return _renderingSettingsPage.HandleMouseMove(x, y, ww, _contentOffset);
+        };
+
+        _input.OnSettingsPageWheel = (delta) =>
+        {
+            if (!_renderingSettingsPage.Visible) return false;
+            var (pw, ph) = _window.GetClientSize();
+            int wh = (int)(ph / _dpiScale);
+            _renderingSettingsPage.HandleWheel(delta, wh, _contentOffset);
+            return true;
+        };
+
         _input.OnDialogClick = (x, y) =>
         {
             if (!_dialogActive) return false;
@@ -226,6 +288,8 @@ public class BrowserApp : IDisposable
         {
             Console.WriteLine("GPU acceleration unavailable, using CPU rendering");
         }
+
+        _skiaRenderer.Settings = _renderingSettings;
 
         _eventLoop.Start();
 
@@ -1054,6 +1118,11 @@ public class BrowserApp : IDisposable
 
         _devTools.Render(_skiaRenderer.Canvas, windowWidth, windowHeight, _contentOffset);
 
+        _renderingSettingsPage.Render(_skiaRenderer.Canvas, windowWidth, windowHeight, _contentOffset);
+
+        _skiaRenderer.TickFrame();
+        _skiaRenderer.RenderFpsCounter(_skiaRenderer.Canvas, windowWidth, windowHeight);
+
         var pixels = _skiaRenderer.GetPixelData();
         _window.Render(pixels, _skiaRenderer.PhysicalWidth, _skiaRenderer.PhysicalHeight);
 
@@ -1763,6 +1832,8 @@ public class BrowserApp : IDisposable
         _window.Dispose();
         _jsEngine.Dispose();
         _eventLoop.Stop();
+        if (_renderingSettings != null)
+            _skiaRenderer.Settings = null;
         GC.SuppressFinalize(this);
     }
 
