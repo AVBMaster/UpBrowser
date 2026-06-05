@@ -18,8 +18,6 @@ public class SkiaRenderer : IDisposable
     private int _height;
     private float _dpiScale = 1.0f;
     private float _resolutionScale = 1.0f;
-    private int _physicalWidth;
-    private int _physicalHeight;
 
     private DisplayList? _currentDisplayList;
 
@@ -35,9 +33,8 @@ public class SkiaRenderer : IDisposable
     private IntPtr _glRC;
 
     // FPS counter
-    private long _frameCount;
+    private long _lastFrameTick = Environment.TickCount64;
     private double _currentFps;
-    private long _lastFpsTick = Environment.TickCount64;
     private SKTypeface? _fpsTypeface;
 
     // Rendering settings
@@ -55,14 +52,14 @@ public class SkiaRenderer : IDisposable
             if (Math.Abs(_resolutionScale - value) > 0.01f)
             {
                 _resolutionScale = Math.Clamp(value, 0.25f, 3.0f);
-                RecreateSurface();
+                _pictureDirty = true;
             }
         }
     }
     public int Width => _width;
     public int Height => _height;
-    public int PhysicalWidth => _physicalWidth;
-    public int PhysicalHeight => _physicalHeight;
+    public int PhysicalWidth => (int)(_width * _dpiScale);
+    public int PhysicalHeight => (int)(_height * _dpiScale);
     public bool UseGpu => _useGpu;
     public bool IsPageCacheValid => !_pictureDirty && _cachedPicture != null;
     public RenderingSettings? Settings
@@ -85,6 +82,7 @@ public class SkiaRenderer : IDisposable
     {
         if (_settings == null) return;
 
+        bool resolutionChanged = Math.Abs(_resolutionScale - _settings.ResolutionScale) > 0.01f;
         _resolutionScale = _settings.ResolutionScale;
         _currentAaMode = _settings.AntiAliasing;
         _useDirtyRegions = _settings.DirtyRegions;
@@ -96,8 +94,10 @@ public class SkiaRenderer : IDisposable
         {
             _cachedPicture?.Dispose();
             _cachedPicture = null;
-            _pictureDirty = true;
         }
+
+        // Invalidate page cache on any setting change that affects rendering
+        _pictureDirty = true;
 
         // Handle GPU toggle via settings
         if (_settings.GpuAcceleration && !_useGpu && !_gpuFailed)
@@ -118,6 +118,8 @@ public class SkiaRenderer : IDisposable
             Console.WriteLine("[Settings] GPU acceleration disabled");
         }
 
+        // Only recreate surface for GPU toggle or AA mode change (AA needs surface format)
+        if (resolutionChanged) return;
         RecreateSurface();
     }
 
@@ -273,9 +275,6 @@ public class SkiaRenderer : IDisposable
         _height = height;
         _pictureDirty = true;
 
-        _physicalWidth = (int)(width * _dpiScale * _resolutionScale);
-        _physicalHeight = (int)(height * _dpiScale * _resolutionScale);
-
         if (_useGpu)
         {
             MakeGlCurrent();
@@ -300,9 +299,6 @@ public class SkiaRenderer : IDisposable
         _height = height;
         _pictureDirty = true;
 
-        _physicalWidth = (int)(width * _dpiScale * _resolutionScale);
-        _physicalHeight = (int)(height * _dpiScale * _resolutionScale);
-
         if (_useGpu)
         {
             MakeGlCurrent();
@@ -325,9 +321,6 @@ public class SkiaRenderer : IDisposable
     {
         if (_width <= 0 || _height <= 0) return;
 
-        _physicalWidth = (int)(_width * _dpiScale * _resolutionScale);
-        _physicalHeight = (int)(_height * _dpiScale * _resolutionScale);
-
         if (_useGpu)
         {
             MakeGlCurrent();
@@ -347,21 +340,21 @@ public class SkiaRenderer : IDisposable
 
     private void CreateGpuSurface(int width, int height)
     {
-        int pw = _physicalWidth > 0 ? _physicalWidth : (int)(width * _dpiScale);
-        int ph = _physicalHeight > 0 ? _physicalHeight : (int)(height * _dpiScale);
+        int pw = (int)(width * _dpiScale);
+        int ph = (int)(height * _dpiScale);
         var info = new SKImageInfo(pw, ph, SKColorType.Bgra8888, SKAlphaType.Premul);
         _gpuSurface = SKSurface.Create(_grContext!, false, info);
         _canvas = _gpuSurface!.Canvas;
-        _canvas.Scale(_dpiScale * _resolutionScale, _dpiScale * _resolutionScale);
+        _canvas.Scale(_dpiScale, _dpiScale);
     }
 
     private void CreateCpuBitmap(int width, int height)
     {
-        int pw = _physicalWidth > 0 ? _physicalWidth : (int)(width * _dpiScale);
-        int ph = _physicalHeight > 0 ? _physicalHeight : (int)(height * _dpiScale);
+        int pw = (int)(width * _dpiScale);
+        int ph = (int)(height * _dpiScale);
         _bitmap = new SKBitmap(pw, ph, SKColorType.Bgra8888, SKAlphaType.Premul);
         _canvas = new SKCanvas(_bitmap);
-        _canvas.Scale(_dpiScale * _resolutionScale, _dpiScale * _resolutionScale);
+        _canvas.Scale(_dpiScale, _dpiScale);
     }
 
     private void MakeGlCurrent()
@@ -415,6 +408,24 @@ public class SkiaRenderer : IDisposable
         CacheAndDrawPicture(displayList);
     }
 
+    public void RenderWithResolutionScale(DisplayList displayList, float contentOffsetY, float viewportWidth, float viewportHeight)
+    {
+        _currentDisplayList = displayList;
+        if (_useGpu) MakeGlCurrent();
+
+        float resScale = _settings?.ResolutionScale ?? 1.0f;
+
+        Canvas.Save();
+        Canvas.ClipRect(new SKRect(0, contentOffsetY, viewportWidth, contentOffsetY + viewportHeight));
+        Canvas.Scale(resScale, resScale);
+        Canvas.Translate(0, contentOffsetY * (1f / resScale - 1f));
+
+        Canvas.Clear(SKColors.White);
+        CacheAndDrawPicture(displayList);
+
+        Canvas.Restore();
+    }
+
     public void RenderWithScroll(DisplayList displayList, float contentOffsetY, float scrollX, float scrollY, float viewportWidth, float viewportHeight)
     {
         _currentDisplayList = displayList;
@@ -423,15 +434,20 @@ public class SkiaRenderer : IDisposable
 
         if (_useGpu) MakeGlCurrent();
 
-        bool useCaching = _settings?.PictureCaching ?? true;
+        float resScale = _settings?.ResolutionScale ?? 1.0f;
 
         Canvas.Save();
 
-        var clipRect = new SKRect(0, contentOffsetY, viewportWidth, contentOffsetY + viewportHeight);
-        Canvas.ClipRect(clipRect);
+        // Clip to content area (logical coords in DPI-scaled space)
+        Canvas.ClipRect(new SKRect(0, contentOffsetY, viewportWidth, contentOffsetY + viewportHeight));
 
+        // Apply resolution scale only to page content, anchored at content origin
+        // Scale then translate to keep content aligned with chrome bottom
+        Canvas.Scale(resScale, resScale);
+        Canvas.Translate(0, contentOffsetY * (1f / resScale - 1f));
         Canvas.Translate(-scrollX, -scrollY);
 
+        bool useCaching = _settings?.PictureCaching ?? true;
         if (useCaching && !_pictureDirty && _cachedPicture != null)
         {
             Canvas.DrawPicture(_cachedPicture);
@@ -487,15 +503,18 @@ public class SkiaRenderer : IDisposable
 
     public void TickFrame()
     {
-        _frameCount++;
         long now = Environment.TickCount64;
-        double elapsed = now - _lastFpsTick;
-        if (elapsed >= 1000)
-        {
-            _currentFps = _frameCount / (elapsed / 1000.0);
-            _frameCount = 0;
-            _lastFpsTick = now;
-        }
+        double elapsed = now - _lastFrameTick;
+        _lastFrameTick = now;
+
+        if (elapsed <= 0 || elapsed > 1000) return;
+
+        // Exponential smoothing for stable readings
+        double instantFps = 1000.0 / elapsed;
+        const double alpha = 0.05;
+        _currentFps = _currentFps > 0
+            ? alpha * instantFps + (1 - alpha) * _currentFps
+            : instantFps;
     }
 
     public void RenderFpsCounter(SKCanvas canvas, float windowWidth, float windowHeight)

@@ -232,7 +232,7 @@ public class RenderingSettingsPage
 
         float xPos = panelLeft + 12;
         float yPos = panelTop + headerHeight + 10 - _scrollOffset;
-        float itemHeight = 32;
+        float itemHeight = 38;
         float labelWidth = _panelWidth - 60;
 
         canvas.Save();
@@ -280,12 +280,17 @@ public class RenderingSettingsPage
 
             if (item.IsSlider)
             {
-                canvas.DrawText(item.Label, xPos + 8, itemY + 21, SKTextAlign.Left, labelFont, labelPaint);
+                canvas.DrawText(item.Label, xPos + 8, itemY + 16, SKTextAlign.Left, labelFont, labelPaint);
 
                 float sliderLeft = xPos + 8;
-                float sliderWidth = _panelWidth - 64;
-                float sliderY = itemY + itemHeight / 2;
+                float sliderWidth = _panelWidth - 72;
+                float sliderY = itemY + itemHeight - 8;
                 float sliderTrackH = 4;
+
+                string val = $"{_settings.ResolutionScale:F1}x";
+                float vw = valueFont.MeasureText(val);
+                float valX = xPos + _panelWidth - 24 - vw - 6;
+                canvas.DrawText(val, valX, itemY + 16, SKTextAlign.Left, valueFont, valuePaint);
 
                 using var trackPaint = new SKPaint
                 {
@@ -319,10 +324,6 @@ public class RenderingSettingsPage
                     IsAntialias = true
                 };
                 canvas.DrawCircle(thumbX, sliderY, thumbR, thumbBorder);
-
-                string val = $"{_settings.ResolutionScale:F1}x";
-                float vw = valueFont.MeasureText(val);
-                canvas.DrawText(val, xPos + _panelWidth - 24 - vw - 8, itemY + 21, SKTextAlign.Left, valueFont, valuePaint);
             }
             else if (item.Options != null)
             {
@@ -412,7 +413,7 @@ public class RenderingSettingsPage
 
         float headerHeight = 40;
         float itemY = panelTop + headerHeight + 10 - _scrollOffset;
-        float itemHeight = 32;
+        float itemHeight = 38;
         float xPos = panelLeft + 12;
 
         for (int i = 0; i < _items.Count; i++)
@@ -476,7 +477,7 @@ public class RenderingSettingsPage
 
         float headerHeight = 40;
         float itemY = panelTop + headerHeight + 10 - _scrollOffset;
-        float itemHeight = 32;
+        float itemHeight = 38;
 
         int hovered = -1;
         for (int i = 0; i < _items.Count; i++)
