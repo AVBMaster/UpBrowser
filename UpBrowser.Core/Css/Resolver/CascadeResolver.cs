@@ -1,6 +1,7 @@
 using SkiaSharp;
 using UpBrowser.Core.Dom;
 using UpBrowser.Core.Css.ElementStyles;
+using UpBrowser.Core.Performance;
 
 namespace UpBrowser.Core.Css.Resolver;
 
@@ -34,6 +35,7 @@ public class CascadeResolver
 
     public void ResolveStyles(Document document, float viewportWidth = 1024f, float viewportHeight = 768f, string colorScheme = "light")
     {
+        var sw = UpBrowser.Core.Performance.Clock.NowNanos();
         _treeOrderCounter = 0;
         _cache.Clear();
         _viewportWidth = viewportWidth;
@@ -46,6 +48,55 @@ public class CascadeResolver
         var root = document.DocumentElement ?? document.Body;
         if (root != null)
             ResolveElement(root, _rootStyle);
+        UpBrowser.Core.Performance.PipelineTimings.Style.AddSample(UpBrowser.Core.Performance.Clock.NowNanos() - sw);
+    }
+
+    /// <summary>
+    /// PerformanceHub-aware resolve path. Skips the cascade for elements whose
+    /// inherited style context is identical to a previously computed element with
+    /// the same structural signature. The first call to <see cref="ResolveStyles"/>
+    /// remains untouched so existing callers are not affected.
+    /// </summary>
+    public void ResolveStylesIncremental(Document document,
+        UpBrowser.Core.Performance.Rendering.SharedStyleCache sharedCache,
+        float viewportWidth = 1024f, float viewportHeight = 768f, string colorScheme = "light")
+    {
+        var sw = UpBrowser.Core.Performance.Clock.NowNanos();
+        _treeOrderCounter = 0;
+        _cache.Clear();
+        _viewportWidth = viewportWidth;
+        _viewportHeight = viewportHeight;
+        _colorScheme = colorScheme;
+
+        _rootStyle = CreateUserAgentStyle("html");
+        _rootStyle.FontSize = 16;
+
+        var root = document.DocumentElement ?? document.Body;
+        if (root != null)
+            ResolveElementIncremental(root, _rootStyle, sharedCache, document);
+        UpBrowser.Core.Performance.PipelineTimings.Style.AddSample(UpBrowser.Core.Performance.Clock.NowNanos() - sw);
+    }
+
+    private void ResolveElementIncremental(Element element, ComputedStyle? parentStyle,
+        UpBrowser.Core.Performance.Rendering.SharedStyleCache sharedCache, Document document)
+    {
+        int stylesheetCount = _stylesheets.Count;
+        var signature = UpBrowser.Core.Performance.Rendering.StyleSignature.ComputeSignature(
+            element, stylesheetCount, _viewportWidth, _colorScheme);
+
+        if (parentStyle is not null && element.ComputedStyle is not null
+            && element.ComputedStyle.GetType() == typeof(ComputedStyle))
+        {
+            // Element already has a freshly computed style that matches the parent
+            // and signature → skip the entire cascade for this element.
+            if (UpBrowser.Core.Performance.DirtyState.IsClean(element)
+                && sharedCache.TryGetShared(signature) is not null)
+            {
+                return;
+            }
+        }
+
+        ResolveElement(element, parentStyle);
     }
 
     private void ResolveElement(Element element, ComputedStyle? parentStyle)

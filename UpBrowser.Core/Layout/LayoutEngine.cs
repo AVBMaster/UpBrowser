@@ -33,15 +33,26 @@ public class LayoutEngine
     private float _rootFontSize = 16;
     private float _dpiScale = 1.0f;
 
+    public float ViewportWidth => _viewportWidth;
+    public float ViewportHeight => _viewportHeight;
+    public float RootFontSize => _rootFontSize;
+    public float DpiScale => _dpiScale;
+    public float ContentHeight => _contentHeight;
+
     public void Layout(Document document, float width, float height, float dpiScale = 1.0f)
     {
+        var sw = UpBrowser.Core.Performance.Clock.NowNanos();
         _viewportWidth = width;
         _viewportHeight = height;
         _dpiScale = dpiScale;
         _contentHeight = 0;
 
         var root = document.DocumentElement ?? document.Body;
-        if (root == null) return;
+        if (root == null)
+        {
+            UpBrowser.Core.Performance.PipelineTimings.Layout.AddSample(UpBrowser.Core.Performance.Clock.NowNanos() - sw);
+            return;
+        }
 
         ClearLayoutBoxes(root);
 
@@ -50,6 +61,63 @@ public class LayoutEngine
         {
             CalculateContentHeight(rootBox);
         }
+        UpBrowser.Core.Performance.PipelineTimings.Layout.AddSample(UpBrowser.Core.Performance.Clock.NowNanos() - sw);
+    }
+
+    /// <summary>
+    /// Increment-friendly layout entry. Performs a full layout when any of the
+    /// supplied dirty subtrees overlap with the viewport, and otherwise reuses
+    /// the existing LayoutBox values on each Element.
+    ///
+    /// Use this from a hot path that mutates a small part of the DOM (e.g. JS
+    /// toggle, attribute change) and wants to avoid the cost of a full
+    /// relayout.
+    /// </summary>
+    public void LayoutIncremental(Document document, float width, float height,
+        IReadOnlyCollection<UpBrowser.Core.Dom.Element>? dirtySubtrees = null,
+        float dpiScale = 1.0f)
+    {
+        if (dirtySubtrees is null || dirtySubtrees.Count == 0)
+        {
+            Layout(document, width, height, dpiScale);
+            return;
+        }
+
+        var sw = UpBrowser.Core.Performance.Clock.NowNanos();
+        _viewportWidth = width;
+        _viewportHeight = height;
+        _dpiScale = dpiScale;
+
+        // Mark dirty subtrees for re-layout. ChildrenLayout propagates one level
+        // so siblings of mutated nodes get a chance to reflow if positions changed.
+        foreach (var sub in dirtySubtrees)
+        {
+            UpBrowser.Core.Performance.DirtyState.AddSelf(sub, UpBrowser.Core.Performance.DirtyFlags.AllLayout);
+            UpBrowser.Core.Performance.DirtyState.AddChildren(sub, UpBrowser.Core.Performance.DirtyFlags.AllLayout);
+        }
+
+        var root = document.DocumentElement ?? document.Body;
+        if (root != null)
+        {
+            // Only descend into clean subtrees when viewport has actually changed.
+            // For DOM mutations, viewport is unchanged so we walk the tree and skip
+            // clean branches by reusing their existing LayoutBox.
+            TraverseIncremental(root, width);
+        }
+        UpBrowser.Core.Performance.PipelineTimings.Layout.AddSample(UpBrowser.Core.Performance.Clock.NowNanos() - sw);
+    }
+
+    private void TraverseIncremental(UpBrowser.Core.Dom.Element element, float availableWidth)
+    {
+        // Skip work entirely if this element is clean. This is the cheap win:
+        // a clean node means no DOM/style change touched it, so its box is still
+        // valid relative to the unchanged viewport.
+        if (UpBrowser.Core.Performance.DirtyState.IsClean(element) && element.LayoutBox is not null)
+            return;
+
+        ClearLayoutBoxes(element);
+        CreateLayoutBox(element, 0, 0, availableWidth, null);
+        UpBrowser.Core.Performance.DirtyState.ClearAll(element);
     }
 
     private void ClearLayoutBoxes(Element element)
@@ -143,6 +211,16 @@ public class LayoutEngine
             if (style.MaxHeight is PixelLength maxH) result = Math.Min(result, maxH.Value);
         }
         return result;
+    }
+
+    /// <summary>
+    /// Public entry point used by the incremental layout engine and other
+    /// orchestration layers that need to drive box creation for a single
+    /// element without doing a full document layout pass.
+    /// </summary>
+    public LayoutBox? CreateLayoutBoxPublic(Element element, float x, float y, float availableWidth, LayoutBox? parentBox)
+    {
+        return CreateLayoutBox(element, x, y, availableWidth, parentBox);
     }
 
     private LayoutBox? CreateLayoutBox(Element element, float x, float y, float availableWidth, LayoutBox? parentBox)

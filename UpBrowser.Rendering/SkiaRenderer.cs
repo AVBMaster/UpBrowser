@@ -1,6 +1,7 @@
 using System.Runtime.InteropServices;
 using SkiaSharp;
 using UpBrowser.Core.Dom;
+using UpBrowser.Core.Performance;
 
 namespace UpBrowser.Rendering;
 
@@ -434,6 +435,8 @@ public class SkiaRenderer : IDisposable
 
         if (_useGpu) MakeGlCurrent();
 
+        var sw = Clock.NowNanos();
+
         float resScale = _settings?.ResolutionScale ?? 1.0f;
 
         Canvas.Save();
@@ -466,6 +469,8 @@ public class SkiaRenderer : IDisposable
         }
 
         Canvas.Restore();
+
+        PipelineTimings.Composite.AddSample(Clock.NowNanos() - sw);
     }
 
     private void CacheAndDrawPicture(DisplayList displayList)
@@ -543,6 +548,12 @@ public class SkiaRenderer : IDisposable
 
         string resText = $"{_resolutionScale:F1}×";
         string info = $"{fpsText} | {resText}";
+
+        // Append the live pipeline timings so the HUD doubles as a quick perf readout.
+        if (PipelineTimings.Style.Count > 0 || PipelineTimings.Layout.Count > 0)
+        {
+            info += $" | S:{PipelineTimings.Style.MeanMillis:F1}ms L:{PipelineTimings.Layout.MeanMillis:F1}ms";
+        }
 
         float pad = 6;
         float textW = font.MeasureText(info);

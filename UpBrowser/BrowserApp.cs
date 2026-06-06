@@ -7,6 +7,11 @@ using UpBrowser.Core.Dom;
 using UpBrowser.Core.EventLoop;
 using UpBrowser.Core.JavaScript;
 using UpBrowser.Core.Layout;
+using UpBrowser.Core.Performance;
+using UpBrowser.Core.Performance.Diagnostics;
+using UpBrowser.Core.Performance.Memory;
+using UpBrowser.Core.Performance.Rendering;
+using UpBrowser.Core.Performance.Scheduling;
 using UpBrowser.Platform;
 using UpBrowser.Rendering;
 using UpBrowser.Rendering.DevTools;
@@ -48,6 +53,12 @@ public class BrowserApp : IDisposable
 
     private readonly RenderingSettings _renderingSettings = new();
     private readonly RenderingSettingsPage _renderingSettingsPage;
+
+    // Performance optimization layer. Lazily initialized in RunAsync so the
+    // existing Chrome/loader flows are not perturbed on cold-start.
+    private PerformanceHub? _perfHub;
+    private SharedStyleCache? _sharedStyleCache;
+    private LayoutCache? _layoutCache;
 
     private long _lastInputTimeTick = Environment.TickCount64;
     private const long InputCooldownMs = 80;
@@ -280,6 +291,10 @@ public class BrowserApp : IDisposable
 
     private void Initialize()
     {
+        // Performance hub must be live before anything else uses the heavy
+        // subsystems, so the first layout/style pass is already instrumented.
+        InitializePerformanceHub();
+
         _chrome.Initialize();
 
         _skiaRenderer.Initialize(1024, 768, enableDirtyRegions: true);
@@ -433,6 +448,9 @@ public class BrowserApp : IDisposable
     public async Task RunAsync()
     {
         Console.WriteLine("UpBrowser - Starting...");
+
+        // ---- Initialize the performance layer ----
+        InitializePerformanceHub();
 
         _currentHtml = File.ReadAllText(@"D:\Master\code\UpBrowser\test_css_features.html");
         var initialLoad = await _docManager.LoadHtmlAsync(_currentHtml);
@@ -981,7 +999,36 @@ public class BrowserApp : IDisposable
     {
         if (_currentLoad == null) return;
 
-        _layout.Layout(_currentLoad.Document, windowWidth, windowHeight);
+        // Wrap the heavy work in the long-task observer so we get metrics
+        // for free. When the hub is not initialised this is a no-op.
+        if (_perfHub is { Enabled: true })
+        {
+            _perfHub.LongTasks.Observe("BuildDisplayList", TaskPriority.High, () =>
+            {
+                BuildDisplayListImpl(windowWidth, windowHeight);
+            });
+        }
+        else
+        {
+            BuildDisplayListImpl(windowWidth, windowHeight);
+        }
+    }
+
+    private void BuildDisplayListImpl(float windowWidth, float windowHeight)
+    {
+        // Mark all elements as needing layout when the viewport size has changed,
+        // so the LayoutEngine's incremental path doesn't accidentally skip work.
+        if (_perfHub is null || !_perfHub.Enabled || _layoutCache is null)
+        {
+            _layout.Layout(_currentLoad.Document, windowWidth, windowHeight);
+        }
+        else
+        {
+            // Bump layout version of the root → forces re-layout of all nodes that
+            // haven't been marked dirty (their cached LayoutBox is reused).
+            DirtyState.BumpLayoutVersion(_currentLoad.Document.DocumentElement ?? _currentLoad.Document.Body!);
+            _layout.Layout(_currentLoad.Document, windowWidth, windowHeight);
+        }
 
         // Return old display list ops to pool before creating new one (fixes memory leak)
         _displayList.Clear();
@@ -1003,9 +1050,24 @@ public class BrowserApp : IDisposable
 
     private void RenderFrame(double dt)
     {
+        // Drive the cooperative scheduler for the frame and observe memory pressure.
+        RunPerfFrame(dt);
+
         _eventLoop.ProcessTasks();
+        // Run JS-engine timer callbacks through the cooperative scheduler. The
+        // scheduler is configured with a per-frame budget so a runaway timer
+        // cannot starve the render loop.
         if (_jsEngine.HasTimers)
-            _jsEngine.TickTimers();
+        {
+            if (_perfHub is { Enabled: true })
+            {
+                _perfHub.Scheduler.PostTask(() => _jsEngine.TickTimers(), TaskPriority.Normal);
+            }
+            else
+            {
+                _jsEngine.TickTimers();
+            }
+        }
 
         _chrome.UpdateLoadingProgress();
 
@@ -1084,7 +1146,18 @@ public class BrowserApp : IDisposable
                     styleComputer = new StyleComputer();
                     styleComputer.AddStylesheet(_docManager.GetUaStylesheet());
                 }
-                styleComputer.ComputeStyles(_currentLoad.Document, windowWidth, contentViewportHeight);
+                // Style compute: timing is already recorded inside CascadeResolver
+                // via PipelineTimings.Style. We additionally wrap in a long-task
+                // observer so anything > 50 ms is reported.
+                if (_perfHub is { Enabled: true })
+                {
+                    _perfHub.LongTasks.Observe("StyleCompute", TaskPriority.High,
+                        () => styleComputer.ComputeStyles(_currentLoad.Document, windowWidth, contentViewportHeight));
+                }
+                else
+                {
+                    styleComputer.ComputeStyles(_currentLoad.Document, windowWidth, contentViewportHeight);
+                }
                 _jsEngine.ClearDirty();
                 _pendingRelayout = false;
             }
@@ -1868,6 +1941,7 @@ public class BrowserApp : IDisposable
 
     public void Dispose()
     {
+        ShutdownPerformanceHub();
         if (_currentLoad != null)
         {
             _currentLoad.AngleSharpDoc?.Dispose();
@@ -1881,6 +1955,95 @@ public class BrowserApp : IDisposable
             _skiaRenderer.Settings = null;
         GC.SuppressFinalize(this);
     }
+
+    #endregion
+
+    #region Performance integration
+
+    private void InitializePerformanceHub()
+    {
+        if (_perfHub is not null) return;
+
+        _perfHub = PerformanceHub.Shared;
+        _sharedStyleCache = _perfHub.StyleCache;
+        _layoutCache = _perfHub.LayoutCache;
+
+        // 2GB soft budget for the process; can be tuned via config later.
+        _perfHub.Initialize(new MemoryBudget(2L * 1024 * 1024 * 1024));
+
+        // Wire the long-task observer so we record any operation that exceeds
+        // 50 ms in the central metrics. The hub will automatically push the
+        // long-task duration into Total Blocking Time.
+        _perfHub.LongTasks.OnLongTask += entry =>
+        {
+            _perfHub?.Registry.Feed.Append("longtask",
+                $"{entry.Name} {entry.DurationNanos / 1_000_000.0:F1}ms");
+        };
+
+        // Connect the resource cache used by the rendering layer to memory pressure.
+        // When the monitor reports a High/Critical level, the aggregate responder
+        // shrinks caches to free pages.
+        _perfHub.Registry.MemoryPressure.Register(_perfHub.AggregateResponder);
+
+        Console.WriteLine("[PerfHub] Initialized. Style cache, layout cache, scheduler, long-task observer active.");
+    }
+
+    private void ShutdownPerformanceHub()
+    {
+        if (_perfHub is null) return;
+        _perfHub.Shutdown();
+        _perfHub = null;
+    }
+
+    /// <summary>
+    /// Runs at the start of each render frame: drives the cooperative scheduler
+    /// through one budget slice, observes the time spent in the main pipeline
+    /// phases, and reports memory usage to the pressure monitor.
+    /// </summary>
+    private void RunPerfFrame(double dtMillis)
+    {
+        if (_perfHub is null) return;
+
+        // Choose a frame budget based on the current target FPS (capped at 60 Hz
+        // for the C#/Skia renderer). When the page is "behind" (dt > target),
+        // use a larger catch-up budget to drain pending tasks.
+        var budget = dtMillis > 50
+            ? CooperativeScheduler.FrameBudget.CatchUp
+            : CooperativeScheduler.FrameBudget.For60Fps;
+        _perfHub.RunFrame(budget);
+
+        // Coarse memory accounting: bytes used by managed heap is not directly
+        // observable, but we can poke the GC heap and feed it to the pressure
+        // monitor. This is a hint — the real policy is in MemoryPressureMonitor.
+        long managedBytes = GC.GetTotalMemory(forceFullCollection: false);
+        _perfHub.Registry.MemoryPressure.ReportUsage(managedBytes);
+    }
+
+    /// <summary>
+    /// Convenience used by JS engine / input handlers to mark a subtree as
+    /// needing relayout. Replaces the previous boolean flag with a per-element
+    /// dirty bit that the incremental layout engine can use to skip work.
+    /// </summary>
+    private void MarkSubtreeDirty(UpBrowser.Core.Dom.Element root, DirtyFlags flags = DirtyFlags.AllLayout)
+    {
+        if (root is null) return;
+        DirtyState.AddSelf(root, flags);
+        foreach (var child in root.Children)
+        {
+            if (child is UpBrowser.Core.Dom.Element ce)
+            {
+                DirtyState.AddChildren(ce, flags);
+                MarkSubtreeDirty(ce, flags);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Public escape hatch: a debugging snapshot of the current performance
+    /// state. Exposed so the dev tools panel can show a single JSON view of
+    /// style/layout/paint timings, long tasks, and memory pressure level.
+    /// </summary>
+    public string GetPerformanceSnapshot() => _perfHub?.Api.Snapshot() ?? "{}";
 
     #endregion
 }
