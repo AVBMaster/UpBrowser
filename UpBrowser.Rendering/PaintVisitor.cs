@@ -16,7 +16,8 @@ public class PaintVisitor
     private string[]? _fontFamilies;
     private string? _baseUrl;
     private Core.Dom.Element? _focusedElement;
-    private SKRect? _selectionRect;
+    private SKPoint? _selAnchor;
+    private SKPoint? _selFocus;
 
     public PaintVisitor(float contentOffsetY = 0,
         Dictionary<string, SKTypeface>? sharedTypefaceCache = null,
@@ -33,7 +34,50 @@ public class PaintVisitor
     }
 
     public void SetFocusedElement(Core.Dom.Element? element) => _focusedElement = element;
-    public void SetSelectionRect(SKRect? rect) => _selectionRect = rect;
+    public void SetSelectionRange(SKPoint anchor, SKPoint focus) { _selAnchor = anchor; _selFocus = focus; }
+
+    private SKRect? GetSelHighlight(SKRect textBounds)
+    {
+        if (_selAnchor == null || _selFocus == null) return null;
+        var a = _selAnchor.Value;
+        var f = _selFocus.Value;
+
+        // Normalize to Range: start = earlier point (smaller Y, or same Y + smaller X)
+        bool startIsAnchor = a.Y < f.Y || (a.Y == f.Y && a.X < f.X);
+        var start = startIsAnchor ? a : f;
+        var end = startIsAnchor ? f : a;
+
+        float minY = start.Y;
+        float maxY = end.Y;
+
+        if (textBounds.Bottom <= minY || textBounds.Top >= maxY) return null;
+
+        bool onStartLine = textBounds.Top <= start.Y && start.Y < textBounds.Bottom;
+        bool onEndLine = textBounds.Top <= end.Y && end.Y < textBounds.Bottom;
+
+        // Single-line: same normalized rect regardless of direction
+        if (onStartLine && onEndLine)
+        {
+            var intersect = SKRect.Intersect(textBounds, new SKRect(start.X, minY, end.X, maxY));
+            return intersect.Width > 0 && intersect.Height > 0 ? intersect : null;
+        }
+
+        // Multi-line Range:
+        //   Start line: start.X → right edge
+        //   Middle:     full line
+        //   End line:   left edge → end.X
+        if (onStartLine)
+        {
+            var r = new SKRect(Math.Max(textBounds.Left, start.X), textBounds.Top, textBounds.Right, textBounds.Bottom);
+            return r.Width > 0 && r.Height > 0 ? r : null;
+        }
+        if (onEndLine)
+        {
+            var r = new SKRect(textBounds.Left, textBounds.Top, Math.Min(textBounds.Right, end.X), textBounds.Bottom);
+            return r.Width > 0 && r.Height > 0 ? r : null;
+        }
+        return textBounds;
+    }
     private float TotalOffsetY => _contentOffsetY;
     private float TotalOffsetX => 0;
 
@@ -1366,21 +1410,18 @@ public class PaintVisitor
         op.Bounds = new SKRect(contentBox.Left, contentBox.Top + TotalOffsetY, contentBox.Right, contentBox.Bottom + TotalOffsetY);
 
         // Add selection highlight clipped to the overlapping region
-        if (_selectionRect.HasValue && op.Bounds.IntersectsWith(_selectionRect.Value))
+        var selHighlight = GetSelHighlight(op.Bounds);
+        if (selHighlight.HasValue)
         {
-            var intersect = SKRect.Intersect(op.Bounds, _selectionRect.Value);
-            if (intersect.Width > 0 && intersect.Height > 0)
-            {
-                var highlightOp = PaintOpPool.GetDrawRectOp();
-                highlightOp.Rect = intersect;
-                highlightOp.FillColor = new SKColor(0x1A, 0x73, 0xE8, 0x40);
-                highlightOp.BorderTopWidth = 0;
-                highlightOp.BorderBottomWidth = 0;
-                highlightOp.BorderLeftWidth = 0;
-                highlightOp.BorderRightWidth = 0;
-                highlightOp.Bounds = intersect;
-                _displayList.Add(highlightOp);
-            }
+            var highlightOp = PaintOpPool.GetDrawRectOp();
+            highlightOp.Rect = selHighlight.Value;
+            highlightOp.FillColor = new SKColor(0x1A, 0x73, 0xE8, 0x40);
+            highlightOp.BorderTopWidth = 0;
+            highlightOp.BorderBottomWidth = 0;
+            highlightOp.BorderLeftWidth = 0;
+            highlightOp.BorderRightWidth = 0;
+            highlightOp.Bounds = selHighlight.Value;
+            _displayList.Add(highlightOp);
         }
 
         _displayList.Add(op);
@@ -1495,21 +1536,18 @@ public class PaintVisitor
                         op.Bounds = new SKRect(currentX + lineOffsetX, lineY, currentX + run.Width + lineOffsetX, lineY + line.Height);
 
                         // Add selection highlight clipped to the overlapping region
-                        if (_selectionRect.HasValue && op.Bounds.IntersectsWith(_selectionRect.Value))
+                        var selHighlight = GetSelHighlight(op.Bounds);
+                        if (selHighlight.HasValue)
                         {
-                            var intersect = SKRect.Intersect(op.Bounds, _selectionRect.Value);
-                            if (intersect.Width > 0 && intersect.Height > 0)
-                            {
-                                var highlightOp = PaintOpPool.GetDrawRectOp();
-                                highlightOp.Rect = intersect;
-                                highlightOp.FillColor = new SKColor(0x1A, 0x73, 0xE8, 0x40);
-                                highlightOp.BorderTopWidth = 0;
-                                highlightOp.BorderBottomWidth = 0;
-                                highlightOp.BorderLeftWidth = 0;
-                                highlightOp.BorderRightWidth = 0;
-                                highlightOp.Bounds = intersect;
-                                _displayList.Add(highlightOp);
-                            }
+                            var highlightOp = PaintOpPool.GetDrawRectOp();
+                            highlightOp.Rect = selHighlight.Value;
+                            highlightOp.FillColor = new SKColor(0x1A, 0x73, 0xE8, 0x40);
+                            highlightOp.BorderTopWidth = 0;
+                            highlightOp.BorderBottomWidth = 0;
+                            highlightOp.BorderLeftWidth = 0;
+                            highlightOp.BorderRightWidth = 0;
+                            highlightOp.Bounds = selHighlight.Value;
+                            _displayList.Add(highlightOp);
                         }
 
                         _displayList.Add(op);
@@ -1547,21 +1585,18 @@ public class PaintVisitor
                     op.Bounds = new SKRect(x, boxTop, x + run.Width, boxTop + run.Height);
 
                     // Add selection highlight clipped to the overlapping region
-                    if (_selectionRect.HasValue && op.Bounds.IntersectsWith(_selectionRect.Value))
+                    var selHighlight = GetSelHighlight(op.Bounds);
+                    if (selHighlight.HasValue)
                     {
-                        var intersect = SKRect.Intersect(op.Bounds, _selectionRect.Value);
-                        if (intersect.Width > 0 && intersect.Height > 0)
-                        {
-                            var highlightOp = PaintOpPool.GetDrawRectOp();
-                            highlightOp.Rect = intersect;
-                            highlightOp.FillColor = new SKColor(0x1A, 0x73, 0xE8, 0x40);
-                            highlightOp.BorderTopWidth = 0;
-                            highlightOp.BorderBottomWidth = 0;
-                            highlightOp.BorderLeftWidth = 0;
-                            highlightOp.BorderRightWidth = 0;
-                            highlightOp.Bounds = intersect;
-                            _displayList.Add(highlightOp);
-                        }
+                        var highlightOp = PaintOpPool.GetDrawRectOp();
+                        highlightOp.Rect = selHighlight.Value;
+                        highlightOp.FillColor = new SKColor(0x1A, 0x73, 0xE8, 0x40);
+                        highlightOp.BorderTopWidth = 0;
+                        highlightOp.BorderBottomWidth = 0;
+                        highlightOp.BorderLeftWidth = 0;
+                        highlightOp.BorderRightWidth = 0;
+                        highlightOp.Bounds = selHighlight.Value;
+                        _displayList.Add(highlightOp);
                     }
 
                     _displayList.Add(op);

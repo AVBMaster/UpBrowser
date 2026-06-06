@@ -990,12 +990,7 @@ public class BrowserApp : IDisposable
         _cachedPaintVisitor.SetFocusedElement(_focusedElement);
         if (_hasSelection)
         {
-            var selRect = new SKRect(
-                Math.Min(_selectionStart.X, _selectionEnd.X),
-                Math.Min(_selectionStart.Y, _selectionEnd.Y),
-                Math.Max(_selectionStart.X, _selectionEnd.X),
-                Math.Max(_selectionStart.Y, _selectionEnd.Y));
-            _cachedPaintVisitor.SetSelectionRect(selRect);
+            _cachedPaintVisitor.SetSelectionRange(_selectionStart, _selectionEnd);
         }
         _cachedPaintVisitor.VisitDocument(_currentLoad.Document);
         _displayList = _cachedPaintVisitor.GetDisplayList();
