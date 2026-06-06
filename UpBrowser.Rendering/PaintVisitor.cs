@@ -1494,18 +1494,22 @@ public class PaintVisitor
                             op.TextShadows = parentStyle.TextShadow;
                         op.Bounds = new SKRect(currentX + lineOffsetX, lineY, currentX + run.Width + lineOffsetX, lineY + line.Height);
 
-                        // Add selection highlight if this text overlaps with selection
+                        // Add selection highlight clipped to the overlapping region
                         if (_selectionRect.HasValue && op.Bounds.IntersectsWith(_selectionRect.Value))
                         {
-                            var highlightOp = PaintOpPool.GetDrawRectOp();
-                            highlightOp.Rect = op.Bounds;
-                            highlightOp.FillColor = new SKColor(0x1A, 0x73, 0xE8, 0x40);
-                            highlightOp.BorderTopWidth = 0;
-                            highlightOp.BorderBottomWidth = 0;
-                            highlightOp.BorderLeftWidth = 0;
-                            highlightOp.BorderRightWidth = 0;
-                            highlightOp.Bounds = op.Bounds;
-                            _displayList.Add(highlightOp);
+                            var intersect = SKRect.Intersect(op.Bounds, _selectionRect.Value);
+                            if (intersect.Width > 0 && intersect.Height > 0)
+                            {
+                                var highlightOp = PaintOpPool.GetDrawRectOp();
+                                highlightOp.Rect = intersect;
+                                highlightOp.FillColor = new SKColor(0x1A, 0x73, 0xE8, 0x40);
+                                highlightOp.BorderTopWidth = 0;
+                                highlightOp.BorderBottomWidth = 0;
+                                highlightOp.BorderLeftWidth = 0;
+                                highlightOp.BorderRightWidth = 0;
+                                highlightOp.Bounds = intersect;
+                                _displayList.Add(highlightOp);
+                            }
                         }
 
                         _displayList.Add(op);
@@ -1542,18 +1546,22 @@ public class PaintVisitor
                         op.TextShadows = parentStyle.TextShadow;
                     op.Bounds = new SKRect(x, boxTop, x + run.Width, boxTop + run.Height);
 
-                    // Add selection highlight if this text overlaps with selection
+                    // Add selection highlight clipped to the overlapping region
                     if (_selectionRect.HasValue && op.Bounds.IntersectsWith(_selectionRect.Value))
                     {
-                        var highlightOp = PaintOpPool.GetDrawRectOp();
-                        highlightOp.Rect = op.Bounds;
-                        highlightOp.FillColor = new SKColor(0x1A, 0x73, 0xE8, 0x40);
-                        highlightOp.BorderTopWidth = 0;
-                        highlightOp.BorderBottomWidth = 0;
-                        highlightOp.BorderLeftWidth = 0;
-                        highlightOp.BorderRightWidth = 0;
-                        highlightOp.Bounds = op.Bounds;
-                        _displayList.Add(highlightOp);
+                        var intersect = SKRect.Intersect(op.Bounds, _selectionRect.Value);
+                        if (intersect.Width > 0 && intersect.Height > 0)
+                        {
+                            var highlightOp = PaintOpPool.GetDrawRectOp();
+                            highlightOp.Rect = intersect;
+                            highlightOp.FillColor = new SKColor(0x1A, 0x73, 0xE8, 0x40);
+                            highlightOp.BorderTopWidth = 0;
+                            highlightOp.BorderBottomWidth = 0;
+                            highlightOp.BorderLeftWidth = 0;
+                            highlightOp.BorderRightWidth = 0;
+                            highlightOp.Bounds = intersect;
+                            _displayList.Add(highlightOp);
+                        }
                     }
 
                     _displayList.Add(op);

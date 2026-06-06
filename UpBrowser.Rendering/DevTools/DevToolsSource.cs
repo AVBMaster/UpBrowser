@@ -90,7 +90,7 @@ public class DevToolsSource : IImeSupport
         return true;
     }
 
-    public void SetHtml(string html) { _html = html ?? ""; _lines = _html.Split('\n'); }
+    public void SetHtml(string html) { _html = html ?? ""; _lines = _html.Replace("\r\n", "\n").Replace("\r", "\n").Split('\n'); }
 
     public bool HandleWheel(double delta)
     {
