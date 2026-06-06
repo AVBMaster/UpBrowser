@@ -20,13 +20,14 @@ public class DevToolsSource : IImeSupport
     private bool _editing;
     private int _editLine;
     private int _editCol;
-    private int _selectionStart = -1;
-    private int _selectionEnd = -1;
+    private int _selAnchorCol = -1;
+    private int _selAnchorLine = -1;
     private bool _showCursor = true;
     private DateTime _lastBlink = DateTime.Now;
 
+    private bool _mouseDown;
+
     // IME composition state
-    private bool _isImeComposing;
     private string _imeCompositionString = "";
 
     public Action<string>? OnHtmlChanged;
@@ -37,6 +38,57 @@ public class DevToolsSource : IImeSupport
     public int EditLine => _editLine;
     public int EditCol => _editCol;
     public float ScrollOffset => _scrollOffset;
+
+    private bool HasSelection => _selAnchorLine >= 0;
+
+    private (int startLine, int startCol, int endLine, int endCol) SelRange
+    {
+        get
+        {
+            if (!HasSelection) return (_editLine, _editCol, _editLine, _editCol);
+            if (_selAnchorLine == _editLine)
+            {
+                int a = Math.Min(_selAnchorCol, _editCol);
+                int b = Math.Max(_selAnchorCol, _editCol);
+                return (_editLine, a, _editLine, b);
+            }
+            if (_selAnchorLine < _editLine)
+                return (_selAnchorLine, _selAnchorCol, _editLine, _editCol);
+            return (_editLine, _editCol, _selAnchorLine, _selAnchorCol);
+        }
+    }
+
+    private void ClearSelection() { _selAnchorCol = -1; _selAnchorLine = -1; }
+
+    private bool DeleteSelectedText()
+    {
+        if (!HasSelection) return false;
+        var (sl, sc, el, ec) = SelRange;
+        if (sl == el)
+        {
+            string line = _lines[sl];
+            _lines[sl] = line[..sc] + line[ec..];
+            _editLine = sl;
+            _editCol = sc;
+        }
+        else
+        {
+            string firstPart = _lines[sl][..sc];
+            string lastPart = _lines[el][ec..];
+            var list = _lines.ToList();
+            int removeCount = el - sl + 1;
+            list.RemoveRange(sl, removeCount);
+            list.Insert(sl, firstPart + lastPart);
+            _lines = list.ToArray();
+            _editLine = sl;
+            _editCol = sc;
+        }
+        ClearSelection();
+        _html = string.Join('\n', _lines);
+        OnHtmlChanged?.Invoke(_html);
+        OnInputChanged?.Invoke();
+        return true;
+    }
 
     public void SetHtml(string html) { _html = html ?? ""; _lines = _html.Split('\n'); }
 
@@ -92,8 +144,8 @@ public class DevToolsSource : IImeSupport
         {
             _editing = true;
             _editLine = clickedLine;
-            _selectionStart = -1;
-            _selectionEnd = -1;
+            ClearSelection();
+            _mouseDown = true;
 
             float textStartX = _renderX + 50;
             float clickX = x - textStartX;
@@ -123,28 +175,67 @@ public class DevToolsSource : IImeSupport
         if (!_editing) return;
         if (_editLine < 0 || _editLine >= _lines.Length) return;
 
-        if (_selectionStart >= 0 && _selectionEnd > _selectionStart)
-        {
-            int selStart = Math.Min(_selectionStart, _selectionEnd);
-            int selEnd = Math.Max(_selectionStart, _selectionEnd);
-            string line = _lines[_editLine];
-            _lines[_editLine] = line[..selStart] + line[selEnd..];
-            _editCol = selStart;
-            _selectionStart = -1;
-            _selectionEnd = -1;
-        }
+        DeleteSelectedText();
 
         InsertAtCursor(c.ToString());
     }
 
     public string GetSelectedText()
     {
-        if (!_editing || _editLine < 0 || _editLine >= _lines.Length) return "";
-        if (_selectionStart < 0 || _selectionEnd <= _selectionStart) return "";
-        int start = Math.Min(_selectionStart, _selectionEnd);
-        int end = Math.Max(_selectionStart, _selectionEnd);
-        return _lines[_editLine][start..end];
+        if (!_editing || !HasSelection) return "";
+        var (sl, sc, el, ec) = SelRange;
+        if (sl == el)
+            return _lines[sl][sc..ec];
+        var parts = new List<string>();
+        parts.Add(_lines[sl][sc..]);
+        for (int i = sl + 1; i < el; i++)
+            parts.Add(_lines[i]);
+        parts.Add(_lines[el][..ec]);
+        return string.Join("\n", parts);
     }
+
+    public void SelectAll()
+    {
+        if (!_editing || _lines.Length == 0) return;
+        _selAnchorCol = 0;
+        _selAnchorLine = 0;
+        _editLine = _lines.Length - 1;
+        _editCol = _lines[_editLine].Length;
+    }
+
+    public void HandleMouseMove(float x, float y)
+    {
+        if (!_mouseDown || !_editing) return;
+        float localY = y - _renderY;
+        int line = (int)((localY + _scrollOffset) / 18);
+        if (line < 0) line = 0;
+        if (line >= _lines.Length) line = _lines.Length - 1;
+
+        if (!HasSelection)
+        {
+            _selAnchorCol = _editCol;
+            _selAnchorLine = _editLine;
+        }
+
+        float textStartX = _renderX + 50;
+        float clickX = x - textStartX;
+        _editLine = line;
+        _editCol = 0;
+        float currentX = 0;
+        using var testFont = FontHelper.CreateDevToolsFont(12);
+        string lineText = _lines[line];
+        for (int i = 0; i < lineText.Length; i++)
+        {
+            float charWidth = testFont.MeasureText(lineText[i].ToString());
+            if (currentX + charWidth / 2 >= clickX)
+                break;
+            _editCol = i + 1;
+            currentX += charWidth;
+        }
+        OnInputChanged?.Invoke();
+    }
+
+    public void HandleMouseUp() { _mouseDown = false; }
 
     private void InsertAtCursor(string text)
     {
@@ -156,7 +247,7 @@ public class DevToolsSource : IImeSupport
         OnInputChanged?.Invoke();
     }
 
-    public bool HandleKeyPress(char keyChar, Key key)
+    public bool HandleKeyPress(char keyChar, Key key, bool shift = false)
     {
         if (!_editing) return false;
         if (_editLine < 0 || _editLine >= _lines.Length) return false;
@@ -165,6 +256,7 @@ public class DevToolsSource : IImeSupport
         {
             case Key.Enter:
                 {
+                    DeleteSelectedText();
                     string line = _lines[_editLine];
                     string before = line[..Math.Min(_editCol, line.Length)];
                     string after = line[Math.Min(_editCol, line.Length)..];
@@ -174,7 +266,6 @@ public class DevToolsSource : IImeSupport
                     _lines = newLines.ToArray();
                     _editLine++;
                     _editCol = 0;
-                    _selectionStart = -1; _selectionEnd = -1;
                     _html = string.Join('\n', _lines);
                     OnHtmlChanged?.Invoke(_html);
                     return true;
@@ -182,16 +273,8 @@ public class DevToolsSource : IImeSupport
 
             case Key.Backspace:
                 {
-                    if (_selectionStart >= 0 && _selectionEnd > _selectionStart)
-                    {
-                        int selStart = Math.Min(_selectionStart, _selectionEnd);
-                        int selEnd = Math.Max(_selectionStart, _selectionEnd);
-                        string line = _lines[_editLine];
-                        _lines[_editLine] = line[..selStart] + line[selEnd..];
-                        _editCol = selStart;
-                        _selectionStart = -1; _selectionEnd = -1;
-                    }
-                    else if (_editCol > 0)
+                    if (DeleteSelectedText()) { _html = string.Join('\n', _lines); OnHtmlChanged?.Invoke(_html); return true; }
+                    if (_editCol > 0)
                     {
                         string line = _lines[_editLine];
                         _lines[_editLine] = line[..(_editCol - 1)] + line[_editCol..];
@@ -214,28 +297,17 @@ public class DevToolsSource : IImeSupport
 
             case Key.Delete:
                 {
-                    if (_selectionStart >= 0 && _selectionEnd > _selectionStart)
+                    if (DeleteSelectedText()) return true;
+                    string line = _lines[_editLine];
+                    if (_editCol < line.Length)
+                        _lines[_editLine] = line[.._editCol] + line[(_editCol + 1)..];
+                    else if (_editLine < _lines.Length - 1)
                     {
-                        int selStart = Math.Min(_selectionStart, _selectionEnd);
-                        int selEnd = Math.Max(_selectionStart, _selectionEnd);
-                        string line = _lines[_editLine];
-                        _lines[_editLine] = line[..selStart] + line[selEnd..];
-                        _editCol = selStart;
-                        _selectionStart = -1; _selectionEnd = -1;
-                    }
-                    else
-                    {
-                        string line = _lines[_editLine];
-                        if (_editCol < line.Length)
-                            _lines[_editLine] = line[.._editCol] + line[(_editCol + 1)..];
-                        else if (_editLine < _lines.Length - 1)
-                        {
-                            string nextLine = _lines[_editLine + 1];
-                            _lines[_editLine] += nextLine;
-                            var list = _lines.ToList();
-                            list.RemoveAt(_editLine + 1);
-                            _lines = list.ToArray();
-                        }
+                        string nextLine = _lines[_editLine + 1];
+                        _lines[_editLine] += nextLine;
+                        var list = _lines.ToList();
+                        list.RemoveAt(_editLine + 1);
+                        _lines = list.ToArray();
                     }
                     _html = string.Join('\n', _lines);
                     OnHtmlChanged?.Invoke(_html);
@@ -243,43 +315,93 @@ public class DevToolsSource : IImeSupport
                 }
 
             case Key.Left:
-                if (_editCol > 0) _editCol--;
-                else if (_editLine > 0) { _editLine--; _editCol = _lines[_editLine].Length; }
-                _selectionStart = -1; _selectionEnd = -1;
+                if (shift)
+                {
+                    if (!HasSelection) { _selAnchorCol = _editCol; _selAnchorLine = _editLine; }
+                    if (_editCol > 0) _editCol--;
+                    else if (_editLine > 0) { _editLine--; _editCol = _lines[_editLine].Length; }
+                }
+                else
+                {
+                    ClearSelection();
+                    if (_editCol > 0) _editCol--;
+                    else if (_editLine > 0) { _editLine--; _editCol = _lines[_editLine].Length; }
+                }
                 return true;
 
             case Key.Right:
-                if (_editCol < _lines[_editLine].Length) _editCol++;
-                else if (_editLine < _lines.Length - 1) { _editLine++; _editCol = 0; }
-                _selectionStart = -1; _selectionEnd = -1;
+                if (shift)
+                {
+                    if (!HasSelection) { _selAnchorCol = _editCol; _selAnchorLine = _editLine; }
+                    if (_editCol < _lines[_editLine].Length) _editCol++;
+                    else if (_editLine < _lines.Length - 1) { _editLine++; _editCol = 0; }
+                }
+                else
+                {
+                    ClearSelection();
+                    if (_editCol < _lines[_editLine].Length) _editCol++;
+                    else if (_editLine < _lines.Length - 1) { _editLine++; _editCol = 0; }
+                }
                 return true;
 
             case Key.Up:
-                if (_editLine > 0) { _editLine--; _editCol = Math.Min(_editCol, _lines[_editLine].Length); }
-                _selectionStart = -1; _selectionEnd = -1;
+                if (shift)
+                {
+                    if (!HasSelection) { _selAnchorCol = _editCol; _selAnchorLine = _editLine; }
+                    if (_editLine > 0) { _editLine--; _editCol = Math.Min(_editCol, _lines[_editLine].Length); }
+                }
+                else
+                {
+                    ClearSelection();
+                    if (_editLine > 0) { _editLine--; _editCol = Math.Min(_editCol, _lines[_editLine].Length); }
+                }
                 return true;
 
             case Key.Down:
-                if (_editLine < _lines.Length - 1) { _editLine++; _editCol = Math.Min(_editCol, _lines[_editLine].Length); }
-                _selectionStart = -1; _selectionEnd = -1;
+                if (shift)
+                {
+                    if (!HasSelection) { _selAnchorCol = _editCol; _selAnchorLine = _editLine; }
+                    if (_editLine < _lines.Length - 1) { _editLine++; _editCol = Math.Min(_editCol, _lines[_editLine].Length); }
+                }
+                else
+                {
+                    ClearSelection();
+                    if (_editLine < _lines.Length - 1) { _editLine++; _editCol = Math.Min(_editCol, _lines[_editLine].Length); }
+                }
                 return true;
 
             case Key.Home:
-                _editCol = 0;
-                _selectionStart = -1; _selectionEnd = -1;
+                if (shift)
+                {
+                    if (!HasSelection) { _selAnchorCol = _editCol; _selAnchorLine = _editLine; }
+                    _editCol = 0;
+                }
+                else
+                {
+                    ClearSelection();
+                    _editCol = 0;
+                }
                 return true;
 
             case Key.End:
-                _editCol = _lines[_editLine].Length;
-                _selectionStart = -1; _selectionEnd = -1;
+                if (shift)
+                {
+                    if (!HasSelection) { _selAnchorCol = _editCol; _selAnchorLine = _editLine; }
+                    _editCol = _lines[_editLine].Length;
+                }
+                else
+                {
+                    ClearSelection();
+                    _editCol = _lines[_editLine].Length;
+                }
                 return true;
 
             case Key.Tab:
                 {
+                    DeleteSelectedText();
                     string line = _lines[_editLine];
                     _lines[_editLine] = line[..Math.Min(_editCol, line.Length)] + "    " + line[Math.Min(_editCol, line.Length)..];
                     _editCol += 4;
-                    _selectionStart = -1; _selectionEnd = -1;
                     _html = string.Join('\n', _lines);
                     OnHtmlChanged?.Invoke(_html);
                     return true;
@@ -288,15 +410,7 @@ public class DevToolsSource : IImeSupport
             default:
                 if (!char.IsControl(keyChar))
                 {
-                    if (_selectionStart >= 0 && _selectionEnd > _selectionStart)
-                    {
-                        int selStart = Math.Min(_selectionStart, _selectionEnd);
-                        int selEnd = Math.Max(_selectionStart, _selectionEnd);
-                        string line = _lines[_editLine];
-                        _lines[_editLine] = line[..selStart] + line[selEnd..];
-                        _editCol = selStart;
-                        _selectionStart = -1; _selectionEnd = -1;
-                    }
+                    DeleteSelectedText();
                     string curLine = _lines[_editLine];
                     _lines[_editLine] = curLine[..Math.Min(_editCol, curLine.Length)] + keyChar + curLine[Math.Min(_editCol, curLine.Length)..];
                     _editCol++;
@@ -362,11 +476,45 @@ public class DevToolsSource : IImeSupport
             canvas.DrawText(ln, x + 4, lineDrawY, SKTextAlign.Left, skFont, lineNumPaint);
 
             float tx = x + lnW;
-            HighlightLine(canvas, _lines[i], tx, lineDrawY, width - lnW - 8, skFont, tagPaint, attrPaint, strPaint, commentPaint, defPaint);
+            string lineText = _lines[i];
+
+            // Selection highlight
+            if (_editing && HasSelection)
+            {
+                var (sl, sc, el, ec) = SelRange;
+                if (i >= sl && i <= el)
+                {
+                    float selStartX, selEndX;
+                    if (sl == el)
+                    {
+                        selStartX = tx + skFont.MeasureText(lineText[..Math.Min(sc, lineText.Length)]);
+                        selEndX = tx + skFont.MeasureText(lineText[..Math.Min(ec, lineText.Length)]);
+                    }
+                    else if (i == sl)
+                    {
+                        selStartX = tx + skFont.MeasureText(lineText[..Math.Min(sc, lineText.Length)]);
+                        selEndX = tx + skFont.MeasureText(lineText);
+                    }
+                    else if (i == el)
+                    {
+                        selStartX = tx;
+                        selEndX = tx + skFont.MeasureText(lineText[..Math.Min(ec, lineText.Length)]);
+                    }
+                    else
+                    {
+                        selStartX = tx;
+                        selEndX = tx + skFont.MeasureText(lineText);
+                    }
+                    using var selBg = new SKPaint { Color = theme.SelectionBg, Style = SKPaintStyle.Fill };
+                    canvas.DrawRect(selStartX, lineDrawY - lh + 4, selEndX - selStartX, lh, selBg);
+                }
+            }
+
+            HighlightLine(canvas, lineText, tx, lineDrawY, width - lnW - 8, skFont, tagPaint, attrPaint, strPaint, commentPaint, defPaint);
 
             if (_editing && i == _editLine && _showCursor)
             {
-                float cursorX = tx + skFont.MeasureText(_lines[i][..Math.Min(_editCol, _lines[i].Length)]);
+                float cursorX = tx + skFont.MeasureText(lineText[..Math.Min(_editCol, lineText.Length)]);
                 using var cp = new SKPaint { Color = theme.CursorColor, Style = SKPaintStyle.Fill, StrokeWidth = 1 };
                 canvas.DrawLine(cursorX, lineDrawY - lh + 4, cursorX, lineDrawY + 2, cp);
             }
@@ -406,33 +554,21 @@ public class DevToolsSource : IImeSupport
 
     public void OnImeCompositionStart()
     {
-        _isImeComposing = true;
         _imeCompositionString = "";
     }
 
     public void OnImeCompositionUpdate(string compositionString, int cursorPosition)
     {
         _imeCompositionString = compositionString;
-        _isImeComposing = true;
     }
 
     public void OnImeCompositionEnd(string? resultString)
     {
-        _isImeComposing = false;
         _imeCompositionString = "";
 
         if (resultString != null && _editing && _editLine >= 0 && _editLine < _lines.Length)
         {
-            if (_selectionStart >= 0 && _selectionEnd > _selectionStart)
-            {
-                int selStart = Math.Min(_selectionStart, _selectionEnd);
-                int selEnd = Math.Max(_selectionStart, _selectionEnd);
-                string sl = _lines[_editLine];
-                _lines[_editLine] = sl[..selStart] + sl[selEnd..];
-                _editCol = selStart;
-                _selectionStart = -1;
-                _selectionEnd = -1;
-            }
+            DeleteSelectedText();
             InsertAtCursor(resultString);
         }
     }

@@ -33,7 +33,7 @@ public class InputHandler
     public Action<char, Key, bool>? OnDomKeyUp { get; set; }
     public Action<char>? OnDomChar { get; set; }
     public Action? OnDevToolsKey { get; set; }
-    public Func<char, Key, bool>? OnDevToolsInput { get; set; }
+    public Func<char, Key, bool, bool>? OnDevToolsInput { get; set; }
     public Func<float, float, bool, bool>? OnDevToolsClick { get; set; }
     public Func<double, float, float, bool>? OnDevToolsWheel { get; set; }
     public Func<float, float, bool>? OnDialogClick { get; set; }
@@ -122,6 +122,7 @@ public class InputHandler
             _pageThumbXDragging = false;
             _chrome.HandleMouseUp();
             OnSettingsPageClick?.Invoke(logicalX, logicalY, true);
+            OnDevToolsClick?.Invoke(logicalX, logicalY, true);
             OnDomMouseUp?.Invoke(logicalX, logicalY, false);
         }
         if (isDown)
@@ -246,7 +247,7 @@ public class InputHandler
 
         if (OnDevToolsInput != null && !_chrome.IsUrlBarFocused())
         {
-            if (OnDevToolsInput(charCode, key))
+            if (OnDevToolsInput(charCode, key, IsShiftDown))
             {
                 NeedsRedraw = true;
                 return true;
@@ -423,7 +424,7 @@ public class InputHandler
         if (charCode == '\0') return;
         if (OnDevToolsInput != null && !_chrome.IsUrlBarFocused())
         {
-            if (OnDevToolsInput(charCode, Key.Unknown))
+            if (OnDevToolsInput(charCode, Key.Unknown, false))
             {
                 NeedsRedraw = true;
                 return;

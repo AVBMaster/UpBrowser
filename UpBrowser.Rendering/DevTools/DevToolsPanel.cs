@@ -61,6 +61,26 @@ public class DevToolsPanel
         };
     }
 
+    public void SelectAllInActiveTab()
+    {
+        switch (_activeTab)
+        {
+            case 0: _console.SelectAll(); break;
+            case 2: _source.SelectAll(); break;
+        }
+    }
+
+    public int GetActiveTab() => _activeTab;
+
+    public void HandleMouseUp(float x, float y)
+    {
+        switch (_activeTab)
+        {
+            case 0: _console.HandleMouseUp(); break;
+            case 2: _source.HandleMouseUp(); break;
+        }
+    }
+
     public void SetDocument(Document? document, string htmlSource)
     {
         _elements.SetDocument(document);
@@ -130,6 +150,16 @@ public class DevToolsPanel
             _hoveredClose = newClose;
             _hoveredThemeBtn = newTheme;
             OnChanged?.Invoke();
+        }
+
+        // Route mouse move to active tab for drag selection
+        if (inPanel)
+        {
+            switch (_activeTab)
+            {
+                case 0: _console.HandleMouseMove(x, y); break;
+                case 2: _source.HandleMouseMove(x, y); break;
+            }
         }
     }
 
@@ -236,13 +266,13 @@ public class DevToolsPanel
         _source.HandleThumbDragEnd();
     }
 
-    public bool HandleKeyPress(char keyChar, Key key)
+    public bool HandleKeyPress(char keyChar, Key key, bool shift = false)
     {
         if (!_visible) return false;
 
         if (_activeTab == 2)
         {
-            if (_source.HandleKeyPress(keyChar, key))
+            if (_source.HandleKeyPress(keyChar, key, shift))
             {
                 OnChanged?.Invoke();
                 return true;
@@ -251,7 +281,7 @@ public class DevToolsPanel
         }
 
         if (_activeTab == 0)
-            return _console.HandleKeyPress(keyChar, key);
+            return _console.HandleKeyPress(keyChar, key, shift);
 
         return false;
     }

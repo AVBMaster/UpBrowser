@@ -14,7 +14,6 @@ public class DevToolsConsole : IImeSupport
     private string _inputText = "";
     private int _cursorPos;
     private int _selectionStart = -1;
-    private int _selectionEnd = -1;
     private bool _showCursor = true;
     private DateTime _lastBlink = DateTime.Now;
     private JavaScriptEngine? _jsEngine;
@@ -33,8 +32,7 @@ public class DevToolsConsole : IImeSupport
     private float _thumbDragStartY;
     private float _thumbDragStartOffset;
 
-    // IME composition state
-    private bool _isImeComposing;
+    private bool _mouseDown;
     private string _imeCompositionString = "";
     private int _imeCompositionCursorPos;
 
@@ -125,7 +123,7 @@ public class DevToolsConsole : IImeSupport
             float textStartX = _renderX + PaddingX + _skFont.MeasureText("> ");
             float clickX = x - textStartX;
             _selectionStart = -1;
-            _selectionEnd = -1;
+            _mouseDown = true;
 
             float currentX = 0;
             for (int i = 0; i <= _inputText.Length; i++)
@@ -146,14 +144,13 @@ public class DevToolsConsole : IImeSupport
 
     public void HandleImeChar(char c)
     {
-        if (_selectionStart >= 0 && _selectionEnd > _selectionStart)
+        if (_selectionStart >= 0 && _selectionStart != _cursorPos)
         {
-            int selStart = Math.Min(_selectionStart, _selectionEnd);
-            int selEnd = Math.Max(_selectionStart, _selectionEnd);
-            _inputText = _inputText[..selStart] + _inputText[selEnd..];
-            _cursorPos = selStart;
+            int selA = Math.Min(_selectionStart, _cursorPos);
+            int selB = Math.Max(_selectionStart, _cursorPos);
+            _inputText = _inputText[..selA] + _inputText[selB..];
+            _cursorPos = selA;
             _selectionStart = -1;
-            _selectionEnd = -1;
         }
         _inputText = _inputText[.._cursorPos] + c + _inputText[_cursorPos..];
         _cursorPos++;
@@ -162,14 +159,49 @@ public class DevToolsConsole : IImeSupport
 
     public string GetSelectedText()
     {
-        if (_selectionStart >= 0 && _selectionEnd > _selectionStart)
+        if (_selectionStart >= 0 && _selectionStart != _cursorPos)
         {
-            int start = Math.Min(_selectionStart, _selectionEnd);
-            int end = Math.Max(_selectionStart, _selectionEnd);
+            int start = Math.Min(_selectionStart, _cursorPos);
+            int end = Math.Max(_selectionStart, _cursorPos);
             return _inputText[start..end];
         }
         return "";
     }
+
+    public void SelectAll()
+    {
+        _selectionStart = 0;
+        _cursorPos = _inputText.Length;
+    }
+
+    public void HandleMouseMove(float x, float y)
+    {
+        if (!_mouseDown) return;
+        float inputY = _renderY + _renderH - InputHeight;
+        if (y >= inputY && y <= inputY + InputHeight)
+        {
+            float textStartX = _renderX + PaddingX + _skFont.MeasureText("> ");
+            float clickX = x - textStartX;
+            if (_selectionStart < 0) _selectionStart = _cursorPos;
+
+            int newPos = 0;
+            float currentX = 0;
+            for (int i = 0; i <= _inputText.Length; i++)
+            {
+                float charWidth = i < _inputText.Length ? _skFont.MeasureText(_inputText[i].ToString()) : _skFont.MeasureText(" ");
+                if (currentX + charWidth / 2 >= clickX)
+                {
+                    newPos = i;
+                    break;
+                }
+                currentX += charWidth;
+            }
+            _cursorPos = newPos;
+            OnInputChanged?.Invoke();
+        }
+    }
+
+    public void HandleMouseUp() { _mouseDown = false; }
 
     public void Render(SKCanvas canvas, float x, float y, float width, float height, DevToolsTheme theme)
     {
@@ -221,12 +253,12 @@ public class DevToolsConsole : IImeSupport
         canvas.Save();
         canvas.ClipRect(new SKRect(x + PaddingX + pw, inputY, x + PaddingX + pw + textAreaW, inputY + InputHeight));
 
-        if (_selectionStart >= 0 && _selectionEnd > _selectionStart)
+        if (_selectionStart >= 0 && _selectionStart != _cursorPos)
         {
-            int selStart = Math.Min(_selectionStart, _selectionEnd);
-            int selEnd = Math.Max(_selectionStart, _selectionEnd);
-            float selStartX = _skFont.MeasureText(displayText[..Math.Min(selStart, displayText.Length)]);
-            float selEndX = _skFont.MeasureText(displayText[..Math.Min(selEnd, displayText.Length)]);
+            int selA = Math.Min(_selectionStart, _cursorPos);
+            int selB = Math.Max(_selectionStart, _cursorPos);
+            float selStartX = _skFont.MeasureText(displayText[..Math.Min(selA, displayText.Length)]);
+            float selEndX = _skFont.MeasureText(displayText[..Math.Min(selB, displayText.Length)]);
             using var selBg = new SKPaint { Color = theme.SelectionBg, Style = SKPaintStyle.Fill };
             canvas.DrawRect(x + PaddingX + pw + textOffsetX + selStartX, inputY + 2, selEndX - selStartX, InputHeight - 4, selBg);
         }
@@ -234,7 +266,6 @@ public class DevToolsConsole : IImeSupport
         canvas.DrawText(displayText, x + PaddingX + pw + textOffsetX, inputY + InputHeight * 0.7f, SKTextAlign.Left, _skFont, _font);
         canvas.Restore();
 
-        if ((DateTime.Now - _lastBlink).TotalMilliseconds > 500) { _showCursor = !_showCursor; _lastBlink = DateTime.Now; }
         if (_showCursor)
         {
             float cursorX = x + PaddingX + pw + textOffsetX + cursorVisualPos;
@@ -255,10 +286,8 @@ public class DevToolsConsole : IImeSupport
         }
     }
 
-    public bool HandleKeyPress(char keyChar, Key key)
+    public bool HandleKeyPress(char keyChar, Key key, bool shift = false)
     {
-        bool ctrlPressed = false;
-
         switch (key)
         {
             case Key.Enter:
@@ -266,14 +295,13 @@ public class DevToolsConsole : IImeSupport
                 return true;
 
             case Key.Backspace:
-                if (_selectionStart >= 0 && _selectionEnd > _selectionStart)
+                if (_selectionStart >= 0 && _selectionStart != _cursorPos)
                 {
-                    int selStart = Math.Min(_selectionStart, _selectionEnd);
-                    int selEnd = Math.Max(_selectionStart, _selectionEnd);
+                    int selStart = Math.Min(_selectionStart, _cursorPos);
+                    int selEnd = Math.Max(_selectionStart, _cursorPos);
                     _inputText = _inputText[..selStart] + _inputText[selEnd..];
                     _cursorPos = selStart;
                     _selectionStart = -1;
-                    _selectionEnd = -1;
                     OnInputChanged?.Invoke();
                 }
                 else if (_cursorPos > 0)
@@ -285,14 +313,13 @@ public class DevToolsConsole : IImeSupport
                 return true;
 
             case Key.Delete:
-                if (_selectionStart >= 0 && _selectionEnd > _selectionStart)
+                if (_selectionStart >= 0 && _selectionStart != _cursorPos)
                 {
-                    int selStart = Math.Min(_selectionStart, _selectionEnd);
-                    int selEnd = Math.Max(_selectionStart, _selectionEnd);
+                    int selStart = Math.Min(_selectionStart, _cursorPos);
+                    int selEnd = Math.Max(_selectionStart, _cursorPos);
                     _inputText = _inputText[..selStart] + _inputText[selEnd..];
                     _cursorPos = selStart;
                     _selectionStart = -1;
-                    _selectionEnd = -1;
                     OnInputChanged?.Invoke();
                 }
                 else if (_cursorPos < _inputText.Length)
@@ -300,38 +327,58 @@ public class DevToolsConsole : IImeSupport
                 return true;
 
             case Key.Left:
-                if (ctrlPressed)
+                if (shift)
                 {
-                    while (_cursorPos > 0 && !char.IsWhiteSpace(_inputText[_cursorPos - 1])) _cursorPos--;
+                    if (_selectionStart < 0) _selectionStart = _cursorPos;
+                    if (_cursorPos > 0) _cursorPos--;
                 }
-                else if (_cursorPos > 0) _cursorPos--;
-                _selectionStart = -1;
-                _selectionEnd = -1;
+                else
+                {
+                    if (_cursorPos > 0) _cursorPos--;
+                    _selectionStart = -1;
+                }
                 OnInputChanged?.Invoke();
                 return true;
 
             case Key.Right:
-                if (ctrlPressed)
+                if (shift)
                 {
-                    while (_cursorPos < _inputText.Length && !char.IsWhiteSpace(_inputText[_cursorPos])) _cursorPos++;
+                    if (_selectionStart < 0) _selectionStart = _cursorPos;
+                    if (_cursorPos < _inputText.Length) _cursorPos++;
                 }
-                else if (_cursorPos < _inputText.Length) _cursorPos++;
-                _selectionStart = -1;
-                _selectionEnd = -1;
+                else
+                {
+                    if (_cursorPos < _inputText.Length) _cursorPos++;
+                    _selectionStart = -1;
+                }
                 OnInputChanged?.Invoke();
                 return true;
 
             case Key.Home:
-                _cursorPos = 0;
-                _selectionStart = -1;
-                _selectionEnd = -1;
+                if (shift)
+                {
+                    if (_selectionStart < 0) _selectionStart = _cursorPos;
+                    _cursorPos = 0;
+                }
+                else
+                {
+                    _cursorPos = 0;
+                    _selectionStart = -1;
+                }
                 OnInputChanged?.Invoke();
                 return true;
 
             case Key.End:
-                _cursorPos = _inputText.Length;
-                _selectionStart = -1;
-                _selectionEnd = -1;
+                if (shift)
+                {
+                    if (_selectionStart < 0) _selectionStart = _cursorPos;
+                    _cursorPos = _inputText.Length;
+                }
+                else
+                {
+                    _cursorPos = _inputText.Length;
+                    _selectionStart = -1;
+                }
                 OnInputChanged?.Invoke();
                 return true;
 
@@ -343,7 +390,6 @@ public class DevToolsConsole : IImeSupport
                     _inputText = _commandHistory[_historyIndex];
                     _cursorPos = _inputText.Length;
                     _selectionStart = -1;
-                    _selectionEnd = -1;
                     OnInputChanged?.Invoke();
                 }
                 return true;
@@ -363,7 +409,6 @@ public class DevToolsConsole : IImeSupport
                     }
                     _cursorPos = _inputText.Length;
                     _selectionStart = -1;
-                    _selectionEnd = -1;
                     OnInputChanged?.Invoke();
                 }
                 return true;
@@ -371,14 +416,13 @@ public class DevToolsConsole : IImeSupport
             default:
                 if (!char.IsControl(keyChar))
                 {
-                    if (_selectionStart >= 0 && _selectionEnd > _selectionStart)
+                    if (_selectionStart >= 0 && _selectionStart != _cursorPos)
                     {
-                        int selStart = Math.Min(_selectionStart, _selectionEnd);
-                        int selEnd = Math.Max(_selectionStart, _selectionEnd);
+                        int selStart = Math.Min(_selectionStart, _cursorPos);
+                        int selEnd = Math.Max(_selectionStart, _cursorPos);
                         _inputText = _inputText[..selStart] + _inputText[selEnd..];
                         _cursorPos = selStart;
                         _selectionStart = -1;
-                        _selectionEnd = -1;
                     }
                     _inputText = _inputText[.._cursorPos] + keyChar + _inputText[_cursorPos..];
                     _cursorPos++;
@@ -399,7 +443,6 @@ public class DevToolsConsole : IImeSupport
         }
         _historyIndex = -1;
         _selectionStart = -1;
-        _selectionEnd = -1;
 
         if (string.IsNullOrEmpty(cmd)) { _inputText = ""; _cursorPos = 0; _scrollOffset = float.MaxValue; OnInputChanged?.Invoke(); return; }
 
@@ -480,7 +523,6 @@ public class DevToolsConsole : IImeSupport
 
     public void OnImeCompositionStart()
     {
-        _isImeComposing = true;
         _imeCompositionString = "";
         _imeCompositionCursorPos = 0;
     }
@@ -489,24 +531,21 @@ public class DevToolsConsole : IImeSupport
     {
         _imeCompositionString = compositionString;
         _imeCompositionCursorPos = cursorPosition;
-        _isImeComposing = true;
     }
 
     public void OnImeCompositionEnd(string? resultString)
     {
-        _isImeComposing = false;
         _imeCompositionString = "";
 
         if (resultString != null)
         {
-            if (_selectionStart >= 0 && _selectionEnd > _selectionStart)
+            if (_selectionStart >= 0 && _selectionStart != _cursorPos)
             {
-                int selStart = Math.Min(_selectionStart, _selectionEnd);
-                int selEnd = Math.Max(_selectionStart, _selectionEnd);
-                _inputText = _inputText[..selStart] + _inputText[selEnd..];
-                _cursorPos = selStart;
+                int selA = Math.Min(_selectionStart, _cursorPos);
+                int selB = Math.Max(_selectionStart, _cursorPos);
+                _inputText = _inputText[..selA] + _inputText[selB..];
+                _cursorPos = selA;
                 _selectionStart = -1;
-                _selectionEnd = -1;
             }
             _inputText = _inputText[.._cursorPos] + resultString + _inputText[_cursorPos..];
             _cursorPos += resultString.Length;

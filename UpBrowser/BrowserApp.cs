@@ -163,7 +163,7 @@ public class BrowserApp : IDisposable
             UpdateImeTarget();
             _input.NeedsRedraw = true;
         };
-        _input.OnDevToolsInput = (c, key) => DevToolsHandleInput(c, key);
+        _input.OnDevToolsInput = (c, key, shift) => DevToolsHandleInput(c, key, shift);
         _input.OnDevToolsClick = (x, y, isDown) => HandleDevToolsClick(x, y, isDown);
         _input.OnDevToolsWheel = (delta, mx, my) => _devTools.HandleWheel(delta, mx, my);
         _input.OnDevToolsMouseMove = (x, y) =>
@@ -1190,6 +1190,14 @@ public class BrowserApp : IDisposable
 
     private bool HandleDevToolsClick(float x, float y, bool isDown)
     {
+        if (!_devTools.Visible) return false;
+
+        if (isDown)
+        {
+            _devTools.HandleMouseUp(x, y);
+            return true;
+        }
+
         if (_devTools.HandleDragStart(x, y))
         {
             _devToolsFocused = true;
@@ -1692,7 +1700,7 @@ public class BrowserApp : IDisposable
     private bool IsShiftPressed() => _input.IsShiftDown;
     private bool IsAltPressed() => _input.IsAltDown;
 
-    private bool DevToolsHandleInput(char c, Key key)
+    private bool DevToolsHandleInput(char c, Key key, bool shift)
     {
         if (key == Key.Unknown && c == 1) return false;
         if (key == Key.Unknown && c == 3) return false;
@@ -1700,7 +1708,7 @@ public class BrowserApp : IDisposable
         if (key == Key.Unknown && c == 24) return false;
         if (key == Key.Unknown && c == 26) return false;
 
-        return _devTools.HandleKeyPress(c, key);
+        return _devTools.HandleKeyPress(c, key, shift);
     }
 
     private void HandleImeChar(char charCode)
@@ -1780,8 +1788,13 @@ public class BrowserApp : IDisposable
     private void PerformCut()
     {
         PerformCopy();
-        if (_devTools.Visible && _devTools.IsInputField(_input.GetMousePosition().x, _input.GetMousePosition().y))
-            HandleImeChar('\b');
+        if (_devTools.Visible)
+        {
+            if (_devTools.GetActiveTab() == 0)
+                _devTools.HandleKeyPress('\0', Key.Backspace);
+            else if (_devTools.GetActiveTab() == 2)
+                _devTools.HandleKeyPress('\0', Key.Backspace);
+        }
         else if (_chrome.IsUrlBarFocused() && _chrome.UrlBarSelectedText != null)
             _chrome.HandleKeyPress('\0', SKKey.Backspace);
     }
@@ -1790,6 +1803,8 @@ public class BrowserApp : IDisposable
     {
         if (_chrome.IsUrlBarFocused())
             _chrome.SelectAllInUrlBar();
+        else if (_devTools.Visible)
+            _devTools.SelectAllInActiveTab();
     }
 
     public void InjectImeChar(char c)
