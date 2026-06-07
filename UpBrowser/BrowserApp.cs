@@ -8,6 +8,7 @@ using UpBrowser.Core.Dom;
 using UpBrowser.Core.EventLoop;
 using UpBrowser.Core.JavaScript;
 using UpBrowser.Core.Layout;
+using UpBrowser.Process;
 using UpBrowser.Core.Performance;
 using UpBrowser.Core.Performance.Diagnostics;
 using UpBrowser.Core.Performance.Memory;
@@ -62,6 +63,7 @@ public class BrowserApp : IDisposable
     private readonly RenderingSettings _renderingSettings = new();
     private readonly RenderingSettingsPage _renderingSettingsPage;
     private readonly TaskManagerPage _taskManagerPage;
+    private readonly ProcessManager _processManager;
 
     // Performance optimization layer. Lazily initialized in RunAsync so the
     // existing Chrome/loader flows are not perturbed on cold-start.
@@ -125,6 +127,7 @@ public class BrowserApp : IDisposable
 
         _renderingSettingsPage = new RenderingSettingsPage(_renderingSettings, _dpiScale);
         _taskManagerPage = new TaskManagerPage();
+        _processManager = new ProcessManager(_fontFamilies!, _eventLoop, _dpiScale, _chrome.GetContentOffset());
         _contentOffset = _chrome.GetContentOffset();
         _input = new InputHandler(_chrome, _scroll, _window, _dpiScale);
         _input.OnDomClick = HandleDomClick;
@@ -134,6 +137,15 @@ public class BrowserApp : IDisposable
             _devToolsFocused = _devTools.Visible;
             UpdateImeTarget();
             _input.NeedsRedraw = true;
+        };
+
+        _processManager.OnProcessUpdated += (proc) =>
+        {
+            if (proc.TabIndex == _chrome.ActiveTabIndex && proc.HasNewContent)
+            {
+                proc.HasNewContent = false;
+                _input.NeedsRedraw = true;
+            }
         };
 
         _chrome.OnSettingsClick = () =>
@@ -541,6 +553,10 @@ public class BrowserApp : IDisposable
             ScrollY = 0
         };
 
+        // Create process for the initial tab
+        var initialProc = _processManager.CreateProcess(0, "upbrowser://local");
+        initialProc.UpdateTitle(_currentLoad.Document.Title ?? "");
+
         var bodyBox = _currentLoad.Document.Body?.LayoutBox;
         var lastContentHeight = bodyBox?.BorderBox.Height ?? 0;
 
@@ -607,7 +623,7 @@ public class BrowserApp : IDisposable
 
             int currentTabIndex = _chrome.ActiveTabIndex;
 
-            // 保存当前标签页状态
+            // 保存当前标签页状态到进程
             if (_lastActiveTabIndex >= 0 && _currentLoad != null)
             {
                 _tabStates[_lastActiveTabIndex] = new TabState
@@ -619,14 +635,30 @@ public class BrowserApp : IDisposable
                     DomNodeCount = CountDomNodes(_currentLoad.Document),
                     LayoutBoxCount = CountLayoutBoxes(_currentLoad.Document)
                 };
+                // 通知进程管理器更新该标签页的状态
+                var oldProc = _processManager.GetProcess(_lastActiveTabIndex);
+                if (oldProc != null)
+                {
+                    oldProc.UpdateTitle(_currentLoad.Document.Title ?? "");
+                    oldProc.UpdateUrl(url);
+                }
             }
 
             _lastActiveTabIndex = currentTabIndex;
 
+            // 确保目标标签页有进程
+            var targetProc = _processManager.GetOrCreate(currentTabIndex, url);
+
+            // 尝试从进程获取最新的 DisplayList
+            var procDl = _processManager.GetDisplayList(currentTabIndex);
+            if (procDl != null && procDl.Count > 0)
+            {
+                _displayList = procDl;
+            }
+
             // 检查目标标签页是否有已保存的状态
             if (_tabStates.TryGetValue(currentTabIndex, out var savedState) && !string.IsNullOrEmpty(savedState.Html))
             {
-                // 恢复已保存的状态
                 _currentHtml = savedState.Html;
                 _currentLoad = savedState.LoadResult;
                 _scroll.ScrollTo(savedState.ScrollX, savedState.ScrollY);
@@ -640,7 +672,6 @@ public class BrowserApp : IDisposable
             }
             else
             {
-                // 新标签页，需要导航
                 if (url.StartsWith("http://") || url.StartsWith("https://"))
                 {
                     NavigateToHttp(url);
@@ -656,12 +687,15 @@ public class BrowserApp : IDisposable
         _chrome.OnNewTab = () =>
         {
             Console.WriteLine("New tab requested");
+            int newIdx = _chrome.TabCount;
+            _processManager.CreateProcess(newIdx, "upbrowser://newtab");
             _input.NeedsRedraw = true;
         };
 
         _chrome.OnCloseTab = (index) =>
         {
             Console.WriteLine($"Close tab {index} requested");
+            _processManager.DestroyProcess(index);
             _input.NeedsRedraw = true;
         };
     }
@@ -1035,6 +1069,14 @@ public class BrowserApp : IDisposable
             ScrollY = 0
         };
 
+        // Update process manager for the active tab
+        var activeProc = _processManager.GetProcess(_chrome.ActiveTabIndex);
+        if (activeProc != null)
+        {
+            activeProc.UpdateTitle(_currentLoad?.Document.Title ?? "");
+            activeProc.UpdateUrl(_currentBaseUrl ?? "");
+        }
+
         _isNavigating = false;
         _chrome.SetLoadingState(false);
         _input.NeedsRedraw = true;
@@ -1344,10 +1386,13 @@ public class BrowserApp : IDisposable
 
         _renderingSettingsPage.Render(_skiaRenderer.Canvas, windowWidth, windowHeight, _contentOffset);
 
-        // Build rich data for task manager
+        // Build rich data for task manager with multi-process metrics
         var tmRows = new System.Collections.Generic.List<TmRowData>();
         var proc = System.Diagnostics.Process.GetCurrentProcess();
         proc.Refresh();
+
+        // Collect per-tab process metrics
+        var allProcMetrics = _processManager.GetAllMetrics();
         double wsmb = proc.WorkingSet64 / (1024.0 * 1024.0);
         double heapMB = System.GC.GetTotalMemory(false) / (1024.0 * 1024.0);
 
@@ -1444,6 +1489,7 @@ public class BrowserApp : IDisposable
         {
             var tab = tabSnapshot[i];
             int domNodes = 0, layoutBoxes = 0;
+            double memMB = 0;
             if (i == activeTabIdx && _currentLoad != null)
             {
                 domNodes = CountDomNodes(_currentLoad.Document);
@@ -1455,13 +1501,22 @@ public class BrowserApp : IDisposable
                 layoutBoxes = st.LayoutBoxCount;
             }
 
+            // Use per-process metrics when available
+            var tcMetrics = _processManager.GetMetrics(i);
+            if (tcMetrics != null)
+            {
+                if (domNodes == 0) domNodes = tcMetrics.DomNodeCount;
+                if (layoutBoxes == 0) layoutBoxes = tcMetrics.LayoutBoxCount;
+                memMB = tcMetrics.MemoryBytes / (1024.0 * 1024.0);
+            }
+
             string detail = string.IsNullOrEmpty(tab.Url) || tab.Url == "upbrowser://newtab" ? "" : tab.Url;
             string status = tab.IsLoading ? "Loading" : (i == activeTabIdx ? "Running" : "Complete");
             tmRows.Add(new TmRowData
             {
                 Name = string.IsNullOrEmpty(tab.Title) ? "New Tab" : tab.Title,
                 Detail = detail,
-                Memory = i == activeTabIdx ? $"{wsmb:F1} MB" : "-",
+                Memory = memMB > 0 ? $"{memMB:F1} MB" : (i == activeTabIdx ? $"{wsmb:F1} MB" : "-"),
                 Cpu = i == activeTabIdx ? "" : "-",
                 DomNodes = domNodes,
                 LayoutBoxes = layoutBoxes,
@@ -1475,7 +1530,7 @@ public class BrowserApp : IDisposable
                 ImageDecodeTimingMs = i == activeTabIdx ? imageDecodeMs : 0,
                 TileRasterTimingMs = i == activeTabIdx ? tileRasterMs : 0,
                 NetworkWaitTimingMs = i == activeTabIdx ? networkMs : 0,
-                WorkingSetMB = i == activeTabIdx ? wsmb : 0,
+                WorkingSetMB = i == activeTabIdx ? wsmb : memMB,
                 ManagedHeapMB = i == activeTabIdx ? heapMB : 0,
                 ImageCacheMB = i == activeTabIdx ? imagePoolMB : 0,
                 TileMemoryMB = i == activeTabIdx ? tileMemoryMB : 0,
@@ -1484,8 +1539,8 @@ public class BrowserApp : IDisposable
                 ImagesDecoded = i == activeTabIdx ? imagesDecoded : 0,
                 ImageCacheHits = i == activeTabIdx ? imageHits : 0,
                 ResourceCacheHits = i == activeTabIdx ? cacheHits : 0,
-                JsHeapSizeKB = i == activeTabIdx ? jsHeapSize : 0,
-                JsCallbackCount = i == activeTabIdx ? jsCallbacks : 0,
+                JsHeapSizeKB = (i == activeTabIdx ? jsHeapSize : (tcMetrics?.JsHeapSizeKB ?? 0)),
+                JsCallbackCount = (i == activeTabIdx ? jsCallbacks : (tcMetrics?.JsTimerCount ?? 0)),
                 FrameTimeMs = i == activeTabIdx ? frameTimeMs : 0,
                 Fps = i == activeTabIdx ? fps : 0,
             });
@@ -2234,6 +2289,7 @@ public class BrowserApp : IDisposable
     public void Dispose()
     {
         ShutdownPerformanceHub();
+        _processManager.Dispose();
         if (_currentLoad != null)
         {
             _currentLoad.AngleSharpDoc?.Dispose();
