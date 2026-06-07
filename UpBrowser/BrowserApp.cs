@@ -616,14 +616,12 @@ public class BrowserApp : IDisposable
 
         _chrome.OnTabChanged = (url) =>
         {
-            if (_isNavigating) return;
-
             Console.WriteLine($"Tab changed to: {url}");
             _input.NeedsRedraw = true;
 
             int currentTabIndex = _chrome.ActiveTabIndex;
 
-            // 保存当前标签页状态到进程
+            // 保存当前标签页状态
             if (_lastActiveTabIndex >= 0 && _currentLoad != null)
             {
                 _tabStates[_lastActiveTabIndex] = new TabState
@@ -635,7 +633,6 @@ public class BrowserApp : IDisposable
                     DomNodeCount = CountDomNodes(_currentLoad.Document),
                     LayoutBoxCount = CountLayoutBoxes(_currentLoad.Document)
                 };
-                // 通知进程管理器更新该标签页的状态
                 var oldProc = _processManager.GetProcess(_lastActiveTabIndex);
                 if (oldProc != null)
                 {
@@ -647,7 +644,7 @@ public class BrowserApp : IDisposable
             _lastActiveTabIndex = currentTabIndex;
 
             // 确保目标标签页有进程
-            var targetProc = _processManager.GetOrCreate(currentTabIndex, url);
+            _processManager.GetOrCreate(currentTabIndex, url);
 
             // 尝试从进程获取最新的 DisplayList
             var procDl = _processManager.GetDisplayList(currentTabIndex);
@@ -672,6 +669,7 @@ public class BrowserApp : IDisposable
             }
             else
             {
+                _isNavigating = false; // 清除旧导航，允许新导航
                 if (url.StartsWith("http://") || url.StartsWith("https://"))
                 {
                     NavigateToHttp(url);
@@ -704,6 +702,7 @@ public class BrowserApp : IDisposable
     private int _navigationSeq;
     private int _lastActiveTabIndex = -1;
     private string? _currentBaseUrl;
+    private int _navigatingTabIndex = -1; // which tab initiated the current navigation
     private readonly ConcurrentDictionary<int, TabState> _tabStates = new();
 
     private class TabState
@@ -876,6 +875,8 @@ public class BrowserApp : IDisposable
     {
         _isNavigating = false; // allow new navigation to interrupt previous one
         int seq = Interlocked.Increment(ref _navigationSeq);
+        int tabIdx = _chrome.ActiveTabIndex;
+        _navigatingTabIndex = tabIdx;
         _isNavigating = true;
         _chrome.SetLoadingState(true);
         _input.NeedsRedraw = true;
@@ -908,6 +909,13 @@ public class BrowserApp : IDisposable
                 _eventLoop.PostTask(() =>
                 {
                     if (seq != _navigationSeq) return; // stale navigation
+                    // 如果导航期间切换了标签页，保存到对应标签页的状态中
+                    if (_chrome.ActiveTabIndex != tabIdx)
+                    {
+                        _tabStates[tabIdx] = new TabState { Html = webHtml };
+                        _chrome.UpdateUrl(finalUrl);
+                        return;
+                    }
                     var savedUrl = finalUrl;
                     _chrome.UpdateUrl(savedUrl);
                     LoadAndRenderHtml(webHtml, savedUrl);
@@ -918,6 +926,7 @@ public class BrowserApp : IDisposable
                 _eventLoop.PostTask(() =>
                 {
                     if (seq != _navigationSeq) return;
+                    if (_chrome.ActiveTabIndex != tabIdx) return;
                     ShowErrorPage(url, "Request timed out");
                 });
             }
@@ -926,6 +935,7 @@ public class BrowserApp : IDisposable
                 _eventLoop.PostTask(() =>
                 {
                     if (seq != _navigationSeq) return;
+                    if (_chrome.ActiveTabIndex != tabIdx) return;
                     ShowErrorPage(url, ex.Message);
                 });
             }
@@ -1025,6 +1035,8 @@ public class BrowserApp : IDisposable
 
     private void ApplyLoadedHtml(DocumentManager.DocumentLoadResult loadResult, string html)
     {
+        int tabIdx = _chrome.ActiveTabIndex;
+
         // Dispose old document safely
         if (_currentLoad != null)
         {
@@ -1060,8 +1072,8 @@ public class BrowserApp : IDisposable
             Console.WriteLine($"[Debug] Failed to generate report: {ex.Message}");
         }
 
-        _lastActiveTabIndex = _chrome.ActiveTabIndex;
-        _tabStates[_lastActiveTabIndex] = new TabState
+        _lastActiveTabIndex = tabIdx;
+        _tabStates[tabIdx] = new TabState
         {
             Html = _currentHtml,
             LoadResult = _currentLoad,
@@ -1070,11 +1082,16 @@ public class BrowserApp : IDisposable
         };
 
         // Update process manager for the active tab
-        var activeProc = _processManager.GetProcess(_chrome.ActiveTabIndex);
+        var activeProc = _processManager.GetProcess(tabIdx);
         if (activeProc != null)
         {
             activeProc.UpdateTitle(_currentLoad?.Document.Title ?? "");
             activeProc.UpdateUrl(_currentBaseUrl ?? "");
+            int nDom = _currentLoad != null ? CountDomNodes(_currentLoad.Document) : 0;
+            int nBox = _currentLoad != null ? CountLayoutBoxes(_currentLoad.Document) : 0;
+            long memBytes = System.GC.GetTotalMemory(false);
+            activeProc.UpdateContentMetrics(nDom, nBox, memBytes,
+                _jsEngine.GetHeapSizeKB(), _jsEngine.TimerCount);
         }
 
         _isNavigating = false;
@@ -1512,11 +1529,13 @@ public class BrowserApp : IDisposable
 
             string detail = string.IsNullOrEmpty(tab.Url) || tab.Url == "upbrowser://newtab" ? "" : tab.Url;
             string status = tab.IsLoading ? "Loading" : (i == activeTabIdx ? "Running" : "Complete");
+            // 每个标签页只显示自己独立的内存数据（来自 TabProcess），
+            // 不显示整个进程的内存占用，避免误导
             tmRows.Add(new TmRowData
             {
                 Name = string.IsNullOrEmpty(tab.Title) ? "New Tab" : tab.Title,
                 Detail = detail,
-                Memory = memMB > 0 ? $"{memMB:F1} MB" : (i == activeTabIdx ? $"{wsmb:F1} MB" : "-"),
+                Memory = memMB > 0 ? $"{memMB:F1} MB" : "-",
                 Cpu = i == activeTabIdx ? "" : "-",
                 DomNodes = domNodes,
                 LayoutBoxes = layoutBoxes,
@@ -1530,7 +1549,7 @@ public class BrowserApp : IDisposable
                 ImageDecodeTimingMs = i == activeTabIdx ? imageDecodeMs : 0,
                 TileRasterTimingMs = i == activeTabIdx ? tileRasterMs : 0,
                 NetworkWaitTimingMs = i == activeTabIdx ? networkMs : 0,
-                WorkingSetMB = i == activeTabIdx ? wsmb : memMB,
+                WorkingSetMB = memMB,
                 ManagedHeapMB = i == activeTabIdx ? heapMB : 0,
                 ImageCacheMB = i == activeTabIdx ? imagePoolMB : 0,
                 TileMemoryMB = i == activeTabIdx ? tileMemoryMB : 0,

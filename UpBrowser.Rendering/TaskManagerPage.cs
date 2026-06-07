@@ -69,9 +69,10 @@ public class TaskManagerPage
     private TimeSpan _lastProcessorTime;
     private double _currentCpuPercent;
     private float _headerHeight = 40;
-    private float _colHeaderHeight = 28;
-    private float _rowHeight = 32;
+    private float _colHeaderHeight = 30;
+    private float _rowHeight = 38;
     private float _footerHeight = 44;
+    private float _detailPanelHeight = 80;
 
     private List<TmRowData> _rows = new();
 
@@ -119,7 +120,6 @@ public class TaskManagerPage
         }
         _lastCpuTime = now;
         _lastProcessorTime = currentProcessorTime;
-        OnChanged?.Invoke();
     }
 
     public void Render(SKCanvas canvas, float windowWidth, float windowHeight, float contentOffset, List<TmRowData> rows)
@@ -234,10 +234,10 @@ public class TaskManagerPage
         string[] columnNames = { "Process", "Memory", "CPU", "DOM/Layout", "Pipeline(ms)", "Status" };
         float[] colStarts = { dlgX + 12, dlgX + 260, dlgX + 340, dlgX + 400, dlgX + 480, dlgX + 560 };
 
-        using (var colFont = new SKFont(_typeface, 11))
+        using (var colFont = new SKFont(_typeface, 12))
         using (var colPaint = new SKPaint { Color = new SKColor(95, 99, 104), IsAntialias = true })
             for (int i = 0; i < columnNames.Length; i++)
-                canvas.DrawText(columnNames[i], colStarts[i], colY + 19, SKTextAlign.Left, colFont, colPaint);
+                canvas.DrawText(columnNames[i], colStarts[i], colY + 20, SKTextAlign.Left, colFont, colPaint);
 
         // Separator under column headers
         using (var sepLine = new SKPaint { Color = new SKColor(218, 220, 224), Style = SKPaintStyle.Fill })
@@ -251,9 +251,9 @@ public class TaskManagerPage
         canvas.Save();
         canvas.ClipRect(new SKRect(dlgX + 1, contentTop, dlgX + _dialogWidth - 1, contentBottom));
 
-        using var rowFont = new SKFont(_typeface, 12);
-        using var smallFont = new SKFont(_typeface, 10);
-        using var microFont = new SKFont(_typeface, 9);
+        using var rowFont = new SKFont(_typeface, 13);
+        using var smallFont = new SKFont(_typeface, 11);
+        using var detailFont = new SKFont(_typeface, 11);
         using var namePaint = new SKPaint { Color = new SKColor(32, 33, 36), IsAntialias = true };
         using var detailPaint = new SKPaint { Color = new SKColor(95, 99, 104), IsAntialias = true };
         using var microPaint = new SKPaint { Color = new SKColor(120, 124, 128), IsAntialias = true };
@@ -264,11 +264,19 @@ public class TaskManagerPage
         using var perfSepPaint = new SKPaint { Color = new SKColor(200, 210, 230), Style = SKPaintStyle.Fill };
 
         float yPos = contentTop - _scrollOffset;
+        float expandedOffset = 0;
 
         for (int i = 0; i < _rows.Count; i++)
         {
             var row = _rows[i];
-            float rowTop = yPos + i * _rowHeight;
+
+            // Shift this row down if previous row is expanded
+            bool prevExpanded = (i > 0 && (i - 1) == _selectedRow && _rows[i - 1].TabIndex >= 0 && _selectedRow >= 0);
+            if (prevExpanded)
+                expandedOffset += _detailPanelHeight;
+
+            float rowBase = yPos + i * _rowHeight + expandedOffset;
+            float rowTop = rowBase;
             if (rowTop + _rowHeight < contentTop) continue;
             if (rowTop > contentBottom) break;
 
@@ -285,53 +293,54 @@ public class TaskManagerPage
             if (row.TabIndex >= 0)
             {
                 using (var dot = new SKPaint { Color = new SKColor(26, 115, 232), Style = SKPaintStyle.Fill, IsAntialias = true })
-                    canvas.DrawCircle(colStarts[0] + 6, rowTop + 12, 4, dot);
+                    canvas.DrawCircle(colStarts[0] + 6, rowTop + 14, 4, dot);
 
                 string displayName = TruncateText(rowFont, row.Name, 200);
-                canvas.DrawText(displayName, colStarts[0] + 16, rowTop + 14, SKTextAlign.Left, rowFont, namePaint);
+                canvas.DrawText(displayName, colStarts[0] + 16, rowTop + 16, SKTextAlign.Left, rowFont, namePaint);
 
                 if (!string.IsNullOrEmpty(row.Detail))
                 {
                     string detail = TruncateText(smallFont, row.Detail, 200);
-                    canvas.DrawText(detail, colStarts[0] + 16, rowTop + 27, SKTextAlign.Left, smallFont, detailPaint);
+                    canvas.DrawText(detail, colStarts[0] + 16, rowTop + 30, SKTextAlign.Left, smallFont, detailPaint);
                 }
             }
             else
             {
                 string displayName = TruncateText(rowFont, row.Name, 200);
-                canvas.DrawText(displayName, colStarts[0] + 6, rowTop + 20, SKTextAlign.Left, rowFont, namePaint);
+                canvas.DrawText(displayName, colStarts[0] + 6, rowTop + 24, SKTextAlign.Left, rowFont, namePaint);
 
                 if (!string.IsNullOrEmpty(row.Detail))
                 {
                     string detail = TruncateText(smallFont, row.Detail, 200);
-                    canvas.DrawText(detail, colStarts[0] + 6, rowTop + 30, SKTextAlign.Left, smallFont, detailPaint);
+                    canvas.DrawText(detail, colStarts[0] + 6, rowTop + 36, SKTextAlign.Left, smallFont, detailPaint);
                 }
             }
 
-            canvas.DrawText(string.IsNullOrEmpty(row.Memory) ? "-" : row.Memory, colStarts[1], rowTop + 20, SKTextAlign.Left, rowFont, detailPaint);
-            canvas.DrawText(string.IsNullOrEmpty(row.Cpu) ? "-" : row.Cpu, colStarts[2], rowTop + 20, SKTextAlign.Left, rowFont, detailPaint);
+            float cellCenterY = rowTop + 24;
+            canvas.DrawText(string.IsNullOrEmpty(row.Memory) ? "-" : row.Memory, colStarts[1], cellCenterY, SKTextAlign.Left, rowFont, detailPaint);
+            canvas.DrawText(string.IsNullOrEmpty(row.Cpu) ? "-" : row.Cpu, colStarts[2], cellCenterY, SKTextAlign.Left, rowFont, detailPaint);
 
             // Combined DOM/Layout
             string nodeStr = (row.DomNodes > 0 || row.LayoutBoxes > 0) ? $"{row.DomNodes}/{row.LayoutBoxes}" : "-";
-            canvas.DrawText(nodeStr, colStarts[3], rowTop + 20, SKTextAlign.Left, rowFont, detailPaint);
+            canvas.DrawText(nodeStr, colStarts[3], cellCenterY, SKTextAlign.Left, rowFont, detailPaint);
 
             // Pipeline timing summary (style + layout + paint)
             double totalPipeMs = row.StyleTimingMs + row.LayoutTimingMs + row.PaintTimingMs;
             string pipeStr = totalPipeMs > 0 ? $"{totalPipeMs:F1}" : "-";
-            canvas.DrawText(pipeStr, colStarts[4], rowTop + 20, SKTextAlign.Left, rowFont, detailPaint);
+            canvas.DrawText(pipeStr, colStarts[4], cellCenterY, SKTextAlign.Left, rowFont, detailPaint);
 
             using var statusPaint = new SKPaint
             {
                 Color = row.Status == "Loading" ? new SKColor(26, 115, 232) : new SKColor(95, 99, 104),
                 IsAntialias = true
             };
-            canvas.DrawText(string.IsNullOrEmpty(row.Status) ? "-" : row.Status, colStarts[5], rowTop + 20, SKTextAlign.Left, rowFont, statusPaint);
+            canvas.DrawText(string.IsNullOrEmpty(row.Status) ? "-" : row.Status, colStarts[5], cellCenterY, SKTextAlign.Left, rowFont, statusPaint);
 
             // --- Detail performance panel for selected row ---
             if (isSelected && row.TabIndex >= 0)
             {
                 float detailY = rowTop + _rowHeight;
-                float detailH = 72;
+                float detailH = _detailPanelHeight;
                 float detailW = _dialogWidth - 4;
                 float detailX = dlgX + 2;
 
@@ -342,24 +351,24 @@ public class TaskManagerPage
                     canvas.DrawRect(detailX, detailY, detailW, 1, perfSepPaint);
 
                     // First line: Pipeline timings
-                    float line1Y = detailY + 14;
+                    float line1Y = detailY + 16;
                     canvas.DrawText($"Style:{row.StyleTimingMs:F1}ms  Layout:{row.LayoutTimingMs:F1}ms  Paint:{row.PaintTimingMs:F1}ms  Script:{row.ScriptTimingMs:F1}ms  Composite:{row.CompositeTimingMs:F1}ms",
-                        detailX + 8, line1Y, SKTextAlign.Left, microFont, microPaint);
+                        detailX + 8, line1Y, SKTextAlign.Left, detailFont, microPaint);
 
                     // Second line: Memory breakdown
-                    float line2Y = detailY + 28;
+                    float line2Y = detailY + 32;
                     canvas.DrawText($"WS:{row.WorkingSetMB:F0}MB  Heap:{row.ManagedHeapMB:F0}MB  Images:{row.ImageCacheMB:F0}MB  Tiles:{row.TileMemoryMB:F0}MB  ImageDecode:{row.ImageDecodeTimingMs:F1}ms  Network:{row.NetworkWaitTimingMs:F1}ms",
-                        detailX + 8, line2Y, SKTextAlign.Left, microFont, microPaint);
+                        detailX + 8, line2Y, SKTextAlign.Left, detailFont, microPaint);
 
                     // Third line: Rendering stats
-                    float line3Y = detailY + 42;
+                    float line3Y = detailY + 48;
                     canvas.DrawText($"Tiles Rast:{row.TilesRasterized}  Reused:{row.TilesReused}  ImgDec:{row.ImagesDecoded}  ImgHit:{row.ImageCacheHits}  CacheHit:{row.ResourceCacheHits}  FPS:{row.Fps:F0}",
-                        detailX + 8, line3Y, SKTextAlign.Left, microFont, microPaint);
+                        detailX + 8, line3Y, SKTextAlign.Left, detailFont, microPaint);
 
                     // Fourth line: JS stats
-                    float line4Y = detailY + 56;
+                    float line4Y = detailY + 64;
                     canvas.DrawText($"JS Heap:{row.JsHeapSizeKB}KB  JS Callbacks:{row.JsCallbackCount}  Frame:{row.FrameTimeMs:F1}ms  TileRast:{row.TileRasterTimingMs:F1}ms",
-                        detailX + 8, line4Y, SKTextAlign.Left, microFont, microPaint);
+                        detailX + 8, line4Y, SKTextAlign.Left, detailFont, microPaint);
                 }
             }
         }
@@ -367,7 +376,7 @@ public class TaskManagerPage
         // Account for expanded selected row height in content height calculation
         float expandedExtra = 0;
         if (_selectedRow >= 0 && _selectedRow < _rows.Count && _rows[_selectedRow].TabIndex >= 0)
-            expandedExtra = 74; // detail panel height + gap
+            expandedExtra = _detailPanelHeight;
         _contentHeight = _rows.Count * _rowHeight + expandedExtra;
         canvas.Restore();
 
@@ -507,16 +516,20 @@ public class TaskManagerPage
             return true;
         }
 
-        // Row selection
+        // Row selection (with expanded panel offset)
         float colY = dlgY + _headerHeight;
         float contentTop = colY + _colHeaderHeight + 1;
         float contentBottom = dlgY + _dialogHeight - _footerHeight;
         if (y >= contentTop && y < contentBottom)
         {
-            int newSel = (int)((y - contentTop + _scrollOffset) / _rowHeight);
+            int newSel = GetRowIndexAtY(y, contentTop, _scrollOffset);
             if (newSel >= 0 && newSel < _rows.Count)
             {
-                _selectedRow = newSel;
+                // Toggle selection off if clicking the same row
+                if (newSel == _selectedRow)
+                    _selectedRow = -1;
+                else
+                    _selectedRow = newSel;
                 OnChanged?.Invoke();
             }
         }
@@ -561,7 +574,7 @@ public class TaskManagerPage
             float contentBottom = dlgY + _dialogHeight - _footerHeight;
             if (y >= contentTop && y < contentBottom)
             {
-                int n = (int)((y - contentTop + _scrollOffset) / _rowHeight);
+                int n = GetRowIndexAtY(y, contentTop, _scrollOffset);
                 _hoveredRow = (n >= 0 && n < _rows.Count) ? n : -1;
             }
             else
@@ -587,4 +600,45 @@ public class TaskManagerPage
     }
 
     public void HandleMouseUp() { }
+
+    /// <summary>Compute the actual Y position of a row accounting for the expanded detail panel offset.</summary>
+    private float GetRowBaseY(int rowIndex, float contentTop, float scrollOffset)
+    {
+        float yPos = contentTop - scrollOffset;
+        float offset = 0;
+        for (int i = 1; i <= rowIndex; i++)
+        {
+            if ((i - 1) == _selectedRow && _rows[i - 1].TabIndex >= 0 && _selectedRow >= 0)
+                offset += _detailPanelHeight;
+        }
+        return yPos + rowIndex * _rowHeight + offset;
+    }
+
+    /// <summary>Find the row index at a given Y position, accounting for expanded panel offsets.</summary>
+    private int GetRowIndexAtY(float y, float contentTop, float scrollOffset)
+    {
+        float yInContent = y - contentTop + scrollOffset;
+        if (yInContent < 0) return -1;
+
+        float offset = 0;
+        for (int i = 0; i < _rows.Count; i++)
+        {
+            if (i > 0 && (i - 1) == _selectedRow && _rows[i - 1].TabIndex >= 0 && _selectedRow >= 0)
+                offset += _detailPanelHeight;
+
+            float rowStart = i * _rowHeight + offset;
+            float rowEnd = rowStart + _rowHeight;
+            if (yInContent >= rowStart && yInContent < rowEnd)
+                return i;
+
+            // Also check the detail panel area of the selected row
+            if (i == _selectedRow && _selectedRow >= 0 && _rows[_selectedRow].TabIndex >= 0)
+            {
+                float detailEnd = rowStart + _rowHeight + _detailPanelHeight;
+                if (yInContent >= rowEnd && yInContent < detailEnd)
+                    return i; // still the same row (detail panel)
+            }
+        }
+        return -1;
+    }
 }

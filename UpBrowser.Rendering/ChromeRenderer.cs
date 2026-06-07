@@ -1295,22 +1295,23 @@ public class ChromeRenderer : IImeSupport
                 _activeTabIndex = 0;
                 _currentUrl = "upbrowser://newtab";
                 newUrl = "upbrowser://newtab";
-                return;
             }
-
-            if (index < 0 || index >= _tabs.Count) return;
-            _tabs.RemoveAt(index);
-
-            if (index == _activeTabIndex)
+            else
             {
-                if (_activeTabIndex >= _tabs.Count)
-                    _activeTabIndex = _tabs.Count - 1;
-                _currentUrl = _tabs[_activeTabIndex].Url;
-                newUrl = _currentUrl;
-            }
-            else if (index < _activeTabIndex)
-            {
-                _activeTabIndex--;
+                if (index < 0 || index >= _tabs.Count) return;
+                _tabs.RemoveAt(index);
+
+                if (index == _activeTabIndex)
+                {
+                    if (_activeTabIndex >= _tabs.Count)
+                        _activeTabIndex = _tabs.Count - 1;
+                    _currentUrl = _tabs[_activeTabIndex].Url;
+                    newUrl = _currentUrl;
+                }
+                else if (index < _activeTabIndex)
+                {
+                    _activeTabIndex--;
+                }
             }
         }
         finally { _tabRwLock.ExitWriteLock(); }

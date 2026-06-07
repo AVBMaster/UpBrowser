@@ -228,6 +228,20 @@ public class TabProcess : IDisposable
         lock (_sync) _metrics.Title = title;
     }
 
+    /// <summary>Update content metrics (thread-safe). Called from main thread after page load.</summary>
+    public void UpdateContentMetrics(int domNodeCount, int layoutBoxCount, long memoryBytes, int jsHeapSizeKB, int jsTimerCount)
+    {
+        lock (_sync)
+        {
+            _metrics.DomNodeCount = domNodeCount;
+            _metrics.LayoutBoxCount = layoutBoxCount;
+            _metrics.MemoryBytes = memoryBytes;
+            _metrics.JsHeapSizeKB = jsHeapSizeKB;
+            _metrics.JsTimerCount = jsTimerCount;
+            _metrics.Status = "Running";
+        }
+    }
+
     public void Dispose()
     {
         _cts.Cancel();

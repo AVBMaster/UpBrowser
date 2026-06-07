@@ -15,20 +15,33 @@ public static class FontHelper
         if (_initialized) return;
         _initialized = true;
 
-        var families = SKFontManager.Default.FontFamilies.ToArray();
+        _chineseTypeface = FindFont(
+            "Noto Sans SC", "Source Han Sans SC", "PingFang SC",
+            "Microsoft YaHei", "Microsoft YaHei UI", "Microsoft JhengHei",
+            "SimSun", "SimHei",
+            "WenQuanYi Micro Hei", "Droid Sans Fallback",
+            "Noto Sans CJK SC", "Source Han Sans");
 
-        _monoTypeface = FindFont(families, "Consolas", "Cascadia Code", "Cascadia Mono", "Source Code Pro",
-            "Courier New", "DejaVu Sans Mono", "Liberation Mono", "Fira Code", "Monaco", "Menlo");
+        _monoTypeface = FindFont(
+            "Consolas", "Cascadia Code", "Cascadia Mono", "Source Code Pro",
+            "Courier New", "DejaVu Sans Mono", "Liberation Mono",
+            "Fira Code", "Monaco", "Menlo");
 
-        _chineseTypeface = FindFont(families, "Noto Sans SC", "Source Han Sans SC", "PingFang SC",
-            "Microsoft YaHei", "Microsoft YaHei UI", "SimSun", "SimHei",
-            "WenQuanYi Micro Hei", "Droid Sans Fallback");
+        _defaultTypeface = FindFont(
+            "Microsoft YaHei", "Microsoft YaHei UI",
+            "PingFang SC", "Noto Sans SC", "Source Han Sans SC",
+            "Segoe UI", "Arial", "Helvetica",
+            "Liberation Sans", "DejaVu Sans", "Tahoma",
+            "Verdana", "San Francisco", "Noto Sans");
 
-        _defaultTypeface = FindFont(families, "Liberation Sans", "DejaVu Sans", "Arial", "Helvetica",
-            "Segoe UI", "Tahoma", "Verdana", "San Francisco", "Noto Sans");
+        _emojiTypeface = FindFont(
+            "Segoe UI Emoji", "Noto Color Emoji", "Apple Color Emoji",
+            "Twitter Color Emoji", "EmojiOne Color", "Noto Emoji",
+            "Segoe UI Symbol");
 
-        _emojiTypeface = FindFont(families, "Noto Color Emoji", "Apple Color Emoji", "Segoe UI Emoji",
-            "Twitter Color Emoji", "EmojiOne Color", "Noto Emoji", "Segoe UI Symbol");
+        Console.WriteLine($"[FontHelper] Chinese={_chineseTypeface?.FamilyName ?? "null"} " +
+            $"Default={_defaultTypeface?.FamilyName ?? "null"} " +
+            $"Mono={_monoTypeface?.FamilyName ?? "null"}");
     }
 
     public static SKPaint CreateMonoPaint(float textSize = 12)
@@ -40,7 +53,7 @@ public static class FontHelper
     public static SKFont CreateMonoFont(float textSize = 12)
     {
         Initialize();
-        var typeface = _monoTypeface ?? _defaultTypeface ?? SKTypeface.Default;
+        var typeface = _monoTypeface ?? _chineseTypeface ?? _defaultTypeface ?? SKTypeface.Default;
         return new SKFont(typeface, textSize)
         {
             Hinting = SKFontHinting.Normal,
@@ -74,7 +87,8 @@ public static class FontHelper
     public static SKFont CreateFont(float textSize = 12)
     {
         Initialize();
-        return new SKFont(_defaultTypeface ?? SKTypeface.Default, textSize)
+        var typeface = _chineseTypeface ?? _defaultTypeface ?? SKTypeface.Default;
+        return new SKFont(typeface, textSize)
         {
             Hinting = SKFontHinting.Normal,
             Edging = SKFontEdging.SubpixelAntialias,
@@ -91,7 +105,8 @@ public static class FontHelper
     public static SKFont CreateChineseFont(float textSize = 12)
     {
         Initialize();
-        return new SKFont(_chineseTypeface ?? _defaultTypeface ?? SKTypeface.Default, textSize)
+        var typeface = _chineseTypeface ?? _defaultTypeface ?? SKTypeface.Default;
+        return new SKFont(typeface, textSize)
         {
             Hinting = SKFontHinting.Normal,
             Edging = SKFontEdging.SubpixelAntialias,
@@ -102,13 +117,13 @@ public static class FontHelper
     public static SKTypeface? GetMonoTypeface()
     {
         Initialize();
-        return _monoTypeface ?? _defaultTypeface ?? SKTypeface.Default;
+        return _monoTypeface ?? _chineseTypeface ?? _defaultTypeface ?? SKTypeface.Default;
     }
 
     public static SKTypeface? GetDefaultTypeface()
     {
         Initialize();
-        return _defaultTypeface ?? SKTypeface.Default;
+        return _chineseTypeface ?? _defaultTypeface ?? SKTypeface.Default;
     }
 
     public static SKTypeface? GetChineseTypeface()
@@ -132,7 +147,7 @@ public static class FontHelper
     public static SKFont CreateEmojiFont(float textSize = 12)
     {
         Initialize();
-        return new SKFont(_emojiTypeface ?? _defaultTypeface ?? SKTypeface.Default, textSize)
+        return new SKFont(_emojiTypeface ?? _chineseTypeface ?? _defaultTypeface ?? SKTypeface.Default, textSize)
         {
             Hinting = SKFontHinting.Normal,
             Edging = SKFontEdging.SubpixelAntialias,
@@ -140,22 +155,35 @@ public static class FontHelper
         };
     }
 
-    private static SKTypeface? FindFont(string[] families, params string[] candidates)
+    private static SKTypeface? FindFont(params string[] candidates)
     {
+        // Try SKTypeface.FromFamilyName first (supports system font lookup by any valid name)
         foreach (var name in candidates)
         {
-            int idx = Array.IndexOf(families, name);
-            if (idx >= 0)
+            try
             {
-                try
+                var tf = SKTypeface.FromFamilyName(name);
+                if (tf != null && !string.IsNullOrEmpty(tf.FamilyName))
+                    return tf;
+            }
+            catch { }
+        }
+        // Fallback: exact match via font families array
+        try
+        {
+            var families = SKFontManager.Default.FontFamilies.ToArray();
+            foreach (var name in candidates)
+            {
+                int idx = Array.IndexOf(families, name);
+                if (idx >= 0)
                 {
-                    var typeface = SKFontManager.Default.GetFontStyles(idx).CreateTypeface(0);
-                    if (typeface != null && typeface.FamilyName != null)
-                        return typeface;
+                    var tf = SKFontManager.Default.GetFontStyles(idx).CreateTypeface(0);
+                    if (tf != null && !string.IsNullOrEmpty(tf.FamilyName))
+                        return tf;
                 }
-                catch { }
             }
         }
+        catch { }
         return null;
     }
 }
