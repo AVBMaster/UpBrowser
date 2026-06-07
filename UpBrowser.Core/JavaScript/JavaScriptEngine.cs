@@ -8,7 +8,7 @@ namespace UpBrowser.Core.JavaScript;
 
 public class JavaScriptEngine : IDisposable
 {
-    private IJsEngine? _engine;
+    private IJavaScriptEngineAdapter? _adapter;
     private bool _disposed;
     private DocumentHost? _documentHost;
     private DomDocument? _currentDocument;
@@ -21,75 +21,415 @@ public class JavaScriptEngine : IDisposable
     private readonly Dictionary<int, FetchResult> _fetchResults = new();
     private readonly object _fetchLock = new();
 
-    private int _nextCbId = 1;
-    private readonly object _cbLock = new();
     private LocationHost? _locationHost;
     private UpBrowserBuiltins? _builtins;
 
     [ThreadStatic]
     public static JavaScriptEngine? Current;
 
+    public JsEngineType EngineType => _adapter?.EngineType ?? JsEngineType.Jint;
     public LocationHost? LocationHost => _locationHost;
     public UpBrowserBuiltins? Builtins => _builtins;
     public DocumentHost? DocumentHost => _documentHost;
+    public IJavaScriptEngineAdapter? Adapter => _adapter;
 
     public event Action? OnDomChanged;
     public Func<string, string?, string?>? ShowDialog { get; set; }
     public bool HasTimers { get { lock (_timersLock) return _timers.Count > 0; } }
     public int TimerCount { get { lock (_timersLock) return _timers.Count; } }
 
-    /// <summary>Returns approximate JS heap usage in KB, or 0 if unavailable.</summary>
     public int GetHeapSizeKB()
     {
-        // JavaScript engines in .NET don't typically expose heap size.
-        // Return managed heap delta as a rough proxy.
         return (int)(GC.GetTotalMemory(false) / 1024);
     }
 
-    internal IJsEngine? InnerEngine => _engine;
+    internal IJsEngine? InnerEngine => _adapter?.InnerEngine;
 
-    public JavaScriptEngine()
+    public JavaScriptEngine() : this(CreateDefaultAdapter())
     {
-        JsEngineConfig.Initialize();
-        _engine = JsEngineConfig.CreateEngine();
+    }
+
+    public JavaScriptEngine(IJavaScriptEngineAdapter adapter)
+    {
+        _adapter = adapter;
         SetupGlobals();
     }
 
     public JavaScriptEngine(IJsEngine existingEngine)
     {
-        _engine = existingEngine;
+        _adapter = CreateAdapterForEngine(existingEngine);
         SetupGlobals();
     }
 
-    internal int AllocCallbackId()
+    private static IJavaScriptEngineAdapter CreateDefaultAdapter()
     {
-        lock (_cbLock) return _nextCbId++;
+        JsEngineConfig.Initialize();
+        var effectiveType = JsEngineConfig.EffectiveEngineType;
+        return effectiveType switch
+        {
+            JsEngineType.V8 => new V8EngineAdapter(),
+            JsEngineType.Jurassic => new JurassicEngineAdapter(),
+            _ => new JintEngineAdapter()
+        };
+    }
+
+    private static IJavaScriptEngineAdapter CreateAdapterForEngine(IJsEngine engine)
+    {
+        var engineName = engine?.GetType().Name ?? "";
+        if (engineName.Contains("V8")) return new V8EngineAdapter(engine);
+        if (engineName.Contains("Jurassic")) return new JurassicEngineAdapter(engine);
+        return new JintEngineAdapter(engine);
     }
 
     private void SetupGlobals()
     {
-        if (_engine == null) return;
+        if (_adapter == null) return;
 
-        _engine.Evaluate(JsCallbackStore.JsSetup);
+        _adapter.Execute(JsCallbackStore.JsSetup);
 
-        // Embed ALL host objects BEFORE the setup script that references them
-        _engine.EmbedHostObject("console", new ConsoleHost());
+        _adapter.SetGlobal("console", new ConsoleHost());
         _builtins = new UpBrowserBuiltins(this);
-        _engine.EmbedHostObject("__upbrowser", _builtins);
-        _engine.EmbedHostObject("__win", new WindowHost(this));
-        _engine.EmbedHostObject("navigator", new NavigatorHost());
+        _adapter.SetGlobal("__upbrowser", _builtins);
+        _adapter.SetGlobal("__win", new WindowHost(this));
+        _adapter.SetGlobal("navigator", new NavigatorHost());
         _locationHost = new LocationHost();
-        _engine.EmbedHostObject("location", _locationHost);
-        _engine.EmbedHostObject("history", new HistoryHost(_locationHost));
-        _engine.EmbedHostObject("screen", new ScreenHost());
-        _engine.EmbedHostObject("localStorage", new StorageHost());
-        _engine.EmbedHostObject("sessionStorage", new StorageHost());
+        _adapter.SetGlobal("location", _locationHost);
+        _adapter.SetGlobal("history", new HistoryHost(_locationHost));
+        _adapter.SetGlobal("screen", new ScreenHost());
+        _adapter.SetGlobal("localStorage", new StorageHost());
+        _adapter.SetGlobal("sessionStorage", new StorageHost());
 
-        // Embed a minimal stub document so 'var document = document;' resolves correctly
-        // Real document is set later via LoadDocument()
-        _engine.EmbedHostObject("document", new Dictionary<string, object?>());
+        _adapter.SetGlobal("document", new Dictionary<string, object?>());
 
-        _engine.Execute(@"
+        _adapter.Execute(GetSetupScript());
+    }
+
+    public void LoadDocument(DomDocument document)
+    {
+        _currentDocument = document;
+        _documentHost = new DocumentHost(document);
+
+        if (_adapter != null)
+        {
+            ClearState();
+            _adapter.SetGlobal("document", _documentHost);
+        }
+
+        MarkDirty();
+    }
+
+    public void ClearState()
+    {
+        if (_adapter == null) return;
+
+        _adapter.ClearCallbacks();
+
+        lock (_timersLock)
+        {
+            foreach (var info in _timers.Values)
+                _adapter.RemoveCallback(info.CallbackId);
+            _timers.Clear();
+        }
+
+        lock (_fetchLock)
+        {
+            foreach (var cbs in _fetchCallbacks.Values)
+            {
+                _adapter.RemoveCallback(cbs.resolveId);
+                _adapter.RemoveCallback(cbs.rejectId);
+            }
+            _fetchCallbacks.Clear();
+            _fetchResults.Clear();
+        }
+
+        if (_adapter != null)
+        {
+            try
+            {
+                var ch = _adapter.GetGlobal<ConsoleHost>("console");
+                ch?.Reset();
+            }
+            catch { }
+        }
+    }
+
+    public void Execute(string code)
+    {
+        if (_adapter == null || string.IsNullOrEmpty(code)) return;
+        Current = this;
+        try
+        {
+            _adapter.Execute(code);
+            MarkDirty();
+        }
+        finally
+        {
+            Current = null;
+        }
+    }
+
+    public object? Evaluate(string expression)
+    {
+        if (_adapter == null) return null;
+        Current = this;
+        try
+        {
+            return _adapter.Evaluate(expression);
+        }
+        catch
+        {
+            return null;
+        }
+        finally
+        {
+            Current = null;
+        }
+    }
+
+    public object? CallJsFunction(string functionName, params object?[] args)
+    {
+        if (_adapter == null) return null;
+        Current = this;
+        try
+        {
+            return _adapter.CallFunction(functionName, args);
+        }
+        catch
+        {
+            return null;
+        }
+        finally
+        {
+            Current = null;
+        }
+    }
+
+    public void SetGlobal(string name, object? value)
+    {
+        _adapter?.SetGlobal(name, value);
+    }
+
+    public ElementHost? GetElementHost(DomElement element)
+    {
+        return new ElementHost(element);
+    }
+
+    public bool DispatchEvent(DomElement element, string eventType)
+    {
+        var previous = Current;
+        Current = this;
+        try
+        {
+            var targetHost = new ElementHost(element);
+            var evt = new ScriptEvent(eventType, targetHost);
+            return targetHost.DispatchEvent(evt);
+        }
+        finally
+        {
+            Current = previous;
+        }
+    }
+
+    public bool DispatchEvent(DomElement element, ScriptEvent evt)
+    {
+        var previous = Current;
+        Current = this;
+        try
+        {
+            var targetHost = new ElementHost(element);
+            return targetHost.DispatchEvent(evt);
+        }
+        finally
+        {
+            Current = previous;
+        }
+    }
+
+    internal int StoreCallbackRef(object callback)
+    {
+        return _adapter?.StoreCallback(callback) ?? 0;
+    }
+
+    internal void InvokeCallback(int cbId)
+    {
+        _adapter?.InvokeCallback(cbId);
+    }
+
+    internal void InvokeCallbackWith(int cbId, object arg)
+    {
+        _adapter?.InvokeCallbackWith(cbId, arg);
+    }
+
+    internal void RemoveCallback(int cbId)
+    {
+        _adapter?.RemoveCallback(cbId);
+    }
+
+    public void TickTimers()
+    {
+        List<int> due = new();
+        lock (_timersLock)
+        {
+            var now = Environment.TickCount64;
+            foreach (var kv in _timers.ToList())
+            {
+                if (now >= kv.Value.DueTime)
+                {
+                    due.Add(kv.Key);
+                    if (kv.Value.Interval > 0)
+                        kv.Value.DueTime = now + kv.Value.Interval;
+                    else
+                        _timers.Remove(kv.Key);
+                }
+            }
+        }
+
+        foreach (var id in due)
+        {
+            InvokeTimer(id);
+        }
+
+        Current = this;
+        try { ProcessCompletedFetches(); }
+        finally { Current = null; }
+    }
+
+    private void InvokeTimer(int timerId)
+    {
+        int? cbId;
+        lock (_timersLock)
+        {
+            if (_timers.TryGetValue(timerId, out var info))
+                cbId = info.CallbackId;
+            else
+                cbId = null;
+        }
+        if (cbId == null) return;
+        Current = this;
+        try
+        {
+            _adapter?.InvokeCallback(cbId.Value);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[JS Timer] {ex.Message}");
+        }
+        finally
+        {
+            Current = null;
+        }
+    }
+
+    public bool NeedsReLayout { get; set; }
+
+    public void MarkDirty()
+    {
+        NeedsReLayout = true;
+        OnDomChanged?.Invoke();
+    }
+
+    public void ClearDirty()
+    {
+        NeedsReLayout = false;
+    }
+
+    public void Dispose()
+    {
+        if (_disposed) return;
+        lock (_timersLock) _timers.Clear();
+        _adapter?.Dispose();
+        _disposed = true;
+        GC.SuppressFinalize(this);
+    }
+
+    internal int SetTimer(int callbackId, int delayMs, bool recurring)
+    {
+        lock (_timersLock)
+        {
+            var id = _nextTimerId++;
+            _timers[id] = new TimerInfo
+            {
+                CallbackId = callbackId,
+                DueTime = Environment.TickCount64 + Math.Max(1, delayMs),
+                Interval = recurring ? Math.Max(1, delayMs) : 0
+            };
+            return id;
+        }
+    }
+
+    internal void ClearTimer(int id)
+    {
+        lock (_timersLock)
+        {
+            if (_timers.TryGetValue(id, out var info))
+            {
+                _adapter?.RemoveCallback(info.CallbackId);
+                _timers.Remove(id);
+            }
+        }
+    }
+
+    internal int AddFetch(int resolveId, int rejectId)
+    {
+        var id = Interlocked.Increment(ref _nextFetchId);
+        lock (_fetchLock)
+            _fetchCallbacks[id] = (resolveId, rejectId);
+        return id;
+    }
+
+    internal void CompleteFetch(int id, FetchResult result)
+    {
+        lock (_fetchLock)
+            _fetchResults[id] = result;
+    }
+
+    private void ProcessCompletedFetches()
+    {
+        List<(int id, FetchResult result)> completed;
+        lock (_fetchLock)
+        {
+            completed = _fetchResults.Select(kv => (kv.Key, kv.Value)).ToList();
+            _fetchResults.Clear();
+        }
+
+        foreach (var (id, result) in completed)
+        {
+            lock (_fetchLock)
+            {
+                if (!_fetchCallbacks.TryGetValue(id, out var cbs)) continue;
+                _fetchCallbacks.Remove(id);
+
+                try
+                {
+                    if (result.Success)
+                    {
+                        var resp = new Dictionary<string, object?>
+                        {
+                            ["ok"] = result.Status >= 200 && result.Status < 300,
+                            ["status"] = result.Status,
+                            ["statusText"] = result.StatusText ?? "",
+                            ["data"] = result.Data ?? "",
+                            ["headers"] = result.Headers ?? new Dictionary<string, string>()
+                        };
+                        var json = JsonSerializer.Serialize(resp, _jsonOpts);
+                        _adapter?.Execute($"__g_invoke({cbs.resolveId}, JSON.parse('{EscapeJsString(json)}'))");
+                    }
+                    else
+                    {
+                        _adapter?.Execute($"__g_invoke({cbs.rejectId}, '{EscapeJsString(result.Error ?? "Unknown error")}')");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[Fetch] callback error: {ex.Message}");
+                }
+            }
+        }
+    }
+
+    private static string GetSetupScript()
+    {
+        return @"
             var window = this;
             var globalThis = this;
             var self = this;
@@ -141,9 +481,6 @@ public class JavaScriptEngine : IDisposable
             function URLSearchParams(query) {
                 return __upbrowser.createURLSearchParams(query || '');
             }
-
-            // window is the global object (= this), and EmbedHostObject sets properties
-            // directly on the global object, so window[name] === name automatically.
 
             Object.defineProperty(window, 'innerWidth', { get: function() { return __upbrowser.innerWidth(); } });
             Object.defineProperty(window, 'innerHeight', { get: function() { return __upbrowser.innerHeight(); } });
@@ -199,234 +536,7 @@ public class JavaScriptEngine : IDisposable
                     };
                 }
             }
-        ");
-    }
-
-    public void LoadDocument(DomDocument document)
-    {
-        _currentDocument = document;
-        _documentHost = new DocumentHost(document);
-
-        if (_engine != null)
-        {
-            // Clear old JS callbacks to prevent memory leak across page navigations
-            ClearState();
-
-            _engine.EmbedHostObject("document", _documentHost);
-        }
-
-        MarkDirty();
-    }
-
-    public void ClearState()
-    {
-        if (_engine == null) return;
-
-        // Clear all stored callbacks from __g_cbs to prevent memory leaks
-        try { _engine.Evaluate("__g_cbs = {}; __g_cbid = 0;"); }
-        catch { }
-
-        // Clear all timers
-        lock (_timersLock)
-        {
-            foreach (var info in _timers.Values)
-                RemoveCallback(info.CallbackId);
-            _timers.Clear();
-        }
-
-        // Clear all fetch callbacks
-        lock (_fetchLock)
-        {
-            foreach (var cbs in _fetchCallbacks.Values)
-            {
-                RemoveCallback(cbs.resolveId);
-                RemoveCallback(cbs.rejectId);
-            }
-            _fetchCallbacks.Clear();
-            _fetchResults.Clear();
-        }
-
-        // Reset ConsoleHost counters and timers
-        if (_engine != null)
-        {
-            try
-            {
-                var console = _engine.Evaluate("console");
-                if (console is ConsoleHost ch)
-                    ch.Reset();
-            }
-            catch { }
-        }
-    }
-
-    public void Execute(string code)
-    {
-        if (_engine == null || string.IsNullOrEmpty(code)) return;
-        Current = this;
-        try
-        {
-            _engine.Execute(code);
-            MarkDirty();
-        }
-        catch (JsScriptException ex)
-        {
-            Console.WriteLine($"[JS Error] {ex.Message}");
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"[JS Error] {ex.Message}");
-        }
-        finally
-        {
-            Current = null;
-        }
-    }
-
-    public object? Evaluate(string expression)
-    {
-        if (_engine == null) return null;
-        Current = this;
-        try
-        {
-            return _engine.Evaluate(expression);
-        }
-        catch
-        {
-            return null;
-        }
-        finally
-        {
-            Current = null;
-        }
-    }
-
-    public object? CallJsFunction(string functionName, params object?[] args)
-    {
-        if (_engine == null) return null;
-        Current = this;
-        try
-        {
-            return _engine.CallFunction(functionName, args);
-        }
-        catch
-        {
-            return null;
-        }
-        finally
-        {
-            Current = null;
-        }
-    }
-
-    public void SetGlobal(string name, object? value)
-    {
-        if (_engine == null || value == null) return;
-        _engine.EmbedHostObject(name, value);
-    }
-
-    public ElementHost? GetElementHost(DomElement element)
-    {
-        return new ElementHost(element);
-    }
-
-    public bool DispatchEvent(DomElement element, string eventType)
-    {
-        var previous = Current;
-        Current = this;
-        try
-        {
-            var targetHost = new ElementHost(element);
-            var evt = new ScriptEvent(eventType, targetHost);
-            return targetHost.DispatchEvent(evt);
-        }
-        finally
-        {
-            Current = previous;
-        }
-    }
-
-    public bool DispatchEvent(DomElement element, ScriptEvent evt)
-    {
-        var previous = Current;
-        Current = this;
-        try
-        {
-            var targetHost = new ElementHost(element);
-            return targetHost.DispatchEvent(evt);
-        }
-        finally
-        {
-            Current = previous;
-        }
-    }
-
-    internal int StoreCallbackRef(object callback)
-    {
-        var id = AllocCallbackId();
-
-        if (_engine != null)
-        {
-            var tmpName = $"__tmpc_{id}";
-            try
-            {
-                _engine.EmbedHostObject(tmpName, callback);
-                _engine.Evaluate($"__g_cbs[{id}] = {tmpName}; delete {tmpName};");
-            }
-            catch
-            {
-                _engine.Evaluate($$"""
-                    (function() {
-                        var id = {{id}};
-                        __g_cbs[id] = function() {};
-                    })();
-                """);
-            }
-        }
-
-        return id;
-    }
-
-    internal void InvokeCallback(int cbId)
-    {
-        if (_engine == null) return;
-        Current = this;
-        try
-        {
-            _engine.Evaluate($"__g_invoke({cbId})");
-        }
-        catch { }
-        finally { Current = null; }
-    }
-
-    internal void InvokeCallbackWith(int cbId, object arg)
-    {
-        if (_engine == null) return;
-        Current = this;
-
-        string jsEventJson;
-        if (arg is ScriptEvent evt)
-        {
-            var dict = new Dictionary<string, object?>
-            {
-                ["type"] = evt.type,
-                ["bubbles"] = evt.bubbles,
-                ["cancelable"] = evt.cancelable,
-                ["defaultPrevented"] = evt.DefaultPrevented,
-                ["timeStamp"] = evt.timeStamp
-            };
-            jsEventJson = JsonSerializer.Serialize(dict, _jsonOpts);
-        }
-        else
-        {
-            jsEventJson = JsonSerializer.Serialize(arg, _jsonOpts);
-        }
-
-        try
-        {
-            _engine.Execute($"__g_invoke({cbId}, JSON.parse('{EscapeJsString(jsEventJson)}'))");
-        }
-        catch { }
-        finally { Current = null; }
+        ";
     }
 
     private static readonly JsonSerializerOptions _jsonOpts = new() { WriteIndented = false };
@@ -434,179 +544,6 @@ public class JavaScriptEngine : IDisposable
     private static string EscapeJsString(string s)
     {
         return s.Replace("\\", "\\\\").Replace("'", "\\'").Replace("\n", "\\n").Replace("\r", "\\r");
-    }
-
-    internal void RemoveCallback(int cbId)
-    {
-        if (_engine == null) return;
-        try
-        {
-            _engine.Evaluate($"__g_remove({cbId})");
-        }
-        catch { }
-    }
-
-    public void TickTimers()
-    {
-        List<int> due = new();
-        lock (_timersLock)
-        {
-            var now = Environment.TickCount64;
-            foreach (var kv in _timers.ToList())
-            {
-                if (now >= kv.Value.DueTime)
-                {
-                    due.Add(kv.Key);
-                    if (kv.Value.Interval > 0)
-                        kv.Value.DueTime = now + kv.Value.Interval;
-                    else
-                        _timers.Remove(kv.Key);
-                }
-            }
-        }
-
-        foreach (var id in due)
-        {
-            InvokeTimer(id);
-        }
-
-        Current = this;
-        try { ProcessCompletedFetches(); }
-        finally { Current = null; }
-    }
-
-    private void InvokeTimer(int timerId)
-    {
-        int? cbId;
-        lock (_timersLock)
-        {
-            if (_timers.TryGetValue(timerId, out var info))
-                cbId = info.CallbackId;
-            else
-                cbId = null;
-        }
-        if (cbId == null) return;
-        Current = this;
-        try
-        {
-            if (_engine != null)
-                _engine.Evaluate($"__g_invoke({cbId})");
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"[JS Timer] {ex.Message}");
-        }
-        finally
-        {
-            Current = null;
-        }
-    }
-
-    public bool NeedsReLayout { get; set; }
-
-    public void MarkDirty()
-    {
-        NeedsReLayout = true;
-        OnDomChanged?.Invoke();
-    }
-
-    public void ClearDirty()
-    {
-        NeedsReLayout = false;
-    }
-
-    public void Dispose()
-    {
-        if (_disposed) return;
-        lock (_timersLock) _timers.Clear();
-        _engine?.Dispose();
-        _disposed = true;
-        GC.SuppressFinalize(this);
-    }
-
-    internal int SetTimer(int callbackId, int delayMs, bool recurring)
-    {
-        lock (_timersLock)
-        {
-            var id = _nextTimerId++;
-            _timers[id] = new TimerInfo
-            {
-                CallbackId = callbackId,
-                DueTime = Environment.TickCount64 + Math.Max(1, delayMs),
-                Interval = recurring ? Math.Max(1, delayMs) : 0
-            };
-            return id;
-        }
-    }
-
-    internal void ClearTimer(int id)
-    {
-        lock (_timersLock)
-        {
-            if (_timers.TryGetValue(id, out var info))
-            {
-                RemoveCallback(info.CallbackId);
-                _timers.Remove(id);
-            }
-        }
-    }
-
-    internal int AddFetch(int resolveId, int rejectId)
-    {
-        var id = Interlocked.Increment(ref _nextFetchId);
-        lock (_fetchLock)
-            _fetchCallbacks[id] = (resolveId, rejectId);
-        return id;
-    }
-
-    internal void CompleteFetch(int id, FetchResult result)
-    {
-        lock (_fetchLock)
-            _fetchResults[id] = result;
-    }
-
-    private void ProcessCompletedFetches()
-    {
-        List<(int id, FetchResult result)> completed;
-        lock (_fetchLock)
-        {
-            completed = _fetchResults.Select(kv => (kv.Key, kv.Value)).ToList();
-            _fetchResults.Clear();
-        }
-
-        foreach (var (id, result) in completed)
-        {
-            lock (_fetchLock)
-            {
-                if (!_fetchCallbacks.TryGetValue(id, out var cbs)) continue;
-                _fetchCallbacks.Remove(id);
-
-                try
-                {
-                    if (result.Success)
-                    {
-                        var resp = new Dictionary<string, object?>
-                        {
-                            ["ok"] = result.Status >= 200 && result.Status < 300,
-                            ["status"] = result.Status,
-                            ["statusText"] = result.StatusText ?? "",
-                            ["data"] = result.Data ?? "",
-                            ["headers"] = result.Headers ?? new Dictionary<string, string>()
-                        };
-                        var json = JsonSerializer.Serialize(resp, _jsonOpts);
-                        _engine?.Execute($"__g_invoke({cbs.resolveId}, JSON.parse('{EscapeJsString(json)}'))");
-                    }
-                    else
-                    {
-                        _engine?.Execute($"__g_invoke({cbs.rejectId}, '{EscapeJsString(result.Error ?? "Unknown error")}')");
-                    }
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"[Fetch] callback error: {ex.Message}");
-                }
-            }
-        }
     }
 }
 

@@ -19,336 +19,195 @@ public class Document : Node
     public Element? Head { get; set; }
     public string Title { get; set; } = string.Empty;
     public string Url { get; set; } = string.Empty;
+    public string Charset { get; set; } = "UTF-8";
+    public string ContentType { get; set; } = "text/html";
+    public string ReadyState { get; set; } = "loading";
+    public string CompatMode { get; set; } = "CSS1Compat";
+    public string? Cookie { get; set; }
+    public bool Hidden { get; set; }
+    public string VisibilityState { get; set; } = "visible";
 
-    public Document() : base("#document") { }
+    public Document()
+    {
+        NodeName = "#document";
+    }
 
     public override NodeType NodeType => NodeType.Document;
     public override string NodeName => "#document";
-}
 
-public enum NodeType
-{
-    Element,
-    Text,
-    Document,
-    Comment,
-    DocumentType
-}
-
-public abstract class Node
-{
-    public virtual string NodeName { get; protected set; } = string.Empty;
-    public Node? Parent { get; set; }
-    public List<Node> Children { get; } = new();
-    public abstract NodeType NodeType { get; }
-    public virtual string? TextContent => null;
-    public virtual bool IsConnected => false;
-
-    public Node(string nodeName)
+    // Spec methods
+    public Element CreateElement(string tagName)
     {
-        NodeName = nodeName;
+        return new HtmlElement(tagName);
     }
 
-    public void AppendChild(Node child)
+    public Element CreateElementNS(string? ns, string tagName)
     {
-        if (child.Parent != null)
-            child.Parent.RemoveChild(child);
-        child.Parent = this;
-        Children.Add(child);
+        var el = new HtmlElement(tagName) { NamespaceUri = ns };
+        return el;
     }
 
-    public void InsertBefore(Node newChild, Node? refChild)
+    public TextNode CreateTextNode(string text)
     {
-        if (refChild == null)
+        return new TextNode(text);
+    }
+
+    public CommentNode CreateComment(string data)
+    {
+        return new CommentNode(data);
+    }
+
+    public DocumentFragment CreateDocumentFragment()
+    {
+        return new DocumentFragment();
+    }
+
+    public CDataSection CreateCDataSection(string data)
+    {
+        return new CDataSection(data);
+    }
+
+    public ProcessingInstruction CreateProcessingInstruction(string target, string data)
+    {
+        return new ProcessingInstruction(target, data);
+    }
+
+    public Attr CreateAttribute(string name)
+    {
+        return new Attr(name);
+    }
+
+    public Attr CreateAttributeNS(string? ns, string name)
+    {
+        return new Attr(name, ns);
+    }
+
+    public Element? GetElementById(string id)
+    {
+        return FindElementById(DocumentElement, id);
+    }
+
+    public List<Element> GetElementsByTagName(string tagName)
+    {
+        var result = new List<Element>();
+        tagName = tagName.ToUpperInvariant();
+        CollectElementsByTagName(DocumentElement, tagName, result);
+        return result;
+    }
+
+    public List<Element> GetElementsByClassName(string className)
+    {
+        var result = new List<Element>();
+        CollectElementsByClassName(DocumentElement, className, result);
+        return result;
+    }
+
+    public Element? QuerySelector(string selector)
+    {
+        return QuerySelectorInternal(DocumentElement, selector);
+    }
+
+    public List<Element> QuerySelectorAll(string selector)
+    {
+        var result = new List<Element>();
+        QuerySelectorAllInternal(DocumentElement, selector, result);
+        return result;
+    }
+
+    public bool HasFocus() => true;
+
+    public Node ImportNode(Node node, bool deep = false)
+    {
+        return node.CloneNode(deep);
+    }
+
+    public Node AdoptNode(Node node)
+    {
+        node.Remove();
+        node.OwnerDocument = this;
+        return node;
+    }
+
+    public Range CreateRange() => new();
+
+    public void ParseHtml(string source)
+    {
+        ReadyState = "loading";
+        ContentType = "text/html";
+    }
+
+    public void ParseXml(string source)
+    {
+        ReadyState = "loading";
+        ContentType = "text/xml";
+    }
+
+    // Private helpers
+    private static Element? FindElementById(Element? root, string id)
+    {
+        if (root == null) return null;
+        if (root.Id == id) return root;
+        foreach (var child in root.Children.OfType<Element>())
         {
-            AppendChild(newChild);
-            return;
+            var found = FindElementById(child, id);
+            if (found != null) return found;
         }
-        int index = Children.IndexOf(refChild);
-        if (index < 0)
-        {
-            AppendChild(newChild);
-            return;
-        }
-        if (newChild.Parent != null)
-            newChild.Parent.RemoveChild(newChild);
-        newChild.Parent = this;
-        Children.Insert(index, newChild);
+        return null;
     }
 
-    public void RemoveChild(Node child)
+    private static void CollectElementsByTagName(Element? root, string tagName, List<Element> result)
     {
-        Children.Remove(child);
-        child.Parent = null;
-    }
-
-    public T? FirstChild<T>() where T : Node => Children.FirstOrDefault() as T;
-    public IEnumerable<T> ChildrenOfType<T>() where T : Node => Children.OfType<T>();
-
-    public Node? NextSibling => Parent?.Children.ElementAtOrDefault(Parent.Children.IndexOf(this) + 1);
-    public Node? PreviousSibling => Parent?.Children.ElementAtOrDefault(Parent.Children.IndexOf(this) - 1);
-
-    public bool IsElement => this is Element;
-    public bool IsTextNode => this is TextNode;
-    public Element? ParentElement => Parent as Element;
-}
-
-public abstract class Element : Node
-{
-    public string TagName { get; set; } = string.Empty;
-    public Dictionary<string, string> Attributes { get; } = new();
-    public Dictionary<string, string> Style { get; } = new();
-    public ComputedStyle? ComputedStyle { get; set; }
-    public LayoutBox? LayoutBox { get; set; }
-    public string? NamespaceUri { get; set; }
-    public Dictionary<string, string>? BeforeStyles { get; set; }
-    public Dictionary<string, string>? AfterStyles { get; set; }
-    public bool HasGeneratedBefore { get; set; }
-    public bool HasGeneratedAfter { get; set; }
-
-    private string[]? _classList;
-    public string[] ClassList
-    {
-        get
+        if (root == null) return;
+        foreach (var child in root.Children.OfType<Element>())
         {
-            if (_classList == null)
-            {
-                var classAttr = GetAttribute("class");
-                _classList = string.IsNullOrWhiteSpace(classAttr)
-                    ? Array.Empty<string>()
-                    : classAttr.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-            }
-            return _classList;
-        }
-    }
-
-    public bool HasClass(string className) => ClassList.Contains(className);
-
-    public Element(string tagName) : base(tagName.ToUpperInvariant())
-    {
-        TagName = tagName.ToUpperInvariant();
-    }
-
-    public override NodeType NodeType => NodeType.Element;
-    public override string NodeName => TagName;
-
-    public string? GetAttribute(string name) => Attributes.GetValueOrDefault(name);
-    public bool HasAttribute(string name) => Attributes.ContainsKey(name);
-    public void SetAttribute(string name, string value) => Attributes[name] = value;
-    public void RemoveAttribute(string name) => Attributes.Remove(name);
-
-    public string? Id
-    {
-        get => GetAttribute("id");
-        set => Attributes["id"] = value ?? string.Empty;
-    }
-
-    public string? ClassName
-    {
-        get => GetAttribute("class");
-        set
-        {
-            Attributes["class"] = value ?? string.Empty;
-            _classList = null;
-        }
-    }
-
-    public string? Src => GetAttribute("src");
-    public string? Href => GetAttribute("href");
-    public string? StyleAttr => GetAttribute("style");
-    public string? Alt => GetAttribute("alt");
-    public string? Type => GetAttribute("type");
-    private string? _value;
-    public string? Value
-    {
-        get => _value ??= GetAttribute("value");
-        set
-        {
-            _value = value;
-            Attributes["value"] = value ?? "";
-        }
-    }
-    public string? Name => GetAttribute("name");
-    public string? InputType => GetAttribute("type");
-    public bool IsFormElement => TagName is "INPUT" or "TEXTAREA" or "SELECT" or "BUTTON";
-
-    public int SelectionStart { get; set; }
-    public int SelectionEnd { get; set; }
-    public bool IsFocused { get; set; }
-    public bool IsHovered { get; set; }
-
-    // ===== 新增标准 DOM 布局属性（修复问题1、2） =====
-
-    /// <summary>
-    /// 标准 DOM API: getBoundingClientRect()
-    /// 对 inline 元素聚合所有子文本片段的边界
-    /// </summary>
-    public SKRect GetBoundingClientRect()
-    {
-        if (LayoutBox != null && LayoutBox.BorderBox.Width > 0 && LayoutBox.BorderBox.Height > 0)
-        {
-            return LayoutBox.BorderBox;
-        }
-
-        var rect = new SKRect(0, 0, 0, 0);
-        bool first = true;
-
-        if (LayoutBox?.LineRuns != null)
-        {
-            foreach (var run in LayoutBox.LineRuns)
-            {
-                if (run.Width > 0 || run.Height > 0)
-                {
-                    var runRect = new SKRect(run.X, 0, run.X + run.Width, run.Height);
-                    rect = first ? runRect : SKRect.Union(rect, runRect);
-                    first = false;
-                }
-            }
-        }
-
-        foreach (var child in Children.OfType<Element>())
-        {
-            var childRect = child.GetBoundingClientRect();
-            if (childRect.Width > 0 || childRect.Height > 0)
-            {
-                rect = first ? childRect : SKRect.Union(rect, childRect);
-                first = false;
-            }
-        }
-
-        return rect;
-    }
-
-    /// <summary>
-    /// offsetParent: 最近的定位祖先或特殊元素
-    /// </summary>
-    public Element? OffsetParent
-    {
-        get
-        {
-            var parent = ParentElement;
-            while (parent != null)
-            {
-                var pos = parent.ComputedStyle?.Position;
-                if (pos != PositionType.Static ||
-                    parent.TagName is "TD" or "TH" or "TABLE" or "BODY")
-                    return parent;
-                parent = parent.ParentElement;
-            }
-            return null;
+            if (child.TagName == tagName)
+                result.Add(child);
+            CollectElementsByTagName(child, tagName, result);
         }
     }
 
-    /// <summary>
-    /// offsetTop: 相对于 offsetParent 的顶部偏移
-    /// </summary>
-    public float OffsetTop
+    private static void CollectElementsByClassName(Element? root, string className, List<Element> result)
     {
-        get
+        if (root == null) return;
+        foreach (var child in root.Children.OfType<Element>())
         {
-            if (LayoutBox == null) return 0;
-            var myTop = LayoutBox.BorderBox.Top;
-            var parentTop = OffsetParent?.LayoutBox?.BorderBox.Top ?? 0;
-            return myTop - parentTop;
+            if (child.HasClass(className))
+                result.Add(child);
+            CollectElementsByClassName(child, className, result);
         }
     }
 
-    /// <summary>
-    /// offsetLeft: 相对于 offsetParent 的左侧偏移
-    /// </summary>
-    public float OffsetLeft
+    private static Element? QuerySelectorInternal(Element? root, string selector)
     {
-        get
+        if (root == null) return null;
+        foreach (var child in root.Children.OfType<Element>())
         {
-            if (LayoutBox == null) return 0;
-            var myLeft = LayoutBox.BorderBox.Left;
-            var parentLeft = OffsetParent?.LayoutBox?.BorderBox.Left ?? 0;
-            return myLeft - parentLeft;
+            if (MatchesSimpleSelector(child, selector))
+                return child;
+            var found = QuerySelectorInternal(child, selector);
+            if (found != null) return found;
+        }
+        return null;
+    }
+
+    private static void QuerySelectorAllInternal(Element? root, string selector, List<Element> result)
+    {
+        if (root == null) return;
+        foreach (var child in root.Children.OfType<Element>())
+        {
+            if (MatchesSimpleSelector(child, selector))
+                result.Add(child);
+            QuerySelectorAllInternal(child, selector, result);
         }
     }
 
-    /// <summary>
-    /// offsetWidth: 包含 border + padding + content
-    /// </summary>
-    public float OffsetWidth => LayoutBox?.BorderBox.Width ?? 0;
-
-    /// <summary>
-    /// offsetHeight: 包含 border + padding + content
-    /// </summary>
-    public float OffsetHeight => LayoutBox?.BorderBox.Height ?? 0;
-
-    /// <summary>
-    /// clientWidth: 包含 padding + content (不含 border)
-    /// </summary>
-    public float ClientWidth => LayoutBox?.PaddingBox.Width ?? 0;
-
-    /// <summary>
-    /// clientHeight: 包含 padding + content (不含 border)
-    /// </summary>
-    public float ClientHeight => LayoutBox?.PaddingBox.Height ?? 0;
-
-    /// <summary>
-    /// scrollWidth/Height: 内容溢出尺寸
-    /// </summary>
-    public float ScrollWidth => Math.Max(ClientWidth, LayoutBox?.ContentBox.Width ?? 0);
-    public float ScrollHeight => Math.Max(ClientHeight, LayoutBox?.ContentBox.Height ?? 0);
-}
-
-public class TextNode : Node
-{
-    private string _text;
-
-    public TextNode(string text) : base("#text")
+    private static bool MatchesSimpleSelector(Element el, string selector)
     {
-        _text = text;
+        selector = selector.Trim();
+        if (selector.StartsWith('#'))
+            return el.Id == selector[1..];
+        if (selector.StartsWith('.'))
+            return el.HasClass(selector[1..]);
+        return el.TagName.Equals(selector, StringComparison.OrdinalIgnoreCase);
     }
-
-    public override NodeType NodeType => NodeType.Text;
-    public override string NodeName => "#text";
-    public override string? TextContent => _text;
-
-    public string Data
-    {
-        get => _text;
-        set => _text = value;
-    }
-
-    public bool IsWhitespaceOnly => string.IsNullOrWhiteSpace(_text);
-}
-
-public class CommentNode : Node
-{
-    private readonly string _data;
-
-    public CommentNode(string data) : base("#comment")
-    {
-        _data = data;
-    }
-
-    public override NodeType NodeType => NodeType.Comment;
-    public override string NodeName => "#comment";
-    public override string? TextContent => _data;
-}
-
-public class DocumentTypeNode : Node
-{
-    public string? PublicId { get; }
-    public string? SystemId { get; }
-
-    public DocumentTypeNode(string? publicId = null, string? systemId = null) : base("#document-type")
-    {
-        PublicId = publicId;
-        SystemId = systemId;
-    }
-
-    public override NodeType NodeType => NodeType.DocumentType;
-    public override string NodeName => "DOCTYPE";
-}
-
-public class DocumentFragment : Node
-{
-    public DocumentFragment() : base("#document-fragment") { }
-
-    public override NodeType NodeType => NodeType.Document;
-    public override string NodeName => "#document-fragment";
 }

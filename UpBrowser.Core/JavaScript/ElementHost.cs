@@ -5,7 +5,7 @@ namespace UpBrowser.Core.JavaScript;
 public class ElementHost
 {
     private readonly Element _element;
-    private StyleHost? _styleHost;
+    private CssStyleDeclaration? _styleHost;
     private readonly Dictionary<string, List<int>> _eventCallbackIds = new();
 
     public ElementHost(Element element)
@@ -61,7 +61,7 @@ public class ElementHost
 
     public string? outerHTML => BuildOuterHtml();
 
-    public StyleHost style => _styleHost ??= new StyleHost(_element);
+    public CssStyleDeclaration style => _styleHost ??= new CssStyleDeclaration(_element);
 
     public string? value
     {
