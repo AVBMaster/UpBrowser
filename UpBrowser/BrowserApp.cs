@@ -11,6 +11,7 @@ using UpBrowser.Core.Performance;
 using UpBrowser.Core.Performance.Diagnostics;
 using UpBrowser.Core.Performance.Memory;
 using UpBrowser.Core.Performance.Rendering;
+using UpBrowser.Core.Performance.Resources;
 using UpBrowser.Core.Performance.Scheduling;
 using UpBrowser.Platform;
 using UpBrowser.Rendering;
@@ -29,6 +30,7 @@ public class BrowserApp : IDisposable
     private readonly LayoutEngine _layout = new();
     private readonly JavaScriptEngine _jsEngine;
     private readonly EventLoop _eventLoop;
+    private readonly UpBrowser.Core.Performance.Resources.StreamingHttpFetcher _httpFetcher = new();
     private readonly float _dpiScale;
     private readonly float _contentOffset;
 
@@ -37,6 +39,10 @@ public class BrowserApp : IDisposable
     private DisplayList _displayList = new();
     private float _lastLayoutWidth;
     private string _currentHtml = "";
+
+    // Performance-integrated layout engine (wraps the regular LayoutEngine with
+    // LayoutCache + DirtyFlags so clean subtrees can skip work).
+    private IncrementalLayoutEngine? _incrementalLayout;
 
     private int _lastWindowWidth;
     private int _lastWindowHeight;
@@ -681,9 +687,14 @@ public class BrowserApp : IDisposable
 
             try
             {
-                using var client = new HttpClient();
-                client.Timeout = TimeSpan.FromSeconds(10);
-                var code = client.GetStringAsync(absoluteUrl).GetAwaiter().GetResult();
+                var resp = _httpFetcher.FetchAsync(new ResourceRequest
+                {
+                    Url = absoluteUrl,
+                    Kind = ResourceKind.Script,
+                    Priority = ResourcePriority.High,
+                    Timeout = TimeSpan.FromSeconds(10),
+                }).GetAwaiter().GetResult();
+                var code = System.Text.Encoding.UTF8.GetString(resp.Body);
                 _jsEngine.Execute(code);
             }
             catch (Exception ex)
@@ -718,9 +729,14 @@ public class BrowserApp : IDisposable
                         return;
                     }
 
-                    using var client = new HttpClient();
-                    client.Timeout = TimeSpan.FromSeconds(10);
-                    code = await client.GetStringAsync(absoluteUrl);
+                    var resp = await _httpFetcher.FetchAsync(new ResourceRequest
+                    {
+                        Url = absoluteUrl,
+                        Kind = ResourceKind.Script,
+                        Priority = ResourcePriority.High,
+                        Timeout = TimeSpan.FromSeconds(10),
+                    });
+                    code = System.Text.Encoding.UTF8.GetString(resp.Body);
                 }
                 else
                 {
@@ -773,19 +789,26 @@ public class BrowserApp : IDisposable
         {
             try
             {
-                using var httpClient = new HttpClient();
-                httpClient.Timeout = TimeSpan.FromSeconds(30);
-                httpClient.DefaultRequestHeaders.Add("User-Agent",
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36");
-                httpClient.DefaultRequestHeaders.Add("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8");
-                httpClient.DefaultRequestHeaders.Add("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8");
+                var request = new ResourceRequest
+                {
+                    Url = url,
+                    Kind = ResourceKind.Document,
+                    Priority = ResourcePriority.VeryHigh,
+                    Timeout = TimeSpan.FromSeconds(30),
+                    Headers = new Dictionary<string, string>
+                    {
+                        ["User-Agent"] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36",
+                        ["Accept"] = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                        ["Accept-Language"] = "zh-CN,zh;q=0.9,en;q=0.8",
+                    },
+                };
+                var response = await _httpFetcher.FetchAsync(request);
 
-                var response = await httpClient.GetAsync(url);
-                response.EnsureSuccessStatusCode();
-                var webHtml = await response.Content.ReadAsStringAsync();
+                if (response.StatusCode < 200 || response.StatusCode >= 300)
+                    throw new HttpRequestException($"HTTP {response.StatusCode}");
 
-                // Use final URL after any redirects as the base URL for relative links
-                var finalUrl = response.RequestMessage?.RequestUri?.ToString() ?? url;
+                var webHtml = System.Text.Encoding.UTF8.GetString(response.Body);
+                var finalUrl = response.FinalUrl ?? url;
 
                 _eventLoop.PostTask(() =>
                 {
@@ -1016,17 +1039,25 @@ public class BrowserApp : IDisposable
 
     private void BuildDisplayListImpl(float windowWidth, float windowHeight)
     {
-        // Mark all elements as needing layout when the viewport size has changed,
-        // so the LayoutEngine's incremental path doesn't accidentally skip work.
-        if (_perfHub is null || !_perfHub.Enabled || _layoutCache is null)
+        // Route layout through the incremental engine when the hub is enabled.
+        // The incremental engine consults LayoutCache + DirtyFlags and skips
+        // clean subtrees, which is the main win on small JS-driven DOM updates.
+        if (_perfHub is { Enabled: true } && _incrementalLayout is { } incLayout)
         {
-            _layout.Layout(_currentLoad.Document, windowWidth, windowHeight);
+            // When the viewport size changes we need a full re-layout. Bumping
+            // the layout version invalidates the cache for all nodes that don't
+            // already carry a dirty flag.
+            DirtyState.BumpLayoutVersion(_currentLoad.Document.DocumentElement ?? _currentLoad.Document.Body!);
+            incLayout.Layout(_currentLoad.Document, windowWidth, windowHeight, _dpiScale, 16f);
+
+            // Surface incremental stats to the dev tools feed.
+            _perfHub.Registry.Feed.Append("layout",
+                $"skipped={incLayout.Stats.NodesSkipped} relaid={incLayout.Stats.NodesReLaid} " +
+                $"hit={incLayout.Stats.CacheHits} miss={incLayout.Stats.CacheMisses} " +
+                $"{incLayout.Stats.ElapsedMillis:F2}ms");
         }
         else
         {
-            // Bump layout version of the root → forces re-layout of all nodes that
-            // haven't been marked dirty (their cached LayoutBox is reused).
-            DirtyState.BumpLayoutVersion(_currentLoad.Document.DocumentElement ?? _currentLoad.Document.Body!);
             _layout.Layout(_currentLoad.Document, windowWidth, windowHeight);
         }
 
@@ -1105,6 +1136,25 @@ public class BrowserApp : IDisposable
         bool sizeChanged = windowWidth != _lastWindowWidth || windowHeight != _lastWindowHeight;
         bool scrollChanged = Math.Abs(_scroll.ScrollX - _lastScrollX) > 0.5f ||
                              Math.Abs(_scroll.ScrollY - _lastScrollY) > 0.5f;
+
+        // Scroll velocity = (Δscroll / Δt) in pixels/second. We feed the result
+        // into the predictive tile scheduler so the compositor can pre-rasterise
+        // tiles in the direction of travel. The velocity is decayed each frame
+        // so the prediction window naturally narrows when the user stops
+        // scrolling.
+        if (scrollChanged && dt > 0.0001)
+        {
+            float vx = (_scroll.ScrollX - _lastScrollX) / (float)dt * 1000f;
+            float vy = (_scroll.ScrollY - _lastScrollY) / (float)dt * 1000f;
+            _skiaRenderer.ReportScrollVelocity(vx, vy);
+        }
+        else
+        {
+            // Apply a gentle decay so the predictor stops firing when the user
+            // is idle. We multiply by 0.5 per frame, which means the velocity
+            // signal is effectively zero after ~5 frames (~80 ms at 60 fps).
+            _skiaRenderer.ReportScrollVelocity(0, 0);
+        }
 
         bool inputRecently = Environment.TickCount64 - _lastInputTimeTick < InputCooldownMs;
 
@@ -1311,6 +1361,7 @@ public class BrowserApp : IDisposable
                         detailsParent.RemoveAttribute("open");
                     else
                         detailsParent.SetAttribute("open", "");
+                    MarkSubtreeDirty((UpBrowser.Core.Dom.Element)detailsParent, DirtyFlags.AllLayout);
                     _pendingRelayout = true;
                     return;
                 }
@@ -1968,8 +2019,13 @@ public class BrowserApp : IDisposable
         _sharedStyleCache = _perfHub.StyleCache;
         _layoutCache = _perfHub.LayoutCache;
 
+        // Wrap the regular LayoutEngine with the incremental engine so clean
+        // subtrees can be skipped on subsequent passes.
+        _incrementalLayout = new IncrementalLayoutEngine(_layout, _layoutCache);
+
         // 2GB soft budget for the process; can be tuned via config later.
-        _perfHub.Initialize(new MemoryBudget(2L * 1024 * 1024 * 1024));
+        var memoryBudget = new MemoryBudget(2L * 1024 * 1024 * 1024);
+        _perfHub.Initialize(memoryBudget);
 
         // Wire the long-task observer so we record any operation that exceeds
         // 50 ms in the central metrics. The hub will automatically push the
@@ -1985,7 +2041,27 @@ public class BrowserApp : IDisposable
         // shrinks caches to free pages.
         _perfHub.Registry.MemoryPressure.Register(_perfHub.AggregateResponder);
 
-        Console.WriteLine("[PerfHub] Initialized. Style cache, layout cache, scheduler, long-task observer active.");
+        // Make the image cache's decoded pool obey memory pressure
+        if (_sharedImageCache is { } img)
+        {
+            _perfHub.Registry.MemoryPressure.Register(new ImagePoolPressureAdapter(img.DecodedPool));
+        }
+
+        // Route the tile compositor through the performance hub so its cache
+        // uses the shared tile manager, the predictive scheduler pre-rasterises
+        // tiles in the direction of scroll, and the memory budget caps the
+        // tile byte total. The compositor is rebuilt inside AttachPerformanceHub
+        // so it picks up these references on the next frame.
+        try
+        {
+            _skiaRenderer.AttachPerformanceHub(_perfHub, memoryBudget);
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[PerfHub] Compositor attach failed: {ex.Message}");
+        }
+
+        Console.WriteLine("[PerfHub] Initialized. Style cache, layout cache, scheduler, long-task observer, tile compositor active.");
     }
 
     private void ShutdownPerformanceHub()
@@ -2046,4 +2122,44 @@ public class BrowserApp : IDisposable
     public string GetPerformanceSnapshot() => _perfHub?.Api.Snapshot() ?? "{}";
 
     #endregion
+}
+
+/// <summary>
+/// Memory responder that shrinks the decoded-image pool in proportion to the
+/// reported pressure level. Wired in <see cref="BrowserApp.InitializePerformanceHub"/>.
+/// </summary>
+internal sealed class ImagePoolPressureAdapter : UpBrowser.Core.Performance.Memory.MemoryResponder
+{
+    private readonly UpBrowser.Core.Performance.Resources.DecodedImagePool _pool;
+    private long _originalCapacity;
+
+    public ImagePoolPressureAdapter(UpBrowser.Core.Performance.Resources.DecodedImagePool pool)
+    {
+        _pool = pool;
+        _originalCapacity = pool.CapacityBytes;
+    }
+
+    public override string Name => "image-pool";
+
+    public override void OnMemoryPressure(UpBrowser.Core.Performance.Memory.MemoryPressureLevel level)
+    {
+        long factor = level switch
+        {
+            UpBrowser.Core.Performance.Memory.MemoryPressureLevel.Critical => 4,
+            UpBrowser.Core.Performance.Memory.MemoryPressureLevel.High => 2,
+            UpBrowser.Core.Performance.Memory.MemoryPressureLevel.Moderate => 1,
+            _ => 0,
+        };
+        if (factor == 0) return;
+        long target = Math.Max(1L * 1024 * 1024, _originalCapacity / factor);
+        _pool.SetCapacity(target);
+    }
+
+    public override void OnMemoryRelease(UpBrowser.Core.Performance.Memory.MemoryPressureLevel level)
+    {
+        if (level <= UpBrowser.Core.Performance.Memory.MemoryPressureLevel.Moderate)
+        {
+            _pool.SetCapacity(_originalCapacity);
+        }
+    }
 }

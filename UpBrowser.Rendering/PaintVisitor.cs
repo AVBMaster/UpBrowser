@@ -2,6 +2,8 @@ using SkiaSharp;
 using UpBrowser.Core.Dom;
 using UpBrowser.Core.Layout;
 using UpBrowser.Core.Css;
+using UpBrowser.Core.Performance;
+using UpBrowser.Core.Performance.Resources;
 using System.Text;
 
 namespace UpBrowser.Rendering;
@@ -1616,10 +1618,38 @@ public class ImageCache
     private readonly object _lock = new();
     private const int MaxCacheSize = 200;
 
+    // Performance-integrated storage layers:
+    //  - DecodedImagePool: byte-budgeted LRU of decoded SKImages (the hot path)
+    //  - ResourceCache:    byte-budgeted LRU of raw HTTP bodies (re-decode source)
+    //  - StreamingHttpFetcher: priority-aware HTTP client with inflight dedup
+    private readonly DecodedImagePool _decodedPool = new();
+    private readonly ResourceCache _resourceCache = new();
+    private readonly StreamingHttpFetcher _fetcher;
+
+    public DecodedImagePool DecodedPool => _decodedPool;
+    public ResourceCache ResourceCache => _resourceCache;
+    public StreamingHttpFetcher Fetcher => _fetcher;
+
+    public ImageCache()
+    {
+        _decodedPool.SetCapacity(64L * 1024 * 1024); // 64 MB decoded budget
+        _resourceCache.SetCapacity(32L * 1024 * 1024); // 32 MB raw body budget
+        _fetcher = new StreamingHttpFetcher(_httpClient, _resourceCache, new PriorityResourceQueue());
+    }
+
     public async Task<SKImage?> GetImageAsync(string url)
     {
         if (string.IsNullOrEmpty(url)) return null;
 
+        // Hot path: decoded pool hit
+        var pooled = _decodedPool.Get(url);
+        if (pooled != null)
+        {
+            PipelineTimings.ImageCacheHits.AddSample(1);
+            return pooled;
+        }
+
+        // Fallback: legacy dictionary cache hit (kept for stability)
         SKImage? cachedImage = null;
         Task<SKImage?>? pendingTask = null;
 
@@ -1637,7 +1667,12 @@ public class ImageCache
             }
         }
 
-        if (cachedImage != null) return cachedImage;
+        if (cachedImage != null)
+        {
+            // Promote into the byte-budgeted pool
+            _decodedPool.Put(url, cachedImage, cachedImage.Width, cachedImage.Height);
+            return cachedImage;
+        }
         if (pendingTask == null) return null;
 
         try
@@ -1651,6 +1686,10 @@ public class ImageCache
                     _cache[url] = image;
                     _accessOrder.AddFirst(url);
                     EvictIfNeeded();
+
+                    // Promote into the byte-budgeted pool with actual decoded size
+                    _decodedPool.Put(url, image, image.Width, image.Height);
+                    PipelineTimings.ImagesDecoded.AddSample(1);
                 }
             }
             return image;
@@ -1664,6 +1703,7 @@ public class ImageCache
 
     private async Task<SKImage?> LoadImageAsync(string url)
     {
+        var sw = Clock.NowNanos();
         try
         {
             if (!url.StartsWith("http://") && !url.StartsWith("https://"))
@@ -1672,15 +1712,36 @@ public class ImageCache
                 if (ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".gif" || ext == ".webp" || ext == ".bmp" || ext == ".ico")
                 {
                     var data = await File.ReadAllBytesAsync(url);
+                    PipelineTimings.ImageDecode.AddSample(Clock.NowNanos() - sw);
                     return SKImage.FromEncodedData(data);
                 }
                 return null;
             }
             else
             {
-                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
-                var bytes = await _httpClient.GetByteArrayAsync(url, cts.Token);
-                return SKImage.FromEncodedData(bytes);
+                // Fast path: check the resource cache for the raw body first
+                ResourceResponse? resp = null;
+                if (_resourceCache.TryGet(url, out resp) && resp != null)
+                {
+                    PipelineTimings.ResourceCacheHits.AddSample(1);
+                    PipelineTimings.ImageDecode.AddSample(Clock.NowNanos() - sw);
+                    return SKImage.FromEncodedData(resp.Body);
+                }
+
+                // Slow path: go through the streaming fetcher (which also caches)
+                var request = new ResourceRequest
+                {
+                    Url = url,
+                    Kind = ResourceKind.Image,
+                    Priority = ResourcePriority.Medium,
+                };
+                var fetched = await _fetcher.FetchAsync(request);
+                if (fetched.Body != null && fetched.Body.Length > 0)
+                {
+                    PipelineTimings.ImageDecode.AddSample(Clock.NowNanos() - sw);
+                    return SKImage.FromEncodedData(fetched.Body);
+                }
+                return null;
             }
         }
         catch
@@ -1711,5 +1772,8 @@ public class ImageCache
             _cache.Clear();
             _accessOrder.Clear();
         }
+        _decodedPool.Clear();
+        _resourceCache.Clear();
     }
+
 }

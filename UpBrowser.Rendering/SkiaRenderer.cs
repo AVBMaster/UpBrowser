@@ -25,8 +25,21 @@ public class SkiaRenderer : IDisposable
     private SKPicture? _cachedPicture;
     private bool _pictureDirty = true;
 
+    private TiledCompositor? _tiledCompositor;
+    private bool _useTileCompositor;
+
     private DirtyRegionManager? _dirtyManager;
     private bool _useDirtyRegions;
+
+    // Performance-hub integration (optional). When set, the compositor routes its
+    // tile state and predictive pre-raster work through the shared infrastructure
+    // and reports its byte usage to the memory pressure monitor.
+    private UpBrowser.Core.Performance.PerformanceHub? _perfHub;
+    private UpBrowser.Core.Performance.Memory.MemoryBudget? _memoryBudget;
+    private long _lastMemoryReportNanos;
+    private float _lastScrollVx;
+    private float _lastScrollVy;
+    private long _lastScrollVelocityNanos;
 
     // OpenGL context for GPU backend
     private IntPtr _glDummyWindow;
@@ -63,6 +76,7 @@ public class SkiaRenderer : IDisposable
     public int PhysicalHeight => (int)(_height * _dpiScale);
     public bool UseGpu => _useGpu;
     public bool IsPageCacheValid => !_pictureDirty && _cachedPicture != null;
+    public TiledCompositor? Compositor => _tiledCompositor;
     public RenderingSettings? Settings
     {
         get => _settings;
@@ -95,6 +109,21 @@ public class SkiaRenderer : IDisposable
         {
             _cachedPicture?.Dispose();
             _cachedPicture = null;
+        }
+
+        _useTileCompositor = _settings.TileCompositor;
+        if (_useTileCompositor)
+        {
+            if (_tiledCompositor == null || _tiledCompositor.TileSize != _settings.TileSize)
+            {
+                _tiledCompositor?.Dispose();
+                _tiledCompositor = BuildCompositor(_settings);
+            }
+        }
+        else
+        {
+            _tiledCompositor?.Dispose();
+            _tiledCompositor = null;
         }
 
         // Invalidate page cache on any setting change that affects rendering
@@ -367,11 +396,59 @@ public class SkiaRenderer : IDisposable
     public void SetDisplayList(DisplayList displayList)
     {
         _currentDisplayList = displayList;
+        _tiledCompositor?.SetDisplayList(displayList);
+    }
+
+    /// <summary>
+    /// Optional integration with the shared performance hub. When set, the
+    /// tile compositor routes its tile-state through <c>hub.Tiles</c>, the
+    /// predictive pre-raster work through <c>hub.PredictiveScheduler</c>, and
+    /// its byte budget through <paramref name="memoryBudget"/>.
+    /// </summary>
+    public void AttachPerformanceHub(
+        UpBrowser.Core.Performance.PerformanceHub hub,
+        UpBrowser.Core.Performance.Memory.MemoryBudget? memoryBudget = null)
+    {
+        _perfHub = hub ?? throw new ArgumentNullException(nameof(hub));
+        _memoryBudget = memoryBudget;
+        if (_tiledCompositor != null)
+        {
+            _tiledCompositor.Dispose();
+            _tiledCompositor = BuildCompositor(_settings);
+        }
+    }
+
+    /// <summary>
+    /// Update the compositor's notion of scroll velocity. The compositor feeds the
+    /// vector into the predictive tile scheduler so tiles in the direction of
+    /// travel are pre-rasterised while the user is still scrolling.
+    /// </summary>
+    public void ReportScrollVelocity(float vx, float vy)
+    {
+        _lastScrollVx = vx;
+        _lastScrollVy = vy;
+        _lastScrollVelocityNanos = Clock.NowNanos();
+        _tiledCompositor?.UpdateScrollVelocity(vx, vy);
+    }
+
+    /// <summary>
+    /// Invalidate a page-space rectangle. The compositor drops only the tiles
+    /// that intersect this rect, so unaffected tiles (e.g. stable chrome, off-
+    /// screen content) stay cached.
+    /// </summary>
+    public void InvalidatePageRect(SKRect pageRect)
+    {
+        _pictureDirty = true;
+        if (_tiledCompositor != null)
+            _tiledCompositor.InvalidateRect(pageRect);
+        if (_dirtyManager != null && _useDirtyRegions)
+            _dirtyManager.Invalidate(pageRect);
     }
 
     public void InvalidatePageCache()
     {
         _pictureDirty = true;
+        _tiledCompositor?.InvalidateAll();
     }
 
     public void Invalidate(SKRect rect)
@@ -379,6 +456,13 @@ public class SkiaRenderer : IDisposable
         if (_dirtyManager != null && _useDirtyRegions)
             _dirtyManager.Invalidate(rect);
         _pictureDirty = true;
+        if (_tiledCompositor != null)
+        {
+            // Invalidate the tile grid only for tiles that intersect the dirty
+            // rect.  In page-space coordinates the caller has already given us
+            // a page rect, so we forward directly.
+            _tiledCompositor.InvalidateRect(rect);
+        }
     }
 
     public void InvalidateFull()
@@ -386,6 +470,7 @@ public class SkiaRenderer : IDisposable
         if (_dirtyManager != null)
             _dirtyManager.Invalidate(new SKRect(0, 0, _width, _height));
         _pictureDirty = true;
+        _tiledCompositor?.InvalidateAll();
     }
 
     public void Render(DisplayList displayList)
@@ -445,7 +530,6 @@ public class SkiaRenderer : IDisposable
         Canvas.ClipRect(new SKRect(0, contentOffsetY, viewportWidth, contentOffsetY + viewportHeight));
 
         // Apply resolution scale only to page content, anchored at content origin
-        // Scale then translate to keep content aligned with chrome bottom
         Canvas.Scale(resScale, resScale);
         Canvas.Translate(0, contentOffsetY * (1f / resScale - 1f));
         Canvas.Translate(-scrollX, -scrollY);
@@ -471,6 +555,45 @@ public class SkiaRenderer : IDisposable
         Canvas.Restore();
 
         PipelineTimings.Composite.AddSample(Clock.NowNanos() - sw);
+        ReportMemoryUsage();
+    }
+
+    private void ReportMemoryUsage()
+    {
+        if (_perfHub == null) return;
+        long now = Clock.NowNanos();
+        if (now - _lastMemoryReportNanos < Clock.NanosToMillis(250) * 1_000_000L) return;
+        _lastMemoryReportNanos = now;
+        long tileBytes = _tiledCompositor?.CachedBytes ?? 0;
+        // We piggy-back on the pressure monitor's "current bytes" so the budget
+        // responder can react to tile cache pressure. The full managed-bytes
+        // report happens elsewhere; this is a tile-only signal.
+        _perfHub.Registry.MemoryPressure.ReportUsage(tileBytes);
+    }
+
+    /// <summary>
+    /// Build a tile compositor with the current settings. Wires the optional
+    /// PerformanceHub integration so the cache can use the shared tile manager
+    /// and predictive scheduler.
+    /// </summary>
+    private TiledCompositor BuildCompositor(RenderingSettings? settings)
+    {
+        int tileSize = settings?.TileSize ?? TiledCompositor.DefaultTileSize;
+        int overscanRings = settings?.OverscanRings ?? 1;
+        bool adaptive = settings?.AdaptiveTileSize ?? false;
+        bool record = settings?.CompositorRecording ?? false;
+        var dl = _currentDisplayList;
+        return new TiledCompositor(
+            tileSize: tileSize,
+            overscanRings: overscanRings,
+            adaptiveTileSize: adaptive,
+            minTileSize: 128,
+            maxTileSize: Math.Max(tileSize, 1024),
+            recordCommands: record,
+            displayList: dl,
+            hubTiles: _perfHub?.Tiles,
+            hubPredictor: _perfHub?.PredictiveScheduler,
+            memoryBudget: _memoryBudget);
     }
 
     private void CacheAndDrawPicture(DisplayList displayList)

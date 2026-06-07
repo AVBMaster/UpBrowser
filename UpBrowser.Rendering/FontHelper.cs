@@ -44,7 +44,7 @@ public static class FontHelper
         return new SKFont(typeface, textSize)
         {
             Hinting = SKFontHinting.Normal,
-            Edging = SKFontEdging.Antialias,
+            Edging = SKFontEdging.SubpixelAntialias,
             Subpixel = true,
             LinearMetrics = true,
             Embolden = false,
@@ -59,7 +59,7 @@ public static class FontHelper
         return new SKFont(typeface, textSize)
         {
             Hinting = SKFontHinting.Normal,
-            Edging = SKFontEdging.Antialias,
+            Edging = SKFontEdging.SubpixelAntialias,
             Subpixel = true,
             LinearMetrics = true
         };
@@ -77,7 +77,8 @@ public static class FontHelper
         return new SKFont(_defaultTypeface ?? SKTypeface.Default, textSize)
         {
             Hinting = SKFontHinting.Normal,
-            Edging = SKFontEdging.Antialias
+            Edging = SKFontEdging.SubpixelAntialias,
+            Subpixel = true,
         };
     }
 
@@ -93,7 +94,8 @@ public static class FontHelper
         return new SKFont(_chineseTypeface ?? _defaultTypeface ?? SKTypeface.Default, textSize)
         {
             Hinting = SKFontHinting.Normal,
-            Edging = SKFontEdging.Antialias
+            Edging = SKFontEdging.SubpixelAntialias,
+            Subpixel = true,
         };
     }
 
@@ -133,7 +135,8 @@ public static class FontHelper
         return new SKFont(_emojiTypeface ?? _defaultTypeface ?? SKTypeface.Default, textSize)
         {
             Hinting = SKFontHinting.Normal,
-            Edging = SKFontEdging.Antialias
+            Edging = SKFontEdging.SubpixelAntialias,
+            Subpixel = true,
         };
     }
 

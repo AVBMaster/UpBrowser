@@ -117,6 +117,22 @@ public sealed class TimingAccumulator
 }
 
 /// <summary>
+/// Lightweight monotonic counter for events-per-frame metrics (tiles, images, etc).
+/// </summary>
+public sealed class CounterAccumulator
+{
+    private long _value;
+
+    public long Value => Interlocked.Read(ref _value);
+
+    public void AddSample(long delta) => Interlocked.Add(ref _value, delta);
+
+    public void Set(long value) => Interlocked.Exchange(ref _value, value);
+
+    public void Reset() => Interlocked.Exchange(ref _value, 0);
+}
+
+/// <summary>
 /// Centralised timing probes for the major rendering pipeline phases.
 /// Use <see cref="Start"/> / <see cref="End"/> pairs in production code; the static fields
 /// here are read by diagnostics UIs.
@@ -132,6 +148,12 @@ public static class PipelineTimings
     public static readonly TimingAccumulator TileRaster = new();
     public static readonly TimingAccumulator NetworkWait = new();
 
+    public static readonly CounterAccumulator TilesRasterized = new();
+    public static readonly CounterAccumulator TilesReused = new();
+    public static readonly CounterAccumulator ImagesDecoded = new();
+    public static readonly CounterAccumulator ImageCacheHits = new();
+    public static readonly CounterAccumulator ResourceCacheHits = new();
+
     public static void ResetAll()
     {
         Style.Reset();
@@ -142,5 +164,10 @@ public static class PipelineTimings
         ImageDecode.Reset();
         TileRaster.Reset();
         NetworkWait.Reset();
+        TilesRasterized.Reset();
+        TilesReused.Reset();
+        ImagesDecoded.Reset();
+        ImageCacheHits.Reset();
+        ResourceCacheHits.Reset();
     }
 }

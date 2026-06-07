@@ -31,6 +31,12 @@ public class RenderingSettings
     private AntiAliasMode _antiAliasing = AntiAliasMode.Normal;
     private bool _dirtyRegions = true;
     private bool _pictureCaching = true;
+    private bool _tileCompositor = true;
+    private int _tileSize = TiledCompositor.DefaultTileSize;
+    private int _overscanRings = 0;
+    private bool _adaptiveTileSize;
+    private bool _predictiveRasterization = true;
+    private bool _compositorRecording;
     private bool _smoothScrolling;
     private float _resolutionScale = 1.0f;
     private bool _showFps;
@@ -136,6 +142,113 @@ public class RenderingSettings
         }
     }
 
+    public bool TileCompositor
+    {
+        get => _tileCompositor;
+        set
+        {
+            if (_tileCompositor != value)
+            {
+                _tileCompositor = value;
+                _preset = PerformancePreset.Custom;
+                NotifyChanged();
+            }
+        }
+    }
+
+    public int TileSize
+    {
+        get => _tileSize;
+        set
+        {
+            var clamped = Math.Clamp(value, 64, 2048);
+            if (_tileSize != clamped)
+            {
+                _tileSize = clamped;
+                _preset = PerformancePreset.Custom;
+                NotifyChanged();
+            }
+        }
+    }
+
+    /// <summary>
+    /// How many tile-rings around the viewport the compositor should pre-rasterise
+    /// in the background. 0 disables overscan, 1 is the default (one tile in every
+    /// direction), 4 is the maximum. Each ring costs O(8n) tiles in memory.
+    /// </summary>
+    public int OverscanRings
+    {
+        get => _overscanRings;
+        set
+        {
+            var clamped = Math.Clamp(value, 0, 4);
+            if (_overscanRings != clamped)
+            {
+                _overscanRings = clamped;
+                _preset = PerformancePreset.Custom;
+                NotifyChanged();
+            }
+        }
+    }
+
+    /// <summary>
+    /// When the page is small (single-screen), drop the tile size; when it's
+    /// large, raise it. The compositor picks between <see cref="MinAdaptiveTileSize"/>
+    /// and <see cref="MaxAdaptiveTileSize"/> based on the page's reported
+    /// bounding rect. Default: false.
+    /// </summary>
+    public bool AdaptiveTileSize
+    {
+        get => _adaptiveTileSize;
+        set
+        {
+            if (_adaptiveTileSize != value)
+            {
+                _adaptiveTileSize = value;
+                _preset = PerformancePreset.Custom;
+                NotifyChanged();
+            }
+        }
+    }
+
+    /// <summary>
+    /// Track scroll velocity and pre-rasterise tiles in the direction of travel.
+    /// Significantly reduces checkerboarding on fast scrolls.
+    /// </summary>
+    public bool PredictiveRasterization
+    {
+        get => _predictiveRasterization;
+        set
+        {
+            if (_predictiveRasterization != value)
+            {
+                _predictiveRasterization = value;
+                _preset = PerformancePreset.Custom;
+                NotifyChanged();
+            }
+        }
+    }
+
+    /// <summary>
+    /// When true, the compositor records paint operations to a
+    /// <c>CompositorDisplayList</c> as it rasterises, so subsequent dirty-rect
+    /// invalidation can replay only the affected commands. Off by default because
+    /// the recording overhead can dominate the raster work on small pages.
+    /// </summary>
+    public bool CompositorRecording
+    {
+        get => _compositorRecording;
+        set
+        {
+            if (_compositorRecording != value)
+            {
+                _compositorRecording = value;
+                _preset = PerformancePreset.Custom;
+                NotifyChanged();
+            }
+        }
+    }
+
     public bool SmoothScrolling
     {
         get => _smoothScrolling;
@@ -204,6 +317,12 @@ public class RenderingSettings
                 _antiAliasing = AntiAliasMode.None;
                 _dirtyRegions = false;
                 _pictureCaching = false;
+                _tileCompositor = true;
+                _tileSize = 256;
+                _overscanRings = 0;
+                _adaptiveTileSize = false;
+                _predictiveRasterization = false;
+                _compositorRecording = false;
                 _resolutionScale = 0.75f;
                 break;
 
@@ -214,6 +333,12 @@ public class RenderingSettings
                 _antiAliasing = AntiAliasMode.Normal;
                 _dirtyRegions = true;
                 _pictureCaching = true;
+                _tileCompositor = true;
+                _tileSize = TiledCompositor.DefaultTileSize;
+                _overscanRings = 1;
+                _adaptiveTileSize = false;
+                _predictiveRasterization = true;
+                _compositorRecording = false;
                 _resolutionScale = 1.0f;
                 break;
 
@@ -224,6 +349,12 @@ public class RenderingSettings
                 _antiAliasing = AntiAliasMode.High;
                 _dirtyRegions = true;
                 _pictureCaching = true;
+                _tileCompositor = true;
+                _tileSize = TiledCompositor.DefaultTileSize;
+                _overscanRings = 2;
+                _adaptiveTileSize = true;
+                _predictiveRasterization = true;
+                _compositorRecording = true;
                 _resolutionScale = 1.0f;
                 break;
 
@@ -234,6 +365,12 @@ public class RenderingSettings
                 _antiAliasing = AntiAliasMode.Subpixel;
                 _dirtyRegions = true;
                 _pictureCaching = true;
+                _tileCompositor = true;
+                _tileSize = 1024;
+                _overscanRings = 3;
+                _adaptiveTileSize = true;
+                _predictiveRasterization = true;
+                _compositorRecording = true;
                 _resolutionScale = 1.5f;
                 break;
         }
@@ -248,6 +385,7 @@ public class RenderingSettings
     public void ToggleVsync() => VSync = !VSync;
     public void ToggleDirtyRegions() => DirtyRegions = !DirtyRegions;
     public void TogglePictureCaching() => PictureCaching = !PictureCaching;
+    public void ToggleTileCompositor() => TileCompositor = !TileCompositor;
     public void ToggleSmoothScrolling() => SmoothScrolling = !SmoothScrolling;
     public void ToggleFps() => ShowFps = !ShowFps;
 
