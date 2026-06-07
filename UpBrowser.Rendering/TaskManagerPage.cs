@@ -16,6 +16,37 @@ public struct TmRowData
     public string Status;
     public int Pid;
     public int TabIndex;
+
+    // Performance pipeline timings (milliseconds)
+    public double StyleTimingMs;
+    public double LayoutTimingMs;
+    public double PaintTimingMs;
+    public double ScriptTimingMs;
+    public double CompositeTimingMs;
+    public double ImageDecodeTimingMs;
+    public double TileRasterTimingMs;
+    public double NetworkWaitTimingMs;
+
+    // Memory breakdown
+    public double WorkingSetMB;
+    public double ManagedHeapMB;
+    public double ImageCacheMB;
+    public double TileMemoryMB;
+
+    // Rendering stats
+    public int TilesRasterized;
+    public int TilesReused;
+    public int ImagesDecoded;
+    public int ImageCacheHits;
+    public int ResourceCacheHits;
+
+    // JavaScript stats
+    public int JsHeapSizeKB;
+    public int JsCallbackCount;
+
+    // Frame timing
+    public double FrameTimeMs;
+    public double Fps;
 }
 
 public class TaskManagerPage
@@ -118,6 +149,33 @@ public class TaskManagerPage
         if (_selectedRow >= _rows.Count)
             _selectedRow = -1;
 
+        // Compute aggregated performance stats for footer
+        double totalStyleMs = 0, totalLayoutMs = 0, totalPaintMs = 0, totalScriptMs = 0;
+        double totalCompositeMs = 0, totalImageDecodeMs = 0, totalTileRasterMs = 0, totalNetworkMs = 0;
+        int totalTilesRast = 0, totalTilesReused = 0, totalImagesDecoded = 0, totalImageHits = 0, totalCacheHits = 0;
+        int totalDomNodes = 0, totalLayoutBoxes = 0;
+        double totalWsMb = 0;
+
+        foreach (var r in rows)
+        {
+            totalStyleMs += r.StyleTimingMs;
+            totalLayoutMs += r.LayoutTimingMs;
+            totalPaintMs += r.PaintTimingMs;
+            totalScriptMs += r.ScriptTimingMs;
+            totalCompositeMs += r.CompositeTimingMs;
+            totalImageDecodeMs += r.ImageDecodeTimingMs;
+            totalTileRasterMs += r.TileRasterTimingMs;
+            totalNetworkMs += r.NetworkWaitTimingMs;
+            totalTilesRast += r.TilesRasterized;
+            totalTilesReused += r.TilesReused;
+            totalImagesDecoded += r.ImagesDecoded;
+            totalImageHits += r.ImageCacheHits;
+            totalCacheHits += r.ResourceCacheHits;
+            totalDomNodes += r.DomNodes;
+            totalLayoutBoxes += r.LayoutBoxes;
+            totalWsMb += r.WorkingSetMB;
+        }
+
         float cx = windowWidth / 2;
         float cy = windowHeight / 2;
         float dlgX = cx - _dialogWidth / 2;
@@ -173,8 +231,8 @@ public class TaskManagerPage
         using (var colBg = new SKPaint { Color = new SKColor(248, 249, 250), Style = SKPaintStyle.Fill })
             canvas.DrawRect(dlgX, colY, _dialogWidth, _colHeaderHeight, colBg);
 
-        string[] columnNames = { "Process", "Memory", "CPU", "DOM Nodes", "Layout", "Status" };
-        float[] colStarts = { dlgX + 12, dlgX + 280, dlgX + 360, dlgX + 420, dlgX + 490, dlgX + 550 };
+        string[] columnNames = { "Process", "Memory", "CPU", "DOM/Layout", "Pipeline(ms)", "Status" };
+        float[] colStarts = { dlgX + 12, dlgX + 260, dlgX + 340, dlgX + 400, dlgX + 480, dlgX + 560 };
 
         using (var colFont = new SKFont(_typeface, 11))
         using (var colPaint = new SKPaint { Color = new SKColor(95, 99, 104), IsAntialias = true })
@@ -195,11 +253,15 @@ public class TaskManagerPage
 
         using var rowFont = new SKFont(_typeface, 12);
         using var smallFont = new SKFont(_typeface, 10);
+        using var microFont = new SKFont(_typeface, 9);
         using var namePaint = new SKPaint { Color = new SKColor(32, 33, 36), IsAntialias = true };
         using var detailPaint = new SKPaint { Color = new SKColor(95, 99, 104), IsAntialias = true };
+        using var microPaint = new SKPaint { Color = new SKColor(120, 124, 128), IsAntialias = true };
         using var altPaint = new SKPaint { Color = new SKColor(248, 249, 250), Style = SKPaintStyle.Fill };
         using var selPaint = new SKPaint { Color = new SKColor(210, 227, 252), Style = SKPaintStyle.Fill };
         using var hovPaint = new SKPaint { Color = new SKColor(232, 240, 254), Style = SKPaintStyle.Fill };
+        using var perfBgPaint = new SKPaint { Color = new SKColor(240, 244, 255), Style = SKPaintStyle.Fill };
+        using var perfSepPaint = new SKPaint { Color = new SKColor(200, 210, 230), Style = SKPaintStyle.Fill };
 
         float yPos = contentTop - _scrollOffset;
 
@@ -225,23 +287,23 @@ public class TaskManagerPage
                 using (var dot = new SKPaint { Color = new SKColor(26, 115, 232), Style = SKPaintStyle.Fill, IsAntialias = true })
                     canvas.DrawCircle(colStarts[0] + 6, rowTop + 12, 4, dot);
 
-                string displayName = TruncateText(rowFont, row.Name, 220);
+                string displayName = TruncateText(rowFont, row.Name, 200);
                 canvas.DrawText(displayName, colStarts[0] + 16, rowTop + 14, SKTextAlign.Left, rowFont, namePaint);
 
                 if (!string.IsNullOrEmpty(row.Detail))
                 {
-                    string detail = TruncateText(smallFont, row.Detail, 220);
+                    string detail = TruncateText(smallFont, row.Detail, 200);
                     canvas.DrawText(detail, colStarts[0] + 16, rowTop + 27, SKTextAlign.Left, smallFont, detailPaint);
                 }
             }
             else
             {
-                string displayName = TruncateText(rowFont, row.Name, 220);
+                string displayName = TruncateText(rowFont, row.Name, 200);
                 canvas.DrawText(displayName, colStarts[0] + 6, rowTop + 20, SKTextAlign.Left, rowFont, namePaint);
 
                 if (!string.IsNullOrEmpty(row.Detail))
                 {
-                    string detail = TruncateText(smallFont, row.Detail, 220);
+                    string detail = TruncateText(smallFont, row.Detail, 200);
                     canvas.DrawText(detail, colStarts[0] + 6, rowTop + 30, SKTextAlign.Left, smallFont, detailPaint);
                 }
             }
@@ -249,11 +311,14 @@ public class TaskManagerPage
             canvas.DrawText(string.IsNullOrEmpty(row.Memory) ? "-" : row.Memory, colStarts[1], rowTop + 20, SKTextAlign.Left, rowFont, detailPaint);
             canvas.DrawText(string.IsNullOrEmpty(row.Cpu) ? "-" : row.Cpu, colStarts[2], rowTop + 20, SKTextAlign.Left, rowFont, detailPaint);
 
-            string domStr = row.DomNodes > 0 ? row.DomNodes.ToString() : "-";
-            canvas.DrawText(domStr, colStarts[3], rowTop + 20, SKTextAlign.Left, rowFont, detailPaint);
+            // Combined DOM/Layout
+            string nodeStr = (row.DomNodes > 0 || row.LayoutBoxes > 0) ? $"{row.DomNodes}/{row.LayoutBoxes}" : "-";
+            canvas.DrawText(nodeStr, colStarts[3], rowTop + 20, SKTextAlign.Left, rowFont, detailPaint);
 
-            string layoutStr = row.LayoutBoxes > 0 ? row.LayoutBoxes.ToString() : "-";
-            canvas.DrawText(layoutStr, colStarts[4], rowTop + 20, SKTextAlign.Left, rowFont, detailPaint);
+            // Pipeline timing summary (style + layout + paint)
+            double totalPipeMs = row.StyleTimingMs + row.LayoutTimingMs + row.PaintTimingMs;
+            string pipeStr = totalPipeMs > 0 ? $"{totalPipeMs:F1}" : "-";
+            canvas.DrawText(pipeStr, colStarts[4], rowTop + 20, SKTextAlign.Left, rowFont, detailPaint);
 
             using var statusPaint = new SKPaint
             {
@@ -261,9 +326,49 @@ public class TaskManagerPage
                 IsAntialias = true
             };
             canvas.DrawText(string.IsNullOrEmpty(row.Status) ? "-" : row.Status, colStarts[5], rowTop + 20, SKTextAlign.Left, rowFont, statusPaint);
+
+            // --- Detail performance panel for selected row ---
+            if (isSelected && row.TabIndex >= 0)
+            {
+                float detailY = rowTop + _rowHeight;
+                float detailH = 72;
+                float detailW = _dialogWidth - 4;
+                float detailX = dlgX + 2;
+
+                // Ensure detail panel fits
+                if (detailY + detailH < contentBottom)
+                {
+                    canvas.DrawRect(detailX, detailY, detailW, detailH, perfBgPaint);
+                    canvas.DrawRect(detailX, detailY, detailW, 1, perfSepPaint);
+
+                    // First line: Pipeline timings
+                    float line1Y = detailY + 14;
+                    canvas.DrawText($"Style:{row.StyleTimingMs:F1}ms  Layout:{row.LayoutTimingMs:F1}ms  Paint:{row.PaintTimingMs:F1}ms  Script:{row.ScriptTimingMs:F1}ms  Composite:{row.CompositeTimingMs:F1}ms",
+                        detailX + 8, line1Y, SKTextAlign.Left, microFont, microPaint);
+
+                    // Second line: Memory breakdown
+                    float line2Y = detailY + 28;
+                    canvas.DrawText($"WS:{row.WorkingSetMB:F0}MB  Heap:{row.ManagedHeapMB:F0}MB  Images:{row.ImageCacheMB:F0}MB  Tiles:{row.TileMemoryMB:F0}MB  ImageDecode:{row.ImageDecodeTimingMs:F1}ms  Network:{row.NetworkWaitTimingMs:F1}ms",
+                        detailX + 8, line2Y, SKTextAlign.Left, microFont, microPaint);
+
+                    // Third line: Rendering stats
+                    float line3Y = detailY + 42;
+                    canvas.DrawText($"Tiles Rast:{row.TilesRasterized}  Reused:{row.TilesReused}  ImgDec:{row.ImagesDecoded}  ImgHit:{row.ImageCacheHits}  CacheHit:{row.ResourceCacheHits}  FPS:{row.Fps:F0}",
+                        detailX + 8, line3Y, SKTextAlign.Left, microFont, microPaint);
+
+                    // Fourth line: JS stats
+                    float line4Y = detailY + 56;
+                    canvas.DrawText($"JS Heap:{row.JsHeapSizeKB}KB  JS Callbacks:{row.JsCallbackCount}  Frame:{row.FrameTimeMs:F1}ms  TileRast:{row.TileRasterTimingMs:F1}ms",
+                        detailX + 8, line4Y, SKTextAlign.Left, microFont, microPaint);
+                }
+            }
         }
 
-        _contentHeight = _rows.Count * _rowHeight;
+        // Account for expanded selected row height in content height calculation
+        float expandedExtra = 0;
+        if (_selectedRow >= 0 && _selectedRow < _rows.Count && _rows[_selectedRow].TabIndex >= 0)
+            expandedExtra = 74; // detail panel height + gap
+        _contentHeight = _rows.Count * _rowHeight + expandedExtra;
         canvas.Restore();
 
         // Scroll indicator
@@ -308,14 +413,18 @@ public class TaskManagerPage
             canvas.DrawText(label, btnX + (btnW - tw) / 2, btnY + 19, SKTextAlign.Left, btnFont, btnText);
         }
 
-        // Footer info
+        // Footer info with aggregated performance data
         var p = Process.GetCurrentProcess();
         p.Refresh();
         double m = p.WorkingSet64 / (1024.0 * 1024.0);
-        using (var infoFont = new SKFont(_typeface, 11))
+        using (var infoFont = new SKFont(_typeface, 10))
         using (var infoPaint = new SKPaint { Color = new SKColor(95, 99, 104), IsAntialias = true })
         {
-            string info = $"Memory: {m:F1} MB  |  CPU: {_currentCpuPercent:F1}%  |  Tabs: {Math.Max(0, _rows.Count - 1)}";
+            string info = $"Mem:{m:F0}MB CPU:{_currentCpuPercent:F1}% Tabs:{Math.Max(0, _rows.Count - 1)} " +
+                $"Pipeline:{totalStyleMs + totalLayoutMs + totalPaintMs + totalScriptMs:F0}ms " +
+                $"Nodes:{totalDomNodes} " +
+                $"Tiles:{totalTilesRast + totalTilesReused} " +
+                $"Images:{totalImagesDecoded}";
             canvas.DrawText(info, dlgX + 16, footerY + 26, SKTextAlign.Left, infoFont, infoPaint);
         }
     }
@@ -473,6 +582,7 @@ public class TaskManagerPage
         float contentAreaH = _dialogHeight - _headerHeight - _colHeaderHeight - _footerHeight;
         float maxScroll = Math.Max(0, _contentHeight - contentAreaH);
         _scrollOffset = Math.Clamp(_scrollOffset - delta * 0.5f, 0, maxScroll);
+        OnChanged?.Invoke();
         return true;
     }
 

@@ -5,6 +5,10 @@ namespace UpBrowser.Rendering;
 
 public class ChromeRenderer : IImeSupport
 {
+    // Thread synchronization for tab data
+    private readonly object _tabLock = new();
+    private readonly ReaderWriterLockSlim _tabRwLock = new();
+
     private const float UrlBarHeight = 30;
     private const float TabBarHeight = 36;
     private const float ToolbarHeight = 44;
@@ -187,16 +191,30 @@ public class ChromeRenderer : IImeSupport
 
     public void RenderChrome(SKCanvas canvas, float width, float height, string url, string title)
     {
-        _currentUrl = url;
-        if (_activeTabIndex >= 0 && _activeTabIndex < _tabs.Count)
+        _tabRwLock.EnterWriteLock();
+        try
         {
-            _tabs[_activeTabIndex].Title = title;
-            _tabs[_activeTabIndex].Url = url;
+            _currentUrl = url;
+            if (_activeTabIndex >= 0 && _activeTabIndex < _tabs.Count)
+            {
+                _tabs[_activeTabIndex].Title = title;
+                _tabs[_activeTabIndex].Url = url;
+            }
         }
+        finally { _tabRwLock.ExitWriteLock(); }
         RenderTabBar(canvas, width);
         RenderLoadingProgress(canvas, width);
         RenderToolbar(canvas, width, url);
         RenderStatusBar(canvas, width, height);
+    }
+
+    public struct TabSnapshot
+    {
+        public string Title;
+        public string Url;
+        public bool IsActive;
+        public bool IsLoading;
+        public float LoadingProgress;
     }
 
     private void RenderTabBar(SKCanvas canvas, float width)
@@ -215,8 +233,9 @@ public class ChromeRenderer : IImeSupport
         float rightArea = 135;
         float tabsMaxX = width - rightArea - newTabBtnSize - 8;
 
-        // Calculate tabs
-        int tabCount = _tabs.Count;
+        // Take a snapshot of tabs for thread safety
+        var snapshot = SnapshotTabs();
+        int tabCount = snapshot.Length;
         float tabStartX = 0;
         float tabGap = 2;
         float maxTabWidth = 200;
@@ -278,14 +297,14 @@ public class ChromeRenderer : IImeSupport
             }
 
             // Tab title
-            string tabTitle = _tabs[i].Title;
+            string tabTitle = snapshot[i].Title;
             float closeBtnW = 20;
             float textMaxW = tabRect.Width - 16 - closeBtnW;
 
             _font12.Size = 12;
             while (tabTitle.Length > 1 && _font12.MeasureText(tabTitle + "…") > textMaxW)
                 tabTitle = tabTitle[..^1];
-            if (tabTitle.Length < _tabs[i].Title.Length)
+            if (tabTitle.Length < snapshot[i].Title.Length)
                 tabTitle += "…";
 
             if (!isDragTab)
@@ -345,7 +364,7 @@ public class ChromeRenderer : IImeSupport
         }
 
         // Ghost tab for dragging
-        if (_isDraggingTab && _dragTabIndex >= 0 && _dragTabIndex < _tabs.Count)
+        if (_isDraggingTab && _dragTabIndex >= 0 && _dragTabIndex < snapshot.Length)
         {
             float ghostW = tabWidth;
             float ghostH = tabH;
@@ -366,11 +385,11 @@ public class ChromeRenderer : IImeSupport
             canvas.DrawPath(ghostPath, ghostBg);
             using var ghostBorder = new SKPaint { Color = new SKColor(0, 0, 0, 30), Style = SKPaintStyle.Stroke, StrokeWidth = 1, IsAntialias = true };
             canvas.DrawPath(ghostPath, ghostBorder);
-            string ghostTitle = _tabs[_dragTabIndex].Title;
+            string ghostTitle = snapshot[_dragTabIndex].Title;
             _font12.Size = 12;
             while (_font12.MeasureText(ghostTitle + "…") > ghostW - 16)
                 ghostTitle = ghostTitle[..^1];
-            if (ghostTitle.Length < _tabs[_dragTabIndex].Title.Length)
+            if (ghostTitle.Length < snapshot[_dragTabIndex].Title.Length)
                 ghostTitle += "…";
             canvas.DrawText(ghostTitle, ghostRect.Left + 8, ghostRect.Top + ghostH * 0.62f, SKTextAlign.Left, _font12, _textSecondary);
         }
@@ -720,15 +739,16 @@ public class ChromeRenderer : IImeSupport
 
         canvas.DrawText(statusText, 12, sTop + StatusBarHeight * 0.68f, SKTextAlign.Left, _font12, _statusTextPaint);
 
-        string tabInfo = $"{_tabs.Count} tabs";
+        string tabInfo = $"{TabCount} tabs";
         float tiW = _font12.MeasureText(tabInfo);
         canvas.DrawText(tabInfo, width - tiW - 12, sTop + StatusBarHeight * 0.68f, SKTextAlign.Left, _font12, _statusTextPaint);
     }
 
     public void RenderTabTooltip(SKCanvas canvas, float width, float height)
     {
-        if (_hoveredTabIndex < 0 || _hoveredTabIndex >= _tabs.Count) return;
-        var tab = _tabs[_hoveredTabIndex];
+        var snap = SnapshotTabs();
+        if (_hoveredTabIndex < 0 || _hoveredTabIndex >= snap.Length) return;
+        var tab = snap[_hoveredTabIndex];
         if (string.IsNullOrEmpty(tab.TooltipText)) return;
 
         using var tooltipFont = new SKFont(_chineseTypeface ?? SKTypeface.Default, 12);
@@ -871,7 +891,7 @@ public class ChromeRenderer : IImeSupport
             {
                 _dragCurrentX = x;
                 // Compute drop target
-                _dropTargetIndex = _tabs.Count;
+                _dropTargetIndex = TabCount;
                 for (int i = 0; i < _tabRects.Count; i++)
                 {
                     float mid = _tabRects[i].Left + _tabRects[i].Width / 2;
@@ -1188,30 +1208,40 @@ public class ChromeRenderer : IImeSupport
                 url = "https://www.baidu.com/search?q=" + Uri.EscapeDataString(url);
         }
 
-        _currentUrl = url;
-        _urlBarText = "";
-
-        if (_historyIndex < _history.Count - 1)
-            _history.RemoveRange(_historyIndex + 1, _history.Count - _historyIndex - 1);
-
-        _history.Add(url);
-        _historyIndex = _history.Count - 1;
-
-        if (_activeTabIndex >= 0 && _activeTabIndex < _tabs.Count)
+        _tabRwLock.EnterWriteLock();
+        try
         {
-            _tabs[_activeTabIndex].Url = url;
-            _tabs[_activeTabIndex].Title = url;
+            _currentUrl = url;
+            _urlBarText = "";
+
+            if (_historyIndex < _history.Count - 1)
+                _history.RemoveRange(_historyIndex + 1, _history.Count - _historyIndex - 1);
+
+            _history.Add(url);
+            _historyIndex = _history.Count - 1;
+
+            if (_activeTabIndex >= 0 && _activeTabIndex < _tabs.Count)
+            {
+                _tabs[_activeTabIndex].Url = url;
+                _tabs[_activeTabIndex].Title = url;
+            }
         }
+        finally { _tabRwLock.ExitWriteLock(); }
 
         OnNavigate?.Invoke(url);
     }
 
     public void UpdateUrl(string url)
     {
-        _currentUrl = url;
-        if (_activeTabIndex >= 0 && _activeTabIndex < _tabs.Count)
-            _tabs[_activeTabIndex].Url = url;
-        _urlBarText = "";
+        _tabRwLock.EnterWriteLock();
+        try
+        {
+            _currentUrl = url;
+            if (_activeTabIndex >= 0 && _activeTabIndex < _tabs.Count)
+                _tabs[_activeTabIndex].Url = url;
+            _urlBarText = "";
+        }
+        finally { _tabRwLock.ExitWriteLock(); }
     }
 
     public void GoBack()
@@ -1241,62 +1271,89 @@ public class ChromeRenderer : IImeSupport
 
     public void AddTab(string url = "upbrowser://newtab")
     {
-        _tabs.Add(new TabInfo { Title = "New Tab", Url = url });
-        _activeTabIndex = _tabs.Count - 1;
-        _urlBarFocused = false;
-        _currentUrl = url;
+        _tabRwLock.EnterWriteLock();
+        try
+        {
+            _tabs.Add(new TabInfo { Title = "New Tab", Url = url });
+            _activeTabIndex = _tabs.Count - 1;
+            _urlBarFocused = false;
+            _currentUrl = url;
+        }
+        finally { _tabRwLock.ExitWriteLock(); }
         OnTabChanged?.Invoke(url);
     }
 
     public void CloseTab(int index)
     {
-        if (_tabs.Count <= 1)
+        string? newUrl = null;
+        _tabRwLock.EnterWriteLock();
+        try
         {
-            _tabs[0] = new TabInfo { Title = "New Tab", Url = "upbrowser://newtab" };
-            _activeTabIndex = 0;
-            _currentUrl = "upbrowser://newtab";
-            OnTabChanged?.Invoke("upbrowser://newtab");
-            return;
-        }
+            if (_tabs.Count <= 1)
+            {
+                _tabs[0] = new TabInfo { Title = "New Tab", Url = "upbrowser://newtab" };
+                _activeTabIndex = 0;
+                _currentUrl = "upbrowser://newtab";
+                newUrl = "upbrowser://newtab";
+                return;
+            }
 
-        if (index < 0 || index >= _tabs.Count) return;
-        _tabs.RemoveAt(index);
+            if (index < 0 || index >= _tabs.Count) return;
+            _tabs.RemoveAt(index);
 
-        if (index == _activeTabIndex)
-        {
-            if (_activeTabIndex >= _tabs.Count)
-                _activeTabIndex = _tabs.Count - 1;
-            _currentUrl = _tabs[_activeTabIndex].Url;
-            OnTabChanged?.Invoke(_currentUrl);
+            if (index == _activeTabIndex)
+            {
+                if (_activeTabIndex >= _tabs.Count)
+                    _activeTabIndex = _tabs.Count - 1;
+                _currentUrl = _tabs[_activeTabIndex].Url;
+                newUrl = _currentUrl;
+            }
+            else if (index < _activeTabIndex)
+            {
+                _activeTabIndex--;
+            }
         }
-        else if (index < _activeTabIndex)
-        {
-            _activeTabIndex--;
-        }
+        finally { _tabRwLock.ExitWriteLock(); }
+        if (newUrl != null) OnTabChanged?.Invoke(newUrl);
     }
 
     public void SwitchToTab(int index)
     {
-        if (index < 0 || index >= _tabs.Count || index == _activeTabIndex) return;
-        _tabs[_activeTabIndex].IsActive = false;
-        _activeTabIndex = index;
-        _tabs[_activeTabIndex].IsActive = true;
-        BlurUrlBar();
-        _currentUrl = _tabs[_activeTabIndex].Url;
-        OnTabChanged?.Invoke(_currentUrl);
+        string? url = null;
+        _tabRwLock.EnterWriteLock();
+        try
+        {
+            if (index < 0 || index >= _tabs.Count || index == _activeTabIndex) return;
+            _tabs[_activeTabIndex].IsActive = false;
+            _activeTabIndex = index;
+            _tabs[_activeTabIndex].IsActive = true;
+            BlurUrlBar();
+            _currentUrl = _tabs[_activeTabIndex].Url;
+            url = _currentUrl;
+        }
+        finally { _tabRwLock.ExitWriteLock(); }
+        if (url != null) OnTabChanged?.Invoke(url);
     }
 
     public void NextTab()
     {
-        if (_tabs.Count <= 1) return;
-        int next = (_activeTabIndex + 1) % _tabs.Count;
+        _tabRwLock.EnterReadLock();
+        int count = _tabs.Count;
+        int active = _activeTabIndex;
+        _tabRwLock.ExitReadLock();
+        if (count <= 1) return;
+        int next = (active + 1) % count;
         SwitchToTab(next);
     }
 
     public void PreviousTab()
     {
-        if (_tabs.Count <= 1) return;
-        int prev = (_activeTabIndex - 1 + _tabs.Count) % _tabs.Count;
+        _tabRwLock.EnterReadLock();
+        int count = _tabs.Count;
+        int active = _activeTabIndex;
+        _tabRwLock.ExitReadLock();
+        if (count <= 1) return;
+        int prev = (active - 1 + count) % count;
         SwitchToTab(prev);
     }
 
@@ -1315,10 +1372,19 @@ public class ChromeRenderer : IImeSupport
 
     public string GetCurrentUrl() => _currentUrl;
     public bool IsUrlBarFocused() => _urlBarFocused;
-    public int TabCount => _tabs.Count;
-    public int ActiveTabIndex => _activeTabIndex;
+    public int TabCount
+    {
+        get { _tabRwLock.EnterReadLock(); try { return _tabs.Count; } finally { _tabRwLock.ExitReadLock(); } }
+    }
+    public int ActiveTabIndex
+    {
+        get { _tabRwLock.EnterReadLock(); try { return _activeTabIndex; } finally { _tabRwLock.ExitReadLock(); } }
+    }
     public bool IsLoading => _isLoading;
-    public IReadOnlyList<TabInfo> Tabs => _tabs;
+    public IReadOnlyList<TabInfo> Tabs
+    {
+        get { _tabRwLock.EnterReadLock(); try { return _tabs.ToArray(); } finally { _tabRwLock.ExitReadLock(); } }
+    }
 
     public void SetLoadingState(bool loading)
     {
@@ -1396,8 +1462,60 @@ public class ChromeRenderer : IImeSupport
         }
     }
 
+    // Thread-safe event invocations
+    private void InvokeOnChanged()
+    {
+        Interlocked.Exchange(ref _lastChangedTick, Environment.TickCount64);
+        OnChanged?.Invoke();
+    }
+
+    private long _lastChangedTick;
+
+    public object SyncRoot => _tabLock;
+
+    public T ReadTabData<T>(Func<T> reader)
+    {
+        _tabRwLock.EnterReadLock();
+        try { return reader(); }
+        finally { _tabRwLock.ExitReadLock(); }
+    }
+
+    public void WriteTabData(Action writer)
+    {
+        _tabRwLock.EnterWriteLock();
+        try { writer(); }
+        finally { _tabRwLock.ExitWriteLock(); }
+    }
+
+    /// <summary>
+    /// Atomically snapshot all tab info for rendering or other read-only operations.
+    /// </summary>
+    public TabInfo[] SnapshotTabs()
+    {
+        _tabRwLock.EnterReadLock();
+        try
+        {
+            var arr = new TabInfo[_tabs.Count];
+            for (int i = 0; i < _tabs.Count; i++)
+            {
+                arr[i] = new TabInfo
+                {
+                    Title = _tabs[i].Title,
+                    Url = _tabs[i].Url,
+                    IsActive = _tabs[i].IsActive,
+                    IsLoading = _tabs[i].IsLoading,
+                    LoadingProgress = _tabs[i].LoadingProgress,
+                    TooltipText = _tabs[i].TooltipText,
+                };
+            }
+            return arr;
+        }
+        finally { _tabRwLock.ExitReadLock(); }
+    }
+
     public void Dispose()
     {
+        _tabRwLock.Dispose();
         _font11.Dispose(); _font12.Dispose(); _font13.Dispose(); _font14.Dispose();
         _font22.Dispose(); _fontClose.Dispose();
         _tabBgPaint.Dispose(); _tabActivePaint.Dispose(); _tabHoverPaint.Dispose();

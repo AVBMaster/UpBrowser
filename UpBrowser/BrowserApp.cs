@@ -1,4 +1,5 @@
 using SkiaSharp;
+using System.Collections.Concurrent;
 using System.IO;
 using System.Text;
 using UpBrowser.Core;
@@ -669,7 +670,7 @@ public class BrowserApp : IDisposable
     private int _navigationSeq;
     private int _lastActiveTabIndex = -1;
     private string? _currentBaseUrl;
-    private readonly Dictionary<int, TabState> _tabStates = new();
+    private readonly ConcurrentDictionary<int, TabState> _tabStates = new();
 
     private class TabState
     {
@@ -1350,15 +1351,65 @@ public class BrowserApp : IDisposable
         double wsmb = proc.WorkingSet64 / (1024.0 * 1024.0);
         double heapMB = System.GC.GetTotalMemory(false) / (1024.0 * 1024.0);
 
+        // Performance pipeline timings (read accumulators for latest values)
+        double styleMs = PipelineTimings.Style.MeanMillis;
+        double layoutMs = PipelineTimings.Layout.MeanMillis;
+        double paintMs = PipelineTimings.Paint.MeanMillis;
+        double scriptMs = PipelineTimings.Script.MeanMillis;
+        double compositeMs = PipelineTimings.Composite.MeanMillis;
+        double imageDecodeMs = PipelineTimings.ImageDecode.MeanMillis;
+        double tileRasterMs = PipelineTimings.TileRaster.MeanMillis;
+        double networkMs = PipelineTimings.NetworkWait.MeanMillis;
+
+        // Memory breakdown from performance subsystems
+        double imagePoolMB = _perfHub?.ImagePool.CapacityBytes / (1024.0 * 1024.0) ?? 0;
+        double tileMemoryMB = (_perfHub?.Tiles.Settings?.MaxTilesInMemory ?? 0) * (256.0 * 256.0 * 4.0) / (1024.0 * 1024.0);
+
+        // Rendering counters
+        int tilesRast = (int)PipelineTimings.TilesRasterized.Value;
+        int tilesReused = (int)PipelineTimings.TilesReused.Value;
+        int imagesDecoded = (int)PipelineTimings.ImagesDecoded.Value;
+        int imageHits = (int)PipelineTimings.ImageCacheHits.Value;
+        int cacheHits = (int)PipelineTimings.ResourceCacheHits.Value;
+
+        // JS stats
+        int jsHeapSize = _jsEngine.GetHeapSizeKB();
+        int jsCallbacks = _jsEngine.TimerCount;
+
+        // Frame timing from the window
+        double frameTimeMs = Math.Max(dt, 1.0 / 1000.0);
+        double fps = 1000.0 / frameTimeMs;
+
         tmRows.Add(new TmRowData
         {
             Name = "Browser",
             Detail = $"PID: {proc.Id}",
             Memory = $"{wsmb:F1} MB",
-            Cpu = "", // updated by task manager's own refresh
+            Cpu = "",
             Status = "Running",
             Pid = proc.Id,
-            TabIndex = -1
+            TabIndex = -1,
+            StyleTimingMs = styleMs,
+            LayoutTimingMs = layoutMs,
+            PaintTimingMs = paintMs,
+            ScriptTimingMs = scriptMs,
+            CompositeTimingMs = compositeMs,
+            ImageDecodeTimingMs = imageDecodeMs,
+            TileRasterTimingMs = tileRasterMs,
+            NetworkWaitTimingMs = networkMs,
+            WorkingSetMB = wsmb,
+            ManagedHeapMB = heapMB,
+            ImageCacheMB = imagePoolMB,
+            TileMemoryMB = tileMemoryMB,
+            TilesRasterized = tilesRast,
+            TilesReused = tilesReused,
+            ImagesDecoded = imagesDecoded,
+            ImageCacheHits = imageHits,
+            ResourceCacheHits = cacheHits,
+            JsHeapSizeKB = jsHeapSize,
+            JsCallbackCount = jsCallbacks,
+            FrameTimeMs = frameTimeMs,
+            Fps = fps,
         });
         tmRows.Add(new TmRowData
         {
@@ -1366,7 +1417,8 @@ public class BrowserApp : IDisposable
             Detail = "",
             Memory = $"{wsmb:F1} MB",
             Status = "",
-            TabIndex = -1
+            TabIndex = -1,
+            WorkingSetMB = wsmb,
         });
         tmRows.Add(new TmRowData
         {
@@ -1374,12 +1426,23 @@ public class BrowserApp : IDisposable
             Detail = "",
             Memory = $"{heapMB:F1} MB",
             Status = "",
-            TabIndex = -1
+            TabIndex = -1,
+            ManagedHeapMB = heapMB,
+        });
+        tmRows.Add(new TmRowData
+        {
+            Name = "  Image Cache",
+            Detail = "",
+            Memory = $"{imagePoolMB:F1} MB",
+            Status = "",
+            TabIndex = -1,
+            ImageCacheMB = imagePoolMB,
         });
 
-        for (int i = 0; i < _chrome.Tabs.Count; i++)
+        var tabSnapshot = _chrome.SnapshotTabs();
+        for (int i = 0; i < tabSnapshot.Length; i++)
         {
-            var tab = _chrome.Tabs[i];
+            var tab = tabSnapshot[i];
             int domNodes = 0, layoutBoxes = 0;
             if (i == activeTabIdx && _currentLoad != null)
             {
@@ -1403,7 +1466,28 @@ public class BrowserApp : IDisposable
                 DomNodes = domNodes,
                 LayoutBoxes = layoutBoxes,
                 Status = status,
-                TabIndex = i
+                TabIndex = i,
+                StyleTimingMs = i == activeTabIdx ? styleMs : 0,
+                LayoutTimingMs = i == activeTabIdx ? layoutMs : 0,
+                PaintTimingMs = i == activeTabIdx ? paintMs : 0,
+                ScriptTimingMs = i == activeTabIdx ? scriptMs : 0,
+                CompositeTimingMs = i == activeTabIdx ? compositeMs : 0,
+                ImageDecodeTimingMs = i == activeTabIdx ? imageDecodeMs : 0,
+                TileRasterTimingMs = i == activeTabIdx ? tileRasterMs : 0,
+                NetworkWaitTimingMs = i == activeTabIdx ? networkMs : 0,
+                WorkingSetMB = i == activeTabIdx ? wsmb : 0,
+                ManagedHeapMB = i == activeTabIdx ? heapMB : 0,
+                ImageCacheMB = i == activeTabIdx ? imagePoolMB : 0,
+                TileMemoryMB = i == activeTabIdx ? tileMemoryMB : 0,
+                TilesRasterized = i == activeTabIdx ? tilesRast : 0,
+                TilesReused = i == activeTabIdx ? tilesReused : 0,
+                ImagesDecoded = i == activeTabIdx ? imagesDecoded : 0,
+                ImageCacheHits = i == activeTabIdx ? imageHits : 0,
+                ResourceCacheHits = i == activeTabIdx ? cacheHits : 0,
+                JsHeapSizeKB = i == activeTabIdx ? jsHeapSize : 0,
+                JsCallbackCount = i == activeTabIdx ? jsCallbacks : 0,
+                FrameTimeMs = i == activeTabIdx ? frameTimeMs : 0,
+                Fps = i == activeTabIdx ? fps : 0,
             });
         }
 

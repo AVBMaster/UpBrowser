@@ -36,6 +36,15 @@ public class JavaScriptEngine : IDisposable
     public event Action? OnDomChanged;
     public Func<string, string?, string?>? ShowDialog { get; set; }
     public bool HasTimers { get { lock (_timersLock) return _timers.Count > 0; } }
+    public int TimerCount { get { lock (_timersLock) return _timers.Count; } }
+
+    /// <summary>Returns approximate JS heap usage in KB, or 0 if unavailable.</summary>
+    public int GetHeapSizeKB()
+    {
+        // JavaScript engines in .NET don't typically expose heap size.
+        // Return managed heap delta as a rough proxy.
+        return (int)(GC.GetTotalMemory(false) / 1024);
+    }
 
     internal IJsEngine? InnerEngine => _engine;
 
