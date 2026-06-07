@@ -40,6 +40,9 @@ public class InputHandler
     public Func<float, float, bool, bool>? OnSettingsPageClick { get; set; }
     public Func<float, float, bool>? OnSettingsPageMove { get; set; }
     public Func<float, bool>? OnSettingsPageWheel { get; set; }
+    public Func<float, float, bool, bool>? OnTaskManagerPageClick { get; set; }
+    public Func<float, float, bool>? OnTaskManagerPageMove { get; set; }
+    public Func<float, bool>? OnTaskManagerPageWheel { get; set; }
     public Func<double, double, float, float, bool>? OnScrollContainerWheel { get; set; }
     public Action<char>? OnImeChar { get; set; }
     public Action? OnCopy { get; set; }
@@ -47,6 +50,7 @@ public class InputHandler
     public Action? OnCut { get; set; }
     public Action? OnSelectAll { get; set; }
     public Action? OnImeTargetChanged { get; set; }
+    public Action? OnTaskManagerKey { get; set; }
 
     public bool IsCtrlDown { get; private set; }
     public bool IsShiftDown { get; private set; }
@@ -80,8 +84,9 @@ public class InputHandler
         float logicalY = y / _dpiScale;
         _mouseX = logicalX;
         _mouseY = logicalY;
-        bool handledBySettings = OnSettingsPageMove?.Invoke(logicalX, logicalY) ?? false;
-        if (!handledBySettings)
+        bool handledByTaskMgr = OnTaskManagerPageMove?.Invoke(logicalX, logicalY) ?? false;
+        bool handledBySettings = !handledByTaskMgr && (OnSettingsPageMove?.Invoke(logicalX, logicalY) ?? false);
+        if (!handledBySettings && !handledByTaskMgr)
             _chrome.HandleMouseMove(logicalX, logicalY);
         OnDomMouseMove?.Invoke(logicalX, logicalY);
         OnDevToolsMouseMove?.Invoke(logicalX, logicalY);
@@ -103,7 +108,9 @@ public class InputHandler
                 NeedsRedraw = true;
                 return;
             }
-            bool handled = OnSettingsPageClick?.Invoke(logicalX, logicalY, false) ?? false;
+            bool handled = OnTaskManagerPageClick?.Invoke(logicalX, logicalY, false) ?? false;
+            if (!handled)
+                handled = OnSettingsPageClick?.Invoke(logicalX, logicalY, false) ?? false;
             if (!handled)
                 handled = _chrome.HandleMouseClick(logicalX, logicalY);
             if (!handled)
@@ -121,6 +128,7 @@ public class InputHandler
             _pageThumbDragging = false;
             _pageThumbXDragging = false;
             _chrome.HandleMouseUp();
+            OnTaskManagerPageClick?.Invoke(logicalX, logicalY, true);
             OnSettingsPageClick?.Invoke(logicalX, logicalY, true);
             OnDevToolsClick?.Invoke(logicalX, logicalY, true);
             OnDomMouseUp?.Invoke(logicalX, logicalY, false);
@@ -363,6 +371,12 @@ public class InputHandler
             NeedsRedraw = true;
             return;
         }
+        if (key == Key.Escape && IsShiftDown && !_chrome.IsUrlBarFocused())
+        {
+            OnTaskManagerKey?.Invoke();
+            NeedsRedraw = true;
+            return;
+        }
         if (!_chrome.IsUrlBarFocused())
         {
             if (key == Key.F5)
@@ -381,6 +395,12 @@ public class InputHandler
 
     private void OnMouseWheel(double deltaX, double deltaY)
     {
+        if (OnTaskManagerPageWheel?.Invoke((float)deltaY) == true)
+        {
+            NeedsRedraw = true;
+            return;
+        }
+
         if (OnSettingsPageWheel?.Invoke((float)deltaY) == true)
         {
             NeedsRedraw = true;

@@ -59,6 +59,7 @@ public class BrowserApp : IDisposable
 
     private readonly RenderingSettings _renderingSettings = new();
     private readonly RenderingSettingsPage _renderingSettingsPage;
+    private readonly TaskManagerPage _taskManagerPage;
 
     // Performance optimization layer. Lazily initialized in RunAsync so the
     // existing Chrome/loader flows are not perturbed on cold-start.
@@ -121,6 +122,7 @@ public class BrowserApp : IDisposable
             Console.WriteLine("[Startup] GPU init failed, using CPU");
 
         _renderingSettingsPage = new RenderingSettingsPage(_renderingSettings, _dpiScale);
+        _taskManagerPage = new TaskManagerPage();
         _contentOffset = _chrome.GetContentOffset();
         _input = new InputHandler(_chrome, _scroll, _window, _dpiScale);
         _input.OnDomClick = HandleDomClick;
@@ -135,6 +137,17 @@ public class BrowserApp : IDisposable
         _chrome.OnSettingsClick = () =>
         {
             _renderingSettingsPage.Toggle();
+            _input.NeedsRedraw = true;
+        };
+
+        _chrome.OnTaskManagerClick = () =>
+        {
+            _taskManagerPage.Toggle();
+            _input.NeedsRedraw = true;
+        };
+
+        _taskManagerPage.OnChanged += () =>
+        {
             _input.NeedsRedraw = true;
         };
 
@@ -182,6 +195,12 @@ public class BrowserApp : IDisposable
         };
         _input.OnDevToolsInput = (c, key, shift) => DevToolsHandleInput(c, key, shift);
         _input.OnDevToolsClick = (x, y, isDown) => HandleDevToolsClick(x, y, isDown);
+        _input.OnTaskManagerKey = () =>
+        {
+            _taskManagerPage.Toggle();
+            _input.NeedsRedraw = true;
+        };
+
         _input.OnDevToolsWheel = (delta, mx, my) => _devTools.HandleWheel(delta, mx, my);
         _input.OnDevToolsMouseMove = (x, y) =>
         {
@@ -265,6 +284,34 @@ public class BrowserApp : IDisposable
             var (pw, ph) = _window.GetClientSize();
             int wh = (int)(ph / _dpiScale);
             _renderingSettingsPage.HandleWheel(delta, wh, _contentOffset);
+            return true;
+        };
+
+        _input.OnTaskManagerPageClick = (x, y, isUp) =>
+        {
+            if (isUp)
+            {
+                _taskManagerPage.HandleMouseUp();
+                return false;
+            }
+            var (pw, ph) = _window.GetClientSize();
+            int ww = (int)(pw / _dpiScale);
+            return _taskManagerPage.HandleClick(x, y, ww, _contentOffset);
+        };
+
+        _input.OnTaskManagerPageMove = (x, y) =>
+        {
+            var (pw, ph) = _window.GetClientSize();
+            int ww = (int)(pw / _dpiScale);
+            return _taskManagerPage.HandleMouseMove(x, y, ww, _contentOffset);
+        };
+
+        _input.OnTaskManagerPageWheel = (delta) =>
+        {
+            if (!_taskManagerPage.Visible) return false;
+            var (pw, ph) = _window.GetClientSize();
+            int wh = (int)(ph / _dpiScale);
+            _taskManagerPage.HandleWheel(delta, wh, _contentOffset);
             return true;
         };
 
@@ -1251,6 +1298,14 @@ public class BrowserApp : IDisposable
         _devTools.Render(_skiaRenderer.Canvas, windowWidth, windowHeight, _contentOffset);
 
         _renderingSettingsPage.Render(_skiaRenderer.Canvas, windowWidth, windowHeight, _contentOffset);
+
+        // Build tab list for task manager
+        var tabList = new System.Collections.Generic.List<(string, string, bool)>();
+        foreach (var tab in _chrome.Tabs)
+        {
+            tabList.Add((tab.Title, tab.Url, tab.IsLoading));
+        }
+        _taskManagerPage.Render(_skiaRenderer.Canvas, windowWidth, windowHeight, _contentOffset, tabList);
 
         _skiaRenderer.TickFrame();
         _skiaRenderer.RenderFpsCounter(_skiaRenderer.Canvas, windowWidth, windowHeight);

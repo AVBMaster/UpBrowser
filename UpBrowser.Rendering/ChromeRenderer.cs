@@ -53,6 +53,7 @@ public class ChromeRenderer : IImeSupport
     private bool _refreshHovered;
     private bool _homeHovered;
     private bool _settingsHovered;
+    private bool _taskManagerHovered;
     private bool _urlBarFocused;
 
     private SKRect _backButtonRect;
@@ -60,6 +61,7 @@ public class ChromeRenderer : IImeSupport
     private SKRect _refreshButtonRect;
     private SKRect _homeButtonRect;
     private SKRect _settingsButtonRect;
+    private SKRect _taskManagerButtonRect;
     private SKRect _urlBarRect;
 
     private List<TabInfo> _tabs = new();
@@ -101,6 +103,7 @@ public class ChromeRenderer : IImeSupport
     public Action? OnUrlBarFocus { get; set; }
     public Action? OnUrlBarBlur { get; set; }
     public Action? OnSettingsClick { get; set; }
+    public Action? OnTaskManagerClick { get; set; }
     public Action? OnChanged { get; set; }
 
     public class TabInfo
@@ -374,8 +377,13 @@ public class ChromeRenderer : IImeSupport
         DrawNavButton(canvas, _settingsButtonRect, _settingsHovered, true);
         DrawSettings(canvas, _settingsButtonRect);
 
+        // Task Manager
+        _taskManagerButtonRect = new SKRect(168, btnY, 168 + btnSize, btnY + btnSize);
+        DrawNavButton(canvas, _taskManagerButtonRect, _taskManagerHovered, true);
+        DrawTaskManager(canvas, _taskManagerButtonRect);
+
         // URL bar
-        float urlLeft = 172;
+        float urlLeft = 204;
         float urlW = Math.Max(60, width - urlLeft - 10);
         float urlTop = tTop + 6;
         float urlH = tH - 12;
@@ -551,6 +559,33 @@ public class ChromeRenderer : IImeSupport
         canvas.DrawPath(path, settingsPaint);
     }
 
+    private void DrawTaskManager(SKCanvas canvas, SKRect rect)
+    {
+        float cx = rect.MidX;
+        float cy = rect.MidY;
+        using var path = new SKPath();
+        // Grid icon - 3x2 dots representing processes/tasks
+        float spacing = 4.5f;
+        float startX = cx - spacing;
+        float startY = cy - spacing * 0.5f;
+        for (int row = 0; row < 2; row++)
+        {
+            for (int col = 0; col < 3; col++)
+            {
+                float dotX = startX + col * spacing;
+                float dotY = startY + row * spacing;
+                path.AddCircle(dotX, dotY, 2);
+            }
+        }
+        using var tmPaint = new SKPaint
+        {
+            Color = _iconPaint.Color,
+            IsAntialias = true,
+            Style = SKPaintStyle.Fill
+        };
+        canvas.DrawPath(path, tmPaint);
+    }
+
     private void DrawLockIcon(SKCanvas canvas, float x, float y)
     {
         float s = 5;
@@ -673,6 +708,7 @@ public class ChromeRenderer : IImeSupport
         bool oldRefresh = _refreshHovered;
         bool oldHome = _homeHovered;
         bool oldSettings = _settingsHovered;
+        bool oldTaskManager = _taskManagerHovered;
         bool oldNewTab = _newTabHovered;
         int oldTab = _hoveredTabIndex;
         int oldClose = _hoveredCloseIndex;
@@ -682,6 +718,7 @@ public class ChromeRenderer : IImeSupport
         _refreshHovered = _refreshButtonRect.Contains(x, y);
         _homeHovered = _homeButtonRect.Contains(x, y);
         _settingsHovered = _settingsButtonRect.Contains(x, y);
+        _taskManagerHovered = _taskManagerButtonRect.Contains(x, y);
         _newTabHovered = _newTabButtonRect.Contains(x, y);
 
         _hoveredTabIndex = -1;
@@ -707,8 +744,8 @@ public class ChromeRenderer : IImeSupport
 
         if (oldBack != _backHovered || oldForward != _forwardHovered ||
             oldRefresh != _refreshHovered || oldHome != _homeHovered ||
-            oldSettings != _settingsHovered || oldNewTab != _newTabHovered ||
-            oldTab != _hoveredTabIndex || oldClose != _hoveredCloseIndex)
+            oldSettings != _settingsHovered || oldTaskManager != _taskManagerHovered ||
+            oldNewTab != _newTabHovered || oldTab != _hoveredTabIndex || oldClose != _hoveredCloseIndex)
         {
             OnChanged?.Invoke();
         }
@@ -788,6 +825,13 @@ public class ChromeRenderer : IImeSupport
         {
             BlurUrlBar();
             OnSettingsClick?.Invoke();
+            return true;
+        }
+
+        if (_taskManagerButtonRect.Contains(x, y))
+        {
+            BlurUrlBar();
+            OnTaskManagerClick?.Invoke();
             return true;
         }
 
@@ -1090,6 +1134,7 @@ public class ChromeRenderer : IImeSupport
     public int TabCount => _tabs.Count;
     public int ActiveTabIndex => _activeTabIndex;
     public bool IsLoading => _isLoading;
+    public IReadOnlyList<TabInfo> Tabs => _tabs;
 
     public void SetLoadingState(bool loading)
     {
