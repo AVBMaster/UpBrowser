@@ -105,6 +105,14 @@ public class ChromeRenderer : IImeSupport
     public Action? OnSettingsClick { get; set; }
     public Action? OnTaskManagerClick { get; set; }
     public Action? OnChanged { get; set; }
+    public Action<int, int>? OnTabReordered { get; set; }
+
+    // Tab drag-reorder state
+    private int _dragTabIndex = -1;
+    private bool _isDraggingTab;
+    private float _dragStartX;
+    private float _dragCurrentX;
+    private int _dropTargetIndex = -1;
 
     public class TabInfo
     {
@@ -113,6 +121,7 @@ public class ChromeRenderer : IImeSupport
         public bool IsActive { get; set; }
         public bool IsLoading { get; set; }
         public float LoadingProgress { get; set; }
+        public string TooltipText { get; set; } = "";
     }
 
     public void Initialize()
@@ -218,8 +227,13 @@ public class ChromeRenderer : IImeSupport
         float tabY = 6;
         float tabH = tabHeight - tabY;
 
+        // Track insertion indicator position
+        float insertionX = -1;
+
         for (int i = 0; i < tabCount; i++)
         {
+            bool isDragTab = _isDraggingTab && i == _dragTabIndex;
+
             float actualWidth = tabWidth;
             if (tabX + actualWidth > tabsMaxX - 8)
                 actualWidth = Math.Max(40, tabsMaxX - tabX - 8);
@@ -243,13 +257,16 @@ public class ChromeRenderer : IImeSupport
             tabPath.QuadTo(tabRect.Left, tabRect.Top, tabRect.Left + r, tabRect.Top);
             tabPath.Close();
 
-            if (isActive)
-                canvas.DrawPath(tabPath, _tabActivePaint);
-            else if (isHovered)
-                canvas.DrawPath(tabPath, _tabHoverPaint);
+            if (!isDragTab)
+            {
+                if (isActive)
+                    canvas.DrawPath(tabPath, _tabActivePaint);
+                else if (isHovered)
+                    canvas.DrawPath(tabPath, _tabHoverPaint);
+            }
 
             // Active tab indicator underline
-            if (isActive)
+            if (isActive && !isDragTab)
             {
                 using var indicatorPaint = new SKPaint
                 {
@@ -271,10 +288,13 @@ public class ChromeRenderer : IImeSupport
             if (tabTitle.Length < _tabs[i].Title.Length)
                 tabTitle += "…";
 
-            var titleColor = isActive ? _textPrimary : _textSecondary;
-            float textX = tabRect.Left + 8;
-            float textY = tabRect.Top + tabH * 0.62f;
-            canvas.DrawText(tabTitle, textX, textY, SKTextAlign.Left, _font12, titleColor);
+            if (!isDragTab)
+            {
+                var titleColor = isActive ? _textPrimary : _textSecondary;
+                float textX = tabRect.Left + 8;
+                float textY = tabRect.Top + tabH * 0.62f;
+                canvas.DrawText(tabTitle, textX, textY, SKTextAlign.Left, _font12, titleColor);
+            }
 
             // Close button
             float closeS = 16;
@@ -283,16 +303,24 @@ public class ChromeRenderer : IImeSupport
             var closeRect = new SKRect(closeX, closeY, closeX + closeS, closeY + closeS);
             _tabCloseRects.Add(closeRect);
 
-            bool closeHovered = i == _hoveredCloseIndex;
-            if (closeHovered)
-                canvas.DrawRoundRect(closeRect, 3, 3, _closeBtnBgPaint);
+            if (!isDragTab)
+            {
+                bool closeHovered = i == _hoveredCloseIndex;
+                if (closeHovered)
+                    canvas.DrawRoundRect(closeRect, 3, 3, _closeBtnBgPaint);
 
-            // Draw ×
-            _fontClose.Size = 10;
-            _closeBtnX.Color = closeHovered ? SKColor.Parse("#202124") : SKColor.Parse("#80868B");
-            float cx = closeRect.Left + closeS / 2;
-            float cy = closeRect.Top + closeS * 0.72f;
-            canvas.DrawText("X", cx - _fontClose.MeasureText("X") / 2, cy, SKTextAlign.Left, _fontClose, _closeBtnX);
+                // Draw × (SKPath)
+                float xPad = 5;
+                using (var xPaint = new SKPaint { Color = closeHovered ? SKColor.Parse("#202124") : SKColor.Parse("#80868B"), Style = SKPaintStyle.Stroke, StrokeWidth = 1.5f, IsAntialias = true })
+                using (var xPath = new SKPath())
+                {
+                    xPath.MoveTo(closeRect.Left + xPad, closeRect.Top + xPad);
+                    xPath.LineTo(closeRect.Right - xPad, closeRect.Bottom - xPad);
+                    xPath.MoveTo(closeRect.Right - xPad, closeRect.Top + xPad);
+                    xPath.LineTo(closeRect.Left + xPad, closeRect.Bottom - xPad);
+                    canvas.DrawPath(xPath, xPaint);
+                }
+            }
 
             // Separator between tabs (only inactive, non-hovered)
             if (!isActive && !isHovered && i > 0)
@@ -303,6 +331,60 @@ public class ChromeRenderer : IImeSupport
             }
 
             tabX += actualWidth + tabGap;
+        }
+
+        // Compute insertion indicator position
+        if (_isDraggingTab && _dropTargetIndex >= 0)
+        {
+            if (_dropTargetIndex < _tabRects.Count)
+                insertionX = _tabRects[_dropTargetIndex].Left;
+            else if (_tabRects.Count > 0)
+                insertionX = _tabRects[^1].Right;
+            else
+                insertionX = 0;
+        }
+
+        // Ghost tab for dragging
+        if (_isDraggingTab && _dragTabIndex >= 0 && _dragTabIndex < _tabs.Count)
+        {
+            float ghostW = tabWidth;
+            float ghostH = tabH;
+            float ghostX = _dragCurrentX - ghostW / 2;
+            float ghostY = tabY;
+            var ghostRect = new SKRect(ghostX, ghostY, ghostX + ghostW, ghostY + ghostH);
+            using var ghostBg = new SKPaint { Color = new SKColor(255, 255, 255, 200), Style = SKPaintStyle.Fill, IsAntialias = true };
+            using var ghostPath = new SKPath();
+            float gr = 8;
+            ghostPath.MoveTo(ghostRect.Left + gr, ghostRect.Top);
+            ghostPath.LineTo(ghostRect.Right - gr, ghostRect.Top);
+            ghostPath.QuadTo(ghostRect.Right, ghostRect.Top, ghostRect.Right, ghostRect.Top + gr);
+            ghostPath.LineTo(ghostRect.Right, ghostRect.Bottom);
+            ghostPath.LineTo(ghostRect.Left, ghostRect.Bottom);
+            ghostPath.LineTo(ghostRect.Left, ghostRect.Top + gr);
+            ghostPath.QuadTo(ghostRect.Left, ghostRect.Top, ghostRect.Left + gr, ghostRect.Top);
+            ghostPath.Close();
+            canvas.DrawPath(ghostPath, ghostBg);
+            using var ghostBorder = new SKPaint { Color = new SKColor(0, 0, 0, 30), Style = SKPaintStyle.Stroke, StrokeWidth = 1, IsAntialias = true };
+            canvas.DrawPath(ghostPath, ghostBorder);
+            string ghostTitle = _tabs[_dragTabIndex].Title;
+            _font12.Size = 12;
+            while (_font12.MeasureText(ghostTitle + "…") > ghostW - 16)
+                ghostTitle = ghostTitle[..^1];
+            if (ghostTitle.Length < _tabs[_dragTabIndex].Title.Length)
+                ghostTitle += "…";
+            canvas.DrawText(ghostTitle, ghostRect.Left + 8, ghostRect.Top + ghostH * 0.62f, SKTextAlign.Left, _font12, _textSecondary);
+        }
+
+        // Insertion indicator
+        if (_isDraggingTab && insertionX >= 0)
+        {
+            using var indicatorPaint = new SKPaint
+            {
+                Color = SKColor.Parse("#1A73E8"),
+                Style = SKPaintStyle.Fill,
+                IsAntialias = true
+            };
+            canvas.DrawRoundRect(insertionX - 2, tabY + 4, 4, tabH - 8, 2, 2, indicatorPaint);
         }
 
         // New tab button
@@ -643,6 +725,43 @@ public class ChromeRenderer : IImeSupport
         canvas.DrawText(tabInfo, width - tiW - 12, sTop + StatusBarHeight * 0.68f, SKTextAlign.Left, _font12, _statusTextPaint);
     }
 
+    public void RenderTabTooltip(SKCanvas canvas, float width, float height)
+    {
+        if (_hoveredTabIndex < 0 || _hoveredTabIndex >= _tabs.Count) return;
+        var tab = _tabs[_hoveredTabIndex];
+        if (string.IsNullOrEmpty(tab.TooltipText)) return;
+
+        using var tooltipFont = new SKFont(_chineseTypeface ?? SKTypeface.Default, 12);
+        using var tipBg = new SKPaint { Color = new SKColor(50, 50, 50, 230), Style = SKPaintStyle.Fill, IsAntialias = true };
+        using var tipText = new SKPaint { Color = SKColors.White, IsAntialias = true };
+
+        float lineH = 18;
+        int lineCount = tab.TooltipText.Count(c => c == '\n') + 1;
+        float tipW = Math.Min(360, width - 40);
+        float tipH = lineCount * lineH + 12;
+
+        // position below the hovered tab
+        var tabRect = _hoveredTabIndex < _tabRects.Count ? _tabRects[_hoveredTabIndex] : _tabRects[^1];
+        float tipX = Math.Max(4, Math.Min(tabRect.Left, width - tipW - 4));
+        float tipY = tabRect.Bottom + 4;
+
+        // clamp to viewport
+        if (tipY + tipH > height - 24)
+            tipY = tabRect.Top - tipH - 4;
+        if (tipY < 4) tipY = 4;
+
+        canvas.DrawRoundRect(tipX, tipY, tipW, tipH, 6, 6, tipBg);
+
+        float textX = tipX + 8;
+        float textY = tipY + lineH;
+        string[] lines = tab.TooltipText.Split('\n');
+        foreach (var line in lines)
+        {
+            canvas.DrawText(line, textX, textY, SKTextAlign.Left, tooltipFont, tipText);
+            textY += lineH;
+        }
+    }
+
     // ==================== 输入处理方法 ====================
 
     private float GetUrlBarTextStart()
@@ -742,6 +861,29 @@ public class ChromeRenderer : IImeSupport
             }
         }
 
+        // Tab drag tracking
+        if (_dragTabIndex >= 0)
+        {
+            float dx = Math.Abs(x - _dragStartX);
+            if (dx > 8)
+                _isDraggingTab = true;
+            if (_isDraggingTab)
+            {
+                _dragCurrentX = x;
+                // Compute drop target
+                _dropTargetIndex = _tabs.Count;
+                for (int i = 0; i < _tabRects.Count; i++)
+                {
+                    float mid = _tabRects[i].Left + _tabRects[i].Width / 2;
+                    if (x < mid)
+                    {
+                        _dropTargetIndex = i;
+                        break;
+                    }
+                }
+            }
+        }
+
         if (oldBack != _backHovered || oldForward != _forwardHovered ||
             oldRefresh != _refreshHovered || oldHome != _homeHovered ||
             oldSettings != _settingsHovered || oldTaskManager != _taskManagerHovered ||
@@ -768,12 +910,17 @@ public class ChromeRenderer : IImeSupport
             }
         }
 
+        // Record tab press for potential drag
+        _dragTabIndex = -1;
+        _isDraggingTab = false;
+        _dropTargetIndex = -1;
         for (int i = 0; i < _tabRects.Count; i++)
         {
             if (_tabRects[i].Contains(x, y))
             {
-                if (i != _activeTabIndex)
-                    SwitchToTab(i);
+                _dragTabIndex = i;
+                _dragStartX = x;
+                _dragCurrentX = x;
                 return true;
             }
         }
@@ -842,6 +989,43 @@ public class ChromeRenderer : IImeSupport
     public void HandleMouseUp()
     {
         _urlBarMouseDown = false;
+
+        if (_isDraggingTab && _dragTabIndex >= 0 && _dropTargetIndex >= 0 &&
+            _dropTargetIndex != _dragTabIndex && _dropTargetIndex != _dragTabIndex + 1)
+        {
+            int from = _dragTabIndex;
+            int to = _dropTargetIndex;
+            if (to > from) to--; // adjust after removal
+            var tab = _tabs[from];
+            _tabs.RemoveAt(from);
+            _tabs.Insert(to, tab);
+            if (_activeTabIndex == from)
+                _activeTabIndex = to;
+            else if (from < _activeTabIndex && to >= _activeTabIndex)
+                _activeTabIndex--;
+            else if (from > _activeTabIndex && to <= _activeTabIndex)
+                _activeTabIndex++;
+            OnTabReordered?.Invoke(from, to);
+            _dragTabIndex = -1;
+            _isDraggingTab = false;
+            _dropTargetIndex = -1;
+            OnChanged?.Invoke();
+            return;
+        }
+
+        // If we pressed on a tab but didn't drag, switch to it
+        if (_dragTabIndex >= 0 && _dragTabIndex < _tabs.Count && !_isDraggingTab)
+        {
+            if (_dragTabIndex != _activeTabIndex)
+                SwitchToTab(_dragTabIndex);
+            _dragTabIndex = -1;
+            OnChanged?.Invoke();
+            return;
+        }
+
+        _dragTabIndex = -1;
+        _isDraggingTab = false;
+        _dropTargetIndex = -1;
     }
 
     private void BlurUrlBar()

@@ -50,6 +50,7 @@ public class BrowserApp : IDisposable
     private float _lastScrollY;
     private float _lastDevToolsHeight;
     private bool _lastDevToolsVisible;
+    private long _lastTaskManagerRefresh;
     private readonly DevToolsPanel _devTools;
 
     private readonly ImageCache _sharedImageCache = new();
@@ -296,14 +297,16 @@ public class BrowserApp : IDisposable
             }
             var (pw, ph) = _window.GetClientSize();
             int ww = (int)(pw / _dpiScale);
-            return _taskManagerPage.HandleClick(x, y, ww, _contentOffset);
+            int wh = (int)(ph / _dpiScale);
+            return _taskManagerPage.HandleClick(x, y, ww, wh);
         };
 
         _input.OnTaskManagerPageMove = (x, y) =>
         {
             var (pw, ph) = _window.GetClientSize();
             int ww = (int)(pw / _dpiScale);
-            return _taskManagerPage.HandleMouseMove(x, y, ww, _contentOffset);
+            int wh = (int)(ph / _dpiScale);
+            return _taskManagerPage.HandleMouseMove(x, y, ww, wh);
         };
 
         _input.OnTaskManagerPageWheel = (delta) =>
@@ -311,8 +314,14 @@ public class BrowserApp : IDisposable
             if (!_taskManagerPage.Visible) return false;
             var (pw, ph) = _window.GetClientSize();
             int wh = (int)(ph / _dpiScale);
-            _taskManagerPage.HandleWheel(delta, wh, _contentOffset);
+            _taskManagerPage.HandleWheel(delta, wh);
             return true;
+        };
+
+        _taskManagerPage.OnEndProcess += (tabIndex) =>
+        {
+            _chrome.CloseTab(tabIndex);
+            _input.NeedsRedraw = true;
         };
 
         _input.OnDialogClick = (x, y) =>
@@ -605,7 +614,9 @@ public class BrowserApp : IDisposable
                     Html = _currentHtml,
                     LoadResult = _currentLoad,
                     ScrollX = _scroll.ScrollX,
-                    ScrollY = _scroll.ScrollY
+                    ScrollY = _scroll.ScrollY,
+                    DomNodeCount = CountDomNodes(_currentLoad.Document),
+                    LayoutBoxCount = CountLayoutBoxes(_currentLoad.Document)
                 };
             }
 
@@ -666,6 +677,8 @@ public class BrowserApp : IDisposable
         public DocumentManager.DocumentLoadResult? LoadResult { get; set; }
         public float ScrollX { get; set; }
         public float ScrollY { get; set; }
+        public int DomNodeCount { get; set; }
+        public int LayoutBoxCount { get; set; }
     }
 
     private void RunPageScripts(string? baseUrl)
@@ -1209,6 +1222,16 @@ public class BrowserApp : IDisposable
         if (_jsEngine.NeedsReLayout)
             _pendingRelayout = true;
 
+        if (_taskManagerPage.Visible)
+        {
+            long now = Environment.TickCount64;
+            if (now - _lastTaskManagerRefresh > 1000)
+            {
+                _lastTaskManagerRefresh = now;
+                _input.NeedsRedraw = true;
+            }
+        }
+
         bool needsRedraw = _input.NeedsRedraw || _pendingRelayout || devToolsChanged ||
                            (cursorNeedsRedraw && !inputRecently) || scrollChanged;
 
@@ -1287,6 +1310,25 @@ public class BrowserApp : IDisposable
         if (string.IsNullOrEmpty(currentUrl))
             currentUrl = "upbrowser://local";
 
+        // Update tab tooltips
+        int activeTabIdx = _chrome.ActiveTabIndex;
+        for (int i = 0; i < _chrome.Tabs.Count; i++)
+        {
+            var tab = _chrome.Tabs[i];
+            int nDom = 0, nBox = 0;
+            if (i == activeTabIdx && _currentLoad != null)
+            {
+                nDom = CountDomNodes(_currentLoad.Document);
+                nBox = CountLayoutBoxes(_currentLoad.Document);
+            }
+            else if (_tabStates.TryGetValue(i, out var st))
+            {
+                nDom = st.DomNodeCount;
+                nBox = st.LayoutBoxCount;
+            }
+            tab.TooltipText = $"Title: {tab.Title}\nURL: {(string.IsNullOrEmpty(tab.Url) ? "upbrowser://newtab" : tab.Url)}\nDOM Nodes: {nDom}\nLayout Boxes: {nBox}\nStatus: {(tab.IsLoading ? "Loading" : (i == activeTabIdx ? "Running" : "Complete"))}";
+        }
+
         _chrome.RenderChrome(_skiaRenderer.Canvas, windowWidth, windowHeight, currentUrl, title);
 
         _skiaRenderer.RenderWithScroll(_displayList, _contentOffset,
@@ -1295,17 +1337,77 @@ public class BrowserApp : IDisposable
 
         _chrome.RenderScrollbars(_skiaRenderer.Canvas, windowWidth, windowHeight, _scroll);
 
+        _chrome.RenderTabTooltip(_skiaRenderer.Canvas, windowWidth, windowHeight);
+
         _devTools.Render(_skiaRenderer.Canvas, windowWidth, windowHeight, _contentOffset);
 
         _renderingSettingsPage.Render(_skiaRenderer.Canvas, windowWidth, windowHeight, _contentOffset);
 
-        // Build tab list for task manager
-        var tabList = new System.Collections.Generic.List<(string, string, bool)>();
-        foreach (var tab in _chrome.Tabs)
+        // Build rich data for task manager
+        var tmRows = new System.Collections.Generic.List<TmRowData>();
+        var proc = System.Diagnostics.Process.GetCurrentProcess();
+        proc.Refresh();
+        double wsmb = proc.WorkingSet64 / (1024.0 * 1024.0);
+        double heapMB = System.GC.GetTotalMemory(false) / (1024.0 * 1024.0);
+
+        tmRows.Add(new TmRowData
         {
-            tabList.Add((tab.Title, tab.Url, tab.IsLoading));
+            Name = "Browser",
+            Detail = $"PID: {proc.Id}",
+            Memory = $"{wsmb:F1} MB",
+            Cpu = "", // updated by task manager's own refresh
+            Status = "Running",
+            Pid = proc.Id,
+            TabIndex = -1
+        });
+        tmRows.Add(new TmRowData
+        {
+            Name = "  Working Set",
+            Detail = "",
+            Memory = $"{wsmb:F1} MB",
+            Status = "",
+            TabIndex = -1
+        });
+        tmRows.Add(new TmRowData
+        {
+            Name = "  Managed Heap",
+            Detail = "",
+            Memory = $"{heapMB:F1} MB",
+            Status = "",
+            TabIndex = -1
+        });
+
+        for (int i = 0; i < _chrome.Tabs.Count; i++)
+        {
+            var tab = _chrome.Tabs[i];
+            int domNodes = 0, layoutBoxes = 0;
+            if (i == activeTabIdx && _currentLoad != null)
+            {
+                domNodes = CountDomNodes(_currentLoad.Document);
+                layoutBoxes = CountLayoutBoxes(_currentLoad.Document);
+            }
+            else if (_tabStates.TryGetValue(i, out var st))
+            {
+                domNodes = st.DomNodeCount;
+                layoutBoxes = st.LayoutBoxCount;
+            }
+
+            string detail = string.IsNullOrEmpty(tab.Url) || tab.Url == "upbrowser://newtab" ? "" : tab.Url;
+            string status = tab.IsLoading ? "Loading" : (i == activeTabIdx ? "Running" : "Complete");
+            tmRows.Add(new TmRowData
+            {
+                Name = string.IsNullOrEmpty(tab.Title) ? "New Tab" : tab.Title,
+                Detail = detail,
+                Memory = i == activeTabIdx ? $"{wsmb:F1} MB" : "-",
+                Cpu = i == activeTabIdx ? "" : "-",
+                DomNodes = domNodes,
+                LayoutBoxes = layoutBoxes,
+                Status = status,
+                TabIndex = i
+            });
         }
-        _taskManagerPage.Render(_skiaRenderer.Canvas, windowWidth, windowHeight, _contentOffset, tabList);
+
+        _taskManagerPage.Render(_skiaRenderer.Canvas, windowWidth, windowHeight, _contentOffset, tmRows);
 
         _skiaRenderer.TickFrame();
         _skiaRenderer.RenderFpsCounter(_skiaRenderer.Canvas, windowWidth, windowHeight);
@@ -2167,6 +2269,22 @@ public class BrowserApp : IDisposable
                 MarkSubtreeDirty(ce, flags);
             }
         }
+    }
+
+    private static int CountDomNodes(Core.Dom.Node node)
+    {
+        int count = node is Core.Dom.Element ? 1 : 0;
+        foreach (var child in node.Children)
+            count += CountDomNodes(child);
+        return count;
+    }
+
+    private static int CountLayoutBoxes(Core.Dom.Node node)
+    {
+        int count = (node is Core.Dom.Element el && el.LayoutBox != null) ? 1 : 0;
+        foreach (var child in node.Children)
+            count += CountLayoutBoxes(child);
+        return count;
     }
 
     /// <summary>

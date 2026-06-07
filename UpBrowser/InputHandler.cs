@@ -85,11 +85,14 @@ public class InputHandler
         _mouseX = logicalX;
         _mouseY = logicalY;
         bool handledByTaskMgr = OnTaskManagerPageMove?.Invoke(logicalX, logicalY) ?? false;
-        bool handledBySettings = !handledByTaskMgr && (OnSettingsPageMove?.Invoke(logicalX, logicalY) ?? false);
-        if (!handledBySettings && !handledByTaskMgr)
-            _chrome.HandleMouseMove(logicalX, logicalY);
-        OnDomMouseMove?.Invoke(logicalX, logicalY);
-        OnDevToolsMouseMove?.Invoke(logicalX, logicalY);
+        if (!handledByTaskMgr)
+        {
+            bool handledBySettings = OnSettingsPageMove?.Invoke(logicalX, logicalY) ?? false;
+            if (!handledBySettings)
+                _chrome.HandleMouseMove(logicalX, logicalY);
+            OnDomMouseMove?.Invoke(logicalX, logicalY);
+            OnDevToolsMouseMove?.Invoke(logicalX, logicalY);
+        }
     }
 
     private void OnMouseClick(float x, float y, bool isDown)
@@ -110,16 +113,22 @@ public class InputHandler
             }
             bool handled = OnTaskManagerPageClick?.Invoke(logicalX, logicalY, false) ?? false;
             if (!handled)
-                handled = OnSettingsPageClick?.Invoke(logicalX, logicalY, false) ?? false;
-            if (!handled)
-                handled = _chrome.HandleMouseClick(logicalX, logicalY);
-            if (!handled)
-                handled = OnDevToolsClick?.Invoke(logicalX, logicalY, false) ?? false;
-            NeedsRedraw = true;
-            if (!handled)
             {
-                if (!HandleScrollbarClick(logicalX, logicalY))
-                    OnDomClick?.Invoke(logicalX, logicalY);
+                handled = OnSettingsPageClick?.Invoke(logicalX, logicalY, false) ?? false;
+                if (!handled)
+                    handled = _chrome.HandleMouseClick(logicalX, logicalY);
+                if (!handled)
+                    handled = OnDevToolsClick?.Invoke(logicalX, logicalY, false) ?? false;
+                NeedsRedraw = true;
+                if (!handled)
+                {
+                    if (!HandleScrollbarClick(logicalX, logicalY))
+                        OnDomClick?.Invoke(logicalX, logicalY);
+                }
+            }
+            else
+            {
+                NeedsRedraw = true;
             }
         }
         else
@@ -395,13 +404,8 @@ public class InputHandler
 
     private void OnMouseWheel(double deltaX, double deltaY)
     {
-        if (OnTaskManagerPageWheel?.Invoke((float)deltaY) == true)
-        {
-            NeedsRedraw = true;
-            return;
-        }
-
-        if (OnSettingsPageWheel?.Invoke((float)deltaY) == true)
+        if ((OnTaskManagerPageWheel?.Invoke((float)deltaY) ?? false) ||
+            (OnSettingsPageWheel?.Invoke((float)deltaY) ?? false))
         {
             NeedsRedraw = true;
             return;

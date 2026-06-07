@@ -5,43 +5,49 @@ using SkiaSharp;
 
 namespace UpBrowser.Rendering;
 
+public struct TmRowData
+{
+    public string Name;
+    public string Detail;
+    public string Memory;
+    public string Cpu;
+    public int DomNodes;
+    public int LayoutBoxes;
+    public string Status;
+    public int Pid;
+    public int TabIndex;
+}
+
 public class TaskManagerPage
 {
     private bool _visible;
-    private float _panelWidth = 420;
+    private float _dialogWidth = 620;
+    private float _dialogHeight = 460;
     private float _scrollOffset;
     private float _contentHeight;
     private readonly SKTypeface _typeface;
     private int _hoveredRow = -1;
+    private int _selectedRow = -1;
     private bool _closeHovered;
-    private float _headerHeight = 40;
-    private float _colHeaderHeight = 30;
-    private float _rowHeight = 36;
+    private bool _endProcessHovered;
 
     private long _lastRefreshTick;
     private const long RefreshIntervalMs = 1000;
-    private bool _needsRefresh = true;
 
-    // Process tracking for CPU
     private DateTime _lastCpuTime;
     private TimeSpan _lastProcessorTime;
+    private double _currentCpuPercent;
+    private float _headerHeight = 40;
+    private float _colHeaderHeight = 28;
+    private float _rowHeight = 32;
+    private float _footerHeight = 44;
+
+    private List<TmRowData> _rows = new();
 
     public bool Visible => _visible;
 
     public event Action? OnChanged;
-
-    private List<ProcessInfo> _processes = new();
-
-    private struct ProcessInfo
-    {
-        public string Name;
-        public string Title;
-        public string Memory;
-        public string Cpu;
-        public string Status;
-        public int Pid;
-        public bool IsBrowser;
-    }
+    public event Action<int>? OnEndProcess;
 
     public TaskManagerPage()
     {
@@ -55,409 +61,417 @@ public class TaskManagerPage
     {
         _visible = !_visible;
         _scrollOffset = 0;
+        _selectedRow = -1;
         if (_visible)
-        {
-            _needsRefresh = true;
-            RefreshData();
-        }
-    }
-
-    public void Show()
-    {
-        _visible = true;
-        _scrollOffset = 0;
-        _needsRefresh = true;
-        RefreshData();
+            RefreshProcessData();
     }
 
     public void Hide()
     {
         _visible = false;
         _scrollOffset = 0;
+        _selectedRow = -1;
     }
 
-    public void UpdateTabs(List<(string title, string url, bool isLoading)> tabs)
-    {
-        if (!_visible) return;
-        // Check if tabs changed
-        _needsRefresh = true;
-        RefreshData();
-    }
-
-    public void RefreshData()
+    private void RefreshProcessData()
     {
         var now = DateTime.UtcNow;
-        if (!_needsRefresh && (now - _lastCpuTime).TotalMilliseconds < RefreshIntervalMs)
-            return;
-        _needsRefresh = false;
-        _lastRefreshTick = Environment.TickCount64;
-
         var process = Process.GetCurrentProcess();
         process.Refresh();
 
-        double workingSetMB = process.WorkingSet64 / (1024.0 * 1024.0);
-        double privateMB = process.PrivateMemorySize64 / (1024.0 * 1024.0);
-        double heapMB = GC.GetTotalMemory(false) / (1024.0 * 1024.0);
-
-        // CPU
         var currentProcessorTime = process.TotalProcessorTime;
         var cpuDelta = (currentProcessorTime - _lastProcessorTime).TotalSeconds;
         var timeDelta = (now - _lastCpuTime).TotalSeconds;
-        double cpuPercent = 0;
         if (timeDelta > 0.01 && cpuDelta >= 0)
         {
-            cpuPercent = (cpuDelta / timeDelta) * 100.0 / Environment.ProcessorCount;
-            cpuPercent = Math.Round(cpuPercent, 1);
+            _currentCpuPercent = Math.Round((cpuDelta / timeDelta) * 100.0 / Environment.ProcessorCount, 1);
         }
         _lastCpuTime = now;
         _lastProcessorTime = currentProcessorTime;
-
-        // Rebuild process list
-        _processes.Clear();
-
-        // Main browser process
-        _processes.Add(new ProcessInfo
-        {
-            Name = "Browser",
-            Title = $"UpBrowser",
-            Memory = $"{workingSetMB:F1} MB",
-            Cpu = $"{cpuPercent:F1}%",
-            Status = "Running",
-            Pid = process.Id,
-            IsBrowser = true
-        });
-
-        // Sub-items for browser process
-        _processes.Add(new ProcessInfo
-        {
-            Name = "‧ Private Memory",
-            Title = "",
-            Memory = $"{privateMB:F1} MB",
-            Cpu = "",
-            Status = "",
-            Pid = 0,
-            IsBrowser = false
-        });
-
-        _processes.Add(new ProcessInfo
-        {
-            Name = "‧ Managed Heap",
-            Title = "",
-            Memory = $"{heapMB:F1} MB",
-            Cpu = "",
-            Status = "",
-            Pid = 0,
-            IsBrowser = false
-        });
+        OnChanged?.Invoke();
     }
 
-    public void Render(SKCanvas canvas, float windowWidth, float windowHeight, float contentOffset, 
-                       List<(string title, string url, bool isLoading)> tabs)
+    public void Render(SKCanvas canvas, float windowWidth, float windowHeight, float contentOffset, List<TmRowData> rows)
     {
         if (!_visible) return;
 
-        // Auto refresh
         if (Environment.TickCount64 - _lastRefreshTick > RefreshIntervalMs)
         {
-            _needsRefresh = true;
-            RefreshData();
+            _lastRefreshTick = Environment.TickCount64;
+            RefreshProcessData();
         }
 
-        float panelLeft = windowWidth - _panelWidth;
-        float panelTop = contentOffset;
-        float panelBottom = windowHeight;
+        _rows = rows;
 
-        canvas.Save();
-
-        // Panel background
-        using var bg = new SKPaint
+        // Fill CPU for rows with placeholder (Browser + active tab)
+        string cpuStr = _currentCpuPercent >= 0 ? $"{_currentCpuPercent:F1}%" : "";
+        for (int idx = 0; idx < _rows.Count; idx++)
         {
-            Color = new SKColor(255, 255, 255, 245),
+            var r = _rows[idx];
+            if (string.IsNullOrEmpty(r.Cpu))
+            {
+                r.Cpu = cpuStr;
+                _rows[idx] = r;
+            }
+        }
+
+        if (_selectedRow >= _rows.Count)
+            _selectedRow = -1;
+
+        float cx = windowWidth / 2;
+        float cy = windowHeight / 2;
+        float dlgX = cx - _dialogWidth / 2;
+        float dlgY = Math.Max(40, cy - _dialogHeight / 2);
+        var dlgRect = new SKRect(dlgX, dlgY, dlgX + _dialogWidth, dlgY + _dialogHeight);
+
+        // Backdrop
+        using (var backdrop = new SKPaint { Color = new SKColor(0, 0, 0, 96), Style = SKPaintStyle.Fill })
+            canvas.DrawRect(0, 0, windowWidth, windowHeight, backdrop);
+
+        // Shadow
+        using (var shadow = new SKPaint
+        {
+            Color = new SKColor(0, 0, 0, 32),
             Style = SKPaintStyle.Fill,
-            IsAntialias = true
-        };
-        canvas.DrawRoundRect(panelLeft, panelTop, _panelWidth, panelBottom - panelTop, 8, 8, bg);
+            IsAntialias = true,
+            MaskFilter = SKMaskFilter.CreateBlur(SKBlurStyle.Normal, 12)
+        })
+            canvas.DrawRoundRect(dlgX + 3, dlgY + 5, _dialogWidth, _dialogHeight, 10, 10, shadow);
 
-        using var border = new SKPaint
+        // Dialog background
+        using (var bg = new SKPaint { Color = SKColors.White, Style = SKPaintStyle.Fill, IsAntialias = true })
+            canvas.DrawRoundRect(dlgRect, 10, 10, bg);
+
+        // Border
+        using (var border = new SKPaint
         {
-            Color = new SKColor(200, 200, 200, 200),
+            Color = new SKColor(189, 193, 198),
             Style = SKPaintStyle.Stroke,
             StrokeWidth = 1,
             IsAntialias = true
-        };
-        canvas.DrawRoundRect(panelLeft, panelTop, _panelWidth, panelBottom - panelTop, 8, 8, border);
+        })
+            canvas.DrawRoundRect(dlgRect, 10, 10, border);
 
         // Header
-        using var headerBg = new SKPaint
+        using (var headerBg = new SKPaint { Color = new SKColor(32, 33, 36), Style = SKPaintStyle.Fill, IsAntialias = true })
         {
-            Color = new SKColor(32, 33, 36),
-            Style = SKPaintStyle.Fill
-        };
-        using var headerPath = new SKPath();
-        headerPath.AddRoundRect(new SKRect(panelLeft, panelTop, panelLeft + _panelWidth, panelTop + _headerHeight), 8, 8);
-        canvas.DrawPath(headerPath, headerBg);
-        canvas.DrawRect(panelLeft, panelTop + 4, _panelWidth, _headerHeight - 4, headerBg);
+            using var headerPath = new SKPath();
+            headerPath.AddRoundRect(new SKRect(dlgX, dlgY, dlgX + _dialogWidth, dlgY + _headerHeight + 4), 10, 10);
+            canvas.DrawPath(headerPath, headerBg);
+            canvas.DrawRect(dlgX, dlgY + 6, _dialogWidth, _headerHeight - 6, headerBg);
+        }
 
-        using var headerFont = new SKFont(_typeface, 14);
-        using var headerPaint = new SKPaint { Color = SKColors.White, IsAntialias = true };
-        canvas.DrawText("Task Manager", panelLeft + 16, panelTop + 26, SKTextAlign.Left, headerFont, headerPaint);
+        using (var headerFont = new SKFont(_typeface, 14))
+        using (var headerPaint = new SKPaint { Color = SKColors.White, IsAntialias = true })
+            canvas.DrawText("Task Manager", dlgX + 16, dlgY + 26, SKTextAlign.Left, headerFont, headerPaint);
 
         // Close button
-        float closeBtnSize = 24;
-        float closeX = panelLeft + _panelWidth - closeBtnSize - 10;
-        float closeY = panelTop + (_headerHeight - closeBtnSize) / 2;
-        var closeRect = new SKRect(closeX, closeY, closeX + closeBtnSize, closeY + closeBtnSize);
-        if (_closeHovered)
-        {
-            using var closeBg = new SKPaint
-            {
-                Color = new SKColor(255, 255, 255, 40),
-                Style = SKPaintStyle.Fill,
-                IsAntialias = true
-            };
-            canvas.DrawRoundRect(closeRect, 4, 4, closeBg);
-        }
-        using var closeFont = new SKFont(_typeface, 14);
-        using var closePaint = new SKPaint { Color = new SKColor(200, 200, 200), IsAntialias = true };
-        canvas.DrawText("✕", closeRect.MidX - 6, closeRect.MidY + 5, SKTextAlign.Left, closeFont, closePaint);
+        _closeHovered = DrawCloseButton(canvas, dlgX + _dialogWidth - 38, dlgY + 8, 24);
 
         // Column headers
-        float colY = panelTop + _headerHeight;
-        using var colBg = new SKPaint
-        {
-            Color = new SKColor(248, 249, 250),
-            Style = SKPaintStyle.Fill
-        };
-        canvas.DrawRect(panelLeft, colY, _panelWidth, _colHeaderHeight, colBg);
+        float colY = dlgY + _headerHeight;
+        using (var colBg = new SKPaint { Color = new SKColor(248, 249, 250), Style = SKPaintStyle.Fill })
+            canvas.DrawRect(dlgX, colY, _dialogWidth, _colHeaderHeight, colBg);
 
-        using var colFont = new SKFont(_typeface, 11);
-        using var colPaint = new SKPaint { Color = new SKColor(95, 99, 104), IsAntialias = true };
+        string[] columnNames = { "Process", "Memory", "CPU", "DOM Nodes", "Layout", "Status" };
+        float[] colStarts = { dlgX + 12, dlgX + 280, dlgX + 360, dlgX + 420, dlgX + 490, dlgX + 550 };
 
-        float[] colWidths = { _panelWidth - 250, 80, 70, 80 };
-        float[] colStarts = { panelLeft + 12, panelLeft + _panelWidth - 240, panelLeft + _panelWidth - 160, panelLeft + _panelWidth - 80 };
+        using (var colFont = new SKFont(_typeface, 11))
+        using (var colPaint = new SKPaint { Color = new SKColor(95, 99, 104), IsAntialias = true })
+            for (int i = 0; i < columnNames.Length; i++)
+                canvas.DrawText(columnNames[i], colStarts[i], colY + 19, SKTextAlign.Left, colFont, colPaint);
 
-        canvas.DrawText("Process", colStarts[0], colY + 20, SKTextAlign.Left, colFont, colPaint);
-        canvas.DrawText("Memory", colStarts[1], colY + 20, SKTextAlign.Left, colFont, colPaint);
-        canvas.DrawText("CPU", colStarts[2], colY + 20, SKTextAlign.Left, colFont, colPaint);
-        canvas.DrawText("Status", colStarts[3], colY + 20, SKTextAlign.Left, colFont, colPaint);
+        // Separator under column headers
+        using (var sepLine = new SKPaint { Color = new SKColor(218, 220, 224), Style = SKPaintStyle.Fill })
+            canvas.DrawRect(dlgX, colY + _colHeaderHeight, _dialogWidth, 1, sepLine);
 
-        // Separator below column header
-        using var sepLine = new SKPaint { Color = new SKColor(218, 220, 224), Style = SKPaintStyle.Fill };
-        canvas.DrawRect(panelLeft, colY + _colHeaderHeight, _panelWidth, 1, sepLine);
-
-        // Calculate scroll height based on all rows
-        int totalRows = _processes.Count + tabs.Count;
-        _contentHeight = totalRows * _rowHeight;
-
-        // Clip to content area
+        // Content area
         float contentTop = colY + _colHeaderHeight + 1;
-        float contentBottom = panelBottom;
+        float contentBottom = dlgY + _dialogHeight - _footerHeight;
+        float contentAreaH = contentBottom - contentTop;
+
         canvas.Save();
-        canvas.ClipRect(new SKRect(panelLeft, contentTop, panelLeft + _panelWidth, contentBottom));
+        canvas.ClipRect(new SKRect(dlgX + 1, contentTop, dlgX + _dialogWidth - 1, contentBottom));
 
         using var rowFont = new SKFont(_typeface, 12);
+        using var smallFont = new SKFont(_typeface, 10);
         using var namePaint = new SKPaint { Color = new SKColor(32, 33, 36), IsAntialias = true };
         using var detailPaint = new SKPaint { Color = new SKColor(95, 99, 104), IsAntialias = true };
-        using var urlPaint = new SKPaint { Color = new SKColor(26, 115, 232), IsAntialias = true };
-        using var altRowPaint = new SKPaint
-        {
-            Color = new SKColor(248, 249, 250),
-            Style = SKPaintStyle.Fill
-        };
-        using var hoverRowPaint = new SKPaint
-        {
-            Color = new SKColor(232, 240, 254),
-            Style = SKPaintStyle.Fill
-        };
+        using var altPaint = new SKPaint { Color = new SKColor(248, 249, 250), Style = SKPaintStyle.Fill };
+        using var selPaint = new SKPaint { Color = new SKColor(210, 227, 252), Style = SKPaintStyle.Fill };
+        using var hovPaint = new SKPaint { Color = new SKColor(232, 240, 254), Style = SKPaintStyle.Fill };
 
         float yPos = contentTop - _scrollOffset;
 
-        // Draw process rows
-        int rowIndex = 0;
-        foreach (var proc in _processes)
+        for (int i = 0; i < _rows.Count; i++)
         {
-            float rowTop = yPos + rowIndex * _rowHeight;
-            if (rowTop + _rowHeight < contentTop) { rowIndex++; continue; }
+            var row = _rows[i];
+            float rowTop = yPos + i * _rowHeight;
+            if (rowTop + _rowHeight < contentTop) continue;
             if (rowTop > contentBottom) break;
 
-            bool isHovered = rowIndex == _hoveredRow;
+            bool isSelected = i == _selectedRow;
+            bool isHovered = i == _hoveredRow;
 
-            // Alternating row background
-            if (rowIndex % 2 == 1 && !isHovered)
-                canvas.DrawRect(panelLeft, rowTop, _panelWidth, _rowHeight, altRowPaint);
-            if (isHovered)
-                canvas.DrawRect(panelLeft, rowTop, _panelWidth, _rowHeight, hoverRowPaint);
+            if (isSelected)
+                canvas.DrawRect(dlgX + 1, rowTop, _dialogWidth - 2, _rowHeight, selPaint);
+            else if (isHovered)
+                canvas.DrawRect(dlgX + 1, rowTop, _dialogWidth - 2, _rowHeight, hovPaint);
+            else if (i % 2 == 1)
+                canvas.DrawRect(dlgX + 1, rowTop, _dialogWidth - 2, _rowHeight, altPaint);
 
-            // Name/title column
-            float nameX = proc.IsBrowser ? colStarts[0] : colStarts[0] + 12;
-            canvas.DrawText(proc.Name, nameX, rowTop + 20, SKTextAlign.Left, rowFont, proc.IsBrowser ? namePaint : detailPaint);
-
-            // Memory
-            if (!string.IsNullOrEmpty(proc.Memory))
-                canvas.DrawText(proc.Memory, colStarts[1], rowTop + 20, SKTextAlign.Left, rowFont, namePaint);
-
-            // CPU
-            if (!string.IsNullOrEmpty(proc.Cpu))
-                canvas.DrawText(proc.Cpu, colStarts[2], rowTop + 20, SKTextAlign.Left, rowFont, namePaint);
-
-            // Status
-            if (!string.IsNullOrEmpty(proc.Status))
-                canvas.DrawText(proc.Status, colStarts[3], rowTop + 20, SKTextAlign.Left, rowFont, detailPaint);
-
-            rowIndex++;
-        }
-
-        // Draw tab rows
-        foreach (var tab in tabs)
-        {
-            float rowTop = yPos + rowIndex * _rowHeight;
-            if (rowTop + _rowHeight < contentTop) { rowIndex++; continue; }
-            if (rowTop > contentBottom) break;
-
-            bool isHovered = rowIndex == _hoveredRow;
-
-            if (rowIndex % 2 == 1 && !isHovered)
-                canvas.DrawRect(panelLeft, rowTop, _panelWidth, _rowHeight, altRowPaint);
-            if (isHovered)
-                canvas.DrawRect(panelLeft, rowTop, _panelWidth, _rowHeight, hoverRowPaint);
-
-            // Tab icon placeholder + title
-            string displayName = string.IsNullOrEmpty(tab.title) ? "New Tab" : tab.title;
-            if (rowFont.MeasureText(displayName) > colWidths[0] - 24)
+            if (row.TabIndex >= 0)
             {
-                while (rowFont.MeasureText(displayName + "…") > colWidths[0] - 24 && displayName.Length > 2)
-                    displayName = displayName[..^1];
-                displayName += "…";
+                using (var dot = new SKPaint { Color = new SKColor(26, 115, 232), Style = SKPaintStyle.Fill, IsAntialias = true })
+                    canvas.DrawCircle(colStarts[0] + 6, rowTop + 12, 4, dot);
+
+                string displayName = TruncateText(rowFont, row.Name, 220);
+                canvas.DrawText(displayName, colStarts[0] + 16, rowTop + 14, SKTextAlign.Left, rowFont, namePaint);
+
+                if (!string.IsNullOrEmpty(row.Detail))
+                {
+                    string detail = TruncateText(smallFont, row.Detail, 220);
+                    canvas.DrawText(detail, colStarts[0] + 16, rowTop + 27, SKTextAlign.Left, smallFont, detailPaint);
+                }
+            }
+            else
+            {
+                string displayName = TruncateText(rowFont, row.Name, 220);
+                canvas.DrawText(displayName, colStarts[0] + 6, rowTop + 20, SKTextAlign.Left, rowFont, namePaint);
+
+                if (!string.IsNullOrEmpty(row.Detail))
+                {
+                    string detail = TruncateText(smallFont, row.Detail, 220);
+                    canvas.DrawText(detail, colStarts[0] + 6, rowTop + 30, SKTextAlign.Left, smallFont, detailPaint);
+                }
             }
 
-            // Small circle icon
-            using var circlePaint = new SKPaint
+            canvas.DrawText(string.IsNullOrEmpty(row.Memory) ? "-" : row.Memory, colStarts[1], rowTop + 20, SKTextAlign.Left, rowFont, detailPaint);
+            canvas.DrawText(string.IsNullOrEmpty(row.Cpu) ? "-" : row.Cpu, colStarts[2], rowTop + 20, SKTextAlign.Left, rowFont, detailPaint);
+
+            string domStr = row.DomNodes > 0 ? row.DomNodes.ToString() : "-";
+            canvas.DrawText(domStr, colStarts[3], rowTop + 20, SKTextAlign.Left, rowFont, detailPaint);
+
+            string layoutStr = row.LayoutBoxes > 0 ? row.LayoutBoxes.ToString() : "-";
+            canvas.DrawText(layoutStr, colStarts[4], rowTop + 20, SKTextAlign.Left, rowFont, detailPaint);
+
+            using var statusPaint = new SKPaint
             {
-                Color = new SKColor(26, 115, 232),
-                Style = SKPaintStyle.Fill,
+                Color = row.Status == "Loading" ? new SKColor(26, 115, 232) : new SKColor(95, 99, 104),
                 IsAntialias = true
             };
-            canvas.DrawCircle(colStarts[0] + 6, rowTop + 14, 4, circlePaint);
-            canvas.DrawText(displayName, colStarts[0] + 16, rowTop + 20, SKTextAlign.Left, rowFont, namePaint);
-
-            // Memory (N/A for tabs)
-            canvas.DrawText("-", colStarts[1], rowTop + 20, SKTextAlign.Left, rowFont, detailPaint);
-
-            // CPU (N/A for tabs)
-            canvas.DrawText("-", colStarts[2], rowTop + 20, SKTextAlign.Left, rowFont, detailPaint);
-
-            // Status
-            string status = tab.isLoading ? "Loading" : "Complete";
-            canvas.DrawText(status, colStarts[3], rowTop + 20, SKTextAlign.Left, rowFont, status == "Loading" ? urlPaint : detailPaint);
-
-            rowIndex++;
+            canvas.DrawText(string.IsNullOrEmpty(row.Status) ? "-" : row.Status, colStarts[5], rowTop + 20, SKTextAlign.Left, rowFont, statusPaint);
         }
 
-        _contentHeight = rowIndex * _rowHeight;
-
+        _contentHeight = _rows.Count * _rowHeight;
         canvas.Restore();
 
-        // Bottom scroll indicator if needed
-        if (_contentHeight > contentBottom - contentTop)
+        // Scroll indicator
+        if (_contentHeight > contentAreaH)
         {
-            float scrollTrackH = contentBottom - contentTop;
-            float scrollThumbH = Math.Max(30, scrollTrackH * (contentBottom - contentTop) / _contentHeight);
-            float maxScroll = _contentHeight - (contentBottom - contentTop);
-            float scrollThumbY = contentTop + (_scrollOffset / maxScroll) * (scrollTrackH - scrollThumbH);
-            using var scrollBg = new SKPaint
-            {
-                Color = new SKColor(0, 0, 0, 20),
-                Style = SKPaintStyle.Fill
-            };
-            canvas.DrawRoundRect(panelLeft + _panelWidth - 6, contentTop, 4, scrollTrackH, 2, 2, scrollBg);
-            using var scrollThumb = new SKPaint
-            {
-                Color = new SKColor(0, 0, 0, 60),
-                Style = SKPaintStyle.Fill,
-                IsAntialias = true
-            };
-            canvas.DrawRoundRect(panelLeft + _panelWidth - 6, scrollThumbY, 4, scrollThumbH, 2, 2, scrollThumb);
+            float trackH = contentAreaH;
+            float thumbH = Math.Max(24, trackH * contentAreaH / _contentHeight);
+            float maxScroll = _contentHeight - contentAreaH;
+            float thumbY = contentTop + (_scrollOffset / Math.Max(1, maxScroll)) * (trackH - thumbH);
+            using (var scrollBg = new SKPaint { Color = new SKColor(0, 0, 0, 16), Style = SKPaintStyle.Fill })
+                canvas.DrawRoundRect(dlgX + _dialogWidth - 8, contentTop, 4, trackH, 2, 2, scrollBg);
+            using (var scrollThumb = new SKPaint { Color = new SKColor(0, 0, 0, 48), Style = SKPaintStyle.Fill, IsAntialias = true })
+                canvas.DrawRoundRect(dlgX + _dialogWidth - 8, thumbY, 4, thumbH, 2, 2, scrollThumb);
         }
 
-        canvas.Restore();
+        // Footer
+        float footerY = dlgY + _dialogHeight - _footerHeight;
+        using (var footerBg = new SKPaint { Color = new SKColor(248, 249, 250), Style = SKPaintStyle.Fill })
+            canvas.DrawRect(dlgX, footerY, _dialogWidth, _footerHeight, footerBg);
+        using (var footerSep = new SKPaint { Color = new SKColor(218, 220, 224), Style = SKPaintStyle.Fill })
+            canvas.DrawRect(dlgX, footerY, _dialogWidth, 1, footerSep);
+
+        // End Process button
+        float btnW = 100;
+        float btnH = 28;
+        float btnX = dlgX + _dialogWidth - btnW - 12;
+        float btnY = footerY + (_footerHeight - btnH) / 2;
+        bool canEnd = _selectedRow >= 0 && _selectedRow < _rows.Count && _rows[_selectedRow].TabIndex >= 0;
+        using (var btnPaint = new SKPaint
+        {
+            Color = canEnd ? (_endProcessHovered ? new SKColor(183, 28, 28) : new SKColor(211, 47, 47))
+                          : new SKColor(200, 200, 200),
+            Style = SKPaintStyle.Fill,
+            IsAntialias = true
+        })
+            canvas.DrawRoundRect(btnX, btnY, btnW, btnH, 4, 4, btnPaint);
+        using (var btnFont = new SKFont(_typeface, 12))
+        using (var btnText = new SKPaint { Color = SKColors.White, IsAntialias = true })
+        {
+            string label = "End Process";
+            float tw = btnFont.MeasureText(label);
+            canvas.DrawText(label, btnX + (btnW - tw) / 2, btnY + 19, SKTextAlign.Left, btnFont, btnText);
+        }
+
+        // Footer info
+        var p = Process.GetCurrentProcess();
+        p.Refresh();
+        double m = p.WorkingSet64 / (1024.0 * 1024.0);
+        using (var infoFont = new SKFont(_typeface, 11))
+        using (var infoPaint = new SKPaint { Color = new SKColor(95, 99, 104), IsAntialias = true })
+        {
+            string info = $"Memory: {m:F1} MB  |  CPU: {_currentCpuPercent:F1}%  |  Tabs: {Math.Max(0, _rows.Count - 1)}";
+            canvas.DrawText(info, dlgX + 16, footerY + 26, SKTextAlign.Left, infoFont, infoPaint);
+        }
     }
 
-    public bool HandleClick(float x, float y, float windowWidth, float contentOffset)
+    private static string TruncateText(SKFont font, string text, float maxWidth)
+    {
+        if (font.MeasureText(text) <= maxWidth)
+            return text;
+        while (text.Length > 1 && font.MeasureText(text + "…") > maxWidth)
+            text = text[..^1];
+        return text + "…";
+    }
+
+    private bool DrawCloseButton(SKCanvas canvas, float x, float y, float size)
+    {
+        var btnRect = new SKRect(x, y, x + size, y + size);
+        bool hovering = btnRect.Contains(_lastMouseX, _lastMouseY);
+        if (hovering)
+        {
+            using var bg = new SKPaint { Color = new SKColor(255, 255, 255, 40), Style = SKPaintStyle.Fill, IsAntialias = true };
+            canvas.DrawRoundRect(btnRect, 4, 4, bg);
+        }
+        using var xPaint = new SKPaint { Color = new SKColor(200, 200, 200), Style = SKPaintStyle.Stroke, StrokeWidth = 2, IsAntialias = true };
+        float pad = 6;
+        using var path = new SKPath();
+        path.MoveTo(x + pad, y + pad);
+        path.LineTo(x + size - pad, y + size - pad);
+        path.MoveTo(x + size - pad, y + pad);
+        path.LineTo(x + pad, y + size - pad);
+        canvas.DrawPath(path, xPaint);
+        return hovering;
+    }
+
+    private float _lastMouseX, _lastMouseY;
+
+    public bool HandleClick(float x, float y, float windowWidth, float windowHeight)
     {
         if (!_visible) return false;
+        _lastMouseX = x;
+        _lastMouseY = y;
 
-        float panelLeft = windowWidth - _panelWidth;
-        float panelTop = contentOffset;
+        float cx = windowWidth / 2;
+        float cy = windowHeight / 2;
+        float dlgX = cx - _dialogWidth / 2;
+        float dlgY = Math.Max(40, cy - _dialogHeight / 2);
+        var dlgRect = new SKRect(dlgX, dlgY, dlgX + _dialogWidth, dlgY + _dialogHeight);
 
-        if (x < panelLeft || x > panelLeft + _panelWidth || y < panelTop) return false;
-
-        // Close button
-        float closeBtnSize = 24;
-        float closeX = panelLeft + _panelWidth - closeBtnSize - 10;
-        float closeY = panelTop + (_headerHeight - closeBtnSize) / 2;
-        var closeRect = new SKRect(closeX, closeY, closeX + closeBtnSize, closeY + closeBtnSize);
-        if (closeRect.Contains(x, y))
+        if (!dlgRect.Contains(x, y))
         {
             Hide();
             OnChanged?.Invoke();
             return true;
         }
 
-        return true;
-    }
-
-    public bool HandleMouseMove(float x, float y, float windowWidth, float contentOffset)
-    {
-        if (!_visible) return false;
-
-        float panelLeft = windowWidth - _panelWidth;
-        float panelTop = contentOffset;
-
-        int oldHovered = _hoveredRow;
-        bool oldClose = _closeHovered;
-
-        if (x < panelLeft || x > panelLeft + _panelWidth || y < panelTop)
+        // Close button
+        if (new SKRect(dlgX + _dialogWidth - 38, dlgY + 8, dlgX + _dialogWidth - 38 + 24, dlgY + 8 + 24).Contains(x, y))
         {
-            _hoveredRow = -1;
-            _closeHovered = false;
-            if (oldHovered != -1 || oldClose) OnChanged?.Invoke();
-            return false;
-        }
-
-        // Close button hover
-        float closeBtnSize = 24;
-        float closeX = panelLeft + _panelWidth - closeBtnSize - 10;
-        float closeY = panelTop + (_headerHeight - closeBtnSize) / 2;
-        _closeHovered = new SKRect(closeX, closeY, closeX + closeBtnSize, closeY + closeBtnSize).Contains(x, y);
-
-        if (_closeHovered)
-        {
-            _hoveredRow = -1;
-            if (oldHovered != -1 || !oldClose) OnChanged?.Invoke();
+            Hide();
+            OnChanged?.Invoke();
             return true;
         }
 
-        // Row hover
-        float colY = panelTop + _headerHeight;
-        float contentTop = colY + _colHeaderHeight + 1;
-        float relY = y - contentTop + _scrollOffset;
-        int newHovered = (int)(relY / _rowHeight);
-        if (newHovered < 0) newHovered = -1;
-
-        if (_hoveredRow != newHovered)
+        // End Process
+        float footerY = dlgY + _dialogHeight - _footerHeight;
+        float btnW = 100;
+        float btnH = 28;
+        float btnX = dlgX + _dialogWidth - btnW - 12;
+        float btnY = footerY + (_footerHeight - btnH) / 2;
+        if (new SKRect(btnX, btnY, btnX + btnW, btnY + btnH).Contains(x, y))
         {
-            _hoveredRow = newHovered;
-            OnChanged?.Invoke();
+            if (_selectedRow >= 0 && _selectedRow < _rows.Count)
+            {
+                int tabIdx = _rows[_selectedRow].TabIndex;
+                if (tabIdx >= 0)
+                {
+                    OnEndProcess?.Invoke(tabIdx);
+                    OnChanged?.Invoke();
+                }
+            }
+            return true;
         }
+
+        // Row selection
+        float colY = dlgY + _headerHeight;
+        float contentTop = colY + _colHeaderHeight + 1;
+        float contentBottom = dlgY + _dialogHeight - _footerHeight;
+        if (y >= contentTop && y < contentBottom)
+        {
+            int newSel = (int)((y - contentTop + _scrollOffset) / _rowHeight);
+            if (newSel >= 0 && newSel < _rows.Count)
+            {
+                _selectedRow = newSel;
+                OnChanged?.Invoke();
+            }
+        }
+        return true;
+    }
+
+    public bool HandleMouseMove(float x, float y, float windowWidth, float windowHeight)
+    {
+        if (!_visible) return false;
+        _lastMouseX = x;
+        _lastMouseY = y;
+
+        float cx = windowWidth / 2;
+        float cy = windowHeight / 2;
+        float dlgX = cx - _dialogWidth / 2;
+        float dlgY = Math.Max(40, cy - _dialogHeight / 2);
+        var dlgRect = new SKRect(dlgX, dlgY, dlgX + _dialogWidth, dlgY + _dialogHeight);
+
+        bool oldClose = _closeHovered;
+        bool oldEnd = _endProcessHovered;
+        int oldRow = _hoveredRow;
+
+        if (!dlgRect.Contains(x, y))
+        {
+            _closeHovered = false;
+            _endProcessHovered = false;
+            _hoveredRow = -1;
+        }
+        else
+        {
+            _closeHovered = new SKRect(dlgX + _dialogWidth - 38, dlgY + 8, dlgX + _dialogWidth - 38 + 24, dlgY + 8 + 24).Contains(x, y);
+
+            float footerY = dlgY + _dialogHeight - _footerHeight;
+            float btnW = 100;
+            float btnH = 28;
+            float btnX = dlgX + _dialogWidth - btnW - 12;
+            float btnY = footerY + (_footerHeight - btnH) / 2;
+            _endProcessHovered = new SKRect(btnX, btnY, btnX + btnW, btnY + btnH).Contains(x, y);
+
+            float colY = dlgY + _headerHeight;
+            float contentTop = colY + _colHeaderHeight + 1;
+            float contentBottom = dlgY + _dialogHeight - _footerHeight;
+            if (y >= contentTop && y < contentBottom)
+            {
+                int n = (int)((y - contentTop + _scrollOffset) / _rowHeight);
+                _hoveredRow = (n >= 0 && n < _rows.Count) ? n : -1;
+            }
+            else
+            {
+                _hoveredRow = -1;
+            }
+        }
+
+        if (oldRow != _hoveredRow || oldClose != _closeHovered || oldEnd != _endProcessHovered)
+            OnChanged?.Invoke();
 
         return true;
     }
 
-    public bool HandleWheel(float delta, float windowHeight, float contentOffset)
+    public bool HandleWheel(float delta, float windowHeight)
     {
         if (!_visible) return false;
-
-        float maxScroll = Math.Max(0, _contentHeight - (windowHeight - contentOffset - _headerHeight - _colHeaderHeight));
+        float contentAreaH = _dialogHeight - _headerHeight - _colHeaderHeight - _footerHeight;
+        float maxScroll = Math.Max(0, _contentHeight - contentAreaH);
         _scrollOffset = Math.Clamp(_scrollOffset - delta * 0.5f, 0, maxScroll);
         return true;
     }
