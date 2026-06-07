@@ -1117,6 +1117,8 @@ public class CascadeResolver
         "inline-block" => DisplayType.InlineBlock,
         "flex" => DisplayType.Flex,
         "inline-flex" => DisplayType.InlineFlex,
+        "grid" => DisplayType.Grid,
+        "inline-grid" => DisplayType.InlineGrid,
         "list-item" => DisplayType.ListItem,
         "table" => DisplayType.Table,
         "table-row" => DisplayType.TableRow,

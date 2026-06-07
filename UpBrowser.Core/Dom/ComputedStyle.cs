@@ -806,7 +806,7 @@ public class ComputedStyle
     public static ComputedStyle CreateDefault() => new();
 }
 
-public enum DisplayType { Block, Inline, InlineBlock, Flex, InlineFlex, ListItem, Table, TableRow, TableRowGroup, TableHeaderGroup, TableFooterGroup, TableCell, TableCaption, TableColumnGroup, TableColumn, Ruby, Contents, None }
+public enum DisplayType { Block, Inline, InlineBlock, Flex, InlineFlex, Grid, InlineGrid, ListItem, Table, TableRow, TableRowGroup, TableHeaderGroup, TableFooterGroup, TableCell, TableCaption, TableColumnGroup, TableColumn, Ruby, Contents, None }
 public enum PositionType { Static, Relative, Absolute, Fixed, Sticky }
 public enum FloatType { None, Left, Right }
 public enum ClearType { None, Left, Right, Both }
@@ -1040,6 +1040,7 @@ public static class CssEnumFormatter
     {
         DisplayType.InlineBlock => "inline-block",
         DisplayType.InlineFlex => "inline-flex",
+        DisplayType.InlineGrid => "inline-grid",
         DisplayType.ListItem => "list-item",
         DisplayType.TableRowGroup => "table-row-group",
         DisplayType.TableHeaderGroup => "table-header-group",

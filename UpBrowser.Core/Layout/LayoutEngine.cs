@@ -1,4 +1,5 @@
 using UpBrowser.Core.Dom;
+using UpBrowser.Core.Layout.Grid;
 using SkiaSharp;
 using System.Text;
 
@@ -281,7 +282,7 @@ public class LayoutEngine
         if (style.MaxHeight is PixelLength maxH) contentHeight = Math.Min(contentHeight, maxH.Value);
 
         bool isBlockLevel = style.Display != DisplayType.Inline && style.Display != DisplayType.InlineFlex &&
-                            style.Display != DisplayType.InlineBlock && style.Position != PositionType.Absolute;
+                            style.Display != DisplayType.InlineGrid && style.Display != DisplayType.InlineBlock && style.Position != PositionType.Absolute;
         if (style.Width is AutoLength && isBlockLevel)
         {
             float availableForContent = availableWidth - marginLeft - marginRight - borderLeft - borderRight - paddingLeft - paddingRight;
@@ -527,6 +528,10 @@ public class LayoutEngine
             case DisplayType.Flex:
             case DisplayType.InlineFlex:
                 LayoutFlexChildren(element, box, childX, childY, childAvailableWidth);
+                break;
+            case DisplayType.Grid:
+            case DisplayType.InlineGrid:
+                LayoutGridChildren(element, box, childX, childY, childAvailableWidth);
                 break;
             case DisplayType.Inline:
             case DisplayType.InlineBlock:
@@ -2194,6 +2199,17 @@ public class LayoutEngine
         public List<FlexItem> Items { get; set; } = new();
         public float MainSize { get; set; }
         public float MainGap { get; set; }
+    }
+
+    private void LayoutGridChildren(Element element, LayoutBox box, float x, float y, float availableWidth)
+    {
+        var style = element.ComputedStyle;
+        if (style == null) return;
+
+        var algorithm = new GridLayoutAlgorithm(TextMeasurer.Instance,
+            CreateLayoutBoxPublic, this);
+        algorithm.Layout(element, box, availableWidth);
+        AdjustBoxHeightFromContent(box);
     }
 
     private LayoutBox LayoutAbsolute(Element element, float finalHeight, float finalWidth, LayoutBox containingBlock, LayoutBox? parentBox)

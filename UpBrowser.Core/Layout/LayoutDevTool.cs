@@ -855,8 +855,9 @@ public class LayoutDevTool
             switch (style.Display)
             {
                 case DisplayType.Block: block++; break;
-                case DisplayType.Inline: case DisplayType.InlineBlock: case DisplayType.InlineFlex: @inline++; break;
+                case DisplayType.Inline: case DisplayType.InlineBlock: case DisplayType.InlineFlex: case DisplayType.InlineGrid: @inline++; break;
                 case DisplayType.Flex: flex++; break;
+                case DisplayType.Grid: grid++; break;
                 case DisplayType.Table: case DisplayType.TableRow: case DisplayType.TableCell: case DisplayType.TableRowGroup: table++; break;
                 case DisplayType.ListItem: list++; break;
                 case DisplayType.None: none++; break;
