@@ -689,12 +689,12 @@ public class UpBrowserBuiltins
     public void clearTimeout(int id) => _engine.ClearTimer(id);
     public void clearInterval(int id) => _engine.ClearTimer(id);
 
-    public string decodeURIComponent(string str) => Uri.UnescapeDataString(str);
-    public string encodeURIComponent(string str) => Uri.EscapeDataString(str);
-    public string escape(string str) => System.Net.WebUtility.UrlEncode(str);
-    public string unescape(string str) => System.Net.WebUtility.UrlDecode(str);
-    public string atob(string str) => System.Text.Encoding.UTF8.GetString(System.Convert.FromBase64String(str));
-    public string btoa(string str) => System.Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(str));
+    public string decodeURIComponent(string str) => Uri.UnescapeDataString(str ?? "null");
+    public string encodeURIComponent(string str) => Uri.EscapeDataString(str ?? "null");
+    public string escape(string str) => System.Net.WebUtility.UrlEncode(str ?? "null");
+    public string unescape(string str) => System.Net.WebUtility.UrlDecode(str ?? "null");
+    public string atob(string str) => System.Text.Encoding.UTF8.GetString(System.Convert.FromBase64String(str ?? "null"));
+    public string btoa(string str) => System.Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(str ?? "null"));
     public Func<int>? GetInnerWidth { get; set; }
     public Func<int>? GetInnerHeight { get; set; }
     public Func<double>? GetDevicePixelRatio { get; set; }
