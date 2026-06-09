@@ -378,7 +378,6 @@ public class BrowserApp : IDisposable
         // Attempt GPU acceleration (OpenGL via SkiaSharp GRContext)
         if (_skiaRenderer.TryEnableGpu())
         {
-            Console.WriteLine("GPU acceleration enabled (OpenGL)");
             _skiaRenderer.Initialize(1024, 768, enableDirtyRegions: false);
             _skiaRenderer.DpiScale = _dpiScale;
         }

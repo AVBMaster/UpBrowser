@@ -189,6 +189,7 @@ public class SkiaRenderer : IDisposable
     /// </summary>
     public bool TryEnableGpu()
     {
+        if (_useGpu) return true;
         try
         {
             if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
