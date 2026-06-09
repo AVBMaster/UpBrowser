@@ -1,4 +1,5 @@
 using UpBrowser.Core.Dom;
+using UpBrowser.Core.Dom.Html;
 
 namespace UpBrowser.Core.JavaScript;
 
@@ -919,6 +920,282 @@ public class ElementHost
     public void releasePointerCapture(int pointerId) { }
 
     public bool hasPointerCapture(int pointerId) => false;
+
+    // ===== HTMLInputElement / HTMLTextAreaElement specific =====
+    public string? inputType
+    {
+        get => _element.GetAttribute("type") ?? "text";
+        set => _element.SetAttribute("type", value);
+    }
+
+    public bool inputChecked
+    {
+        get => _element.HasAttribute("checked");
+        set
+        {
+            if (value) _element.SetAttribute("checked", "");
+            else _element.RemoveAttribute("checked");
+        }
+    }
+
+    public string? placeholder
+    {
+        get => _element.GetAttribute("placeholder");
+        set => _element.SetAttribute("placeholder", value);
+    }
+
+    public string? inputName
+    {
+        get => _element.GetAttribute("name");
+        set => _element.SetAttribute("name", value);
+    }
+
+    public bool disabled
+    {
+        get => _element.HasAttribute("disabled");
+        set
+        {
+            if (value) _element.SetAttribute("disabled", "");
+            else _element.RemoveAttribute("disabled");
+        }
+    }
+
+    public bool readOnly
+    {
+        get => _element.HasAttribute("readonly");
+        set
+        {
+            if (value) _element.SetAttribute("readonly", "");
+            else _element.RemoveAttribute("readonly");
+        }
+    }
+
+    public bool required
+    {
+        get => _element.HasAttribute("required");
+        set
+        {
+            if (value) _element.SetAttribute("required", "");
+            else _element.RemoveAttribute("required");
+        }
+    }
+
+    public ulong inputWidth
+    {
+        get => ulong.TryParse(_element.GetAttribute("width"), out var v) ? v : 0;
+        set => _element.SetAttribute("width", value.ToString());
+    }
+
+    public ulong inputHeight
+    {
+        get => ulong.TryParse(_element.GetAttribute("height"), out var v) ? v : 0;
+        set => _element.SetAttribute("height", value.ToString());
+    }
+
+    public void select()
+    {
+        var evt = new ScriptEvent("select", this);
+        DispatchEvent(evt);
+    }
+
+    public void setRangeText(string replacement, int? start = null, int? end = null, string? selectionMode = null) { }
+
+    public void setSelectionRange(int start, int end, string? direction = null)
+    {
+        _element.SelectionStart = start;
+        _element.SelectionEnd = end;
+    }
+
+    // ===== HTMLSelectElement specific =====
+    public int selectedIndex
+    {
+        get => _element.Children.OfType<Element>().ToList().FindIndex(e => e.HasAttribute("selected"));
+        set
+        {
+            var options = _element.Children.OfType<Element>().ToList();
+            for (int i = 0; i < options.Count; i++)
+            {
+                if (i == value) options[i].SetAttribute("selected", "");
+                else options[i].RemoveAttribute("selected");
+            }
+        }
+    }
+
+    public object[] options
+    {
+        get => _element.Children.OfType<Element>().Select(e => (object)new ElementHost(e)).ToArray();
+    }
+
+    public int selectLength => _element.Children.OfType<Element>().Count();
+
+    // ===== HTMLFormElement specific =====
+    public object[] formElements
+    {
+        get
+        {
+            var elements = new List<object>();
+            CollectFormElements(_element, elements);
+            return elements.ToArray();
+        }
+    }
+
+    public int formLength => formElements.Length;
+
+    public string? formName
+    {
+        get => _element.GetAttribute("name");
+        set => _element.SetAttribute("name", value);
+    }
+
+    public string? action
+    {
+        get => _element.GetAttribute("action");
+        set => _element.SetAttribute("action", value);
+    }
+
+    public string? method
+    {
+        get => _element.GetAttribute("method") ?? "get";
+        set => _element.SetAttribute("method", value);
+    }
+
+    public string? enctype
+    {
+        get => _element.GetAttribute("enctype") ?? "application/x-www-form-urlencoded";
+        set => _element.SetAttribute("enctype", value);
+    }
+
+    public void submit()
+    {
+        var evt = new ScriptEvent("submit", this);
+        DispatchEvent(evt);
+    }
+
+    public void formReset()
+    {
+        var evt = new ScriptEvent("reset", this);
+        DispatchEvent(evt);
+    }
+
+    public bool checkValidity() => true;
+
+    // ===== HTMLCanvasElement specific =====
+    public ulong canvasWidth
+    {
+        get => ulong.TryParse(_element.GetAttribute("width"), out var v) ? v : 150;
+        set => _element.SetAttribute("width", value.ToString());
+    }
+
+    public ulong canvasHeight
+    {
+        get => ulong.TryParse(_element.GetAttribute("height"), out var v) ? v : 150;
+        set => _element.SetAttribute("height", value.ToString());
+    }
+
+    public object? getContext(string type)
+    {
+        if (_element is HTMLCanvasElement canvas)
+            return canvas.GetContext(type);
+        return null;
+    }
+
+    public string? toDataURL(string? type = "image/png")
+    {
+        return "";
+    }
+
+    // ===== HTMLMediaElement specific =====
+    public bool paused => true;
+    public bool ended => false;
+    public double currentTime { get; set; }
+    public double duration => 0;
+    public double volume { get; set; } = 1.0;
+    public bool muted { get; set; }
+    public string? mediaSrc
+    {
+        get => _element.GetAttribute("src");
+        set => _element.SetAttribute("src", value);
+    }
+
+    public void play() { }
+    public void pause() { }
+    public void load() { }
+    public string? canPlayType(string type) => "";
+
+    // ===== HTMLAnchorElement specific =====
+    public string? href
+    {
+        get => _element.GetAttribute("href");
+        set => _element.SetAttribute("href", value);
+    }
+
+    public string? rel
+    {
+        get => _element.GetAttribute("rel");
+        set => _element.SetAttribute("rel", value);
+    }
+
+    public string? target
+    {
+        get => _element.GetAttribute("target");
+        set => _element.SetAttribute("target", value);
+    }
+
+    // ===== HTMLImageElement specific =====
+    public string? imgSrc
+    {
+        get => _element.GetAttribute("src");
+        set => _element.SetAttribute("src", value);
+    }
+
+    public string? imgAlt
+    {
+        get => _element.GetAttribute("alt");
+        set => _element.SetAttribute("alt", value);
+    }
+
+    public ulong imgWidth
+    {
+        get => ulong.TryParse(_element.GetAttribute("width"), out var v) ? v : 0;
+        set => _element.SetAttribute("width", value.ToString());
+    }
+
+    public ulong imgHeight
+    {
+        get => ulong.TryParse(_element.GetAttribute("height"), out var v) ? v : 0;
+        set => _element.SetAttribute("height", value.ToString());
+    }
+
+    public bool complete => true;
+    public ulong naturalWidth => 0;
+    public ulong naturalHeight => 0;
+
+    // ===== HTMLIFrameElement specific =====
+    public string? iframeSrc
+    {
+        get => _element.GetAttribute("src");
+        set => _element.SetAttribute("src", value);
+    }
+
+    public string? srcdoc
+    {
+        get => _element.GetAttribute("srcdoc");
+        set => _element.SetAttribute("srcdoc", value);
+    }
+
+    public object? contentDocument => null;
+    public object? contentWindow => null;
+
+    private static void CollectFormElements(Element root, List<object> elements)
+    {
+        foreach (var child in root.Children.OfType<Element>())
+        {
+            var tag = child.TagName.ToLowerInvariant();
+            if (tag is "input" or "select" or "textarea" or "button" or "output" or "datalist" or "progress" or "meter")
+                elements.Add(new ElementHost(child));
+            CollectFormElements(child, elements);
+        }
+    }
 }
 
 public class TextNodeWrapper
