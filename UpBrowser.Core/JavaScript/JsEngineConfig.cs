@@ -1,3 +1,4 @@
+using System.Reflection;
 using JavaScriptEngineSwitcher.Core;
 using JavaScriptEngineSwitcher.Jint;
 using JavaScriptEngineSwitcher.Jurassic;
@@ -101,12 +102,11 @@ public static class JsEngineConfig
             if (OperatingSystem.IsWindows())
             {
                 // Use reflection to call AddV8 since the V8 package is conditionally included
-                var v8Assembly = AppDomain.CurrentDomain.GetAssemblies()
-                    .FirstOrDefault(a => a.GetName().Name == "JavaScriptEngineSwitcher.V8");
+                var v8Assembly = Assembly.Load("JavaScriptEngineSwitcher.V8");
                 if (v8Assembly != null)
                 {
                     var extType = v8Assembly.GetType(
-                        "JavaScriptEngineSwitcher.V8.JsEngineSwitcherExtensions");
+                        "JavaScriptEngineSwitcher.V8.JsEngineFactoryCollectionExtensions");
                     if (extType != null)
                     {
                         // Get the EngineFactories type from the switcher's assembly
