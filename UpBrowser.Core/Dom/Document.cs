@@ -1,4 +1,6 @@
 using SkiaSharp;
+using UpBrowser.Core.Dom.Animations;
+using UpBrowser.Core.Dom.Cssom;
 using UpBrowser.Core.Dom.Html;
 
 namespace UpBrowser.Core.Dom;
@@ -27,6 +29,29 @@ public class Document : Node
     public string? Cookie { get; set; }
     public bool Hidden { get; set; }
     public string VisibilityState { get; set; } = "visible";
+
+    public Element? ActiveElement { get; set; }
+    public bool FullscreenEnabled { get; set; }
+    public Element? FullscreenElement { get; set; }
+    public Element? PointerLockElement { get; set; }
+    public Element? ScrollingElement { get; set; }
+    public WindowProxy? DefaultView { get; set; }
+    public FontFaceSet Fonts { get; } = new();
+    public DocumentTimeline Timeline { get; } = new();
+    public StyleSheetList StyleSheets { get; } = new();
+    public List<CSSStyleSheet> AdoptedStyleSheets { get; set; } = new();
+    public HtmlCollection Images => new(GetElementsByTagName("img").Cast<Element>().ToList());
+    public HtmlCollection Embeds => new(GetElementsByTagName("embed").Cast<Element>().ToList());
+    public HtmlCollection Plugins => Embeds;
+    public HtmlCollection Links => new(GetElementsByTagName("a").Where(e => e.HasAttribute("href")).Cast<Element>().ToList());
+    public HtmlCollection Forms => new(GetElementsByTagName("form").Cast<Element>().ToList());
+    public HtmlCollection Scripts => new(GetElementsByTagName("script").Cast<Element>().ToList());
+
+    public Element? ElementFromPoint(double x, double y) => null;
+    public List<Element> ElementsFromPoint(double x, double y) => new();
+    public Selection? GetSelection() => null;
+
+    public TouchList CreateTouchList(params Touch[] touches) => new(touches);
 
     public Document()
     {
@@ -65,7 +90,7 @@ public class Document : Node
             "bdi" => new HtmlElement("bdi"),
             "bdo" => new HtmlElement("bdo"),
             "blockquote" => new HtmlElement("blockquote"),
-            "body" => new HtmlElement("body"),
+            "body" => new HTMLBodyElement(null, "body"),
             "br" => new HtmlElement("br"),
             "button" => new HTMLButtonElement(null, "button"),
             "canvas" => new HTMLCanvasElement(null, "canvas"),
@@ -97,11 +122,11 @@ public class Document : Node
             "h4" => new HtmlElement("h4"),
             "h5" => new HtmlElement("h5"),
             "h6" => new HtmlElement("h6"),
-            "head" => new HtmlElement("head"),
+            "head" => new HTMLHeadElement(null, "head"),
             "header" => new HtmlElement("header"),
             "hgroup" => new HtmlElement("hgroup"),
             "hr" => new HtmlElement("hr"),
-            "html" => new HtmlElement("html"),
+            "html" => new HTMLHtmlElement(null, "html"),
             "i" => new HtmlElement("i"),
             "iframe" => new HTMLIFrameElement(null, "iframe"),
             "img" => new HTMLImageElement(null, "img"),
@@ -115,14 +140,14 @@ public class Document : Node
             "main" => new HtmlElement("main"),
             "map" => new HtmlElement("map"),
             "mark" => new HtmlElement("mark"),
-            "menu" => new HtmlElement("menu"),
+            "menu" => new HTMLMenuElement(null, "menu"),
             "meta" => new HtmlElement("meta"),
             "meter" => new HtmlElement("meter"),
             "nav" => new HtmlElement("nav"),
             "noscript" => new HtmlElement("noscript"),
             "object" => new HtmlElement("object"),
             "ol" => new HtmlElement("ol"),
-            "optgroup" => new HtmlElement("optgroup"),
+            "optgroup" => new HTMLOptGroupElement(null, "optgroup"),
             "option" => new HTMLOptionElement(null, "option"),
             "output" => new HtmlElement("output"),
             "p" => new HtmlElement("p"),
@@ -250,6 +275,21 @@ public class Document : Node
     }
 
     public Range CreateRange() => new();
+
+    public Event CreateEvent(string eventType)
+    {
+        return eventType.ToLowerInvariant() switch
+        {
+            "uievent" or "uievents" => new UiEvent(""),
+            "mouseevent" or "mouseevents" => new MouseEvent(""),
+            "mutationevent" or "mutationevents" => new Event(""),
+            "htmlevents" or "events" => new Event(""),
+            "keyboardevent" or "keyboardevents" => new KeyboardEvent(""),
+            "customevent" => new CustomEvent(""),
+            "event" => new Event(""),
+            _ => new Event(eventType)
+        };
+    }
 
     public void ParseHtml(string source)
     {

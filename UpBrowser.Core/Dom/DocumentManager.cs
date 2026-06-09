@@ -1,5 +1,6 @@
 using System.Text;
 using UpBrowser.Core.Css;
+using UpBrowser.Core.Dom.Html;
 using AngleSharp;
 using AngleSharp.Css.Parser;
 
@@ -414,4 +415,90 @@ public class DocumentManager
 public class HtmlElement : Element
 {
     public HtmlElement(string tagName) : base(tagName) { }
+
+    // Global HTML attributes (HTMLElement spec)
+    public string? Title
+    {
+        get => GetAttribute("title");
+        set { if (value != null) SetAttribute("title", value); else RemoveAttribute("title"); }
+    }
+    public string? Lang
+    {
+        get => GetAttribute("lang");
+        set { if (value != null) SetAttribute("lang", value); else RemoveAttribute("lang"); }
+    }
+    public bool Translate
+    {
+        get => !string.Equals(GetAttribute("translate"), "no", StringComparison.OrdinalIgnoreCase);
+        set => SetAttribute("translate", value ? "yes" : "no");
+    }
+    public string? Dir
+    {
+        get => GetAttribute("dir");
+        set { if (value != null) SetAttribute("dir", value); else RemoveAttribute("dir"); }
+    }
+    public bool Hidden
+    {
+        get => HasAttribute("hidden");
+        set { if (value) SetAttribute("hidden", ""); else RemoveAttribute("hidden"); }
+    }
+    public bool Inert
+    {
+        get => HasAttribute("inert");
+        set { if (value) SetAttribute("inert", ""); else RemoveAttribute("inert"); }
+    }
+    public bool Draggable
+    {
+        get => string.Equals(GetAttribute("draggable"), "true", StringComparison.OrdinalIgnoreCase);
+        set => SetAttribute("draggable", value ? "true" : "false");
+    }
+    public bool Spellcheck
+    {
+        get => !string.Equals(GetAttribute("spellcheck"), "false", StringComparison.OrdinalIgnoreCase);
+        set => SetAttribute("spellcheck", value ? "true" : "false");
+    }
+    public string? ContentEditable
+    {
+        get => GetAttribute("contenteditable") ?? "inherit";
+        set { if (value != null) SetAttribute("contenteditable", value); else RemoveAttribute("contenteditable"); }
+    }
+    public bool IsContentEditable => ContentEditable == "true";
+    public string? InputMode
+    {
+        get => GetAttribute("inputmode");
+        set { if (value != null) SetAttribute("inputmode", value); else RemoveAttribute("inputmode"); }
+    }
+    public string? EnterKeyHint
+    {
+        get => GetAttribute("enterkeyhint");
+        set { if (value != null) SetAttribute("enterkeyhint", value); else RemoveAttribute("enterkeyhint"); }
+    }
+    public string? Autocapitalize
+    {
+        get => GetAttribute("autocapitalize") ?? "";
+        set { if (value != null) SetAttribute("autocapitalize", value); else RemoveAttribute("autocapitalize"); }
+    }
+    public string? Nonce
+    {
+        get => GetAttribute("nonce");
+        set { if (value != null) SetAttribute("nonce", value); else RemoveAttribute("nonce"); }
+    }
+    public string? Popover
+    {
+        get => GetAttribute("popover");
+        set { if (value != null) SetAttribute("popover", value); else RemoveAttribute("popover"); }
+    }
+    public int TabIndex
+    {
+        get => int.TryParse(GetAttribute("tabindex"), out var v) ? v : 0;
+        set => SetAttribute("tabindex", value.ToString());
+    }
+    public string? AccessKey
+    {
+        get => GetAttribute("accesskey");
+        set { if (value != null) SetAttribute("accesskey", value); else RemoveAttribute("accesskey"); }
+    }
+    public string? AccessKeyLabel => AccessKey;
+    public DOMStringMap Dataset => new(x => GetAttribute(x), (x, v) => SetAttribute(x, v));
+    public ElementInternals AttachInternals() => new(this);
 }

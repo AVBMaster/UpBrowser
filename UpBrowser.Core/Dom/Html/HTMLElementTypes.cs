@@ -389,3 +389,77 @@ public class HTMLDListElement : HtmlElement
 {
     public HTMLDListElement(Document? document, string? name = null) : base(name ?? "dl") { }
 }
+
+public class HTMLDataElement : HtmlElement
+{
+    public HTMLDataElement(Document? document, string? name = null) : base(name ?? "data") { }
+    public string? Value { get => GetAttribute("value"); set => SetAttribute("value", value); }
+}
+
+public class HTMLTimeElement : HtmlElement
+{
+    public HTMLTimeElement(Document? document, string? name = null) : base(name ?? "time") { }
+    public string? DateTime { get => GetAttribute("datetime"); set => SetAttribute("datetime", value); }
+}
+
+public class HTMLPictureElement : HtmlElement
+{
+    public HTMLPictureElement(Document? document, string? name = null) : base(name ?? "picture") { }
+}
+
+public class HTMLMenuElement : HtmlElement
+{
+    public HTMLMenuElement(Document? document, string? name = null) : base(name ?? "menu") { }
+    public bool Compact { get => HasAttribute("compact"); set { if (value) SetAttribute("compact", ""); else RemoveAttribute("compact"); } }
+}
+
+public class HTMLOptGroupElement : HtmlElement
+{
+    public HTMLOptGroupElement(Document? document, string? name = null) : base(name ?? "optgroup") { }
+    public bool Disabled { get => HasAttribute("disabled"); set { if (value) SetAttribute("disabled", ""); else RemoveAttribute("disabled"); } }
+    public string? Label { get => GetAttribute("label"); set => SetAttribute("label", value); }
+}
+
+public class HTMLMarqueeElement : HtmlElement
+{
+    public HTMLMarqueeElement(Document? document, string? name = null) : base(name ?? "marquee") { }
+    public string? Behavior { get => GetAttribute("behavior"); set => SetAttribute("behavior", value); }
+    public string? Direction { get => GetAttribute("direction"); set => SetAttribute("direction", value); }
+    public int ScrollAmount { get => int.TryParse(GetAttribute("scrollamount"), out var v) ? v : 6; set => SetAttribute("scrollamount", value.ToString()); }
+    public int ScrollDelay { get => int.TryParse(GetAttribute("scrolldelay"), out var v) ? v : 85; set => SetAttribute("scrolldelay", value.ToString()); }
+    public bool Loop { get => int.TryParse(GetAttribute("loop"), out var v) ? v != 0 : true; set => SetAttribute("loop", value ? "-1" : "0"); }
+    public ulong Width { get => ulong.TryParse(GetAttribute("width"), out var v) ? v : 0; set => SetAttribute("width", value.ToString()); }
+    public ulong Height { get => ulong.TryParse(GetAttribute("height"), out var v) ? v : 0; set => SetAttribute("height", value.ToString()); }
+    public int HSpace { get => int.TryParse(GetAttribute("hspace"), out var v) ? v : 0; set => SetAttribute("hspace", value.ToString()); }
+    public int VSpace { get => int.TryParse(GetAttribute("vspace"), out var v) ? v : 0; set => SetAttribute("vspace", value.ToString()); }
+}
+
+public class HTMLBodyElement : HtmlElement
+{
+    public HTMLBodyElement(Document? document, string? name = null) : base(name ?? "body") { }
+    public EventHandler? OnAfterPrint { get; set; }
+    public EventHandler? OnBeforePrint { get; set; }
+    public EventHandler? OnBeforeUnload { get; set; }
+    public EventHandler? OnHashChange { get; set; }
+    public EventHandler? OnLanguageChange { get; set; }
+    public EventHandler? OnMessage { get; set; }
+    public EventHandler? OnOffline { get; set; }
+    public EventHandler? OnOnline { get; set; }
+    public EventHandler? OnPageHide { get; set; }
+    public EventHandler? OnPageShow { get; set; }
+    public EventHandler? OnPopState { get; set; }
+    public EventHandler? OnResize { get; set; }
+    public EventHandler? OnStorage { get; set; }
+    public EventHandler? OnUnload { get; set; }
+}
+
+public class HTMLHtmlElement : HtmlElement
+{
+    public HTMLHtmlElement(Document? document, string? name = null) : base(name ?? "html") { }
+    public string? Version { get => GetAttribute("version"); set => SetAttribute("version", value); }
+}
+
+public class HTMLHeadElement : HtmlElement
+{
+    public HTMLHeadElement(Document? document, string? name = null) : base(name ?? "head") { }
+}

@@ -242,6 +242,114 @@ public abstract class Element : Node
     public float ScrollWidth => Math.Max(ClientWidth, LayoutBox?.ContentBox.Width ?? 0);
     public float ScrollHeight => Math.Max(ClientHeight, LayoutBox?.ContentBox.Height ?? 0);
 
+    // ===== HTML Children API =====
+    public Element? FirstElementChild => Children.OfType<Element>().FirstOrDefault();
+    public Element? LastElementChild => Children.OfType<Element>().LastOrDefault();
+    public int ChildElementCount => Children.OfType<Element>().Count();
+    public HtmlCollection ChildElements => new(Children.OfType<Element>().Cast<Element>().ToList());
+
+    // ===== innerText =====
+    public string? InnerText
+    {
+        get
+        {
+            var sb = new System.Text.StringBuilder();
+            CollectInnerText(this, sb);
+            return sb.ToString();
+        }
+        set
+        {
+            Children.Clear();
+            if (value != null)
+                AppendChild(new TextNode(value));
+        }
+    }
+
+    // ===== outerHTML =====
+    public string OuterHTML
+    {
+        get => SerializeElement(this);
+        set
+        {
+            if (ParentNode == null) return;
+            var next = NextSibling;
+            Remove();
+        }
+    }
+
+    // ===== scrollIntoView / scrollTo / scrollBy =====
+    public void ScrollIntoView(bool alignToTop = true) { }
+    public void ScrollIntoView(ScrollIntoViewOptions? options = null) { }
+
+    public void ScrollTo(double x, double y) { }
+    public void ScrollTo(ScrollToOptions? options = null) { }
+    public void ScrollBy(double x, double y) { }
+    public void ScrollBy(ScrollToOptions? options = null) { }
+    public void Scroll(double x, double y) => ScrollTo(x, y);
+    public void Scroll(ScrollToOptions? options = null) => ScrollTo(options);
+
+    // ===== checkVisibility =====
+    public bool CheckVisibility(CheckVisibilityOptions? options = null) => true;
+
+    // ===== part (CSS ::part()) =====
+    public DOMTokenList Part => new(GetAttribute("part") ?? "");
+
+    // ===== ARIA reflection =====
+    public string? AriaHidden { get => GetAttribute("aria-hidden"); set => SetOrRemoveAttr("aria-hidden", value); }
+    public string? AriaDisabled { get => GetAttribute("aria-disabled"); set => SetOrRemoveAttr("aria-disabled", value); }
+    public string? AriaLabel { get => GetAttribute("aria-label"); set => SetOrRemoveAttr("aria-label", value); }
+    public string? AriaPressed { get => GetAttribute("aria-pressed"); set => SetOrRemoveAttr("aria-pressed", value); }
+    public string? AriaExpanded { get => GetAttribute("aria-expanded"); set => SetOrRemoveAttr("aria-expanded", value); }
+    public string? AriaChecked { get => GetAttribute("aria-checked"); set => SetOrRemoveAttr("aria-checked", value); }
+    public string? AriaCurrent { get => GetAttribute("aria-current"); set => SetOrRemoveAttr("aria-current", value); }
+    public string? AriaDescribedBy { get => GetAttribute("aria-describedby"); set => SetOrRemoveAttr("aria-describedby", value); }
+    public string? AriaLabelledBy { get => GetAttribute("aria-labelledby"); set => SetOrRemoveAttr("aria-labelledby", value); }
+    public string? AriaOwns { get => GetAttribute("aria-owns"); set => SetOrRemoveAttr("aria-owns", value); }
+    public string? AriaRelevant { get => GetAttribute("aria-relevant"); set => SetOrRemoveAttr("aria-relevant", value); }
+    public string? AriaActiveDescendant { get => GetAttribute("aria-activedescendant"); set => SetOrRemoveAttr("aria-activedescendant", value); }
+    public string? AriaAutoComplete { get => GetAttribute("aria-autocomplete"); set => SetOrRemoveAttr("aria-autocomplete", value); }
+    public string? AriaBusy { get => GetAttribute("aria-busy"); set => SetOrRemoveAttr("aria-busy", value); }
+    public string? AriaColCount { get => GetAttribute("aria-colcount"); set => SetOrRemoveAttr("aria-colcount", value); }
+    public string? AriaColIndex { get => GetAttribute("aria-colindex"); set => SetOrRemoveAttr("aria-colindex", value); }
+    public string? AriaColSpan { get => GetAttribute("aria-colspan"); set => SetOrRemoveAttr("aria-colspan", value); }
+    public string? AriaControls { get => GetAttribute("aria-controls"); set => SetOrRemoveAttr("aria-controls", value); }
+    public string? AriaDescription { get => GetAttribute("aria-description"); set => SetOrRemoveAttr("aria-description", value); }
+    public string? AriaDetails { get => GetAttribute("aria-details"); set => SetOrRemoveAttr("aria-details", value); }
+    public string? AriaDropEffect { get => GetAttribute("aria-dropeffect"); set => SetOrRemoveAttr("aria-dropeffect", value); }
+    public string? AriaErrorMessage { get => GetAttribute("aria-errormessage"); set => SetOrRemoveAttr("aria-errormessage", value); }
+    public string? AriaFlowTo { get => GetAttribute("aria-flowto"); set => SetOrRemoveAttr("aria-flowto", value); }
+    public string? AriaGrabbed { get => GetAttribute("aria-grabbed"); set => SetOrRemoveAttr("aria-grabbed", value); }
+    public string? AriaHasPopup { get => GetAttribute("aria-haspopup"); set => SetOrRemoveAttr("aria-haspopup", value); }
+    public string? AriaInvalid { get => GetAttribute("aria-invalid"); set => SetOrRemoveAttr("aria-invalid", value); }
+    public string? AriaKeyShortcuts { get => GetAttribute("aria-keyshortcuts"); set => SetOrRemoveAttr("aria-keyshortcuts", value); }
+    public string? AriaLevel { get => GetAttribute("aria-level"); set => SetOrRemoveAttr("aria-level", value); }
+    public string? AriaLive { get => GetAttribute("aria-live"); set => SetOrRemoveAttr("aria-live", value); }
+    public string? AriaModal { get => GetAttribute("aria-modal"); set => SetOrRemoveAttr("aria-modal", value); }
+    public string? AriaMultiLine { get => GetAttribute("aria-multiline"); set => SetOrRemoveAttr("aria-multiline", value); }
+    public string? AriaMultiSelectable { get => GetAttribute("aria-multiselectable"); set => SetOrRemoveAttr("aria-multiselectable", value); }
+    public string? AriaOrientation { get => GetAttribute("aria-orientation"); set => SetOrRemoveAttr("aria-orientation", value); }
+    public string? AriaPlaceholder { get => GetAttribute("aria-placeholder"); set => SetOrRemoveAttr("aria-placeholder", value); }
+    public string? AriaPosInSet { get => GetAttribute("aria-posinset"); set => SetOrRemoveAttr("aria-posinset", value); }
+    public string? AriaReadOnly { get => GetAttribute("aria-readonly"); set => SetOrRemoveAttr("aria-readonly", value); }
+    public string? AriaRequired { get => GetAttribute("aria-required"); set => SetOrRemoveAttr("aria-required", value); }
+    public string? AriaRoleDescription { get => GetAttribute("aria-roledescription"); set => SetOrRemoveAttr("aria-roledescription", value); }
+    public string? AriaRowCount { get => GetAttribute("aria-rowcount"); set => SetOrRemoveAttr("aria-rowcount", value); }
+    public string? AriaRowIndex { get => GetAttribute("aria-rowindex"); set => SetOrRemoveAttr("aria-rowindex", value); }
+    public string? AriaRowSpan { get => GetAttribute("aria-rowspan"); set => SetOrRemoveAttr("aria-rowspan", value); }
+    public string? AriaSelected { get => GetAttribute("aria-selected"); set => SetOrRemoveAttr("aria-selected", value); }
+    public string? AriaSetSize { get => GetAttribute("aria-setsize"); set => SetOrRemoveAttr("aria-setsize", value); }
+    public string? AriaSort { get => GetAttribute("aria-sort"); set => SetOrRemoveAttr("aria-sort", value); }
+    public string? AriaValueMax { get => GetAttribute("aria-valuemax"); set => SetOrRemoveAttr("aria-valuemax", value); }
+    public string? AriaValueMin { get => GetAttribute("aria-valuemin"); set => SetOrRemoveAttr("aria-valuemin", value); }
+    public string? AriaValueNow { get => GetAttribute("aria-valuenow"); set => SetOrRemoveAttr("aria-valuenow", value); }
+    public string? AriaValueText { get => GetAttribute("aria-valuetext"); set => SetOrRemoveAttr("aria-valuetext", value); }
+
+    private void SetOrRemoveAttr(string name, string? value)
+    {
+        if (value != null) SetAttribute(name, value);
+        else RemoveAttribute(name);
+    }
+
     // ===== Spec Methods =====
     public Element? Closest(string selector)
     {
@@ -380,6 +488,72 @@ public abstract class Element : Node
     {
         base.OnAttributeChanged(name, oldValue, newValue);
     }
+
+    // ===== Static helpers =====
+    private static void CollectInnerText(Node node, System.Text.StringBuilder sb)
+    {
+        if (node is TextNode text)
+        {
+            sb.Append(text.Data);
+        }
+        else if (node is Element el)
+        {
+            var display = el.ComputedStyle?.Display;
+            if (display is DisplayType.Block or DisplayType.Flex or DisplayType.Grid or DisplayType.Table)
+            {
+                if (sb.Length > 0 && sb[^1] != '\n')
+                    sb.Append('\n');
+            }
+            if (el.TagName == "BR")
+                sb.Append('\n');
+            else
+            {
+                foreach (var child in el.Children)
+                    CollectInnerText(child, sb);
+            }
+        }
+    }
+
+    private static string SerializeElement(Element el)
+    {
+        var sb = new System.Text.StringBuilder();
+        sb.Append('<').Append(el.TagName.ToLowerInvariant());
+        foreach (var attr in el.Attributes)
+            sb.Append(' ').Append(attr.Key).Append("=\"").Append(attr.Value.Replace("\"", "&quot;")).Append('"');
+        if (el.Children.Count == 0 && !voidElements.Contains(el.TagName.ToLowerInvariant()))
+        {
+            sb.Append("></").Append(el.TagName.ToLowerInvariant()).Append('>');
+        }
+        else if (voidElements.Contains(el.TagName.ToLowerInvariant()))
+        {
+            sb.Append(" />");
+        }
+        else
+        {
+            sb.Append('>');
+            foreach (var child in el.Children)
+            {
+                if (child is Element childEl)
+                    sb.Append(SerializeElement(childEl));
+                else if (child is TextNode text)
+                {
+                    var data = text.Data;
+                    data = data.Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;");
+                    sb.Append(data);
+                }
+                else if (child is CommentNode comment)
+                    sb.Append("<!--").Append(comment.Data).Append("-->");
+            }
+            sb.Append("</").Append(el.TagName.ToLowerInvariant()).Append('>');
+        }
+        return sb.ToString();
+    }
+
+    private static readonly HashSet<string> voidElements = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "area", "base", "br", "col", "embed", "hr", "img", "input",
+        "link", "meta", "param", "source", "track", "wbr"
+    };
 
     // ===== Private =====
     private static bool MatchesSelector(Element el, string selector)

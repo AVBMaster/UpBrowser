@@ -335,6 +335,26 @@ public class Touch
     public double RadiusY { get; }
     public double RotationAngle { get; }
     public double Force { get; }
+
+    public Touch(int identifier, EventTarget? target, double clientX, double clientY, double screenX, double screenY, double pageX, double pageY, double radiusX = 0, double radiusY = 0, double rotationAngle = 0, double force = 0)
+    {
+        Identifier = identifier;
+        Target = target;
+        ClientX = clientX;
+        ClientY = clientY;
+        ScreenX = screenX;
+        ScreenY = screenY;
+        PageX = pageX;
+        PageY = pageY;
+        RadiusX = radiusX;
+        RadiusY = radiusY;
+        RotationAngle = rotationAngle;
+        Force = force;
+    }
 }
 
-public class TouchList : List<Touch> { }
+public class TouchList : List<Touch>
+{
+    public TouchList() { }
+    public TouchList(IEnumerable<Touch> touches) : base(touches) { }
+}
