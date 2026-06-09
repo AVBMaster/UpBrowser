@@ -2,123 +2,38 @@ using System.Collections;
 
 namespace UpBrowser.Core.Dom;
 
-public class DomTokenList : IReadOnlyList<string>, IEnumerable<string>
+public class DOMTokenList : IReadOnlyList<string>
 {
-    private readonly Func<string> _getValue;
-    private readonly Action<string> _setValue;
-    private string[] _tokens = Array.Empty<string>();
+    private List<string> _tokens = new();
 
-    public DomTokenList(Func<string> getValue, Action<string> setValue)
+    public DOMTokenList(string? initialValue = null)
     {
-        _getValue = getValue;
-        _setValue = setValue;
-        UpdateTokens();
+        if (!string.IsNullOrWhiteSpace(initialValue))
+            _tokens.AddRange(initialValue.Split(' ', StringSplitOptions.RemoveEmptyEntries));
     }
 
-    public int Length => _tokens.Length;
-    public int Count => _tokens.Length;
+    public int Length => _tokens.Count;
+    public int Count => _tokens.Count;
+    public string this[int index] => _tokens[index];
+    public string? Value { get => string.Join(" ", _tokens); set => _tokens = (value ?? "").Split(' ', StringSplitOptions.RemoveEmptyEntries).ToList(); }
 
-    public string Value
-    {
-        get => _getValue();
-        set
-        {
-            _setValue(value);
-            UpdateTokens();
-        }
-    }
-
-    public bool Contains(string token)
-    {
-        return _tokens.Contains(token);
-    }
-
-    public void Add(params string[] tokens)
-    {
-        var set = new HashSet<string>(_tokens);
-        bool changed = false;
-        foreach (var t in tokens)
-        {
-            if (string.IsNullOrEmpty(t)) continue;
-            if (set.Add(t)) changed = true;
-        }
-        if (changed)
-        {
-            _tokens = set.ToArray();
-            SyncValue();
-        }
-    }
-
-    public void Remove(params string[] tokens)
-    {
-        var set = new HashSet<string>(_tokens);
-        bool changed = false;
-        foreach (var t in tokens)
-        {
-            if (set.Remove(t)) changed = true;
-        }
-        if (changed)
-        {
-            _tokens = set.ToArray();
-            SyncValue();
-        }
-    }
-
+    public bool Contains(string token) => _tokens.Contains(token);
+    public void Add(string token) { if (!_tokens.Contains(token)) _tokens.Add(token); }
+    public void Remove(string token) => _tokens.Remove(token);
     public bool Toggle(string token, bool? force = null)
     {
-        if (string.IsNullOrEmpty(token)) return false;
-        if (force == true)
-        {
-            Add(token);
-            return true;
-        }
-        if (force == false)
-        {
-            Remove(token);
-            return false;
-        }
-        if (Contains(token))
-        {
-            Remove(token);
-            return false;
-        }
-        Add(token);
-        return true;
-    }
-
-    public bool Replace(string oldToken, string newToken)
-    {
-        if (string.IsNullOrEmpty(oldToken) || string.IsNullOrEmpty(newToken)) return false;
-        if (!Contains(oldToken)) return false;
-        var list = _tokens.ToList();
-        int idx = list.IndexOf(oldToken);
-        if (idx >= 0)
-        {
-            list[idx] = newToken;
-            _tokens = list.ToArray();
-            SyncValue();
-            return true;
-        }
+        if (force == true || (force == null && !_tokens.Contains(token)))
+        { Add(token); return true; }
+        Remove(token);
         return false;
     }
-
+    public void Replace(string oldToken, string newToken)
+    {
+        var idx = _tokens.IndexOf(oldToken);
+        if (idx >= 0) _tokens[idx] = newToken;
+    }
     public bool Supports(string token) => true;
 
-    public string this[int index] => _tokens[index];
-
-    private void UpdateTokens()
-    {
-        var val = _getValue();
-        _tokens = string.IsNullOrWhiteSpace(val)
-            ? Array.Empty<string>()
-            : val.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-    }
-
-    private void SyncValue()
-    {
-        _setValue(string.Join(" ", _tokens));
-    }
-
-    public IEnumerator<string> GetEnumerator() => ((IEnumerable<string>)_tokens).GetEnumerator();
+    public IEnumerator<string> GetEnumerator() => _tokens.GetEnumerator();
     IEnumerator IEnumerable.GetEnumerator() => _tokens.GetEnumerator();
 }

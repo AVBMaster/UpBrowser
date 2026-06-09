@@ -1,107 +1,64 @@
-namespace UpBrowser.Core.Dom;
+using UpBrowser.Core.Dom;
 
-public enum SupportedType
+namespace UpBrowser.Core.Dom.Parser;
+
+public class DOMParser
 {
-    TextHtml,
-    TextXml,
-    ApplicationXml,
-    ApplicationXhtmlXml,
-    ImageSvgXml
-}
-
-public class DomParser
-{
-    public Document ParseFromString(string source, SupportedType type)
-    {
-        switch (type)
-        {
-            case SupportedType.TextHtml:
-                return ParseHtml(source);
-            case SupportedType.TextXml:
-            case SupportedType.ApplicationXml:
-            case SupportedType.ApplicationXhtmlXml:
-            case SupportedType.ImageSvgXml:
-                return ParseXml(source);
-            default:
-                throw new ArgumentException($"Unsupported type: {type}", nameof(type));
-        }
-    }
-
-    private Document ParseHtml(string source)
+    public Document ParseFromString(string text, string type)
     {
         var doc = new Document();
-        doc.ParseHtml(source);
+        if (string.IsNullOrEmpty(text)) return doc;
         return doc;
     }
 
-    private Document ParseXml(string source)
+    public Document ParseFromStringSync(string text, string type)
     {
-        var doc = new Document();
-        doc.ParseXml(source);
-        return doc;
+        return ParseFromString(text, type);
     }
 }
 
-public class XmlSerializer
+public class XMLSerializer
 {
     public string SerializeToString(Node root)
     {
-        var sb = new System.Text.StringBuilder();
-        SerializeNode(root, sb);
-        return sb.ToString();
+        return SerializeNode(root);
     }
 
-    private static void SerializeNode(Node node, System.Text.StringBuilder sb)
+    private static string SerializeNode(Node node)
     {
-        switch (node.NodeType)
+        if (node is TextNode text)
+            return EscapeXml(text.TextContent ?? "");
+        if (node is CommentNode comment)
+            return $"<!--{EscapeXml(comment.TextContent ?? "")}-->";
+        if (node is Document doc)
+            return SerializeChildren(doc);
+        if (node is DocumentFragment frag)
+            return SerializeChildren(frag);
+        if (node is Element el)
         {
-            case NodeType.Element:
-                var element = (Element)node;
-                sb.Append('<').Append(element.TagName);
-                foreach (var attr in element.Attributes)
-                {
-                    sb.Append(' ').Append(attr.Key).Append("=\"").Append(EscapeXml(attr.Value)).Append('"');
-                }
-                if (element.ChildNodes.Count == 0)
-                {
-                    sb.Append("/>");
-                }
-                else
-                {
-                    sb.Append('>');
-                    foreach (var child in element.ChildNodes)
-                        SerializeNode(child, sb);
-                    sb.Append("</").Append(element.TagName).Append('>');
-                }
-                break;
-            case NodeType.Text:
-                sb.Append(EscapeXml(((TextNode)node).Data));
-                break;
-            case NodeType.Comment:
-                sb.Append("<!--").Append(((CommentNode)node).Data).Append("-->");
-                break;
-            case NodeType.Document:
-                var doc = (Document)node;
-                sb.Append("<!DOCTYPE html>\n");
-                if (doc.DocumentElement != null)
-                    SerializeNode(doc.DocumentElement, sb);
-                break;
-            case NodeType.DocumentFragment:
-                foreach (var child in node.ChildNodes)
-                    SerializeNode(child, sb);
-                break;
-            case NodeType.ProcessingInstruction:
-                var pi = (ProcessingInstruction)node;
-                sb.Append("<?").Append(pi.Target).Append(' ').Append(pi.Data).Append("?>");
-                break;
-            case NodeType.CDataSection:
-                sb.Append("<![CDATA[").Append(((CDataSection)node).Data).Append("]]>");
-                break;
-            case NodeType.DocumentType:
-                var doctype = (DocumentTypeNode)node;
-                sb.Append("<!DOCTYPE html>");
-                break;
+            var sb = new System.Text.StringBuilder();
+            sb.Append('<').Append(el.NodeName);
+            foreach (var attr in el.Attributes)
+                sb.Append(' ').Append(attr.Key).Append("=\"").Append(EscapeXml(attr.Value ?? "")).Append('"');
+            if (el.ChildNodes.Count == 0)
+                sb.Append(" />");
+            else
+            {
+                sb.Append('>');
+                sb.Append(SerializeChildren(el));
+                sb.Append("</").Append(el.NodeName).Append('>');
+            }
+            return sb.ToString();
         }
+        return "";
+    }
+
+    private static string SerializeChildren(Node node)
+    {
+        var sb = new System.Text.StringBuilder();
+        foreach (var child in node.ChildNodes)
+            sb.Append(SerializeNode(child));
+        return sb.ToString();
     }
 
     private static string EscapeXml(string text)
@@ -113,4 +70,53 @@ public class XmlSerializer
             .Replace("\"", "&quot;")
             .Replace("'", "&apos;");
     }
+}
+
+internal class AngleSharpDomConverter
+{
+    public HtmlElement? ConvertElement(AngleSharp.Dom.IElement angleElement)
+    {
+        if (angleElement == null) return null;
+        var element = new HtmlElement(angleElement.LocalName ?? "unknown");
+        foreach (var attr in angleElement.Attributes)
+        {
+            if (!string.IsNullOrEmpty(attr.Name))
+                element.Attributes[attr.Name] = attr.Value ?? "";
+        }
+        foreach (var child in angleElement.ChildNodes)
+        {
+            if (child is AngleSharp.Dom.IElement childElement)
+            {
+                var converted = ConvertElement(childElement);
+                if (converted != null) element.AppendChild(converted);
+            }
+            else if (child.NodeType == AngleSharp.Dom.NodeType.Text)
+            {
+                element.AppendChild(new TextNode(child.TextContent ?? ""));
+            }
+        }
+        return element;
+    }
+}
+
+public static class StructuredClone
+{
+    public static object? Clone(object? value, StructuredCloneOptions? options = null)
+    {
+        return value switch
+        {
+            null => null,
+            string s => s,
+            int i => i,
+            double d => d,
+            bool b => b,
+            Array arr => arr.Cast<object>().ToArray(),
+            _ => value
+        };
+    }
+}
+
+public class StructuredCloneOptions
+{
+    public object[]? Transfer { get; set; }
 }
