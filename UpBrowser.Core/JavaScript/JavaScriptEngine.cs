@@ -96,10 +96,10 @@ public class JavaScriptEngine : IDisposable
         _adapter.SetGlobal("location", _locationHost);
         _adapter.SetGlobal("history", new HistoryHost(_locationHost));
         _adapter.SetGlobal("screen", new ScreenHost());
-        _adapter.SetGlobal("localStorage", new StorageHost());
-        _adapter.SetGlobal("sessionStorage", new StorageHost());
+        _adapter.SetGlobal("localStorage", new StorageHost("localStorage"));
+        _adapter.SetGlobal("sessionStorage", new StorageHost("sessionStorage"));
 
-        _adapter.SetGlobal("document", new Dictionary<string, object?>());
+        _adapter.SetGlobal("document", new DocumentHost(new UpBrowser.Core.Dom.Document()));
 
         _adapter.Execute(GetSetupScript());
     }
@@ -501,6 +501,34 @@ public class JavaScriptEngine : IDisposable
                 if (url) location.href = url;
                 return window;
             };
+            window.close = function() {};
+            window.print = function() {};
+            window.stop = function() {};
+            window.focus = function() {};
+            window.blur = function() {};
+            window.moveBy = function(x, y) {};
+            window.moveTo = function(x, y) {};
+            window.resizeBy = function(x, y) {};
+            window.resizeTo = function(x, y) {};
+            window.postMessage = function(message, targetOrigin, transfer) {};
+            window.getSelection = function() { return null; };
+            window.requestIdleCallback = function(cb, opts) { return setTimeout(cb, 50); };
+            window.cancelIdleCallback = function(id) { clearTimeout(id); };
+
+            Object.defineProperty(window, 'closed', { get: function() { return false; } });
+            Object.defineProperty(window, 'name', { get: function() { return ''; }, set: function(v) {} });
+            Object.defineProperty(window, 'opener', { get: function() { return null; } });
+            Object.defineProperty(window, 'parent', { get: function() { return window; } });
+            Object.defineProperty(window, 'self', { get: function() { return window; } });
+            Object.defineProperty(window, 'top', { get: function() { return window; } });
+            Object.defineProperty(window, 'frames', { get: function() { return window; } });
+            Object.defineProperty(window, 'length', { get: function() { return 0; } });
+            Object.defineProperty(window, 'status', { get: function() { return ''; }, set: function(v) {} });
+            Object.defineProperty(window, 'defaultStatus', { get: function() { return ''; }, set: function(v) {} });
+            Object.defineProperty(window, 'screenLeft', { get: function() { return 0; } });
+            Object.defineProperty(window, 'screenTop', { get: function() { return 0; } });
+            Object.defineProperty(window, 'screenX', { get: function() { return 0; } });
+            Object.defineProperty(window, 'screenY', { get: function() { return 0; } });
 
             function CustomEvent(type, detail) {
                 var evt = document.createEvent('customevent');
@@ -881,13 +909,16 @@ public class ConsoleHost
 public class NavigatorHost
 {
     public string userAgent => "UpBrowser/1.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36";
+    public string appCodeName => "Mozilla";
     public string appName => "UpBrowser";
     public string appVersion => "1.0";
     public string platform => "Win32";
+    public string product => "Gecko";
     public string language => "zh-CN";
     public string[] languages => new[] { "zh-CN", "en" };
     public bool cookieEnabled => true;
     public bool onLine => true;
+    public bool javaEnabled() => false;
 }
 
 public class LocationHost
@@ -962,15 +993,32 @@ public class ScreenHost
     public int height => 1080;
     public int availWidth => 1920;
     public int availHeight => 1040;
+    public int availTop => 0;
+    public int availLeft => 0;
     public int colorDepth => 24;
     public int pixelDepth => 24;
     public int top => 0;
     public int left => 0;
+    public object? orientation => new ScreenOrientationHost();
+}
+
+public class ScreenOrientationHost
+{
+    public string type => "landscape-primary";
+    public string angle => "0";
+    public void lock_(string orientation) { }
+    public void unlock() { }
 }
 
 public class StorageHost
 {
     private readonly Dictionary<string, string> _data = new();
+    private readonly string _name;
+
+    public StorageHost(string name = "storage")
+    {
+        _name = name;
+    }
 
     public string? getItem(string key) => _data.GetValueOrDefault(key);
     public void setItem(string key, string value) => _data[key] = value;

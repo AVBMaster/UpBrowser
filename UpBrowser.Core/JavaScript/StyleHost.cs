@@ -33,8 +33,14 @@ public class StyleHost : DynamicObject
         }
     }
 
+    public int length => _element.Style.Count;
+
+    public object? parentRule => null;
+
     public string getPropertyValue(string propertyName) =>
         _element.Style.TryGetValue(propertyName, out var val) ? val : "";
+
+    public string getPropertyPriority(string propertyName) => "";
 
     public void setProperty(string propertyName, string value) =>
         _element.Style[propertyName] = value;
@@ -43,6 +49,12 @@ public class StyleHost : DynamicObject
     {
         _element.Style.Remove(propertyName, out var old);
         return old ?? "";
+    }
+
+    public string? item(int index)
+    {
+        if (index < 0 || index >= _element.Style.Count) return null;
+        return _element.Style.ElementAt(index).Key;
     }
 
     public override bool TryGetMember(GetMemberBinder binder, out object? result)

@@ -1,4 +1,5 @@
 using SkiaSharp;
+using UpBrowser.Core.Performance;
 
 namespace UpBrowser.Core.Dom;
 
@@ -40,6 +41,8 @@ public abstract class Element : Node
 
         if (name.Equals("class", StringComparison.OrdinalIgnoreCase))
             _classListCache = null;
+
+        DirtyState.AddSelf(this, DirtyFlags.Style | DirtyFlags.Layout | DirtyFlags.Paint);
     }
 
     public void RemoveAttribute(string name)

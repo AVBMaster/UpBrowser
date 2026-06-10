@@ -755,6 +755,28 @@ public class CssSelector
     public static CssSelector Parse(string selector)
     {
         selector = selector.Trim();
+        // Handle comma-separated groups: "div, .foo, #bar"
+        if (selector.Contains(','))
+        {
+            var groups = selector.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            if (groups.Length > 0)
+            {
+                var first = ParseSelectorChain(groups[0]);
+                // Chain remaining groups via a parent pointer so Matches checks all
+                var current = first;
+                for (int i = 1; i < groups.Length; i++)
+                {
+                    var next = ParseSelectorChain(groups[i]);
+                    // Walk to the end of the current chain and link
+                    var last = current;
+                    while (last.Parent != null) last = last.Parent;
+                    last.Combinator = CombinatorType.Group;
+                    last.Parent = next;
+                    current = next;
+                }
+                return first;
+            }
+        }
         return ParseSelectorChain(selector);
     }
 
@@ -1131,6 +1153,12 @@ public class CssSelector
 
     public bool Matches(Element element, Element? parent)
     {
+        // A selector chain linked via Parent with Group combinator acts as an OR.
+        // e.g. "div, .foo" → first=div (Combinator=Group, Parent=.foo)
+        // Matches returns true if ANY group matches.
+        if (Combinator == CombinatorType.Group && Parent != null)
+            return MatchesSimple(this, element) || Parent.Matches(element, parent);
+
         if (!MatchesSimple(this, element)) return false;
 
         if (Parent == null) return true;
@@ -1391,7 +1419,7 @@ public class CssSelector
 }
 
 public enum SelectorType { Universal, Tag, Id, Class, Attribute, PseudoClass, PseudoElement, Nesting }
-public enum CombinatorType { Descendant, Child, AdjacentSibling, GeneralSibling }
+public enum CombinatorType { Descendant, Child, AdjacentSibling, GeneralSibling, Group }
 public enum AttributeMatchType { Exact, WhitespaceSeparated, StartsWith, EndsWith, Contains, DashSeparator }
 public enum PseudoClassType
 {

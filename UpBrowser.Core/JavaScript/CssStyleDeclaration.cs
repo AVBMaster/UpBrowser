@@ -1,4 +1,5 @@
 using UpBrowser.Core.Dom;
+using UpBrowser.Core.Performance;
 
 namespace UpBrowser.Core.JavaScript;
 
@@ -17,18 +18,21 @@ public class CssStyleDeclaration
         set
         {
             _element.Style.Clear();
-            if (string.IsNullOrEmpty(value)) return;
-            foreach (var part in value.Split(';', StringSplitOptions.RemoveEmptyEntries))
+            if (!string.IsNullOrEmpty(value))
             {
-                var colon = part.IndexOf(':');
-                if (colon > 0)
+                foreach (var part in value.Split(';', StringSplitOptions.RemoveEmptyEntries))
                 {
-                    var prop = part[..colon].Trim();
-                    var val = part[(colon + 1)..].Trim();
-                    if (!string.IsNullOrEmpty(prop))
-                        _element.Style[prop] = val;
+                    var colon = part.IndexOf(':');
+                    if (colon > 0)
+                    {
+                        var prop = part[..colon].Trim();
+                        var val = part[(colon + 1)..].Trim();
+                        if (!string.IsNullOrEmpty(prop))
+                            _element.Style[prop] = val;
+                    }
                 }
             }
+            DirtyState.AddSelf(_element, DirtyFlags.Style | DirtyFlags.Layout | DirtyFlags.Paint);
         }
     }
 
@@ -43,12 +47,16 @@ public class CssStyleDeclaration
     public string getPropertyValue(string propertyName) =>
         _element.Style.TryGetValue(propertyName, out var val) ? val : "";
 
-    public void setProperty(string propertyName, string value) =>
+    public void setProperty(string propertyName, string value)
+    {
         _element.Style[propertyName] = value;
+        DirtyState.AddSelf(_element, DirtyFlags.Style | DirtyFlags.Layout | DirtyFlags.Paint);
+    }
 
     public string removeProperty(string propertyName)
     {
         _element.Style.Remove(propertyName, out var old);
+        DirtyState.AddSelf(_element, DirtyFlags.Style | DirtyFlags.Layout | DirtyFlags.Paint);
         return old ?? "";
     }
 
@@ -245,5 +253,6 @@ public class CssStyleDeclaration
             _element.Style.Remove(name);
         else
             _element.Style[name] = value;
+        DirtyState.AddSelf(_element, DirtyFlags.Style | DirtyFlags.Layout | DirtyFlags.Paint);
     }
 }

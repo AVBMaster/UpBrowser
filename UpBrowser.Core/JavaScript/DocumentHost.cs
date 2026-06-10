@@ -1,5 +1,7 @@
+using UpBrowser.Core.Css;
 using UpBrowser.Core.Dom;
 using DomDocument = UpBrowser.Core.Dom.Document;
+using DomElement = UpBrowser.Core.Dom.Element;
 
 namespace UpBrowser.Core.JavaScript;
 
@@ -79,6 +81,66 @@ public class DocumentHost
     public string? compatMode => "CSS1Compat";
     public string? characterSet => "UTF-8";
     public string? contentType => "text/html";
+
+    // ===== Document collections =====
+    public object[] anchors
+    {
+        get
+        {
+            var elements = _document.GetElementsByTagName("a")
+                .Where(e => e.HasAttribute("name") || e.HasAttribute("id"))
+                .Select(e => (object)new ElementHost(e)).ToArray();
+            return elements;
+        }
+    }
+
+    public object[] forms
+    {
+        get
+        {
+            return _document.GetElementsByTagName("form")
+                .Select(e => (object)new ElementHost(e)).ToArray();
+        }
+    }
+
+    public object[] images
+    {
+        get
+        {
+            return _document.GetElementsByTagName("img")
+                .Select(e => (object)new ElementHost(e)).ToArray();
+        }
+    }
+
+    public object[] links
+    {
+        get
+        {
+            return _document.GetElementsByTagName("a")
+                .Where(e => e.HasAttribute("href"))
+                .Select(e => (object)new ElementHost(e)).ToArray();
+        }
+    }
+
+    public object[] scripts
+    {
+        get
+        {
+            return _document.GetElementsByTagName("script")
+                .Select(e => (object)new ElementHost(e)).ToArray();
+        }
+    }
+
+    public object[] embeds
+    {
+        get
+        {
+            return _document.GetElementsByTagName("embed")
+                .Select(e => (object)new ElementHost(e)).ToArray();
+        }
+    }
+
+    public object[] plugins => embeds;
 
     public ElementHost? getElementById(string id)
     {
@@ -181,13 +243,22 @@ public class DocumentHost
         return write(text + "\n");
     }
 
-    public string? elementFromPoint(float x, float y) => null;
+    public ElementHost? elementFromPoint(double x, double y) => null;
 
-    public string? elementsFromPoint(float x, float y) => null;
+    public object[] elementsFromPoint(double x, double y) => Array.Empty<object>();
 
     public string? getSelection() => null;
 
-    public ElementHost? activeElement => null;
+    public ElementHost? activeElement
+    {
+        get
+        {
+            var active = _document.ActiveElement;
+            if (active != null) return new ElementHost(active);
+            if (_document.Body != null) return new ElementHost(_document.Body);
+            return null;
+        }
+    }
 
     public string readyState => "complete";
 
@@ -212,6 +283,50 @@ public class DocumentHost
     public string? visibilityState => "visible";
 
     public bool hidden => false;
+
+    public object? doctype
+    {
+        get
+        {
+            var docType = _document.Children.OfType<DocumentTypeNode>().FirstOrDefault();
+            return docType != null ? new DocumentTypeHost(docType) : null;
+        }
+    }
+
+    public object implementation => new DomImplementation();
+
+    public object? adoptNode(object node)
+    {
+        if (node is ElementHost elHost)
+        {
+            elHost.NativeElement.Remove();
+            return elHost;
+        }
+        return node;
+    }
+
+    public object? importNode(object node, bool deep = false)
+    {
+        if (node is ElementHost elHost)
+        {
+            var cloned = elHost.NativeElement.CloneNode(deep);
+            return new ElementHost((DomElement)cloned);
+        }
+        return node;
+    }
+
+    public void normalizeDocument()
+    {
+        _document.Normalize();
+    }
+
+    public void open()
+    {
+    }
+
+    public void close()
+    {
+    }
 
     public void addEventListener(string type, object callback)
     {
@@ -489,12 +604,21 @@ public class DocumentHost
 
     private static bool MatchesSelector(Element el, string selector)
     {
-        selector = selector.Trim();
-        if (selector.StartsWith('#'))
-            return el.Id == selector[1..];
-        if (selector.StartsWith('.'))
-            return el.HasClass(selector[1..]);
-        return el.TagName.Equals(selector, StringComparison.OrdinalIgnoreCase);
+        try
+        {
+            var parsed = CssSelector.Parse(selector);
+            return parsed.Matches(el, el.ParentElement);
+        }
+        catch
+        {
+            // Fallback to simple matching on parse failure
+            selector = selector.Trim();
+            if (selector.StartsWith('#'))
+                return el.Id == selector[1..];
+            if (selector.StartsWith('.'))
+                return el.HasClass(selector[1..]);
+            return el.TagName.Equals(selector, StringComparison.OrdinalIgnoreCase);
+        }
     }
 }
 
@@ -558,15 +682,70 @@ public class DocumentFragmentHost
     public int childElementCount => 0;
 }
 
+public class DocumentTypeHost
+{
+    private readonly DocumentTypeNode _docType;
+
+    public DocumentTypeHost(DocumentTypeNode docType)
+    {
+        _docType = docType;
+    }
+
+    public string name => _docType.Name ?? "html";
+    public string publicId => _docType.PublicId ?? "";
+    public string systemId => _docType.SystemId ?? "";
+}
+
+public class NamedNodeMapHost
+{
+    private readonly DomElement _element;
+
+    public NamedNodeMapHost(DomElement element)
+    {
+        _element = element;
+    }
+
+    public int length => _element.Attributes.Count;
+
+    public object? item(int index)
+    {
+        if (index < 0 || index >= _element.Attributes.Count) return null;
+        var kv = _element.Attributes.ElementAt(index);
+        return new AttributeHost(kv.Key, kv.Value);
+    }
+
+    public string? getNamedItem(string name)
+    {
+        return _element.GetAttribute(name);
+    }
+
+    public object? setNamedItem(object attr)
+    {
+        if (attr is AttributeHost host)
+            _element.SetAttribute(host.name, host.value ?? "");
+        return null;
+    }
+
+    public string? removeNamedItem(string name)
+    {
+        var val = _element.GetAttribute(name);
+        _element.RemoveAttribute(name);
+        return val;
+    }
+}
+
 public class AttributeHost
 {
     public string name { get; }
     public string? value { get; set; }
     public string? namespaceUri { get; }
+    public bool specified => true;
+    public bool isId => name.Equals("id", StringComparison.OrdinalIgnoreCase);
 
-    public AttributeHost(string name, string? ns = null)
+    public AttributeHost(string name, string? value = null, string? ns = null)
     {
         this.name = name;
+        this.value = value;
         this.namespaceUri = ns;
     }
 }

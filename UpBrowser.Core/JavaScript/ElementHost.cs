@@ -143,6 +143,24 @@ public class ElementHost
         }
     }
 
+    public object? previousSibling
+    {
+        get
+        {
+            var prev = _element.PreviousSibling;
+            return prev != null ? WrapNode(prev) : null;
+        }
+    }
+
+    public object? nextSibling
+    {
+        get
+        {
+            var next = _element.NextSibling;
+            return next != null ? WrapNode(next) : null;
+        }
+    }
+
     public object[] children =>
         _element.Children.OfType<Element>().Select(e => (object)new ElementHost(e)).ToArray();
 
@@ -150,6 +168,8 @@ public class ElementHost
 
     public object[] childNodes =>
         _element.Children.Select(WrapNode).ToArray();
+
+    public NamedNodeMapHost attributes => new(_element);
 
     public string? getAttribute(string name) => _element.GetAttribute(name);
 
@@ -373,6 +393,10 @@ public class ElementHost
             return box.ContentBox.Height;
         }
     }
+
+    public double scrollLeft { get; set; }
+
+    public double scrollTop { get; set; }
 
     public float offsetTop 
     {
@@ -795,6 +819,19 @@ public class ElementHost
         }
     }
 
+    public string? contentEditable
+    {
+        get => _element.GetAttribute("contenteditable") ?? "inherit";
+        set
+        {
+            if (value == "true" || value == "") _element.SetAttribute("contenteditable", "true");
+            else if (value == "false") _element.SetAttribute("contenteditable", "false");
+            else if (value == "inherit") _element.RemoveAttribute("contenteditable");
+        }
+    }
+
+    public bool isContentEditable => _element.GetAttribute("contenteditable") == "true";
+
     public bool draggable
     {
         get => _element.GetAttribute("draggable") == "true";
@@ -851,15 +888,38 @@ public class ElementHost
             _element.SetAttribute(name, "");
     }
 
-    public object? getAttributeNode(string name) => null;
+    public object? getAttributeNode(string name)
+    {
+        var val = _element.GetAttribute(name);
+        return val != null ? new AttributeHost(name, val) : null;
+    }
 
-    public object? getAttributeNodeNS(string ns, string name) => null;
+    public object? getAttributeNodeNS(string ns, string name)
+    {
+        return getAttributeNode(name);
+    }
 
-    public object? setAttributeNode(object attr) => null;
+    public object? setAttributeNode(object attr)
+    {
+        if (attr is AttributeHost host)
+        {
+            _element.SetAttribute(host.name, host.value ?? "");
+            return host;
+        }
+        return null;
+    }
 
-    public object? setAttributeNodeNS(object attr) => null;
+    public object? setAttributeNodeNS(object attr) => setAttributeNode(attr);
 
-    public object? removeAttributeNode(object attr) => null;
+    public object? removeAttributeNode(object attr)
+    {
+        if (attr is AttributeHost host)
+        {
+            _element.RemoveAttribute(host.name);
+            return host;
+        }
+        return null;
+    }
 
     public void normalize()
     {
