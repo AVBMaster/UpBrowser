@@ -1,0 +1,39 @@
+DOM HTMLCollection
+HTMLCollection 是 HTML 元素的集合。
+
+HTMLCollection 对象类似一个包含 HTML 元素的数组列表。
+
+getElementsByTagName() 方法返回的就是一个 HTMLCollection 对象。
+
+属性和方法
+下表列出了 HTMLCollection 对象中的属性和方法：
+
+属性 / 方法	描述
+item()	返回 HTMLCollection 中指定索引的元素。
+length	返回 HTMLCollection 中元素的数量。
+namedItem()	返回 HTMLCollection 中指定 ID 或 name 属性的元素。
+实例
+返回所有 p 元素的集合，该集合是一个 HTMLCollection 对象：
+
+实例
+var x = document.getElementsByTagName("p");
+
+尝试一下 »
+计算文档中 p 元素的数量：
+
+实例
+var x = document.getElementsByTagName("P");
+document.write(x.length);
+
+尝试一下 »
+循环输出 HTMLCollection 对象中的所有元素：
+
+实例
+var x, i, l;
+x = document.getElementsByTagName("*");
+l = x.length;
+for (i = 0; i < l; i++) {
+  document.write(x[i].tagName + "<br>");
+}
+
+尝试一下

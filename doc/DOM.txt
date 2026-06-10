@@ -1,0 +1,3744 @@
+以下是按规范层级与继承链组织的完整 DOM API 清单，覆盖 WHATWG DOM Living Standard、HTML Standard 及所有主要相关 W3C 规范。按接口的继承关系与功能域分层列出。
+一、核心 DOM 基础接口 (WHATWG DOM Standard)
+1.1 节点层级根基
+表格
+接口	核心属性	核心方法
+EventTarget	(无自有属性)	addEventListener(), removeEventListener(), dispatchEvent()
+Node	nodeType, nodeName, baseURI, isConnected, ownerDocument, parentNode, parentElement, childNodes (NodeList), firstChild, lastChild, previousSibling, nextSibling, nodeValue, textContent	hasChildNodes(), getRootNode({composed}), cloneNode(deep), insertBefore(), appendChild(), replaceChild(), removeChild(), normalize(), contains(), compareDocumentPosition(), lookupPrefix(), lookupNamespaceURI(), isDefaultNamespace(), isEqualNode(), isSameNode()
+Document (继承 Node → EventTarget)	implementation, URL, documentURI, compatMode, characterSet, charset (遗留), inputEncoding (遗留), contentType, doctype, documentElement, getElementsByTagName(), getElementsByTagNameNS(), getElementsByClassName(), createElement(), createElementNS(), createDocumentFragment(), createTextNode(), createCDATASection(), createComment(), createProcessingInstruction(), importNode(), adoptNode(), createEvent(), createRange(), createNodeIterator(), createTreeWalker(), getElementsByName(), open(), close(), write(), writeln(), hasFocus(), designMode, execCommand(), queryCommandEnabled(), queryCommandIndeterm(), queryCommandState(), queryCommandSupported(), queryCommandValue(), onreadystatechange	getElementById(), elementFromPoint(), elementsFromPoint(), caretPositionFromPoint(), scrollingElement, head, title, body, images, embeds, plugins, links, forms, scripts, getSelection(), append(), prepend(), replaceChildren(), timeline (Web Animations), defaultView (WindowProxy), onfullscreenchange, onfullscreenerror
+DocumentFragment	(同 Node，无特殊自有属性)	append(), prepend(), replaceChildren(), querySelector(), querySelectorAll(), getElementById() (仅 HTMLDocumentFragment)
+ShadowRoot (继承 DocumentFragment)	mode ("open"/"closed"), host, delegatesFocus, slotAssignment, onslotchange, activeElement, styleSheets, adoptedStyleSheets	getHTML({serializableShadowRoots, shadowRoots})
+Element (继承 Node)	namespaceURI, prefix, localName, tagName, id, className, classList (DOMTokenList), slot, attributes (NamedNodeMap), shadowRoot, part (DOMTokenList), assignedSlot, innerHTML, outerHTML, scrollTop, scrollLeft, scrollWidth, scrollHeight, clientTop, clientLeft, clientWidth, clientHeight, onbeforecopy, onbeforecut, onbeforepaste, oncopy, oncut, onpaste, onsearch, onselectstart, onwebkitfullscreenchange, onwebkitfullscreenerror	hasAttributes(), getAttributeNames(), getAttribute(), getAttributeNS(), setAttribute(), setAttributeNS(), removeAttribute(), removeAttributeNS(), hasAttribute(), hasAttributeNS(), getAttributeNode(), getAttributeNodeNS(), setAttributeNode(), setAttributeNodeNS(), removeAttributeNode(), closest(), matches(), webkitMatchesSelector() (遗留), getElementsByTagName(), getElementsByTagNameNS(), getElementsByClassName(), insertAdjacentElement(), insertAdjacentText(), insertAdjacentHTML(), querySelector(), querySelectorAll(), attachShadow({mode, delegatesFocus, slotAssignment}), getHTML({serializableShadowRoots, shadowRoots}), setHTML({sanitizer}), setHTMLUnsafe(), getHTMLUnsafe(), requestFullscreen(), scroll(), scrollTo(), scrollBy(), scrollIntoView(), scrollIntoViewIfNeeded(), animate(), getAnimations(), before(), after(), replaceWith(), remove(), prepend(), append(), replaceChildren(), checkVisibility(), computedStyleMap() (Typed OM), requestPointerLock(), setPointerCapture(), releasePointerCapture(), hasPointerCapture(), getBoundingClientRect(), getClientRects(), getInnerHTML({includeShadowRoots})
+CharacterData (继承 Node)	data, length	substringData(), appendData(), insertData(), deleteData(), replaceData(), before(), after(), replaceWith(), remove()
+Text (继承 CharacterData)	wholeText, assignedSlot	splitText(), getDestinationInsertionPoints() (遗留 Shadow DOM v0)
+CDATASection (继承 Text)	(无新增)	(无新增)
+ProcessingInstruction (继承 CharacterData)	target, sheet (关联 CSSStyleSheet)	(无新增)
+Comment (继承 CharacterData)	(无新增)	(无新增)
+DocumentType (继承 Node)	name, publicId, systemId	before(), after(), replaceWith(), remove()
+1.2 属性与集合
+表格
+接口	说明
+NamedNodeMap	length, item(index), getNamedItem(name), getNamedItemNS(namespace, localName), setNamedItem(), setNamedItemNS(), removeNamedItem(), removeNamedItemNS(), [name] 索引访问
+Attr	namespaceURI, prefix, localName, name, value, ownerElement, specified
+NodeList	length, item(index), [index] 索引访问, entries(), keys(), values(), forEach()
+HTMLCollection	length, item(index), [index], [name], namedItem(name)
+DOMTokenList	length, value, item(index), contains(token), add(tokens...), remove(tokens...), toggle(token, force), replace(oldToken, newToken), supports(token), entries(), keys(), values(), forEach()
+二、DOM 遍历与范围
+表格
+接口	属性	方法
+NodeIterator	root, referenceNode, pointerBeforeReferenceNode, whatToShow, filter	nextNode(), previousNode(), detach() (遗留，空操作)
+TreeWalker	root, whatToShow, filter, currentNode	parentNode(), firstChild(), lastChild(), previousSibling(), nextSibling(), previousNode(), nextNode()
+Range	startContainer, startOffset, endContainer, endOffset, collapsed, commonAncestorContainer	setStart(), setEnd(), setStartBefore(), setStartAfter(), setEndBefore(), setEndAfter(), collapse(), selectNode(), selectNodeContents(), compareBoundaryPoints(), deleteContents(), extractContents(), cloneContents(), insertNode(), surroundContents(), cloneRange(), detach() (遗留), getBoundingClientRect(), getClientRects(), intersectsNode(), isPointInRange(), comparePoint(), createContextualFragment(), toString()
+Selection	anchorNode, anchorOffset, focusNode, focusOffset, isCollapsed, rangeCount, type, direction	getRangeAt(), addRange(), removeRange(), removeAllRanges(), collapse(), collapseToStart(), collapseToEnd(), extend(), selectAllChildren(), deleteFromDocument(), containsNode(), setBaseAndExtent(), toString(), modify(alter, direction, granularity)
+三、事件系统 (UI Events + DOM Events)
+3.1 事件核心
+表格
+接口	属性	方法
+Event	type, target, currentTarget, eventPhase, bubbles, cancelable, defaultPrevented, composed, timeStamp, isTrusted, srcElement (遗留)	stopPropagation(), stopImmediatePropagation(), preventDefault(), composedPath(), initEvent() (遗留)
+CustomEvent (继承 Event)	detail	initCustomEvent() (遗留)
+3.2 鼠标/指针/输入事件
+表格
+接口	特有属性
+UIEvent (继承 Event)	view, detail, sourceCapabilities, which (遗留)
+MouseEvent (继承 UIEvent)	screenX, screenY, clientX, clientY, ctrlKey, shiftKey, altKey, metaKey, button, buttons, relatedTarget, movementX, movementY, pageX, pageY, offsetX, offsetY, x, y, region
+WheelEvent (继承 MouseEvent)	deltaX, deltaY, deltaZ, deltaMode
+PointerEvent (继承 MouseEvent)	pointerId, width, height, pressure, tangentialPressure, tiltX, tiltY, twist, pointerType, isPrimary, coalescedEvents, predictedEvents, getCoalescedEvents(), getPredictedEvents()
+InputEvent (继承 UIEvent)	data, isComposing, inputType, dataTransfer, getTargetRanges()
+KeyboardEvent (继承 UIEvent)	key, code, location, ctrlKey, shiftKey, altKey, metaKey, repeat, isComposing, charCode (遗留), keyCode (遗留), which (遗留), getModifierState()
+CompositionEvent (继承 UIEvent)	data, locale
+3.3 焦点/拖拽/剪贴板事件
+表格
+接口	特有属性
+FocusEvent (继承 UIEvent)	relatedTarget
+DragEvent (继承 MouseEvent)	dataTransfer
+ClipboardEvent (继承 Event)	clipboardData
+BeforeInputEvent (继承 InputEvent)	(同 InputEvent)
+3.4 触摸/手势事件
+表格
+接口	特有属性
+TouchEvent (继承 UIEvent)	touches (TouchList), targetTouches, changedTouches, altKey, metaKey, ctrlKey, shiftKey
+Touch	identifier, target, screenX, screenY, clientX, clientY, pageX, pageY, radiusX, radiusY, rotationAngle, force, altitudeAngle, azimuthAngle, touchType
+TouchList	length, item(index), [index]
+GestureEvent (WebKit 遗留)	rotation, scale, initGestureEvent()
+3.5 滚动/视图/动画事件
+表格
+接口	特有属性
+ScrollEvent (非标准/草案)	(通常为空，通过 target 获取滚动源)
+ResizeObserverEntry	target, contentRect, borderBoxSize, contentBoxSize, devicePixelContentBoxSize
+IntersectionObserverEntry	time, rootBounds, boundingClientRect, intersectionRect, isIntersecting, intersectionRatio, target
+MutationRecord	type, target, addedNodes, removedNodes, previousSibling, nextSibling, attributeName, attributeNamespace, oldValue
+AnimationEvent (继承 Event)	animationName, elapsedTime, pseudoElement
+TransitionEvent (继承 Event)	propertyName, elapsedTime, pseudoElement
+3.6 进度/网络/资源事件
+表格
+接口	特有属性
+ProgressEvent (继承 Event)	lengthComputable, loaded, total
+ErrorEvent (继承 Event)	message, filename, lineno, colno, error
+PageTransitionEvent (继承 Event)	persisted
+HashChangeEvent (继承 Event)	oldURL, newURL
+PopStateEvent (继承 Event)	state
+BeforeUnloadEvent (继承 Event)	returnValue
+StorageEvent (继承 Event)	key, oldValue, newValue, url, storageArea
+MessageEvent (继承 Event)	data, origin, lastEventId, source, ports, userActivation
+CloseEvent (继承 Event)	wasClean, code, reason
+SubmitEvent (继承 Event)	submitter
+FormDataEvent (继承 Event)	formData
+ToggleEvent (继承 Event)	oldState, newState
+TogglePopoverEvent / BeforeToggleEvent	oldState, newState
+四、HTML DOM 扩展 (WHATWG HTML Standard)
+4.1 文档扩展
+表格
+接口/属性	说明
+HTMLDocument (继承 Document)	location, domain, referrer, cookie, lastModified, readyState ("loading"/"interactive"/"complete"), title, dir, body, head, images, embeds, plugins, links, forms, scripts, getElementsByName(), open(url, name, features), close(), write(), writeln(), defaultView, activeElement, hasFocus(), designMode, execCommand(), queryCommandEnabled(), onreadystatechange, onvisibilitychange, hidden, visibilityState, fullscreenEnabled, fullscreen, onfullscreenchange, onfullscreenerror, webkitIsFullScreen, webkitFullScreenKeyboardInputAllowed, webkitCurrentFullScreenElement, exitFullscreen(), pointerLockElement, exitPointerLock(), fonts (FontFaceSet), onfreeze, onresume, featurePolicy / permissionsPolicy (PermissionsPolicy), onpagehide, onpageshow, onpopstate, onhashchange, onbeforeunload, onunload, ononline, onoffline, onformdata, onpageswap, onpagereveal
+XMLDocument (继承 Document)	async, load() (遗留)
+4.2 HTML 元素基类
+表格
+接口	属性	方法
+HTMLElement (继承 Element)	title, lang, translate, dir, hidden, inert, accessKey, accessKeyLabel, draggable, spellcheck, autocapitalize, contentEditable, isContentEditable, inputMode, enterKeyHint, is, nonce, popover, popoverTargetElement, popoverTargetAction, offsetParent, offsetTop, offsetLeft, offsetWidth, offsetHeight, style (CSSStyleDeclaration), dataset (DOMStringMap), tabIndex, onabort, onblur, oncancel, oncanplay, oncanplaythrough, onchange, onclick, onclose, oncontextlost, oncontextmenu, oncontextrestored, oncuechange, ondblclick, ondrag, ondragend, ondragenter, ondragleave, ondragover, ondragstart, ondrop, ondurationchange, onemptied, onended, onerror, onfocus, onformdata, oninput, oninvalid, onkeydown, onkeypress (遗留), onkeyup, onload, onloadeddata, onloadedmetadata, onloadstart, onmousedown, onmouseenter, onmouseleave, onmousemove, onmouseout, onmouseover, onmouseup, onmousewheel (遗留), onpause, onplay, onplaying, onprogress, onratechange, onreset, onresize, onscroll, onscrollend, onsecuritypolicyviolation, onseeked, onseeking, onselect, onslotchange, onstalled, onsubmit, onsuspend, ontimeupdate, ontoggle, onvolumechange, onwaiting, onwebkitanimationend, onwebkitanimationiteration, onwebkitanimationstart, onwebkittransitionend, onwheel, onbeforecopy, onbeforecut, onbeforepaste, oncopy, oncut, onpaste, onsearch, onselectstart, onvisibilitychange, ongamepadconnected, ongamepaddisconnected, onbeforexrselect, onbeforetoggle	click(), focus({preventScroll, focusVisible}), blur(), hidePopover(), showPopover(), togglePopover(), attachInternals() (返回 ElementInternals)
+4.3 具体 HTML 元素接口
+表格
+元素	接口	关键属性
+<a>	HTMLAnchorElement	href, target, download, ping, rel, relList, hreflang, type, text, origin, protocol, username, password, host, hostname, port, pathname, search, hash, referrerPolicy
+<area>	HTMLAreaElement	(同 URL 分解属性 + alt, coords, shape, target, download, ping, rel, relList, referrerPolicy)
+<audio>/<video>	HTMLMediaElement	src, currentSrc, crossOrigin, networkState, preload, buffered, readyState, seeking, currentTime, duration, paused, defaultPlaybackRate, playbackRate, ended, autoplay, loop, controls, volume, muted, defaultMuted, audioTracks, videoTracks, textTracks, sinkId, remote, disableRemotePlayback, preservesPitch, error, mediaKeys, seekable, played
+load(), canPlayType(), fastSeek(), getStartDate(), play(), pause(), setSinkId(), setMediaKeys(), addTextTrack()
+<audio>	HTMLAudioElement	src
+<video>	HTMLVideoElement	width, height, videoWidth, videoHeight, poster, playsInline, webkitSupportsFullscreen, webkitDisplayingFullscreen, getVideoPlaybackQuality(), requestVideoFrameCallback(), cancelVideoFrameCallback()
+<base>	HTMLBaseElement	href, target
+<blockquote>/<q>	HTMLQuoteElement	cite
+<body>	HTMLBodyElement	onafterprint, onbeforeprint, onbeforeunload, onhashchange, onlanguagechange, onmessage, onoffline, ononline, onpageshow, onpagehide, onpopstate, onpageswap, onpagereveal, onrejectionhandled, onstorage, onunhandledrejection, onunload
+<br>	HTMLBRElement	(无)
+<button>	HTMLButtonElement	disabled, form, formAction, formEnctype, formMethod, formNoValidate, formTarget, name, type, value, validationMessage, validity, willValidate, labels, popoverTargetElement, popoverTargetAction
+checkValidity(), reportValidity(), setCustomValidity()
+<canvas>	HTMLCanvasElement	width, height, getContext(), toDataURL(), toBlob(), transferControlToOffscreen(), isContextLost()
+<caption>	HTMLTableCaptionElement	(无)
+<col>/<colgroup>	HTMLTableColElement	span, align, ch, chOff, vAlign, width (遗留)
+<data>	HTMLDataElement	value
+<datalist>	HTMLDataListElement	options
+<dd>/<dt>/<dl>	HTMLElement (无特殊接口)	(无)
+<details>	HTMLDetailsElement	open, ontoggle
+<dialog>	HTMLDialogElement	open, returnValue
+show(), showModal(), close(returnValue)
+<div>	HTMLDivElement	align (遗留)
+<dl>	HTMLDListElement	compact (遗留)
+<embed>	HTMLEmbedElement	src, type, width, height, getSVGDocument()
+<fieldset>	HTMLFieldSetElement	disabled, form, name, type, elements, validationMessage, validity, willValidate
+checkValidity(), reportValidity(), setCustomValidity()
+<form>	HTMLFormElement	acceptCharset, action, autocomplete, enctype, encoding, method, name, noValidate, target, rel, relList, elements, length
+submit(), reset(), checkValidity(), reportValidity(), requestSubmit(submitter), [index]/[name] 索引
+<head>	HTMLHeadElement	(无)
+<h1>-<h6>	HTMLHeadingElement	align (遗留)
+<hr>	HTMLHRElement	align, color, noShade, size, width (遗留)
+<html>	HTMLHtmlElement	version (遗留)
+<iframe>	HTMLIFrameElement	src, srcdoc, name, sandbox (DOMTokenList), allow, width, height, referrerPolicy, loading, csp, allowPaymentRequest (遗留), contentDocument, contentWindow, getSVGDocument()
+<img>	HTMLImageElement	alt, src, srcset, sizes, crossOrigin, useMap, isMap, width, height, naturalWidth, naturalHeight, complete, currentSrc, referrerPolicy, decoding, loading, fetchPriority, x, y, naturalOrientation
+decode()
+<input>	HTMLInputElement	accept, alt, autocomplete, checked, dirName, disabled, form, files, formAction, formEnctype, formMethod, formNoValidate, formTarget, height, indeterminate, list, max, maxLength, min, minLength, multiple, name, pattern, placeholder, readOnly, required, size, src, step, type, defaultValue, value, valueAsDate, valueAsNumber, width, willValidate, validity, validationMessage, labels, selectionStart, selectionEnd, selectionDirection, align, useMap (遗留)
+checkValidity(), reportValidity(), setCustomValidity(), select(), setRangeText(), setSelectionRange(), stepUp(), stepDown(), showPicker()
+<ins>/<del>	HTMLModElement	cite, dateTime
+<label>	HTMLLabelElement	form, htmlFor, control
+<legend>	HTMLLegendElement	form, align (遗留)
+<li>	HTMLLIElement	value, type (遗留)
+<link>	HTMLLinkElement	href, crossOrigin, rel, relList, media, hreflang, type, referrerPolicy, integrity, disabled, as, fetchPriority, imageSrcset, imageSizes, sheet (CSSStyleSheet), sizes, blocking
+<map>	HTMLMapElement	name, areas
+<meta>	HTMLMetaElement	name, httpEquiv, content, scheme (遗留), media
+<meter>	HTMLMeterElement	value, min, max, low, high, optimum, labels
+<object>	HTMLObjectElement	data, type, name, useMap, form, width, height, contentDocument, contentWindow, willValidate, validity, validationMessage, align, archive, code, codeBase, codeType, declare, hspace, standby, vspace, border (遗留)
+checkValidity(), reportValidity(), setCustomValidity(), getSVGDocument()
+<ol>	HTMLOListElement	reversed, start, type, compact (遗留)
+<optgroup>	HTMLOptGroupElement	disabled, label
+<option>	HTMLOptionElement	disabled, label, defaultSelected, selected, value, text, index, form
+<output>	HTMLOutputElement	htmlFor (DOMTokenList), form, name, type, defaultValue, value, willValidate, validity, validationMessage, labels
+checkValidity(), reportValidity(), setCustomValidity()
+<p>	HTMLParagraphElement	align (遗留)
+<param>	HTMLParamElement	name, value, type, valueType (遗留)
+<picture>	HTMLPictureElement	(无)
+<pre>	HTMLPreElement	width, wrap (遗留)
+<progress>	HTMLProgressElement	value, max, position, labels
+<script>	HTMLScriptElement	src, type, noModule, async, defer, crossOrigin, text, integrity, referrerPolicy, blocking, fetchPriority, charset, event, htmlFor (遗留), supports(type)
+<select>	HTMLSelectElement	autocomplete, disabled, form, multiple, name, required, size, type, options, length, selectedOptions, selectedIndex, value, willValidate, validity, validationMessage, labels
+add(element, before), remove(index), checkValidity(), reportValidity(), setCustomValidity(), showPicker()
+<slot>	HTMLSlotElement	name
+assignedNodes({flatten}), assignedElements({flatten}), assign(...nodes)
+<source>	HTMLSourceElement	src, type, srcset, sizes, media, width, height
+<span>	HTMLSpanElement	(无)
+<style>	HTMLStyleElement	media, nonce, type, disabled, blocking, sheet
+<table>	HTMLTableElement	caption, tHead, tFoot, rows, tBodies, align, bgColor, border, cellPadding, cellSpacing, frame, rules, summary, width (遗留)
+createCaption(), deleteCaption(), createTHead(), deleteTHead(), createTFoot(), deleteTFoot(), createTBody(), insertRow(), deleteRow()
+<tbody>/<thead>/<tfoot>	HTMLTableSectionElement	rows, align, ch, chOff, vAlign (遗留)
+insertRow(), deleteRow()
+<td>/<th>	HTMLTableCellElement	colSpan, rowSpan, headers, cellIndex, scope, abbr, align, axis, bgColor, ch, chOff, height, noWrap, vAlign, width (遗留)
+<template>	HTMLTemplateElement	content (DocumentFragment), shadowRootMode, shadowRootDelegatesFocus, shadowRootClonable, shadowRootSerializable, getHTML({serializableShadowRoots, shadowRoots})
+<textarea>	HTMLTextAreaElement	autocomplete, cols, dirName, disabled, form, maxLength, minLength, name, placeholder, readOnly, required, rows, wrap, type, defaultValue, value, textLength, willValidate, validity, validationMessage, labels, selectionStart, selectionEnd, selectionDirection
+checkValidity(), reportValidity(), setCustomValidity(), select(), setRangeText(), setSelectionRange()
+<time>	HTMLTimeElement	dateTime
+<title>	HTMLTitleElement	text
+<tr>	HTMLTableRowElement	rowIndex, sectionRowIndex, cells, align, bgColor, ch, chOff, vAlign (遗留)
+insertCell(), deleteCell()
+<track>	HTMLTrackElement	kind, src, srclang, label, default, readyState, track (TextTrack)
+<ul>	HTMLUListElement	compact, type (遗留)
+<wbr>	HTMLElement	(无)
+五、表单与验证 API
+表格
+接口	属性	方法
+FormData	(无自有属性)	append(name, value, filename), delete(name), get(name), getAll(name), has(name), set(name, value, filename), entries(), keys(), values(), forEach()
+ValidityState	valueMissing, typeMismatch, patternMismatch, tooLong, tooShort, rangeUnderflow, rangeOverflow, stepMismatch, badInput, customError, valid	(无方法)
+ElementInternals	shadowRoot, form, labels, validationMessage, validity, willValidate, states (CustomStateSet)
+setFormValue(), setValidity(), reportValidity(), checkValidity()
+CustomStateSet (Set-like)	size	add(), clear(), delete(), entries(), forEach(), has(), keys(), values()
+六、Shadow DOM 与 Web Components
+表格
+接口	属性	方法
+ShadowRoot (见 1.1)	mode, host, delegatesFocus, slotAssignment, onslotchange, activeElement, styleSheets, adoptedStyleSheets, innerHTML	getHTML(), setHTMLUnsafe(), getHTMLUnsafe()
+HTMLSlotElement (见 4.3)	name	assignedNodes(), assignedElements(), assign()
+HTMLTemplateElement (见 4.3)	content, shadowRootMode, shadowRootDelegatesFocus, shadowRootClonable, shadowRootSerializable	getHTML()
+七、CSSOM (CSS Object Model)
+7.1 样式表核心
+表格
+接口	属性	方法
+StyleSheet	type, href, ownerNode, parentStyleSheet, title, media (MediaList), disabled	(无)
+CSSStyleSheet (继承 StyleSheet)	ownerRule, cssRules (CSSRuleList), rules (遗留), defaultNamespace, namespaceURI, title, alternate, disabled	insertRule(rule, index), deleteRule(index), replace(text), replaceSync(text), addRule() (遗留), removeRule() (遗留)
+CSSRuleList	length	item(index), [index]
+CSSRule	cssText, parentRule, parentStyleSheet, type (常量)	(无)
+CSSStyleRule (继承 CSSRule)	selectorText, style (CSSStyleDeclaration), cssRules, name (CSSNestedDeclarations)	(无)
+CSSImportRule (继承 CSSRule)	href, media, styleSheet, layerName, supportsText	(无)
+CSSMediaRule (继承 CSSRule)	media, cssRules	insertRule(), deleteRule()
+CSSFontFaceRule (继承 CSSRule)	style	(无)
+CSSKeyframesRule (继承 CSSRule)	name, cssRules (CSSKeyframeRuleList)	appendRule(), deleteRule(), findRule()
+CSSKeyframeRule (继承 CSSRule)	keyText, style	(无)
+CSSNamespaceRule (继承 CSSRule)	namespaceURI, prefix	(无)
+CSSPageRule (继承 CSSRule)	selectorText, style	(无)
+CSSCounterStyleRule (继承 CSSRule)	name, system, symbols, additiveSymbols, negative, prefix, suffix, range, pad, fallback, speakAs	(无)
+CSSLayerBlockRule (继承 CSSRule)	name	(无)
+CSSLayerStatementRule (继承 CSSRule)	nameList	(无)
+CSSContainerRule (继承 CSSRule)	containerQuery, cssRules	insertRule(), deleteRule()
+CSSScopeRule (继承 CSSRule)	start, end, cssRules	insertRule(), deleteRule()
+CSSStartingStyleRule (继承 CSSRule)	cssRules	insertRule(), deleteRule()
+CSSNestedDeclarations (继承 CSSRule)	style	(无)
+7.2 样式声明
+表格
+接口	属性	方法
+CSSStyleDeclaration	cssText, length, parentRule, cssFloat	getPropertyValue(property), getPropertyPriority(property), setProperty(property, value, priority), removeProperty(property), item(index), [index], getPropertyCSSValue() (遗留)
+MediaList	mediaText, length	item(index), appendMedium(), deleteMedium()
+Screen	availWidth, availHeight, width, height, colorDepth, pixelDepth, availLeft, availTop, orientation (ScreenOrientation), isExtended	(无)
+ScreenOrientation	angle, type	lock(), unlock()
+7.3 计算样式与 Typed OM
+表格
+接口	属性	方法
+Window.getComputedStyle()	返回 CSSStyleDeclaration	(方法在 Window)
+CSSStyleValue (抽象)	(无)	parse(property, cssText), parseAll(property, cssText)
+StylePropertyMapReadOnly	size	get(property), getAll(property), has(property), entries(), keys(), values(), forEach()
+StylePropertyMap (继承 StylePropertyMapReadOnly)	(无)	set(property, values...), append(property, value), delete(property), clear()
+CSSUnitValue (继承 CSSStyleValue)	value, unit	(无)
+CSSKeywordValue (继承 CSSStyleValue)	value	(无)
+CSSMathValue (抽象，继承 CSSStyleValue)	operator	(无)
+CSSMathSum/CSSMathProduct/CSSMathNegate/CSSMathInvert/CSSMathMin/CSSMathMax/CSSMathClamp	(各数学运算特有属性)	(无)
+CSSNumericValue (继承 CSSStyleValue)	(无)	add(), sub(), mul(), div(), min(), max(), equals(), to(), toSum(), type()
+CSSTransformValue (继承 CSSStyleValue)	length, is2D	toMatrix(), entries(), keys(), values(), forEach(), [index]
+CSSTransformComponent (抽象)	is2D	toMatrix()
+CSSRotate/CSSScale/CSSSkew/CSSSkewX/CSSSkewY/CSSTranslate/CSSPerspective/CSSMatrixComponent	(各变换特有属性)	(无)
+CSSImageValue (继承 CSSStyleValue)	(无)	(无)
+CSSURLImageValue (继承 CSSImageValue)	url	(无)
+八、观察器 API (Observers)
+表格
+接口	属性	方法
+MutationObserver	(无)	observe(target, options), disconnect(), takeRecords()
+MutationObserverInit (字典)	childList, attributes, characterData, subtree, attributeOldValue, characterDataOldValue, attributeFilter	(无)
+IntersectionObserver	root, rootMargin, thresholds, takeRecords()	observe(target), unobserve(target), disconnect()
+IntersectionObserverInit (字典)	root, rootMargin, threshold	(无)
+ResizeObserver	(无)	observe(target, options), unobserve(target), disconnect()
+ResizeObserverEntry	target, contentRect, borderBoxSize, contentBoxSize, devicePixelContentBoxSize	(无)
+ResizeObserverSize	inlineSize, blockSize	(无)
+PerformanceObserver	(无)	observe(options), disconnect(), takeRecords(), supportedEntryTypes (静态)
+ReportingObserver	(无)	observe(), disconnect(), takeRecords()
+九、动画 API (Web Animations)
+表格
+接口	属性	方法
+AnimationTimeline	currentTime	(无)
+DocumentTimeline (继承 AnimationTimeline)	originTime	(无)
+Animation (继承 EventTarget)	id, effect (AnimationEffect), timeline, startTime, currentTime, playbackRate, playState, replaceState, pending, ready (Promise), finished (Promise), onfinish, oncancel, onremove, onfinish	play(), pause(), reverse(), cancel(), finish(), commitStyles(), updatePlaybackRate(), persist(), reverse()
+AnimationEffect (抽象)	timing (EffectTiming), computedTiming (ComputedEffectTiming)	updateTiming(), getComputedTiming()
+KeyframeEffect (继承 AnimationEffect)	target, pseudoElement, composite, iterationComposite	setKeyframes(), getKeyframes()
+EffectTiming / OptionalEffectTiming	delay, endDelay, fill, iterationStart, iterations, duration, direction, easing, rangeStart, rangeEnd, composite, iterationComposite	(无)
+ComputedEffectTiming (继承 EffectTiming)	activeDuration, endTime, localTime, progress, currentIteration, phase	(无)
+十、范围与选择补充
+表格
+接口	说明
+StaticRange	startContainer, startOffset, endContainer, endOffset, collapsed, toRange()
+CaretPosition	offsetNode, offset, getClientRect()
+十一、DOM 解析与序列化
+表格
+接口	方法
+DOMParser	parseFromString(string, mimeType) → Document
+XMLSerializer	serializeToString(node)
+HTMLParser (内部)	HTML5 解析算法接口
+十二、HTML 集合与专用列表
+表格
+接口	属性	方法
+FileList	length	item(index), [index]
+DataTransferItemList	length	add(data, type), remove(index), clear(), [index]
+TextTrackList	length, onchange, onaddtrack, onremovetrack	item(index), getTrackById(id), [index]
+TextTrackCueList	length	item(index), getCueById(id), [index]
+HTMLAllCollection	length	item(nameOrIndex), namedItem(name), [index], [name]
+HTMLFormControlsCollection	length	item(index), namedItem(name), [index], [name]
+HTMLOptionsCollection (继承 HTMLCollection)	length, selectedIndex	add(element, before), remove(index)
+十三、事件类型完整清单 (需支持的事件名)
+13.1 通用 DOM 事件
+abort, blur, cancel, canplay, canplaythrough, change, click, close, contextmenu, cuechange, dblclick, drag, dragend, dragenter, dragleave, dragover, dragstart, drop, durationchange, emptied, ended, error, focus, formdata, input, invalid, keydown, keypress, keyup, load, loadeddata, loadedmetadata, loadstart, mousedown, mouseenter, mouseleave, mousemove, mouseout, mouseover, mouseup, mousewheel, pause, play, playing, progress, ratechange, reset, resize, scroll, scrollend, securitypolicyviolation, seeked, seeking, select, slotchange, stalled, submit, suspend, timeupdate, toggle, volumechange, waiting, wheel
+13.2 文档/窗口生命周期
+DOMContentLoaded, readystatechange, beforeunload, unload, pagehide, pageshow, popstate, hashchange, freeze, resume, visibilitychange, online, offline, beforeprint, afterprint, beforexrselect
+13.3 剪贴板
+beforecopy, beforecut, beforepaste, copy, cut, paste
+13.4 动画
+animationstart, animationend, animationiteration, animationcancel, transitionstart, transitionend, transitionrun, transitioncancel
+13.5 指针/触摸/输入
+pointerdown, pointermove, pointerup, pointercancel, pointerover, pointerout, pointerenter, pointerleave, gotpointercapture, lostpointercapture, touchstart, touchend, touchmove, touchcancel, compositionstart, compositionupdate, compositionend, beforeinput
+13.6 全屏/指针锁定
+fullscreenchange, fullscreenerror, pointerlockchange, pointerlockerror
+13.7 表单/Popover
+formdata, beforetoggle, toggle
+13.8 消息/Worker
+message, messageerror, connect
+13.9 观察者回调
+MutationObserver 回调, IntersectionObserver 回调, ResizeObserver 回调, PerformanceObserver 回调, ReportingObserver 回调
+13.10 自定义事件
+通过 new CustomEvent() 分发的任意事件类型
+十四、遗留/已废弃但仍需兼容的接口
+表格
+接口	说明
+NodeIterator.detach()	空操作，但需存在
+Document.createCDATASection()	HTML 中抛出异常，XML 中有效
+Document.createProcessingInstruction()	HTML 中抛出异常
+HTMLAppletElement	Java Applet，已废弃
+HTMLBaseFontElement	已废弃
+HTMLDirectoryElement	已废弃
+HTMLFontElement	已废弃
+HTMLFrameElement / HTMLFrameSetElement	Frameset，已废弃
+HTMLMarqueeElement	非标准，但部分网站仍用
+HTMLMenuElement	上下文菜单，已废弃
+HTMLMenuItemElement	已废弃
+HTMLUnknownElement	用于未知标签的兜底
+HTMLShadowElement	Shadow DOM v0，已废弃
+HTMLContentElement	Shadow DOM v0，已废弃
+Document.registerElement()	Custom Elements v0，已废弃
+Document.all / HTMLAllCollection	遗留怪癖模式支持
+Document.layers / Document.tags	NN4 遗留
+Element.webkitRequestFullscreen()	带前缀版本
+Document.webkitCancelFullScreen() / Document.webkitIsFullScreen	带前缀版本
+Window.showModalDialog()	已废弃
+Event.srcElement / Event.returnValue / Event.cancelBubble	IE 遗留
+KeyboardEvent.keyCode / KeyboardEvent.charCode / KeyboardEvent.which	已废弃，需映射
+十五、DOM 异常类型
+表格
+异常名	说明
+IndexSizeError	索引越界
+HierarchyRequestError	节点层级非法
+WrongDocumentError	节点属于不同文档
+InvalidCharacterError	非法字符
+NoModificationAllowedError	只读对象
+NotFoundError	节点不存在
+NotSupportedError	不支持的操作
+InUseAttributeError	属性已被使用
+InvalidStateError	状态非法
+SyntaxError	解析错误
+InvalidModificationError	非法修改
+NamespaceError	命名空间错误
+InvalidAccessError	非法访问
+TypeMismatchError	类型不匹配
+SecurityError	安全策略阻止
+NetworkError	网络错误
+AbortError	操作中止
+URLMismatchError	URL 不匹配
+QuotaExceededError	超出配额
+TimeoutError	超时
+InvalidNodeTypeError	节点类型非法
+DataCloneError	结构化克隆失败
+NotAllowedError	用户或策略不允许
+
+
+以下是按 **Web IDL 风格** 组织的完整 DOM API 规范清单，包含每个接口的**继承链、属性类型、方法签名及功能描述**，覆盖 WHATWG DOM Living Standard、HTML Standard 及 CSSOM 规范。
+
+---
+
+# 一、核心 DOM 基础接口 (WHATWG DOM)
+
+## 1.1 EventTarget
+```idl
+[Exposed=*]
+interface EventTarget {
+    // 事件监听管理
+    undefined addEventListener(DOMString type, EventListener? callback, optional (AddEventListenerOptions or boolean) options = {});
+    undefined removeEventListener(DOMString type, EventListener? callback, optional (EventListenerOptions or boolean) options = {});
+    boolean dispatchEvent(Event event);
+};
+```
+| 成员 | 类型/签名 | 功能描述 |
+|------|----------|---------|
+| `addEventListener` | `undefined` | 在目标上注册指定类型的事件监听器。`options` 可配置 `capture`（捕获阶段）、`once`（只触发一次）、`passive`（不调用 `preventDefault()`）、`signal`（AbortSignal 取消监听） |
+| `removeEventListener` | `undefined` | 移除已注册的事件监听器。必须提供与注册时相同的 `type`、`callback` 和 `capture` 标志 |
+| `dispatchEvent` | `boolean` | 手动派发事件。返回 `false` 表示事件被取消了（`preventDefault()` 被调用）。事件按捕获→目标→冒泡顺序传播 |
+
+---
+
+## 1.2 Node
+```idl
+[Exposed=*]
+interface Node : EventTarget {
+    // 节点类型常量
+    const unsigned short ELEMENT_NODE = 1;
+    const unsigned short ATTRIBUTE_NODE = 2; // 遗留
+    const unsigned short TEXT_NODE = 3;
+    const unsigned short CDATA_SECTION_NODE = 4; // 遗留
+    const unsigned short ENTITY_REFERENCE_NODE = 5; // 遗留
+    const unsigned short ENTITY_NODE = 6; // 遗留
+    const unsigned short PROCESSING_INSTRUCTION_NODE = 7;
+    const unsigned short COMMENT_NODE = 8;
+    const unsigned short DOCUMENT_NODE = 9;
+    const unsigned short DOCUMENT_TYPE_NODE = 10;
+    const unsigned short DOCUMENT_FRAGMENT_NODE = 11;
+    const unsigned short NOTATION_NODE = 12; // 遗留
+
+    readonly attribute unsigned short nodeType;
+    readonly attribute DOMString nodeName;
+    readonly attribute USVString baseURI;
+    readonly attribute boolean isConnected;
+    readonly attribute Document? ownerDocument;
+    readonly attribute Node? parentNode;
+    readonly attribute Element? parentElement;
+    readonly attribute NodeList childNodes;
+    readonly attribute Node? firstChild;
+    readonly attribute Node? lastChild;
+    readonly attribute Node? previousSibling;
+    readonly attribute Node? nextSibling;
+    [CEReactions] attribute DOMString? nodeValue;
+    [CEReactions] attribute DOMString? textContent;
+
+    // 节点操作
+    Node cloneNode(optional boolean deep = false);
+    boolean hasChildNodes();
+    [CEReactions, NewObject] Node insertBefore(Node node, Node? child);
+    [CEReactions, NewObject] Node appendChild(Node node);
+    [CEReactions, NewObject] Node replaceChild(Node node, Node child);
+    [CEReactions, NewObject] Node removeChild(Node child);
+    [CEReactions] undefined normalize();
+    [CEReactions] undefined replaceChildren((Node or DOMString)... nodes);
+    [CEReactions] undefined prepend((Node or DOMString)... nodes);
+    [CEReactions] undefined append((Node or DOMString)... nodes);
+
+    // 查询与比较
+    boolean contains(Node? other);
+    unsigned short compareDocumentPosition(Node other);
+    boolean isEqualNode(Node? otherNode);
+    boolean isSameNode(Node? otherNode); // 遗留，与 === 等价
+
+    // 命名空间（XML）
+    DOMString? lookupPrefix(DOMString? namespace);
+    DOMString? lookupNamespaceURI(DOMString? prefix);
+    boolean isDefaultNamespace(DOMString? namespace);
+
+    // 根节点
+    Node getRootNode(optional GetRootNodeOptions options = {});
+};
+dictionary GetRootNodeOptions {
+    boolean composed = false;
+};
+```
+| 成员 | 类型 | 功能描述 |
+|------|------|---------|
+| `nodeType` | `unsigned short` (只读) | 返回节点类型常量（如 `ELEMENT_NODE = 1`） |
+| `nodeName` | `DOMString` (只读) | 元素返回大写标签名；Document 返回 `"#document"`；Text 返回 `"#text"` 等 |
+| `baseURI` | `USVString` (只读) | 节点的基础 URL，用于解析相对 URL。受 `<base>` 标签影响 |
+| `isConnected` | `boolean` (只读) | 节点是否连接到文档树（即是否在 `Document` 的 descendant 链中） |
+| `ownerDocument` | `Document?` (只读) | 节点所属的 `Document`。`Document` 自身和 `DocumentType` 的 `ownerDocument` 为 `null` |
+| `parentNode` | `Node?` (只读) | 父节点。根节点、已移除节点返回 `null` |
+| `parentElement` | `Element?` (只读) | 父元素节点。若父节点不是元素（如 `DocumentFragment`）返回 `null` |
+| `childNodes` | `NodeList` (只读) | 包含所有子节点的实时集合（live collection） |
+| `firstChild` / `lastChild` | `Node?` (只读) | 第一个/最后一个子节点 |
+| `previousSibling` / `nextSibling` | `Node?` (只读) | 前一个/后一个兄弟节点 |
+| `nodeValue` | `DOMString?` | 对 `Text`/`Comment`/`ProcessingInstruction` 可读写文本内容；对 `Element`/`Document` 等返回 `null` |
+| `textContent` | `DOMString?` | 获取/设置节点及其后代的文本内容。设置时会移除所有子节点并替换为单个 `Text` 节点 |
+| `cloneNode(deep)` | `Node` | 复制节点。`deep = true` 时深拷贝（含所有后代）；`false` 时仅复制节点自身。不复制事件监听器 |
+| `hasChildNodes()` | `boolean` | 是否有子节点 |
+| `insertBefore(node, child)` | `Node` | 在 `child` 之前插入 `node`。`child` 为 `null` 时等同于 `appendChild` |
+| `appendChild(node)` | `Node` | 将 `node` 追加到子节点列表末尾。若 `node` 已在树中，先移除再插入 |
+| `replaceChild(node, child)` | `Node` | 用 `node` 替换 `child`，返回被移除的 `child` |
+| `removeChild(child)` | `Node` | 从子节点列表移除 `child` |
+| `normalize()` | `undefined` | 合并相邻的 `Text` 节点，移除空的 `Text` 节点 |
+| `replaceChildren(...nodes)` | `undefined` | 移除所有现有子节点，插入新节点（可混用 `Node` 和 `DOMString`，字符串自动转为 `Text`） |
+| `prepend(...nodes)` / `append(...nodes)` | `undefined` | 在子节点列表开头/末尾插入 |
+| `contains(other)` | `boolean` | 判断 `other` 是否是当前节点的后代（含自身） |
+| `compareDocumentPosition(other)` | `unsigned short` | 返回两个节点在文档中的相对位置位掩码（`DOCUMENT_POSITION_DISCONNECTED`, `PRECEDING`, `FOLLOWING`, `CONTAINS`, `CONTAINED_BY`） |
+| `isEqualNode(other)` | `boolean` | 深度比较两个节点结构、类型、名称、属性、内容是否完全相同 |
+| `getRootNode({composed})` | `Node` | 返回根节点。`composed = true` 时穿透 Shadow DOM 边界返回 `Document` |
+
+---
+
+## 1.3 Document
+```idl
+[Exposed=Window]
+interface Document : Node {
+    // 文档元信息
+    readonly attribute DOMImplementation implementation;
+    readonly attribute USVString URL;
+    readonly attribute USVString documentURI;
+    readonly attribute DOMString compatMode; // "BackCompat" 或 "CSS1Compat"
+    readonly attribute DOMString characterSet;
+    readonly attribute DOMString charset; // 遗留别名
+    readonly attribute DOMString inputEncoding; // 遗留别名
+    readonly attribute DOMString contentType;
+
+    // 文档类型与根元素
+    readonly attribute DocumentType? doctype;
+    readonly attribute Element? documentElement;
+
+    // 元素创建
+    [CEReactions, NewObject] Element createElement(DOMString localName, optional (DOMString or ElementCreationOptions) options = {});
+    [CEReactions, NewObject] Element createElementNS(DOMString? namespace, DOMString qualifiedName, optional (DOMString or ElementCreationOptions) options = {});
+    [NewObject] DocumentFragment createDocumentFragment();
+    [NewObject] Text createTextNode(DOMString data);
+    [NewObject] CDATASection createCDATASection(DOMString data); // HTML 中抛异常
+    [NewObject] Comment createComment(DOMString data);
+    [NewObject] ProcessingInstruction createProcessingInstruction(DOMString target, DOMString data); // HTML 中抛异常
+
+    // 节点导入/收养
+    [CEReactions, NewObject] Node importNode(Node node, optional boolean deep = false);
+    [CEReactions] Node adoptNode(Node node);
+
+    // 事件创建（遗留）
+    [NewObject] Event createEvent(DOMString interface);
+
+    // 遍历与范围
+    [NewObject] Range createRange();
+    [NewObject] NodeIterator createNodeIterator(Node root, optional unsigned long whatToShow = 0xFFFFFFFF, optional NodeFilter? filter = null);
+    [NewObject] TreeWalker createTreeWalker(Node root, optional unsigned long whatToShow = 0xFFFFFFFF, optional NodeFilter? filter = null);
+
+    // 元素查询
+    Element? getElementById(DOMString elementId);
+    HTMLCollection getElementsByTagName(DOMString qualifiedName);
+    HTMLCollection getElementsByTagNameNS(DOMString? namespace, DOMString localName);
+    HTMLCollection getElementsByClassName(DOMString classNames);
+
+    // 文档写入（HTML 文档）
+    [CEReactions] Document open(optional DOMString type = "text/html", optional DOMString replace = "");
+    [CEReactions] undefined close();
+    [CEReactions] undefined write(DOMString... text);
+    [CEReactions] undefined writeln(DOMString... text);
+
+    // 焦点与选择
+    boolean hasFocus();
+    readonly attribute Element? activeElement;
+    readonly attribute DOMString readyState; // "loading", "interactive", "complete"
+    readonly attribute boolean hidden;
+    readonly attribute VisibilityState visibilityState;
+
+    // 全屏
+    readonly attribute boolean fullscreenEnabled;
+    [CEReactions] Promise<undefined> exitFullscreen();
+    readonly attribute Element? fullscreenElement;
+
+    // 指针锁定
+    readonly attribute Element? pointerLockElement;
+    undefined exitPointerLock();
+
+    // 滚动
+    Element? scrollingElement;
+
+    // 命中测试
+    Element? elementFromPoint(double x, double y);
+    sequence<Element> elementsFromPoint(double x, double y);
+    CaretPosition? caretPositionFromPoint(double x, double y);
+
+    // 选择
+    Selection? getSelection();
+
+    // 时间线
+    readonly attribute DocumentTimeline timeline;
+
+    // 字体
+    readonly attribute FontFaceSet fonts;
+
+    // 动画
+    sequence<Animation> getAnimations(optional GetAnimationsOptions options = {});
+
+    // 样式表
+    readonly attribute StyleSheetList styleSheets;
+    attribute CSSStyleSheet[] adoptedStyleSheets;
+
+    // 事件处理器IDL属性
+    attribute EventHandler onreadystatechange;
+    attribute EventHandler onvisibilitychange;
+    attribute EventHandler onfullscreenchange;
+    attribute EventHandler onfullscreenerror;
+    // ... 大量 HTML 扩展事件处理器见 HTMLDocument
+};
+```
+| 成员 | 类型 | 功能描述 |
+|------|------|---------|
+| `URL` / `documentURI` | `USVString` (只读) | 文档地址。`documentURI` 是 `URL` 的别名 |
+| `compatMode` | `DOMString` (只读) | `"CSS1Compat"`（标准模式）或 `"BackCompat"`（怪异模式） |
+| `characterSet` | `DOMString` (只读) | 文档字符编码（如 `"UTF-8"`） |
+| `createElement(localName, options)` | `Element` | 创建元素。`options` 可含 `is`（自定义元素类型）。`localName` 在 HTML 文档中会被小写化 |
+| `createElementNS(ns, qname, options)` | `Element` | 带命名空间创建元素（如 SVG、MathML） |
+| `importNode(node, deep)` | `Node` | 从其他文档复制节点到当前文档（不修改原节点所属文档） |
+| `adoptNode(node)` | `Node` | 将节点移动到当前文档（修改 `ownerDocument`，不复制） |
+| `getElementById(id)` | `Element?` | 返回首个 `id` 属性匹配的元素。HTML 中 `id` 和 `name` 都可能被匹配（遗留怪癖） |
+| `getElementsByTagName(qname)` | `HTMLCollection` | 返回标签名匹配的元素实时集合。`*` 匹配所有 |
+| `getElementsByClassName(names)` | `HTMLCollection` | 返回 `class` 属性包含所有指定类的元素（类名顺序无关） |
+| `open()` / `close()` / `write()` / `writeln()` | — | 动态写入 HTML 内容。`open()` 会清空文档；`write()` 在解析阶段追加，在解析完成后调用会先隐式 `open()` |
+| `hasFocus()` | `boolean` | 文档或文档内某元素是否拥有焦点 |
+| `activeElement` | `Element?` (只读) | 当前获得焦点的元素。无焦点时返回 `<body>` 或 `<html>` |
+| `readyState` | `DOMString` (只读) | 文档加载状态：`"loading"`（解析中）、`"interactive"`（DOM 就绪）、`"complete"`（资源加载完成） |
+| `hidden` | `boolean` (只读) | 页面是否隐藏（标签页切换、最小化） |
+| `visibilityState` | `VisibilityState` (只读) | `"hidden"`, `"visible"`, `"prerender"` |
+| `fullscreenEnabled` | `boolean` (只读) | 文档是否允许全屏 |
+| `exitFullscreen()` | `Promise<undefined>` | 退出全屏 |
+| `fullscreenElement` | `Element?` (只读) | 当前全屏元素 |
+| `elementFromPoint(x, y)` | `Element?` | 返回视口坐标 `(x, y)` 处的最上层元素 |
+| `elementsFromPoint(x, y)` | `sequence<Element>` | 返回该坐标处所有元素，按 z-index/层叠顺序排列 |
+| `caretPositionFromPoint(x, y)` | `CaretPosition?` | 返回该坐标处的插入点位置（文本节点 + 偏移） |
+| `getSelection()` | `Selection?` | 返回文档的 `Selection` 对象 |
+| `timeline` | `DocumentTimeline` (只读) | Web Animations 的时间线，以文档导航时间为原点 |
+| `fonts` | `FontFaceSet` (只读) | 文档的字体加载管理器 |
+| `getAnimations({subtree})` | `Animation[]` | 返回文档中所有动画。`subtree = true` 包含 Shadow DOM 内的动画 |
+| `styleSheets` | `StyleSheetList` (只读) | 文档中所有样式表（`<style>` 和 `<link rel="stylesheet">`） |
+| `adoptedStyleSheets` | `CSSStyleSheet[]` | 可构造样式表数组，用于 Shadow DOM 和文档共享样式 |
+
+---
+
+## 1.4 DocumentFragment
+```idl
+[Exposed=*]
+interface DocumentFragment : Node {
+    // 元素查询
+    Element? getElementById(DOMString elementId);
+    [CEReactions] undefined prepend((Node or DOMString)... nodes);
+    [CEReactions] undefined append((Node or DOMString)... nodes);
+    [CEReactions] undefined replaceChildren((Node or DOMString)... nodes);
+
+    // 选择器
+    Element? querySelector(DOMString selectors);
+    [NewObject] NodeList querySelectorAll(DOMString selectors);
+};
+```
+| 成员 | 类型 | 功能描述 |
+|------|------|---------|
+| `getElementById` | `Element?` | 在片段内按 `id` 查找元素（仅 HTML 文档片段有效） |
+| `querySelector` / `querySelectorAll` | — | 在片段范围内执行 CSS 选择器查询 |
+
+---
+
+## 1.5 ShadowRoot
+```idl
+[Exposed=*]
+interface ShadowRoot : DocumentFragment {
+    readonly attribute ShadowRootMode mode;
+    readonly attribute boolean delegatesFocus;
+    readonly attribute SlotAssignmentMode slotAssignment;
+    readonly attribute Element host;
+    readonly attribute boolean clonable;
+    readonly attribute boolean serializable;
+
+    // 事件
+    attribute EventHandler onslotchange;
+
+    // 焦点
+    readonly attribute Element? activeElement;
+
+    // 样式
+    readonly attribute StyleSheetList styleSheets;
+    attribute CSSStyleSheet[] adoptedStyleSheets;
+
+    // HTML 序列化
+    DOMString getHTML(optional GetHTMLOptions options = {});
+    [CEReactions] undefined setHTMLUnsafe(DOMString html);
+    [CEReactions] undefined setHTML(DOMString html, optional SetHTMLOptions options = {});
+    DOMString getHTMLUnsafe();
+};
+enum ShadowRootMode { "open", "closed" };
+enum SlotAssignmentMode { "named", "manual" };
+```
+| 成员 | 类型 | 功能描述 |
+|------|------|---------|
+| `mode` | `ShadowRootMode` (只读) | `"open"` 时外部可通过 `host.shadowRoot` 访问；`"closed"` 时不可 |
+| `delegatesFocus` | `boolean` (只读) | 是否将焦点委托给 ShadowRoot 内首个可聚焦元素 |
+| `slotAssignment` | `SlotAssignmentMode` (只读) | `"named"`（自动按 `slot` 属性分配）或 `"manual"`（通过 `HTMLSlotElement.assign()` 手动分配） |
+| `host` | `Element` (只读) | 承载该 ShadowRoot 的元素 |
+| `clonable` | `boolean` (只读) | 克隆 host 时是否同时克隆 ShadowRoot |
+| `serializable` | `boolean` (只读) | `getHTML()` 时是否序列化 ShadowRoot 内容 |
+| `onslotchange` | `EventHandler` | `<slot>` 元素分配节点变化时触发 |
+| `activeElement` | `Element?` (只读) | ShadowRoot 内当前获得焦点的元素 |
+| `styleSheets` | `StyleSheetList` (只读) | ShadowRoot 内样式表 |
+| `adoptedStyleSheets` | `CSSStyleSheet[]` | 可构造样式表，与 Document 共享样式表对象 |
+| `getHTML({serializableShadowRoots, shadowRoots})` | `DOMString` | 序列化 ShadowRoot 内容。`serializableShadowRoots` 控制是否包含可序列化的 ShadowRoot |
+| `setHTMLUnsafe(html)` | `undefined` | 解析 HTML 字符串并设置为 ShadowRoot 内容（不经过 XSS 过滤） |
+| `setHTML(html, {sanitizer})` | `undefined` | 安全地解析 HTML，可通过 Sanitizer API 过滤 |
+
+---
+
+## 1.6 Element
+```idl
+[Exposed=*]
+interface Element : Node {
+    // 命名空间与标识
+    readonly attribute DOMString? namespaceURI;
+    readonly attribute DOMString? prefix;
+    readonly attribute DOMString localName;
+    readonly attribute DOMString tagName;
+
+    // ID 与类
+    [CEReactions, Reflect] attribute DOMString id;
+    [CEReactions, Reflect="class"] attribute DOMString className;
+    [SameObject, PutForwards=value] readonly attribute DOMTokenList classList;
+    [CEReactions] attribute DOMString slot;
+    [SameObject, PutForwards=value] readonly attribute DOMTokenList part;
+
+    // 属性
+    [SameObject] readonly attribute NamedNodeMap attributes;
+    sequence<DOMString> getAttributeNames();
+
+    // 属性读写
+    DOMString? getAttribute(DOMString qualifiedName);
+    DOMString? getAttributeNS(DOMString? namespace, DOMString localName);
+    [CEReactions] undefined setAttribute(DOMString qualifiedName, DOMString value);
+    [CEReactions] undefined setAttributeNS(DOMString? namespace, DOMString qualifiedName, DOMString value);
+    [CEReactions] undefined removeAttribute(DOMString qualifiedName);
+    [CEReactions] undefined removeAttributeNS(DOMString? namespace, DOMString localName);
+    boolean hasAttribute(DOMString qualifiedName);
+    boolean hasAttributeNS(DOMString? namespace, DOMString localName);
+
+    // 属性节点（遗留 Attr 接口）
+    Attr? getAttributeNode(DOMString qualifiedName);
+    Attr? getAttributeNodeNS(DOMString? namespace, DOMString localName);
+    [CEReactions] Attr? setAttributeNode(Attr attr);
+    [CEReactions] Attr? setAttributeNodeNS(Attr attr);
+    [CEReactions] Attr removeAttributeNode(Attr attr);
+
+    // Shadow DOM
+    [CEReactions] ShadowRoot attachShadow(optional ShadowRootInit init = {});
+    readonly attribute ShadowRoot? shadowRoot;
+    readonly attribute HTMLSlotElement? assignedSlot;
+
+    // 选择器
+    Element? closest(DOMString selectors);
+    boolean matches(DOMString selectors);
+    boolean webkitMatchesSelector(DOMString selectors); // 遗留
+
+    // 子元素查询
+    HTMLCollection getElementsByTagName(DOMString qualifiedName);
+    HTMLCollection getElementsByTagNameNS(DOMString? namespace, DOMString localName);
+    HTMLCollection getElementsByClassName(DOMString classNames);
+
+    // 插入Adjacent
+    [CEReactions, Unscopable] Element? insertAdjacentElement(DOMString where, Element element);
+    [CEReactions, Unscopable] undefined insertAdjacentText(DOMString where, DOMString data);
+    [CEReactions, Unscopable] undefined insertAdjacentHTML(DOMString where, DOMString html);
+
+    // 选择器查询
+    Element? querySelector(DOMString selectors);
+    [NewObject] NodeList querySelectorAll(DOMString selectors);
+
+    // 滚动
+    [CEReactions] undefined scroll(optional ScrollToOptions options = {});
+    [CEReactions] undefined scroll(double x, double y);
+    [CEReactions] undefined scrollTo(optional ScrollToOptions options = {});
+    [CEReactions] undefined scrollTo(double x, double y);
+    [CEReactions] undefined scrollBy(optional ScrollToOptions options = {});
+    [CEReactions] undefined scrollBy(double x, double y);
+    [CEReactions] undefined scrollIntoView(optional (boolean or ScrollIntoViewOptions) arg = {});
+    undefined scrollIntoViewIfNeeded(optional boolean centerIfNeeded = false); // WebKit 遗留
+
+    // 几何
+    DOMRect getBoundingClientRect();
+    DOMRectList getClientRects();
+
+    // 焦点
+    [CEReactions] undefined focus(optional FocusOptions options = {});
+    [CEReactions] undefined blur();
+
+    // 点击
+    [CEReactions] undefined click();
+
+    // 全屏
+    [CEReactions] Promise<undefined> requestFullscreen(optional FullscreenOptions options = {});
+
+    // 指针捕获
+    undefined setPointerCapture(long pointerId);
+    undefined releasePointerCapture(long pointerId);
+    boolean hasPointerCapture(long pointerId);
+
+    // 指针锁定
+    undefined requestPointerLock();
+
+    // 动画
+    [NewObject] Animation animate(object? keyframes, optional (unrestricted double or KeyframeAnimationOptions) options = {});
+    sequence<Animation> getAnimations(optional GetAnimationsOptions options = {});
+
+    // 可见性
+    boolean checkVisibility(optional CheckVisibilityOptions options = {});
+
+    // 样式
+    [SameObject] readonly attribute CSSStyleDeclaration style;
+    [NewObject] CSSStyleDeclaration getAttributeStyleMap(); // Typed OM
+
+    // HTML 序列化
+    [CEReactions] attribute DOMString innerHTML;
+    [CEReactions] attribute DOMString outerHTML;
+    [CEReactions] attribute DOMString outerText; // 非标准
+    [CEReactions] attribute DOMString innerText;
+
+    // 子节点操作（ChildNode mixin）
+    [CEReactions, Unscopable] undefined before((Node or DOMString)... nodes);
+    [CEReactions, Unscopable] undefined after((Node or DOMString)... nodes);
+    [CEReactions, Unscopable] undefined replaceWith((Node or DOMString)... nodes);
+    [CEReactions, Unscopable] undefined remove();
+
+    // 子节点操作（ParentNode mixin）
+    [CEReactions] undefined prepend((Node or DOMString)... nodes);
+    [CEReactions] undefined append((Node or DOMString)... nodes);
+    [CEReactions] undefined replaceChildren((Node or DOMString)... nodes);
+    readonly attribute Element? firstElementChild;
+    readonly attribute Element? lastElementChild;
+    readonly attribute unsigned long childElementCount;
+    [SameObject] readonly attribute HTMLCollection children;
+
+    // 事件处理器
+    attribute EventHandler onbeforecopy;
+    attribute EventHandler onbeforecut;
+    attribute EventHandler onbeforepaste;
+    attribute EventHandler oncopy;
+    attribute EventHandler oncut;
+    attribute EventHandler onpaste;
+    attribute EventHandler onsearch;
+    attribute EventHandler onselectstart;
+    attribute EventHandler onwebkitfullscreenchange;
+    attribute EventHandler onwebkitfullscreenerror;
+    attribute EventHandler onbeforexrselect;
+    attribute EventHandler onbeforetoggle;
+};
+dictionary ShadowRootInit {
+    required ShadowRootMode mode;
+    boolean delegatesFocus = false;
+    SlotAssignmentMode slotAssignment = "named";
+    boolean clonable = false;
+    boolean serializable = false;
+};
+dictionary FocusOptions {
+    boolean preventScroll = false;
+    boolean focusVisible;
+};
+dictionary ScrollIntoViewOptions {
+    ScrollLogicalPosition block = "start";
+    ScrollLogicalPosition inline = "nearest";
+    ScrollBehavior behavior = "auto";
+};
+dictionary CheckVisibilityOptions {
+    boolean checkOpacity = false;
+    boolean checkVisibilityCSS = false;
+    boolean contentVisibilityAuto = false;
+};
+```
+| 成员 | 类型 | 功能描述 |
+|------|------|---------|
+| `namespaceURI` | `DOMString?` (只读) | 元素命名空间 URI。HTML 元素为 `"http://www.w3.org/1999/xhtml"`，SVG 为 `"http://www.w3.org/2000/svg"` |
+| `localName` | `DOMString` (只读) | 本地标签名（不含前缀）。HTML 文档中始终小写 |
+| `tagName` | `DOMString` (只读) | 完整标签名。HTML 文档中始终大写（如 `"DIV"`） |
+| `id` | `DOMString` | 元素标识符，映射 `id` 属性 |
+| `className` | `DOMString` | 映射 `class` 属性（空格分隔的类名字符串） |
+| `classList` | `DOMTokenList` (只读) | `class` 属性的令牌化视图，支持便捷增删查 |
+| `slot` | `DOMString` | 元素要分配到的 `<slot>` 的 `name` |
+| `part` | `DOMTokenList` (只读) | CSS `::part()` 选择器使用的部件名称 |
+| `attributes` | `NamedNodeMap` (只读) | 元素所有属性的实时映射（遗留接口，底层是 `Attr` 节点） |
+| `getAttributeNames()` | `DOMString[]` | 返回所有属性名的数组（按文档顺序） |
+| `getAttribute(qname)` | `DOMString?` | 获取属性值。HTML 中 `qname` 大小写不敏感 |
+| `getAttributeNS(ns, lname)` | `DOMString?` | 获取命名空间属性值 |
+| `setAttribute(qname, value)` | `undefined` | 设置属性。若属性不存在则创建；存在则替换 |
+| `setAttributeNS(ns, qname, value)` | `undefined` | 设置命名空间属性 |
+| `removeAttribute(qname)` | `undefined` | 移除属性 |
+| `hasAttribute(qname)` | `boolean` | 判断属性是否存在 |
+| `attachShadow(init)` | `ShadowRoot` | 附加 ShadowRoot。`mode` 必填；`delegatesFocus` 控制焦点委托 |
+| `shadowRoot` | `ShadowRoot?` (只读) | 访问已附加的 ShadowRoot。`closed` 模式下外部返回 `null` |
+| `closest(selectors)` | `Element?` | 沿祖先链向上查找首个匹配 CSS 选择器的元素，含自身 |
+| `matches(selectors)` | `boolean` | 元素自身是否匹配选择器 |
+| `insertAdjacentElement(where, element)` | `Element?` | 在相对位置插入元素。`where`: `"beforebegin"`, `"afterbegin"`, `"beforeend"`, `"afterend"` |
+| `insertAdjacentText(where, data)` | `undefined` | 在相对位置插入文本节点 |
+| `insertAdjacentHTML(where, html)` | `undefined` | 在相对位置解析并插入 HTML |
+| `querySelector` / `querySelectorAll` | — | 在元素后代范围内执行选择器查询 |
+| `scroll(options)` / `scrollTo` | `undefined` | 滚动元素到指定位置。`options`: `{top, left, behavior: "smooth"/"auto"}` |
+| `scrollBy(options)` | `undefined` | 相对当前位置滚动 |
+| `scrollIntoView(alignToTop/options)` | `undefined` | 滚动元素到视口可见。可配置 `block`（垂直对齐）和 `inline`（水平对齐） |
+| `getBoundingClientRect()` | `DOMRect` | 返回元素边框盒相对于视口的位置和尺寸（含 `x`, `y`, `width`, `height`, `top`, `right`, `bottom`, `left`） |
+| `getClientRects()` | `DOMRectList` | 返回元素所有矩形框（用于多行内联元素） |
+| `focus({preventScroll, focusVisible})` | `undefined` | 使元素获得焦点。`preventScroll` 阻止滚动到元素；`focusVisible` 强制显示焦点环 |
+| `blur()` | `undefined` | 移除元素焦点 |
+| `click()` | `undefined` | 模拟鼠标点击（触发 `click` 事件和默认行为） |
+| `requestFullscreen(options)` | `Promise<undefined>` | 请求元素全屏显示 |
+| `setPointerCapture(pointerId)` | `undefined` | 将指定指针事件捕获到该元素（鼠标/触摸/手写笔） |
+| `releasePointerCapture(pointerId)` | `undefined` | 释放指针捕获 |
+| `hasPointerCapture(pointerId)` | `boolean` | 元素是否捕获了指定指针 |
+| `requestPointerLock()` | `undefined` | 请求指针锁定（隐藏光标，所有鼠标事件定向到该元素） |
+| `animate(keyframes, options)` | `Animation` | 创建并播放关键帧动画。`keyframes` 为关键帧对象数组；`options` 含 `duration`, `delay`, `iterations`, `direction`, `easing`, `fill` |
+| `getAnimations({subtree})` | `Animation[]` | 获取元素及其后代的所有动画（含 CSS 动画/过渡和 Web Animations） |
+| `checkVisibility({checkOpacity, checkVisibilityCSS})` | `boolean` | 检查元素是否可见。`checkOpacity = true` 时检查 `opacity: 0`；`checkVisibilityCSS = true` 时检查 `visibility: hidden` |
+| `style` | `CSSStyleDeclaration` (只读) | 元素内联样式（`style` 属性）的可编程接口 |
+| `innerHTML` | `DOMString` | 获取/设置元素后代的 HTML 序列化字符串。设置时会解析 HTML 并替换所有子节点 |
+| `outerHTML` | `DOMString` | 获取/设置元素自身及其后代的 HTML。设置时会替换元素自身 |
+| `innerText` | `DOMString` | 获取/设置渲染后的文本内容（会考虑 CSS `display: none` 和 `<br>` 换行）。设置时解析文本并创建节点 |
+| `before(...nodes)` / `after(...nodes)` | `undefined` | 在元素前/后插入节点（同级） |
+| `replaceWith(...nodes)` | `undefined` | 用新节点替换元素自身 |
+| `remove()` | `undefined` | 从父节点移除元素 |
+| `prepend(...nodes)` / `append(...nodes)` | `undefined` | 在子节点列表开头/末尾插入 |
+| `replaceChildren(...nodes)` | `undefined` | 替换所有子节点 |
+| `children` | `HTMLCollection` (只读) | 仅含元素子节点的实时集合 |
+| `firstElementChild` / `lastElementChild` | `Element?` (只读) | 首个/最后一个元素子节点 |
+| `childElementCount` | `unsigned long` (只读) | 元素子节点数量 |
+
+---
+
+## 1.7 CharacterData 及其子类
+```idl
+[Exposed=*]
+interface CharacterData : Node {
+    [CEReactions] attribute DOMString data;
+    readonly attribute unsigned long length;
+    DOMString substringData(unsigned long offset, unsigned long count);
+    [CEReactions] undefined appendData(DOMString data);
+    [CEReactions] undefined insertData(unsigned long offset, DOMString data);
+    [CEReactions] undefined deleteData(unsigned long offset, unsigned long count);
+    [CEReactions] undefined replaceData(unsigned long offset, unsigned long count, DOMString data);
+
+    // ChildNode mixin
+    [CEReactions, Unscopable] undefined before((Node or DOMString)... nodes);
+    [CEReactions, Unscopable] undefined after((Node or DOMString)... nodes);
+    [CEReactions, Unscopable] undefined replaceWith((Node or DOMString)... nodes);
+    [CEReactions, Unscopable] undefined remove();
+};
+
+[Exposed=*]
+interface Text : CharacterData {
+    [NewObject] Text splitText(unsigned long offset);
+    readonly attribute DOMString wholeText;
+    readonly attribute HTMLSlotElement? assignedSlot;
+};
+
+[Exposed=*]
+interface CDATASection : Text { };
+
+[Exposed=*]
+interface ProcessingInstruction : CharacterData {
+    readonly attribute DOMString target;
+    readonly attribute CSSStyleSheet? sheet;
+};
+
+[Exposed=*]
+interface Comment : CharacterData { };
+```
+| 成员 | 类型 | 功能描述 |
+|------|------|---------|
+| `data` | `DOMString` | 字符数据内容。对 `Text` 即文本内容；对 `Comment` 即注释内容 |
+| `length` | `unsigned long` (只读) | 字符数据长度（UTF-16 码元数） |
+| `substringData(offset, count)` | `DOMString` | 提取子字符串 |
+| `appendData(data)` | `undefined` | 在末尾追加数据 |
+| `insertData(offset, data)` | `undefined` | 在指定偏移插入数据 |
+| `deleteData(offset, count)` | `undefined` | 删除指定范围的字符 |
+| `replaceData(offset, count, data)` | `undefined` | 替换指定范围的字符 |
+| `splitText(offset)` | `Text` | 在偏移处将文本节点拆分为两个。返回新创建的兄弟 `Text` 节点 |
+| `wholeText` | `DOMString` (只读) | 返回该文本节点及所有相邻文本节点的拼接文本 |
+| `assignedSlot` | `HTMLSlotElement?` (只读) | 该文本节点被分配到的 `<slot>` 元素 |
+| `target` | `DOMString` (只读) | 处理指令的目标（如 `xml`） |
+| `sheet` | `CSSStyleSheet?` (只读) | 若处理指令是 `<?xml-stylesheet?>`，返回关联的样式表 |
+
+---
+
+## 1.8 DocumentType
+```idl
+[Exposed=*]
+interface DocumentType : Node {
+    readonly attribute DOMString name;
+    readonly attribute DOMString publicId;
+    readonly attribute DOMString systemId;
+
+    // ChildNode mixin
+    [CEReactions, Unscopable] undefined before((Node or DOMString)... nodes);
+    [CEReactions, Unscopable] undefined after((Node or DOMString)... nodes);
+    [CEReactions, Unscopable] undefined replaceWith((Node or DOMString)... nodes);
+    [CEReactions, Unscopable] undefined remove();
+};
+```
+| 成员 | 类型 | 功能描述 |
+|------|------|---------|
+| `name` | `DOMString` (只读) | 文档类型名称（如 `"html"`） |
+| `publicId` | `DOMString` (只读) | 外部 DTD 的公共标识符（HTML5 中为空字符串） |
+| `systemId` | `DOMString` (只读) | 外部 DTD 的系统标识符（HTML5 中为空字符串） |
+
+---
+
+## 1.9 属性与集合接口
+```idl
+[Exposed=*]
+interface NamedNodeMap {
+    readonly attribute unsigned long length;
+    getter Attr? item(unsigned long index);
+    getter Attr? getNamedItem(DOMString qualifiedName);
+    getter Attr? getNamedItemNS(DOMString? namespace, DOMString localName);
+    [CEReactions] Attr? setNamedItem(Attr attr);
+    [CEReactions] Attr? setNamedItemNS(Attr attr);
+    [CEReactions] Attr removeNamedItem(DOMString qualifiedName);
+    [CEReactions] Attr removeNamedItemNS(DOMString? namespace, DOMString localName);
+};
+
+[Exposed=*]
+interface Attr : Node {
+    readonly attribute DOMString? namespaceURI;
+    readonly attribute DOMString? prefix;
+    readonly attribute DOMString localName;
+    readonly attribute DOMString name;
+    [CEReactions] attribute DOMString value;
+    readonly attribute Element? ownerElement;
+    readonly attribute boolean specified; // 遗留，始终 true
+};
+
+[Exposed=*]
+interface NodeList {
+    getter Node? item(unsigned long index);
+    readonly attribute unsigned long length;
+    iterable<Node>;
+};
+
+[Exposed=Window]
+interface HTMLCollection {
+    readonly attribute unsigned long length;
+    getter Element? item(unsigned long index);
+    getter Element? namedItem(DOMString name);
+};
+
+[Exposed=*]
+interface DOMTokenList {
+    [CEReactions] attribute DOMString value;
+    readonly attribute unsigned long length;
+    getter DOMString? item(unsigned long index);
+    boolean contains(DOMString token);
+    [CEReactions] undefined add(DOMString... tokens);
+    [CEReactions] undefined remove(DOMString... tokens);
+    [CEReactions] boolean toggle(DOMString token, optional boolean force);
+    [CEReactions] boolean replace(DOMString oldToken, DOMString newToken);
+    boolean supports(DOMString token);
+    iterable<DOMString>;
+};
+```
+| 接口 | 成员 | 类型 | 功能描述 |
+|------|------|------|---------|
+| `NamedNodeMap` | `length` | `unsigned long` (只读) | 属性数量 |
+| | `item(index)` | `Attr?` | 按索引获取属性节点 |
+| | `getNamedItem(qname)` | `Attr?` | 按名称获取属性节点 |
+| | `setNamedItem(attr)` | `Attr?` | 设置属性节点。返回被替换的旧节点 |
+| | `removeNamedItem(qname)` | `Attr` | 移除并返回属性节点 |
+| `Attr` | `namespaceURI` | `DOMString?` (只读) | 属性命名空间 |
+| | `localName` | `DOMString` (只读) | 属性本地名 |
+| | `name` | `DOMString` (只读) | 属性完整名 |
+| | `value` | `DOMString` | 属性值 |
+| | `ownerElement` | `Element?` (只读) | 属性所属元素 |
+| `NodeList` | `item(index)` | `Node?` | 按索引获取节点。越界返回 `null` |
+| | `length` | `unsigned long` (只读) | 节点数量 |
+| `HTMLCollection` | `item(index)` | `Element?` | 按索引获取元素 |
+| | `namedItem(name)` | `Element?` | 按 `id` 或 `name` 属性获取元素 |
+| `DOMTokenList` | `value` | `DOMString` | 完整的令牌字符串（空格分隔） |
+| | `length` | `unsigned long` (只读) | 令牌数量 |
+| | `item(index)` | `DOMString?` | 按索引获取令牌 |
+| | `contains(token)` | `boolean` | 是否包含指定令牌 |
+| | `add(tokens...)` | `undefined` | 添加一个或多个令牌（已存在则忽略） |
+| | `remove(tokens...)` | `undefined` | 移除一个或多个令牌 |
+| | `toggle(token, force)` | `boolean` | 切换令牌存在状态。`force = true` 强制添加；`false` 强制移除 |
+| | `replace(old, new)` | `boolean` | 替换令牌。成功返回 `true` |
+| | `supports(token)` | `boolean` | 检查浏览器是否支持该令牌（主要用于 `<link rel>` 的 `relList`） |
+
+---
+
+# 二、DOM 遍历与范围
+
+## 2.1 NodeIterator & TreeWalker
+```idl
+[Exposed=*]
+interface NodeIterator {
+    readonly attribute Node root;
+    readonly attribute Node referenceNode;
+    readonly attribute boolean pointerBeforeReferenceNode;
+    readonly attribute unsigned long whatToShow;
+    readonly attribute NodeFilter? filter;
+    Node? nextNode();
+    Node? previousNode();
+    undefined detach(); // 遗留，空操作
+};
+
+[Exposed=*]
+interface TreeWalker {
+    readonly attribute Node root;
+    readonly attribute unsigned long whatToShow;
+    readonly attribute NodeFilter? filter;
+    attribute Node currentNode;
+    Node? parentNode();
+    Node? firstChild();
+    Node? lastChild();
+    Node? previousSibling();
+    Node? nextSibling();
+    Node? previousNode();
+    Node? nextNode();
+};
+
+[Exposed=*]
+interface NodeFilter {
+    // 常量
+    const unsigned short FILTER_ACCEPT = 1;
+    const unsigned short FILTER_REJECT = 2;
+    const unsigned short FILTER_SKIP = 3;
+    const unsigned long SHOW_ALL = 0xFFFFFFFF;
+    const unsigned long SHOW_ELEMENT = 0x1;
+    const unsigned long SHOW_ATTRIBUTE = 0x2;
+    const unsigned long SHOW_TEXT = 0x4;
+    // ... 更多 SHOW_* 常量
+
+    unsigned short acceptNode(Node node);
+};
+```
+| 接口 | 成员 | 类型 | 功能描述 |
+|------|------|------|---------|
+| `NodeIterator` | `root` | `Node` (只读) | 迭代器的根节点 |
+| | `referenceNode` | `Node` (只读) | 当前引用节点 |
+| | `pointerBeforeReferenceNode` | `boolean` (只读) | 指针是否在引用节点之前 |
+| | `whatToShow` | `unsigned long` (只读) | 位掩码，过滤显示的节点类型 |
+| | `filter` | `NodeFilter?` (只读) | 自定义过滤函数 |
+| | `nextNode()` | `Node?` | 向后移动到下一个符合过滤条件的节点 |
+| | `previousNode()` | `Node?` | 向前移动到上一个符合过滤条件的节点 |
+| | `detach()` | `undefined` | 遗留方法，现代浏览器中空操作 |
+| `TreeWalker` | `currentNode` | `Node` | 当前节点（可读写） |
+| | `parentNode()` | `Node?` | 移动到父节点 |
+| | `firstChild()` | `Node?` | 移动到首个子节点 |
+| | `lastChild()` | `Node?` | 移动到末个子节点 |
+| | `previousSibling()` | `Node?` | 移动到前一个兄弟节点 |
+| | `nextSibling()` | `Node?` | 移动到后一个兄弟节点 |
+| | `previousNode()` | `Node?` | 按文档顺序向前移动 |
+| | `nextNode()` | `Node?` | 按文档顺序向后移动 |
+| `NodeFilter` | `acceptNode(node)` | `unsigned short` | 回调函数。返回 `FILTER_ACCEPT`（通过）、`FILTER_REJECT`（拒绝并跳过子树）、`FILTER_SKIP`（跳过但遍历子树） |
+
+---
+
+## 2.2 Range
+```idl
+[Exposed=*]
+interface Range : AbstractRange {
+    readonly attribute Node commonAncestorContainer;
+
+    undefined setStart(Node node, unsigned long offset);
+    undefined setEnd(Node node, unsigned long offset);
+    undefined setStartBefore(Node node);
+    undefined setStartAfter(Node node);
+    undefined setEndBefore(Node node);
+    undefined setEndAfter(Node node);
+    [CEReactions] undefined collapse(optional boolean toStart = false);
+    [CEReactions] undefined selectNode(Node node);
+    [CEReactions] undefined selectNodeContents(Node node);
+
+    [CEReactions, NewObject] DocumentFragment extractContents();
+    [CEReactions, NewObject] DocumentFragment cloneContents();
+    [CEReactions] undefined insertNode(Node node);
+    [CEReactions] undefined surroundContents(Node newParent);
+
+    [CEReactions] undefined deleteContents();
+
+    unsigned short compareBoundaryPoints(unsigned short how, Range sourceRange);
+    [CEReactions, NewObject] Range cloneRange();
+    undefined detach(); // 遗留
+
+    boolean isPointInRange(Node node, unsigned long offset);
+    short comparePoint(Node node, unsigned long offset);
+    boolean intersectsNode(Node node);
+
+    DOMRectList getClientRects();
+    DOMRect getBoundingClientRect();
+
+    [CEReactions, NewObject] DocumentFragment createContextualFragment(DOMString fragment);
+    [CEReactions] undefined deleteContents();
+
+    stringifier;
+};
+
+[Exposed=*]
+interface AbstractRange {
+    readonly attribute Node startContainer;
+    readonly attribute unsigned long startOffset;
+    readonly attribute Node endContainer;
+    readonly attribute unsigned long endOffset;
+    readonly attribute boolean collapsed;
+};
+```
+| 成员 | 类型 | 功能描述 |
+|------|------|---------|
+| `startContainer` / `endContainer` | `Node` (只读) | 范围起点/终点所在的节点 |
+| `startOffset` / `endOffset` | `unsigned long` (只读) | 起点/终点在容器中的偏移。对 `Text` 节点为字符偏移；对 `Element` 为子节点索引 |
+| `collapsed` | `boolean` (只读) | 起点和终点是否重合（空范围） |
+| `commonAncestorContainer` | `Node` (只读) | 包含起点和终点的最深公共祖先节点 |
+| `setStart(node, offset)` | `undefined` | 设置范围起点 |
+| `setEnd(node, offset)` | `undefined` | 设置范围终点 |
+| `setStartBefore(node)` | `undefined` | 将起点设在 `node` 之前 |
+| `setStartAfter(node)` | `undefined` | 将起点设在 `node` 之后 |
+| `selectNode(node)` | `undefined` | 选择整个节点（范围包含节点） |
+| `selectNodeContents(node)` | `undefined` | 选择节点的所有内容（不含节点自身） |
+| `extractContents()` | `DocumentFragment` | 从文档树提取范围内容并返回。原节点被移除 |
+| `cloneContents()` | `DocumentFragment` | 复制范围内容，不修改原树 |
+| `insertNode(node)` | `undefined` | 在范围起点插入节点 |
+| `surroundContents(newParent)` | `undefined` | 用 `newParent` 包裹范围内容。要求范围边界在同级文本节点上 |
+| `deleteContents()` | `undefined` | 删除范围内容 |
+| `compareBoundaryPoints(how, sourceRange)` | `unsigned short` | 比较两个范围的边界。`how`: `START_TO_START`, `START_TO_END`, `END_TO_END`, `END_TO_START` |
+| `cloneRange()` | `Range` | 创建范围的副本 |
+| `isPointInRange(node, offset)` | `boolean` | 判断指定点是否在范围内 |
+| `comparePoint(node, offset)` | `short` | 比较点与范围的位置：`-1`（点前）、`0`（点内）、`1`（点后） |
+| `intersectsNode(node)` | `boolean` | 范围是否与节点相交 |
+| `getClientRects()` | `DOMRectList` | 范围的几何矩形（用于选中文本高亮） |
+| `getBoundingClientRect()` | `DOMRect` | 范围的包围盒 |
+| `createContextualFragment(fragment)` | `DocumentFragment` | 解析 HTML 片段，在范围的上下文中创建节点（使用范围的容器作为上下文元素） |
+
+---
+
+## 2.3 Selection
+```idl
+[Exposed=Window]
+interface Selection {
+    readonly attribute Node? anchorNode;
+    readonly attribute unsigned long anchorOffset;
+    readonly attribute Node? focusNode;
+    readonly attribute unsigned long focusOffset;
+    readonly attribute boolean isCollapsed;
+    readonly attribute unsigned long rangeCount;
+    readonly attribute DOMString type; // "None", "Caret", "Range"
+    readonly attribute DOMString direction; // "none", "forward", "backward"
+
+    Range getRangeAt(unsigned long index);
+    undefined addRange(Range range);
+    undefined removeRange(Range range);
+    undefined removeAllRanges();
+    undefined empty(); // 同 removeAllRanges
+    undefined collapse(Node? node, optional unsigned long offset = 0);
+    undefined collapseToStart();
+    undefined collapseToEnd();
+    undefined extend(Node node, optional unsigned long offset = 0);
+    undefined setBaseAndExtent(Node anchorNode, unsigned long anchorOffset, Node focusNode, unsigned long focusOffset);
+    undefined selectAllChildren(Node node);
+    [CEReactions] undefined deleteFromDocument();
+    boolean containsNode(Node node, optional boolean allowPartialContainment = false);
+    undefined modify(optional DOMString alter = "move", optional DOMString direction = "forward", optional DOMString granularity = "character");
+
+    stringifier;
+};
+```
+| 成员 | 类型 | 功能描述 |
+|------|------|---------|
+| `anchorNode` / `anchorOffset` | `Node?` / `unsigned long` (只读) | 选区锚点（鼠标按下位置） |
+| `focusNode` / `focusOffset` | `Node?` / `unsigned long` (只读) | 选区焦点（鼠标释放/当前位置） |
+| `isCollapsed` | `boolean` (只读) | 锚点和焦点是否重合（光标状态） |
+| `rangeCount` | `unsigned long` (只读) | 选区包含的范围数量（通常 `0` 或 `1`） |
+| `type` | `DOMString` (只读) | `"None"`（无选区）、`"Caret"`（折叠光标）、`"Range"`（有范围） |
+| `direction` | `DOMString` (只读) | 选区方向：`"forward"`（锚点在前）、`"backward"`（焦点在前）、`"none"` |
+| `getRangeAt(index)` | `Range` | 获取选区中的范围（通常 index 为 0） |
+| `addRange(range)` | `undefined` | 向选区添加范围 |
+| `removeAllRanges()` | `undefined` | 清空所有范围 |
+| `collapse(node, offset)` | `undefined` | 将选区折叠到指定位置 |
+| `collapseToStart()` / `collapseToEnd()` | `undefined` | 折叠到选区起点/终点 |
+| `extend(node, offset)` | `undefined` | 将焦点扩展到指定位置（保持锚点不变） |
+| `setBaseAndExtent(anchorNode, anchorOffset, focusNode, focusOffset)` | `undefined` | 直接设置选区的锚点和焦点 |
+| `selectAllChildren(node)` | `undefined` | 选中节点的所有内容 |
+| `deleteFromDocument()` | `undefined` | 删除选区内容 |
+| `containsNode(node, partial)` | `boolean` | 选区是否包含节点。`partial = true` 时部分包含也算 |
+| `modify(alter, direction, granularity)` | `undefined` | 修改选区边界。`alter`: `"move"` 或 `"extend"`；`direction`: `"forward"/"backward"/"left"/"right"`；`granularity`: `"character"/"word"/"sentence"/"line"/"paragraph"/"lineboundary"/"sentenceboundary"/"paragraphboundary"/"documentboundary"` |
+
+---
+
+# 三、事件系统 (DOM Events + UI Events)
+
+## 3.1 Event
+```idl
+[Exposed=*]
+interface Event {
+    // 阶段常量
+    const unsigned short NONE = 0;
+    const unsigned short CAPTURING_PHASE = 1;
+    const unsigned short AT_TARGET = 2;
+    const unsigned short BUBBLING_PHASE = 3;
+
+    readonly attribute DOMString type;
+    readonly attribute EventTarget? target;
+    readonly attribute EventTarget? currentTarget;
+    readonly attribute unsigned short eventPhase;
+    readonly attribute boolean bubbles;
+    readonly attribute boolean cancelable;
+    readonly attribute boolean defaultPrevented;
+    readonly attribute boolean composed;
+    [LegacyUnforgeable] readonly attribute boolean isTrusted;
+    readonly attribute DOMHighResTimeStamp timeStamp;
+
+    undefined stopPropagation();
+    undefined stopImmediatePropagation();
+    undefined preventDefault();
+    sequence<EventTarget> composedPath();
+
+    // 遗留
+    readonly attribute EventTarget? srcElement;
+    attribute boolean cancelBubble; // 遗留，同 stopPropagation
+    attribute boolean returnValue; // 遗留，同 preventDefault
+    undefined initEvent(DOMString type, optional boolean bubbles = false, optional boolean cancelable = false);
+};
+```
+| 成员 | 类型 | 功能描述 |
+|------|------|---------|
+| `type` | `DOMString` (只读) | 事件类型（如 `"click"`） |
+| `target` | `EventTarget?` (只读) | 事件最初派发的目标 |
+| `currentTarget` | `EventTarget?` (只读) | 当前处理事件的目标（事件处理过程中变化） |
+| `eventPhase` | `unsigned short` (只读) | `NONE(0)`, `CAPTURING_PHASE(1)`, `AT_TARGET(2)`, `BUBBLING_PHASE(3)` |
+| `bubbles` | `boolean` (只读) | 事件是否冒泡 |
+| `cancelable` | `boolean` (只读) | 事件是否可取消默认行为 |
+| `defaultPrevented` | `boolean` (只读) | `preventDefault()` 是否已被调用 |
+| `composed` | `boolean` (只读) | 事件是否穿透 Shadow DOM 边界 |
+| `isTrusted` | `boolean` (只读) | 事件是否由用户操作触发（`true`）还是脚本生成（`false`） |
+| `timeStamp` | `DOMHighResTimeStamp` (只读) | 事件创建时间戳（高精度，相对于 `navigationStart`） |
+| `stopPropagation()` | `undefined` | 阻止事件继续传播（捕获/冒泡） |
+| `stopImmediatePropagation()` | `undefined` | 阻止事件传播，并阻止同类型同阶段的后续监听器执行 |
+| `preventDefault()` | `undefined` | 取消事件的默认行为（如链接跳转、表单提交） |
+| `composedPath()` | `EventTarget[]` | 返回事件传播路径上的所有目标（含 ShadowRoot 边界） |
+
+---
+
+## 3.2 鼠标/指针/输入事件
+```idl
+[Exposed=*]
+interface UIEvent : Event {
+    readonly attribute Window? view;
+    readonly attribute long detail;
+    readonly attribute InputDeviceCapabilities? sourceCapabilities;
+    readonly attribute unsigned long which; // 遗留
+};
+
+[Exposed=*]
+interface MouseEvent : UIEvent {
+    readonly attribute long screenX;
+    readonly attribute long screenY;
+    readonly attribute long clientX;
+    readonly attribute long clientY;
+    readonly attribute long layerX; // 遗留
+    readonly attribute long layerY; // 遗留
+    readonly attribute boolean ctrlKey;
+    readonly attribute boolean shiftKey;
+    readonly attribute boolean altKey;
+    readonly attribute boolean metaKey;
+    readonly attribute short button;
+    readonly attribute unsigned short buttons;
+    readonly attribute EventTarget? relatedTarget;
+    readonly attribute double movementX;
+    readonly attribute double movementY;
+    readonly attribute double pageX;
+    readonly attribute double pageY;
+    readonly attribute double offsetX;
+    readonly attribute double offsetY;
+    readonly attribute double x; // 同 clientX
+    readonly attribute double y; // 同 clientY
+
+    boolean getModifierState(DOMString keyArg);
+};
+
+[Exposed=*]
+interface WheelEvent : MouseEvent {
+    const unsigned long DOM_DELTA_PIXEL = 0x00;
+    const unsigned long DOM_DELTA_LINE = 0x01;
+    const unsigned long DOM_DELTA_PAGE = 0x02;
+
+    readonly attribute double deltaX;
+    readonly attribute double deltaY;
+    readonly attribute double deltaZ;
+    readonly attribute unsigned long deltaMode;
+};
+
+[Exposed=*]
+interface PointerEvent : MouseEvent {
+    readonly attribute long pointerId;
+    readonly attribute double width;
+    readonly attribute double height;
+    readonly attribute float pressure;
+    readonly attribute float tangentialPressure;
+    readonly attribute long tiltX;
+    readonly attribute long tiltY;
+    readonly attribute long twist;
+    readonly attribute DOMString pointerType;
+    readonly attribute boolean isPrimary;
+    [SameObject] readonly attribute sequence<PointerEvent> coalescedEvents;
+    [SameObject] readonly attribute sequence<PointerEvent> predictedEvents;
+
+    sequence<PointerEvent> getCoalescedEvents();
+    sequence<PointerEvent> getPredictedEvents();
+};
+
+[Exposed=*]
+interface InputEvent : UIEvent {
+    readonly attribute DOMString? data;
+    readonly attribute boolean isComposing;
+    readonly attribute DOMString inputType;
+    readonly attribute DataTransfer? dataTransfer;
+    sequence<StaticRange> getTargetRanges();
+};
+
+[Exposed=*]
+interface KeyboardEvent : UIEvent {
+    const unsigned long DOM_KEY_LOCATION_STANDARD = 0x00;
+    const unsigned long DOM_KEY_LOCATION_LEFT = 0x01;
+    const unsigned long DOM_KEY_LOCATION_RIGHT = 0x02;
+    const unsigned long DOM_KEY_LOCATION_NUMPAD = 0x03;
+
+    readonly attribute DOMString key;
+    readonly attribute DOMString code;
+    readonly attribute unsigned long location;
+    readonly attribute boolean ctrlKey;
+    readonly attribute boolean shiftKey;
+    readonly attribute boolean altKey;
+    readonly attribute boolean metaKey;
+    readonly attribute boolean repeat;
+    readonly attribute boolean isComposing;
+    readonly attribute unsigned long charCode; // 遗留
+    readonly attribute unsigned long keyCode; // 遗留
+    readonly attribute unsigned long which; // 遗留
+
+    boolean getModifierState(DOMString keyArg);
+};
+
+[Exposed=*]
+interface CompositionEvent : UIEvent {
+    readonly attribute DOMString data;
+    readonly attribute DOMString locale; // 遗留，通常空字符串
+};
+```
+| 接口 | 成员 | 类型 | 功能描述 |
+|------|------|------|---------|
+| `UIEvent` | `view` | `Window?` (只读) | 产生事件的 `Window` |
+| | `detail` | `long` (只读) | 事件细节（如点击次数） |
+| `MouseEvent` | `screenX` / `screenY` | `long` (只读) | 鼠标相对于屏幕的坐标 |
+| | `clientX` / `clientY` | `long` (只读) | 鼠标相对于视口的坐标 |
+| | `ctrlKey` / `shiftKey` / `altKey` / `metaKey` | `boolean` (只读) | 修饰键状态 |
+| | `button` | `short` (只读) | 按下的鼠标按钮：`0` 主键、`1` 中键、`2` 右键 |
+| | `buttons` | `unsigned short` (只读) | 当前所有按下的按钮位掩码 |
+| | `relatedTarget` | `EventTarget?` (只读) | 相关目标（如 `mouseenter` 的源元素、`mouseleave` 的目标元素） |
+| | `movementX` / `movementY` | `double` (只读) | 相对于上次鼠标事件的位移（用于指针锁定） |
+| | `pageX` / `pageY` | `double` (只读) | 相对于文档的坐标（含滚动偏移） |
+| | `offsetX` / `offsetY` | `double` (只读) | 相对于目标元素内边距盒的坐标 |
+| | `getModifierState(key)` | `boolean` | 检查特定修饰键状态（如 `"Alt"`, `"Control"`, `"Shift"`, `"Meta"`, `"CapsLock"`, `"NumLock"` 等） |
+| `WheelEvent` | `deltaX` / `deltaY` / `deltaZ` | `double` (只读) | 滚轮在三个轴上的滚动量 |
+| | `deltaMode` | `unsigned long` (只读) | 单位：`DOM_DELTA_PIXEL`(0), `DOM_DELTA_LINE`(1), `DOM_DELTA_PAGE`(2) |
+| `PointerEvent` | `pointerId` | `long` (只读) | 指针唯一标识符（每根手指/每支笔不同） |
+| | `width` / `height` | `double` (只读) | 接触面几何尺寸（鼠标通常为 1） |
+| | `pressure` | `float` (只读) | 压力值 `0.0` ~ `1.0` |
+| | `tiltX` / `tiltY` | `long` (只读) | 笔的倾斜角度（-90 ~ 90 度） |
+| | `twist` | `long` (只读) | 笔的旋转角度（0 ~ 359 度） |
+| | `pointerType` | `DOMString` (只读) | `"mouse"`, `"pen"`, `"touch"` 等 |
+| | `isPrimary` | `boolean` (只读) | 是否为主指针（多点触控中首个接触点） |
+| | `coalescedEvents` | `PointerEvent[]` (只读) | 浏览器合并的底层指针事件（高频采样） |
+| | `predictedEvents` | `PointerEvent[]` (只读) | 浏览器预测的未来指针事件（用于降低延迟） |
+| `InputEvent` | `data` | `DOMString?` (只读) | 输入的文本内容。删除操作时为 `null` |
+| | `isComposing` | `boolean` (只读) | 是否处于输入法合成中 |
+| | `inputType` | `DOMString` (只读) | 输入类型（如 `"insertText"`, `"deleteContentBackward"`, `"formatBold"` 等） |
+| | `dataTransfer` | `DataTransfer?` (只读) | 拖放或富文本编辑时的数据传输对象 |
+| | `getTargetRanges()` | `StaticRange[]` | 返回将被修改的文本范围（用于撤销/富文本编辑） |
+| `KeyboardEvent` | `key` | `DOMString` (只读) | 按键值（如 `"Enter"`, `"a"`, `"ArrowUp"`） |
+| | `code` | `DOMString` (只读) | 物理按键代码（如 `"KeyA"`, `"Enter"`, `"ArrowLeft"`），与键盘布局无关 |
+| | `location` | `unsigned long` (只读) | 按键位置：`STANDARD`(0), `LEFT`(1), `RIGHT`(2), `NUMPAD`(3) |
+| | `repeat` | `boolean` (只读) | 是否长按自动重复 |
+| | `charCode` / `keyCode` / `which` | `unsigned long` (只读) | 遗留属性，已废弃但需兼容 |
+
+---
+
+## 3.3 焦点/拖拽/剪贴板/触摸事件
+```idl
+[Exposed=*]
+interface FocusEvent : UIEvent {
+    readonly attribute EventTarget? relatedTarget;
+};
+
+[Exposed=*]
+interface DragEvent : MouseEvent {
+    readonly attribute DataTransfer? dataTransfer;
+};
+
+[Exposed=*]
+interface ClipboardEvent : Event {
+    readonly attribute DataTransfer? clipboardData;
+};
+
+[Exposed=*]
+interface TouchEvent : UIEvent {
+    [SameObject] readonly attribute TouchList touches;
+    [SameObject] readonly attribute TouchList targetTouches;
+    [SameObject] readonly attribute TouchList changedTouches;
+    readonly attribute boolean altKey;
+    readonly attribute boolean metaKey;
+    readonly attribute boolean ctrlKey;
+    readonly attribute boolean shiftKey;
+};
+
+[Exposed=*]
+interface Touch {
+    readonly attribute long identifier;
+    readonly attribute EventTarget target;
+    readonly attribute double screenX;
+    readonly attribute double screenY;
+    readonly attribute double clientX;
+    readonly attribute double clientY;
+    readonly attribute double pageX;
+    readonly attribute double pageY;
+    readonly attribute float radiusX;
+    readonly attribute float radiusY;
+    readonly attribute float rotationAngle;
+    readonly attribute float force;
+    readonly attribute float altitudeAngle;
+    readonly attribute float azimuthAngle;
+    readonly attribute TouchType touchType; // "direct", "stylus"
+};
+
+[Exposed=*]
+interface TouchList {
+    readonly attribute unsigned long length;
+    getter Touch? item(unsigned long index);
+    iterable<Touch>;
+};
+```
+| 接口 | 成员 | 类型 | 功能描述 |
+|------|------|------|---------|
+| `FocusEvent` | `relatedTarget` | `EventTarget?` (只读) | 焦点转移的源/目标元素（`focusin`/`focusout` 用） |
+| `DragEvent` | `dataTransfer` | `DataTransfer?` (只读) | 拖放数据传输对象，含 `setData()`, `getData()`, `files`, `dropEffect` 等 |
+| `ClipboardEvent` | `clipboardData` | `DataTransfer?` (只读) | 剪贴板数据对象 |
+| `TouchEvent` | `touches` | `TouchList` (只读) | 当前屏幕上的所有触摸点 |
+| | `targetTouches` | `TouchList` (只读) | 当前目标元素上的触摸点 |
+| | `changedTouches` | `TouchList` (只读) | 触发该事件的触摸点（如 `touchend` 中已离开的触摸点） |
+| `Touch` | `identifier` | `long` (只读) | 触摸点唯一 ID（在触摸生命周期内不变） |
+| | `target` | `EventTarget` (只读) | 触摸目标元素 |
+| | `radiusX` / `radiusY` | `float` (只读) | 接触椭圆半径 |
+| | `rotationAngle` | `float` (只读) | 接触椭圆旋转角度 |
+| | `force` | `float` (只读) | 压力值 `0.0` ~ `1.0` |
+| | `touchType` | `TouchType` (只读) | `"direct"`（手指）或 `"stylus"`（手写笔） |
+
+---
+
+## 3.4 滚动/动画/进度/网络事件
+```idl
+[Exposed=*]
+interface AnimationEvent : Event {
+    readonly attribute DOMString animationName;
+    readonly attribute float elapsedTime;
+    readonly attribute DOMString pseudoElement;
+};
+
+[Exposed=*]
+interface TransitionEvent : Event {
+    readonly attribute DOMString propertyName;
+    readonly attribute float elapsedTime;
+    readonly attribute DOMString pseudoElement;
+};
+
+[Exposed=*]
+interface ProgressEvent : Event {
+    readonly attribute boolean lengthComputable;
+    readonly attribute unsigned long long loaded;
+    readonly attribute unsigned long long total;
+};
+
+[Exposed=*]
+interface ErrorEvent : Event {
+    readonly attribute DOMString message;
+    readonly attribute USVString filename;
+    readonly attribute unsigned long lineno;
+    readonly attribute unsigned long colno;
+    readonly attribute any error;
+};
+
+[Exposed=*]
+interface PageTransitionEvent : Event {
+    readonly attribute boolean persisted;
+};
+
+[Exposed=*]
+interface HashChangeEvent : Event {
+    readonly attribute USVString oldURL;
+    readonly attribute USVString newURL;
+};
+
+[Exposed=*]
+interface PopStateEvent : Event {
+    readonly attribute any state;
+};
+
+[Exposed=*]
+interface BeforeUnloadEvent : Event {
+    attribute DOMString returnValue;
+};
+
+[Exposed=*]
+interface StorageEvent : Event {
+    readonly attribute DOMString? key;
+    readonly attribute DOMString? oldValue;
+    readonly attribute DOMString? newValue;
+    readonly attribute USVString url;
+    readonly attribute Storage? storageArea;
+};
+
+[Exposed=*]
+interface MessageEvent : Event {
+    readonly attribute any data;
+    readonly attribute USVString origin;
+    readonly attribute DOMString lastEventId;
+    [SerializableObject] readonly attribute (WindowProxy or MessagePort or ServiceWorker)? source;
+    readonly attribute FrozenArray<MessagePort> ports;
+    readonly attribute boolean userActivation;
+};
+
+[Exposed=*]
+interface CloseEvent : Event {
+    readonly attribute boolean wasClean;
+    readonly attribute unsigned short code;
+    readonly attribute USVString reason;
+};
+
+[Exposed=*]
+interface SubmitEvent : Event {
+    readonly attribute HTMLElement? submitter;
+};
+
+[Exposed=*]
+interface FormDataEvent : Event {
+    readonly attribute FormData formData;
+};
+
+[Exposed=*]
+interface ToggleEvent : Event {
+    readonly attribute DOMString oldState;
+    readonly attribute DOMString newState;
+};
+```
+| 接口 | 成员 | 类型 | 功能描述 |
+|------|------|------|---------|
+| `AnimationEvent` | `animationName` | `DOMString` (只读) | 触发动画的 `@keyframes` 名称 |
+| | `elapsedTime` | `float` (只读) | 动画已运行时间（秒） |
+| | `pseudoElement` | `DOMString` (只读) | 伪元素选择器（如 `"::before"`），非伪元素为空字符串 |
+| `TransitionEvent` | `propertyName` | `DOMString` (只读) | 完成过渡的 CSS 属性名 |
+| | `elapsedTime` | `float` (只读) | 过渡已运行时间 |
+| `ProgressEvent` | `lengthComputable` | `boolean` (只读) | 总长度是否可知 |
+| | `loaded` | `unsigned long long` (只读) | 已加载字节数 |
+| | `total` | `unsigned long long` (只读) | 总字节数 |
+| `ErrorEvent` | `message` | `DOMString` (只读) | 错误消息 |
+| | `filename` | `USVString` (只读) | 发生错误的脚本 URL |
+| | `lineno` / `colno` | `unsigned long` (只读) | 行列号 |
+| | `error` | `any` (只读) | 错误对象 |
+| `PageTransitionEvent` | `persisted` | `boolean` (只读) | 页面是否从 `bfcache`（往返缓存）恢复 |
+| `HashChangeEvent` | `oldURL` / `newURL` | `USVString` (只读) | 哈希变化前后的完整 URL |
+| `PopStateEvent` | `state` | `any` (只读) | `history.pushState()`/`replaceState()` 传入的状态对象 |
+| `BeforeUnloadEvent` | `returnValue` | `DOMString` | 设置非空字符串会触发离开确认对话框 |
+| `StorageEvent` | `key` | `DOMString?` (只读) | 变化的键名，`clear()` 时为 `null` |
+| | `oldValue` / `newValue` | `DOMString?` (只读) | 旧/新值 |
+| | `url` | `USVString` (只读) | 触发变化的文档 URL |
+| | `storageArea` | `Storage?` (只读) | 受影响的 `Storage` 对象 |
+| `MessageEvent` | `data` | `any` (只读) | 消息数据（经结构化克隆算法反序列化） |
+| | `origin` | `USVString` (只读) | 消息来源源（协议+主机+端口） |
+| | `lastEventId` | `DOMString` (只读) | Server-Sent Events 的事件 ID |
+| | `source` | `WindowProxy/MessagePort/ServiceWorker?` (只读) | 消息来源窗口/端口/ServiceWorker |
+| | `ports` | `MessagePort[]` (只读) | 随消息传递的 MessagePort 数组 |
+| `CloseEvent` | `wasClean` | `boolean` (只读) | 连接是否正常关闭 |
+| | `code` | `unsigned short` (只读) | WebSocket 关闭状态码 |
+| | `reason` | `USVString` (只读) | 关闭原因说明 |
+| `SubmitEvent` | `submitter` | `HTMLElement?` (只读) | 触发表单提交的按钮（如点击的 `<button type="submit">`） |
+| `FormDataEvent` | `formData` | `FormData` (只读) | 表单提交时构造的 `FormData` 对象（可在 `formdata` 事件中修改） |
+| `ToggleEvent` | `oldState` / `newState` | `DOMString` (只读) | 切换前后的状态（如 `"closed"` → `"open"`） |
+
+---
+
+# 四、HTML DOM 扩展 (HTML Standard)
+
+## 4.1 HTMLDocument / Document 扩展
+```idl
+[Exposed=Window]
+interface HTMLDocument : Document {
+    // 文档元数据
+    [PutForwards=href, LegacyUnforgeable] readonly attribute Location location;
+    [LegacyUnforgeable] attribute USVString domain;
+    [LegacyUnforgeable] readonly attribute USVString referrer;
+    [LegacyUnforgeable] attribute DOMString cookie;
+    [LegacyUnforgeable] readonly attribute DOMString lastModified;
+
+    // 设计模式
+    [LegacyNullToEmptyString, CEReactions] attribute DOMString designMode;
+
+    // 命令
+    boolean execCommand(DOMString commandId, optional boolean showUI = false, optional DOMString value = "");
+    boolean queryCommandEnabled(DOMString commandId);
+    boolean queryCommandIndeterm(DOMString commandId);
+    boolean queryCommandState(DOMString commandId);
+    boolean queryCommandSupported(DOMString commandId);
+    DOMString queryCommandValue(DOMString commandId);
+
+    // 集合
+    [SameObject] readonly attribute HTMLCollection images;
+    [SameObject] readonly attribute HTMLCollection embeds;
+    [SameObject] readonly attribute HTMLCollection plugins; // 同 embeds
+    [SameObject] readonly attribute HTMLCollection links;
+    [SameObject] readonly attribute HTMLCollection forms;
+    [SameObject] readonly attribute HTMLCollection scripts;
+
+    // 命名元素访问
+    getter object (DOMString name);
+
+    // 窗口代理
+    [LegacyUnforgeable] readonly attribute WindowProxy? defaultView;
+
+    // 可见性
+    [LegacyLenientThis] readonly attribute boolean hidden;
+    [LegacyLenientThis] readonly attribute VisibilityState visibilityState;
+
+    // 全屏
+    [LegacyLenientThis] readonly attribute boolean fullscreenEnabled;
+    [LegacyLenientThis] readonly attribute boolean fullscreen; // 遗留
+    [CEReactions, LegacyLenientThis] Promise<undefined> exitFullscreen();
+    [LegacyLenientThis] readonly attribute Element? fullscreenElement;
+
+    // 指针锁定
+    [LegacyLenientThis] readonly attribute Element? pointerLockElement;
+    [LegacyLenientThis] undefined exitPointerLock();
+
+    // 滚动元素
+    [LegacyLenientThis] readonly attribute Element? scrollingElement;
+
+    // 字体
+    [SameObject] readonly attribute FontFaceSet fonts;
+
+    // 事件处理器
+    attribute EventHandler onreadystatechange;
+    attribute EventHandler onvisibilitychange;
+    attribute EventHandler onpageshow;
+    attribute EventHandler onpagehide;
+    attribute EventHandler onpopstate;
+    attribute EventHandler onhashchange;
+    attribute EventHandler onbeforeunload;
+    attribute EventHandler onunload;
+    attribute EventHandler ononline;
+    attribute EventHandler onoffline;
+    attribute EventHandler onformdata;
+    attribute EventHandler onpageswap;
+    attribute EventHandler onpagereveal;
+    attribute EventHandler onfreeze;
+    attribute EventHandler onresume;
+    attribute EventHandler onrejectionhandled;
+    attribute EventHandler onunhandledrejection;
+};
+```
+| 成员 | 类型 | 功能描述 |
+|------|------|---------|
+| `location` | `Location` (只读) | 当前文档 URL 的可编程对象。设置 `location.href` 导航到新页面 |
+| `domain` | `USVString` | 获取/设置文档域（用于跨子域通信）。只能设置为当前域的后缀 |
+| `referrer` | `USVString` (只读) | 导航到当前文档的前一个文档地址（受 Referrer-Policy 影响） |
+| `cookie` | `DOMString` | 获取/设置 HTTP Cookie。受 `HttpOnly`、`Secure`、`SameSite` 等限制 |
+| `lastModified` | `DOMString` (只读) | 文档最后修改时间（来自 HTTP Last-Modified 或文件系统） |
+| `designMode` | `DOMString` | `"on"` 时整个文档可编辑（类似 `contenteditable`） |
+| `execCommand` | `boolean` | 执行富文本编辑命令（如 `"bold"`, `"italic"`, `"createLink"`）。已废弃但大量编辑器依赖 |
+| `images` / `embeds` / `plugins` / `links` / `forms` / `scripts` | `HTMLCollection` (只读) | 文档中对应标签的实时集合 |
+| `defaultView` | `WindowProxy?` (只读) | 文档关联的 `Window` 对象。`null` 表示无浏览上下文 |
+| `hidden` | `boolean` (只读) | 页面是否隐藏（`visibilityState !== "visible"`） |
+| `visibilityState` | `VisibilityState` (只读) | `"hidden"`, `"visible"`, `"prerender"` |
+| `scrollingElement` | `Element?` (只读) | 文档的滚动元素（标准模式为 `<html>`，怪异模式为 `<body>`） |
+| `fonts` | `FontFaceSet` (只读) | 文档字体加载管理器，可 `load(font)`、`check(font)`、监听 `loading`/`loadingdone` 事件 |
+
+---
+
+## 4.2 HTMLElement
+```idl
+[Exposed=Window]
+interface HTMLElement : Element {
+    // 全局属性
+    [CEReactions] attribute DOMString title;
+    [CEReactions] attribute DOMString lang;
+    [CEReactions, Reflect] attribute boolean translate;
+    [CEReactions] attribute DOMString dir;
+    [CEReactions, Reflect] attribute boolean hidden;
+    [CEReactions, Reflect] attribute boolean inert;
+    [CEReactions] attribute DOMString accessKey;
+    [SameObject] readonly attribute DOMString accessKeyLabel;
+    [CEReactions, Reflect] attribute boolean draggable;
+    [CEReactions, Reflect] attribute boolean spellcheck;
+    [CEReactions] attribute DOMString autocapitalize;
+    [CEReactions, Reflect="contenteditable"] attribute DOMString contentEditable;
+    [CEReactions, Reflect] attribute DOMString enterKeyHint;
+    [CEReactions, Reflect] attribute DOMString inputMode;
+    [CEReactions] attribute boolean isContentEditable;
+    [CEReactions, Reflect] attribute DOMString nonce;
+    [CEReactions, Reflect] attribute DOMString popover;
+    attribute HTMLElement? popoverTargetElement;
+    [CEReactions, Reflect="popovertargetaction"] attribute DOMString popoverTargetAction;
+
+    // 偏移几何
+    readonly attribute Element? offsetParent;
+    readonly attribute long offsetTop;
+    readonly attribute long offsetLeft;
+    readonly attribute long offsetWidth;
+    readonly attribute long offsetHeight;
+
+    // 样式
+    [SameObject, PutForwards=cssText] readonly attribute CSSStyleDeclaration style;
+    [SameObject] readonly attribute DOMStringMap dataset;
+    [CEReactions] attribute long tabIndex;
+
+    // 内部接口
+    ElementInternals attachInternals();
+
+    // Popover
+    undefined showPopover();
+    undefined hidePopover();
+    undefined togglePopover(optional boolean force);
+    [CEReactions] attribute boolean defaultOpen;
+
+    // 点击与焦点
+    [CEReactions] undefined click();
+    [CEReactions] undefined focus(optional FocusOptions options = {});
+    [CEReactions] undefined blur();
+
+    // 事件处理器（仅列出部分，实际数量庞大）
+    attribute EventHandler onabort;
+    attribute EventHandler onblur;
+    attribute EventHandler oncancel;
+    attribute EventHandler oncanplay;
+    attribute EventHandler oncanplaythrough;
+    attribute EventHandler onchange;
+    attribute EventHandler onclick;
+    attribute EventHandler onclose;
+    attribute EventHandler oncontextmenu;
+    attribute EventHandler oncuechange;
+    attribute EventHandler ondblclick;
+    attribute EventHandler ondrag;
+    attribute EventHandler ondragend;
+    attribute EventHandler ondragenter;
+    attribute EventHandler ondragleave;
+    attribute EventHandler ondragover;
+    attribute EventHandler ondragstart;
+    attribute EventHandler ondrop;
+    attribute EventHandler ondurationchange;
+    attribute EventHandler onemptied;
+    attribute EventHandler onended;
+    attribute EventHandler onerror;
+    attribute EventHandler onfocus;
+    attribute EventHandler onformdata;
+    attribute EventHandler oninput;
+    attribute EventHandler oninvalid;
+    attribute EventHandler onkeydown;
+    attribute EventHandler onkeypress; // 遗留
+    attribute EventHandler onkeyup;
+    attribute EventHandler onload;
+    attribute EventHandler onloadeddata;
+    attribute EventHandler onloadedmetadata;
+    attribute EventHandler onloadstart;
+    attribute EventHandler onmousedown;
+    attribute EventHandler onmouseenter;
+    attribute EventHandler onmouseleave;
+    attribute EventHandler onmousemove;
+    attribute EventHandler onmouseout;
+    attribute EventHandler onmouseover;
+    attribute EventHandler onmouseup;
+    attribute EventHandler onmousewheel; // 遗留
+    attribute EventHandler onpause;
+    attribute EventHandler onplay;
+    attribute EventHandler onplaying;
+    attribute EventHandler onprogress;
+    attribute EventHandler onratechange;
+    attribute EventHandler onreset;
+    attribute EventHandler onresize;
+    attribute EventHandler onscroll;
+    attribute EventHandler onscrollend;
+    attribute EventHandler onsecuritypolicyviolation;
+    attribute EventHandler onseeked;
+    attribute EventHandler onseeking;
+    attribute EventHandler onselect;
+    attribute EventHandler onslotchange;
+    attribute EventHandler onstalled;
+    attribute EventHandler onsubmit;
+    attribute EventHandler onsuspend;
+    attribute EventHandler ontimeupdate;
+    attribute EventHandler ontoggle;
+    attribute EventHandler onvolumechange;
+    attribute EventHandler onwaiting;
+    attribute EventHandler onwheel;
+    attribute EventHandler onbeforecopy;
+    attribute EventHandler onbeforecut;
+    attribute EventHandler onbeforepaste;
+    attribute EventHandler oncopy;
+    attribute EventHandler oncut;
+    attribute EventHandler onpaste;
+    attribute EventHandler onsearch; // 遗留
+    attribute EventHandler onselectstart;
+    attribute EventHandler onwebkitanimationend;
+    attribute EventHandler onwebkitanimationiteration;
+    attribute EventHandler onwebkitanimationstart;
+    attribute EventHandler onwebkittransitionend;
+    attribute EventHandler onbeforexrselect;
+    attribute EventHandler onbeforetoggle;
+    attribute EventHandler ongamepadconnected;
+    attribute EventHandler ongamepaddisconnected;
+};
+```
+| 成员 | 类型 | 功能描述 |
+|------|------|---------|
+| `title` | `DOMString` | 元素提示文本（鼠标悬停时显示） |
+| `lang` | `DOMString` | 元素语言（BCP 47，如 `"zh-CN"`） |
+| `translate` | `boolean` | 元素内容是否应被翻译 |
+| `dir` | `DOMString` | 文本方向：`"ltr"`, `"rtl"`, `"auto"` |
+| `hidden` | `boolean` | 元素是否隐藏（CSS `display: none` 语义，但可通过属性直接控制） |
+| `inert` | `boolean` | 元素是否惰性（不响应用户交互、不可聚焦、对辅助技术隐藏） |
+| `accessKey` | `DOMString` | 访问快捷键（如 `"s"` 表示 `Alt+S`） |
+| `accessKeyLabel` | `DOMString` (只读) | 浏览器实际显示的快捷键标签（含平台修饰键） |
+| `draggable` | `boolean` | 元素是否可拖动 |
+| `spellcheck` | `boolean` | 是否启用拼写检查 |
+| `autocapitalize` | `DOMString` | 虚拟键盘自动大写：`"off"`, `"none"`, `"on"`, `"sentences"`, `"words"`, `"characters"` |
+| `contentEditable` | `DOMString` | `"true"`/`"false"`/`"inherit"`/`"plaintext-only"` |
+| `enterKeyHint` | `DOMString` | 虚拟键盘回车键标签：`"enter"`, `"done"`, `"go"`, `"next"`, `"previous"`, `"search"`, `"send"` |
+| `inputMode` | `DOMString` | 虚拟键盘类型：`"none"`, `"text"`, `"tel"`, `"url"`, `"email"`, `"numeric"`, `"decimal"`, `"search"` |
+| `nonce` | `DOMString` | CSP nonce，用于允许内联脚本/样式 |
+| `popover` | `DOMString` | `"auto"` 或 `"manual"`，声明元素为弹出框 |
+| `popoverTargetElement` | `HTMLElement?` | 按钮控制的弹出框目标元素 |
+| `popoverTargetAction` | `DOMString` | `"hide"`, `"show"`, `"toggle"` |
+| `offsetParent` | `Element?` (只读) | 最近的定位祖先（`position !== static`）或 `<table>/<td>/<th>/<body>` |
+| `offsetTop` / `offsetLeft` | `long` (只读) | 相对于 `offsetParent` 内边距盒的偏移 |
+| `offsetWidth` / `offsetHeight` | `long` (只读) | 元素的布局宽/高（含边框、内边距、滚动条） |
+| `style` | `CSSStyleDeclaration` (只读) | 内联样式声明对象 |
+| `dataset` | `DOMStringMap` (只读) | `data-*` 自定义属性的驼峰化键值映射（如 `data-user-id` → `dataset.userId`） |
+| `tabIndex` | `long` | 元素 Tab 导航顺序。`-1` 可聚焦但不可 Tab；`0` 按文档顺序；正数显式排序 |
+| `attachInternals()` | `ElementInternals` | 自定义元素使用，返回内部状态对象（用于表单关联、ARIA、样式） |
+| `showPopover()` / `hidePopover()` / `togglePopover(force)` | `undefined` | 显示/隐藏/切换弹出框。`force = true` 强制显示；`false` 强制隐藏 |
+| `click()` | `undefined` | 模拟点击（触发 `click` 事件和默认行为，如提交表单、跳转链接） |
+| `focus({preventScroll, focusVisible})` | `undefined` | 聚焦元素。`preventScroll` 阻止自动滚动；`focusVisible` 强制显示焦点指示器 |
+| `blur()` | `undefined` | 移除焦点 |
+
+---
+
+## 4.3 主要 HTML 元素接口速查
+
+以下按元素分组，列出**特有属性/方法**（均继承 `HTMLElement` 的通用成员）：
+
+### 超链接与媒体
+```idl
+interface HTMLAnchorElement : HTMLElement {
+    [CEReactions] attribute USVString href;
+    [CEReactions] attribute DOMString target;
+    [CEReactions] attribute DOMString download;
+    [CEReactions] attribute USVString ping;
+    [CEReactions, Reflect] attribute DOMString rel;
+    [SameObject, PutForwards=value] readonly attribute DOMTokenList relList;
+    [CEReactions] attribute DOMString hreflang;
+    [CEReactions] attribute DOMString type;
+    [CEReactions] attribute DOMString referrerPolicy;
+    [CEReactions] attribute DOMString text;
+
+    // URL 分解 IDL 属性
+    readonly attribute USVString origin;
+    [CEReactions] attribute USVString protocol;
+    [CEReactions] attribute USVString username;
+    [CEReactions] attribute USVString password;
+    [CEReactions] attribute USVString host;
+    [CEReactions] attribute USVString hostname;
+    [CEReactions] attribute USVString port;
+    [CEReactions] attribute USVString pathname;
+    [CEReactions] attribute USVString search;
+    [CEReactions] attribute USVString hash;
+};
+```
+| 成员 | 类型 | 功能描述 |
+|------|------|---------|
+| `href` | `USVString` | 链接目标 URL |
+| `target` | `DOMString` | 浏览上下文目标（如 `"_blank"`, `"_self"`, 窗口名） |
+| `download` | `DOMString` | 下载文件名（触发下载而非导航） |
+| `ping` | `USVString` | 空格分隔的 URL 列表，导航时发送 `POST` Ping 请求（追踪用） |
+| `rel` / `relList` | `DOMString` / `DOMTokenList` | 链接关系（如 `"noopener noreferrer"`） |
+| `referrerPolicy` | `DOMString` | 导航时的 Referrer 策略 |
+| `origin` ~ `hash` | `USVString` | URL 的各组成部分（与 `Location` 对象相同语义，可读写） |
+
+```idl
+interface HTMLMediaElement : HTMLElement {
+    // 错误
+    readonly attribute MediaError? error;
+
+    // 源
+    [CEReactions] attribute USVString src;
+    [CEReactions] attribute DOMString? crossOrigin;
+    readonly attribute USVString currentSrc;
+    [CEReactions] attribute DOMString preload;
+    readonly attribute unsigned short networkState; // NETWORK_EMPTY=0, IDLE=1, LOADING=2, NO_SOURCE=3
+    readonly attribute TimeRanges buffered;
+    undefined load();
+    DOMString canPlayType(DOMString type);
+
+    // 就绪状态
+    readonly attribute unsigned short readyState; // HAVE_NOTHING=0, HAVE_METADATA=1, HAVE_CURRENT_DATA=2, HAVE_FUTURE_DATA=3, HAVE_ENOUGH_DATA=4
+    readonly attribute boolean seeking;
+
+    // 播放状态
+    [CEReactions] attribute double currentTime;
+    [CEReactions] attribute double defaultPlaybackRate;
+    [CEReactions] attribute double playbackRate;
+    readonly attribute TimeRanges played;
+    readonly attribute TimeRanges seekable;
+    readonly attribute boolean ended;
+    [CEReactions] attribute boolean autoplay;
+    [CEReactions] attribute boolean loop;
+    [CEReactions] attribute boolean controls;
+    [CEReactions] attribute double volume;
+    [CEReactions] attribute boolean muted;
+    [CEReactions] attribute boolean defaultMuted;
+
+    // 播放控制
+    Promise<undefined> play();
+    [CEReactions] undefined pause();
+    readonly attribute boolean paused;
+    readonly attribute double duration;
+
+    // 音轨
+    [SameObject] readonly attribute AudioTrackList audioTracks;
+    [SameObject] readonly attribute VideoTrackList videoTracks;
+    [SameObject] readonly attribute TextTrackList textTracks;
+    TextTrack addTextTrack(TextTrackKind kind, optional DOMString label = "", optional DOMString language = "");
+
+    // 输出设备
+    [CEReactions] attribute DOMString sinkId;
+    readonly attribute RemotePlayback? remote;
+    [CEReactions] attribute boolean disableRemotePlayback;
+    [CEReactions] attribute boolean preservesPitch;
+
+    // MediaKeys (EME)
+    [SameObject] readonly attribute Promise<MediaKeys> mediaKeys;
+    Promise<undefined> setMediaKeys(MediaKeys? mediaKeys);
+
+    // 事件
+    attribute EventHandler onencrypted;
+    attribute EventHandler onwaitingforkey;
+};
+
+interface HTMLAudioElement : HTMLMediaElement { };
+interface HTMLVideoElement : HTMLMediaElement {
+    [CEReactions] attribute unsigned long width;
+    [CEReactions] attribute unsigned long height;
+    readonly attribute unsigned long videoWidth;
+    readonly attribute unsigned long videoHeight;
+    [CEReactions] attribute USVString poster;
+    [CEReactions] attribute boolean playsInline;
+    [CEReactions] attribute DOMString preload;
+
+    // 视频质量
+    VideoPlaybackQuality getVideoPlaybackQuality();
+    unsigned long requestVideoFrameCallback(VideoFrameRequestCallback callback);
+    undefined cancelVideoFrameCallback(unsigned long handle);
+};
+```
+| 成员 | 类型 | 功能描述 |
+|------|------|---------|
+| `src` | `USVString` | 媒体资源 URL |
+| `crossOrigin` | `DOMString?` | CORS 模式：`"anonymous"` 或 `"use-credentials"` |
+| `currentSrc` | `USVString` (只读) | 实际加载的源（考虑 `<source>` 和自适应流） |
+| `preload` | `DOMString` | 预加载策略：`"none"`, `"metadata"`, `"auto"` |
+| `networkState` | `unsigned short` (只读) | 网络状态：`NETWORK_EMPTY`(0), `IDLE`(1), `LOADING`(2), `NO_SOURCE`(3) |
+| `buffered` | `TimeRanges` (只读) | 已缓冲的时间范围 |
+| `load()` | `undefined` | 重置并重新加载媒体 |
+| `canPlayType(type)` | `DOMString` | 检查是否支持 MIME 类型。返回 `""`（不支持）、`"maybe"`、`"probably"` |
+| `readyState` | `unsigned short` (只读) | 就绪状态：`HAVE_NOTHING`(0) ~ `HAVE_ENOUGH_DATA`(4) |
+| `currentTime` | `double` | 当前播放位置（秒） |
+| `duration` | `double` (只读) | 媒体总时长（未知时为 `NaN`，流式媒体为 `Infinity`） |
+| `playbackRate` | `double` | 播放速率（`1.0` 正常，负值反向播放） |
+| `defaultPlaybackRate` | `double` | 默认播放速率 |
+| `played` / `seekable` | `TimeRanges` (只读) | 已播放/可跳转的时间范围 |
+| `ended` | `boolean` (只读) | 是否播放结束 |
+| `autoplay` | `boolean` | 是否自动播放 |
+| `loop` | `boolean` | 是否循环播放 |
+| `controls` | `boolean` | 是否显示默认控件 |
+| `volume` | `double` | 音量 `0.0` ~ `1.0` |
+| `muted` | `boolean` | 是否静音 |
+| `play()` | `Promise<undefined>` | 播放媒体。受自动播放策略限制，可能被拒绝 |
+| `pause()` | `undefined` | 暂停播放 |
+| `paused` | `boolean` (只读) | 是否暂停 |
+| `audioTracks` / `videoTracks` | `AudioTrackList` / `VideoTrackList` (只读) | 可用音/视频轨道 |
+| `textTracks` | `TextTrackList` (只读) | 可用文本轨道（字幕/章节/元数据） |
+| `addTextTrack(kind, label, language)` | `TextTrack` | 动态添加文本轨道 |
+| `sinkId` | `DOMString` | 音频输出设备 ID（音频路由） |
+| `preservesPitch` | `boolean` | 变速播放时是否保持音调 |
+| `width` / `height` | `unsigned long` | `<video>` 元素布局尺寸 |
+| `videoWidth` / `videoHeight` | `unsigned long` (只读) | 视频 intrinsic 尺寸 |
+| `poster` | `USVString` | 视频封面图 URL |
+| `playsInline` | `boolean` | 是否允许内联播放（iOS 等移动端需要） |
+| `getVideoPlaybackQuality()` | `VideoPlaybackQuality` | 获取视频播放质量统计（丢帧数等） |
+| `requestVideoFrameCallback(callback)` | `unsigned long` | 请求视频帧渲染回调（用于与视频帧同步） |
+
+---
+
+### 表单元素
+```idl
+interface HTMLFormElement : HTMLElement {
+    [CEReactions] attribute DOMString acceptCharset;
+    [CEReactions] attribute USVString action;
+    [CEReactions] attribute DOMString autocomplete;
+    [CEReactions] attribute DOMString enctype;
+    [CEReactions] attribute DOMString encoding; // 同 enctype
+    [CEReactions] attribute DOMString method;
+    [CEReactions] attribute DOMString name;
+    [CEReactions] attribute boolean noValidate;
+    [CEReactions] attribute DOMString target;
+    [CEReactions, Reflect] attribute DOMString rel;
+    [SameObject, PutForwards=value] readonly attribute DOMTokenList relList;
+
+    [SameObject] readonly attribute HTMLFormControlsCollection elements;
+    readonly attribute unsigned long length;
+    getter Element (unsigned long index);
+    getter (RadioNodeList or Element) (DOMString name);
+
+    [CEReactions] undefined submit();
+    [CEReactions] undefined reset();
+    boolean checkValidity();
+    boolean reportValidity();
+    [CEReactions] undefined requestSubmit(optional HTMLElement? submitter = null);
+};
+
+interface HTMLInputElement : HTMLElement {
+    [CEReactions] attribute DOMString accept;
+    [CEReactions] attribute DOMString alt;
+    [CEReactions] attribute DOMString autocomplete;
+    [CEReactions] attribute boolean checked;
+    [CEReactions] attribute DOMString dirName;
+    [CEReactions] attribute boolean disabled;
+    [CEReactions] attribute FileList? files;
+    [CEReactions] attribute USVString formAction;
+    [CEReactions] attribute DOMString formEnctype;
+    [CEReactions] attribute DOMString formMethod;
+    [CEReactions] attribute boolean formNoValidate;
+    [CEReactions] attribute DOMString formTarget;
+    [CEReactions] attribute unsigned long height;
+    [CEReactions] attribute boolean indeterminate;
+    [CEReactions] attribute HTMLElement? list;
+    [CEReactions] attribute DOMString max;
+    [CEReactions] attribute long maxLength;
+    [CEReactions] attribute DOMString min;
+    [CEReactions] attribute long minLength;
+    [CEReactions] attribute boolean multiple;
+    [CEReactions] attribute DOMString name;
+    [CEReactions] attribute DOMString pattern;
+    [CEReactions] attribute DOMString placeholder;
+    [CEReactions] attribute boolean readOnly;
+    [CEReactions] attribute boolean required;
+    [CEReactions] attribute unsigned long size;
+    [CEReactions] attribute USVString src;
+    [CEReactions] attribute DOMString step;
+    [CEReactions] attribute DOMString type;
+    [CEReactions, Reflect=value] attribute DOMString defaultValue;
+    [CEReactions] attribute DOMString value;
+    [CEReactions] attribute object? valueAsDate;
+    [CEReactions] attribute double valueAsNumber;
+    [CEReactions] attribute unsigned long width;
+
+    readonly attribute boolean willValidate;
+    readonly attribute ValidityState validity;
+    readonly attribute DOMString validationMessage;
+    [SameObject] readonly attribute NodeList labels;
+
+    undefined select();
+    undefined setRangeText(DOMString replacement);
+    undefined setRangeText(DOMString replacement, unsigned long start, unsigned long end, optional SelectionMode selectionMode = "preserve");
+    undefined setSelectionRange(unsigned long start, unsigned long end, optional DOMString direction = "none");
+    readonly attribute unsigned long selectionStart;
+    readonly attribute unsigned long selectionEnd;
+    readonly attribute DOMString selectionDirection;
+
+    undefined stepUp(optional long n = 1);
+    undefined stepDown(optional long n = 1);
+    boolean checkValidity();
+    boolean reportValidity();
+    undefined setCustomValidity(DOMString error);
+    undefined showPicker();
+};
+
+interface HTMLTextAreaElement : HTMLElement {
+    [CEReactions] attribute DOMString autocomplete;
+    [CEReactions] attribute unsigned long cols;
+    [CEReactions] attribute DOMString dirName;
+    [CEReactions] attribute boolean disabled;
+    [CEReactions] attribute HTMLFormElement? form;
+    [CEReactions] attribute DOMString name;
+    [CEReactions] attribute DOMString placeholder;
+    [CEReactions] attribute boolean readOnly;
+    [CEReactions] attribute boolean required;
+    [CEReactions] attribute unsigned long rows;
+    [CEReactions] attribute DOMString wrap;
+    readonly attribute DOMString type;
+    [CEReactions, Reflect=value] attribute DOMString defaultValue;
+    [CEReactions] attribute DOMString value;
+    readonly attribute unsigned long textLength;
+
+    readonly attribute boolean willValidate;
+    readonly attribute ValidityState validity;
+    readonly attribute DOMString validationMessage;
+    [SameObject] readonly attribute NodeList labels;
+
+    undefined select();
+    undefined setRangeText(DOMString replacement);
+    undefined setRangeText(DOMString replacement, unsigned long start, unsigned long end, optional SelectionMode selectionMode = "preserve");
+    undefined setSelectionRange(unsigned long start, unsigned long end, optional DOMString direction = "none");
+    readonly attribute unsigned long selectionStart;
+    readonly attribute unsigned long selectionEnd;
+    readonly attribute DOMString selectionDirection;
+
+    boolean checkValidity();
+    boolean reportValidity();
+    undefined setCustomValidity(DOMString error);
+};
+
+interface HTMLSelectElement : HTMLElement {
+    [CEReactions] attribute DOMString autocomplete;
+    [CEReactions] attribute boolean disabled;
+    [CEReactions] attribute HTMLFormElement? form;
+    [CEReactions] attribute boolean multiple;
+    [CEReactions] attribute DOMString name;
+    [CEReactions] attribute boolean required;
+    [CEReactions] attribute unsigned long size;
+
+    readonly attribute DOMString type;
+    [SameObject] readonly attribute HTMLOptionsCollection options;
+    [CEReactions] attribute unsigned long length;
+    getter Element? item(unsigned long index);
+    getter (HTMLOptionElement or HTMLOptGroupElement)? namedItem(DOMString name);
+    [CEReactions] undefined add((HTMLOptionElement or HTMLOptGroupElement) element, optional (HTMLElement or long)? before = null);
+    [CEReactions] undefined remove(long index);
+    [CEReactions] undefined remove();
+    [CEReactions] setter undefined (unsigned long index, HTMLOptionElement? option);
+
+    [SameObject] readonly attribute HTMLCollection selectedOptions;
+    [CEReactions] attribute long selectedIndex;
+    [CEReactions] attribute DOMString value;
+
+    readonly attribute boolean willValidate;
+    readonly attribute ValidityState validity;
+    readonly attribute DOMString validationMessage;
+    [SameObject] readonly attribute NodeList labels;
+
+    boolean checkValidity();
+    boolean reportValidity();
+    undefined setCustomValidity(DOMString error);
+    undefined showPicker();
+};
+
+interface HTMLButtonElement : HTMLElement {
+    [CEReactions] attribute boolean disabled;
+    [CEReactions] attribute HTMLFormElement? form;
+    [CEReactions] attribute USVString formAction;
+    [CEReactions] attribute DOMString formEnctype;
+    [CEReactions] attribute DOMString formMethod;
+    [CEReactions] attribute boolean formNoValidate;
+    [CEReactions] attribute DOMString formTarget;
+    [CEReactions] attribute DOMString name;
+    [CEReactions] attribute DOMString type;
+    [CEReactions] attribute DOMString value;
+    [CEReactions, Reflect] attribute DOMString popoverTargetAction;
+    [CEReactions] attribute HTMLElement? popoverTargetElement;
+
+    readonly attribute boolean willValidate;
+    readonly attribute ValidityState validity;
+    readonly attribute DOMString validationMessage;
+    [SameObject] readonly attribute NodeList labels;
+
+    boolean checkValidity();
+    boolean reportValidity();
+    undefined setCustomValidity(DOMString error);
+};
+
+interface HTMLLabelElement : HTMLElement {
+    readonly attribute HTMLFormElement? form;
+    [CEReactions] attribute DOMString htmlFor;
+    readonly attribute HTMLElement? control;
+};
+
+interface HTMLOptionElement : HTMLElement {
+    [CEReactions] attribute boolean disabled;
+    readonly attribute HTMLFormElement? form;
+    [CEReactions] attribute DOMString label;
+    [CEReactions] attribute boolean defaultSelected;
+    [CEReactions] attribute boolean selected;
+    [CEReactions] attribute DOMString value;
+    [CEReactions] attribute DOMString text;
+    readonly attribute long index;
+};
+
+interface HTMLOptGroupElement : HTMLElement {
+    [CEReactions] attribute boolean disabled;
+    [CEReactions] attribute DOMString label;
+};
+
+interface HTMLOutputElement : HTMLElement {
+    [SameObject, PutForwards=value] readonly attribute DOMTokenList htmlFor;
+    readonly attribute HTMLFormElement? form;
+    [CEReactions] attribute DOMString name;
+    readonly attribute DOMString type;
+    [CEReactions, Reflect=value] attribute DOMString defaultValue;
+    [CEReactions] attribute DOMString value;
+
+    readonly attribute boolean willValidate;
+    readonly attribute ValidityState validity;
+    readonly attribute DOMString validationMessage;
+    [SameObject] readonly attribute NodeList labels;
+
+    boolean checkValidity();
+    boolean reportValidity();
+    undefined setCustomValidity(DOMString error);
+};
+
+interface HTMLFieldSetElement : HTMLElement {
+    [CEReactions] attribute boolean disabled;
+    readonly attribute HTMLFormElement? form;
+    [CEReactions] attribute DOMString name;
+    readonly attribute DOMString type;
+    [SameObject] readonly attribute HTMLCollection elements;
+
+    readonly attribute boolean willValidate;
+    readonly attribute ValidityState validity;
+    readonly attribute DOMString validationMessage;
+
+    boolean checkValidity();
+    boolean reportValidity();
+    undefined setCustomValidity(DOMString error);
+};
+
+interface HTMLMeterElement : HTMLElement {
+    [CEReactions] attribute double value;
+    [CEReactions] attribute double min;
+    [CEReactions] attribute double max;
+    [CEReactions] attribute double low;
+    [CEReactions] attribute double high;
+    [CEReactions] attribute double optimum;
+    [SameObject] readonly attribute NodeList labels;
+};
+
+interface HTMLProgressElement : HTMLElement {
+    [CEReactions] attribute double value;
+    [CEReactions] attribute double max;
+    readonly attribute double position;
+    [SameObject] readonly attribute NodeList labels;
+};
+
+interface HTMLDataElement : HTMLElement {
+    [CEReactions] attribute DOMString value;
+};
+
+interface HTMLTimeElement : HTMLElement {
+    [CEReactions] attribute DOMString dateTime;
+};
+```
+| 接口 | 关键成员 | 功能描述 |
+|------|---------|---------|
+| `HTMLFormElement` | `action`, `method`, `enctype`, `target` | 表单提交参数 |
+| | `elements` | 表单内所有控件集合 |
+| | `submit()` | 提交表单（不触发 `submit` 事件，绕过验证） |
+| | `requestSubmit(submitter)` | 安全提交（触发事件、执行验证） |
+| | `reset()` | 重置表单 |
+| `HTMLInputElement` | `type` | 输入类型：`"text"`, `"password"`, `"email"`, `"number"`, `"date"`, `"checkbox"`, `"radio"`, `"file"`, `"hidden"`, `"submit"`, `"button"`, `"color"`, `"range"`, `"search"`, `"tel"`, `"url"`, `"week"`, `"month"`, `"datetime-local"` 等 |
+| | `value` | 当前值 |
+| | `defaultValue` | 默认值（重置时恢复） |
+| | `checked` / `indeterminate` | 复选/单选状态 |
+| | `files` | `type="file"` 时返回选中的文件列表 |
+| | `valueAsDate` / `valueAsNumber` | 日期/数值类型输入的解析值 |
+| | `list` | 关联的 `<datalist>` 元素 |
+| | `stepUp(n)` / `stepDown(n)` | 按 `step` 增减数值 |
+| | `select()` | 选中全部文本 |
+| | `setSelectionRange(start, end, direction)` | 设置文本选择范围 |
+| | `setRangeText(replacement, start, end, mode)` | 替换选择文本。`mode`: `"select"`, `"start"`, `"end"`, `"preserve"` |
+| | `showPicker()` | 显示原生选择器（日期/颜色/文件等） |
+| `HTMLTextAreaElement` | `rows`, `cols`, `wrap` | 行列数和换行模式 |
+| | `textLength` | 文本长度（只读） |
+| `HTMLSelectElement` | `multiple`, `size` | 多选/显示行数 |
+| | `options` | 所有 `<option>` 集合 |
+| | `selectedOptions` | 已选中的选项集合 |
+| | `selectedIndex` | 首个选中项索引（`-1` 表示无） |
+| | `add(element, before)` | 添加选项 |
+| | `remove(index)` | 移除指定索引选项 |
+| `HTMLButtonElement` | `type` | `"submit"`, `"reset"`, `"button"` |
+| `HTMLLabelElement` | `htmlFor` | 关联控件的 `id` |
+| | `control` | 关联的控件元素（只读） |
+| `HTMLOptionElement` | `selected` | 是否被选中 |
+| | `defaultSelected` | 初始选中状态（`selected` 属性的 DOM 映射） |
+| | `index` | 在父 `<select>` 中的索引 |
+| `HTMLOutputElement` | `htmlFor` | 参与计算的控件 ID 列表 |
+| | `defaultValue` | 默认值 |
+| | `value` | 当前显示值（由计算或脚本设置） |
+| `HTMLFieldSetElement` | `elements` | 字段集内所有控件 |
+| `HTMLMeterElement` | `value`, `min`, `max`, `low`, `high`, `optimum` | 度量值及区间阈值 |
+| `HTMLProgressElement` | `value`, `max` | 进度值和最大值 |
+| | `position` | 当前进度比例（`value/max`，不确定时为 `-1`） |
+
+---
+
+### 表格与列表
+```idl
+interface HTMLTableElement : HTMLElement {
+    [CEReactions] attribute HTMLTableCaptionElement? caption;
+    [CEReactions] HTMLTableCaptionElement createCaption();
+    [CEReactions] undefined deleteCaption();
+    [CEReactions] attribute HTMLTableSectionElement? tHead;
+    [CEReactions] HTMLTableSectionElement createTHead();
+    [CEReactions] undefined deleteTHead();
+    [CEReactions] attribute HTMLTableSectionElement? tFoot;
+    [CEReactions] HTMLTableSectionElement createTFoot();
+    [CEReactions] undefined deleteTFoot();
+    [SameObject] readonly attribute HTMLCollection tBodies;
+    [CEReactions] HTMLTableSectionElement createTBody();
+    [SameObject] readonly attribute HTMLCollection rows;
+    [CEReactions] HTMLTableRowElement insertRow(optional long index = -1);
+    [CEReactions] undefined deleteRow(long index);
+};
+
+interface HTMLTableSectionElement : HTMLElement {
+    [SameObject] readonly attribute HTMLCollection rows;
+    [CEReactions] HTMLTableRowElement insertRow(optional long index = -1);
+    [CEReactions] undefined deleteRow(long index);
+};
+
+interface HTMLTableRowElement : HTMLElement {
+    readonly attribute long rowIndex;
+    readonly attribute long sectionRowIndex;
+    [SameObject] readonly attribute HTMLCollection cells;
+    [CEReactions] HTMLTableCellElement insertCell(optional long index = -1);
+    [CEReactions] undefined deleteCell(long index);
+};
+
+interface HTMLTableCellElement : HTMLElement {
+    [CEReactions] attribute unsigned long colSpan;
+    [CEReactions] attribute unsigned long rowSpan;
+    [CEReactions, Reflect] attribute DOMString headers;
+    readonly attribute long cellIndex;
+};
+
+interface HTMLTableCaptionElement : HTMLElement { };
+```
+| 接口 | 关键成员 | 功能描述 |
+|------|---------|---------|
+| `HTMLTableElement` | `caption` / `tHead` / `tFoot` | 表格标题/表头/表尾 |
+| | `createCaption()` / `deleteCaption()` | 创建/删除标题 |
+| | `tBodies` | `<tbody>` 集合 |
+| | `createTBody()` | 创建新的 `<tbody>` |
+| | `rows` | 所有行（跨 `<thead>`, `<tbody>`, `<tfoot>`） |
+| | `insertRow(index)` | 在指定位置插入行（`-1` 末尾） |
+| | `deleteRow(index)` | 删除指定行 |
+| `HTMLTableSectionElement` | `rows` | 区域内行集合 |
+| | `insertRow(index)` / `deleteRow(index)` | 插入/删除行 |
+| `HTMLTableRowElement` | `rowIndex` | 表格中的行索引 |
+| | `sectionRowIndex` | 区域内的行索引 |
+| | `cells` | 行内单元格集合 |
+| | `insertCell(index)` / `deleteCell(index)` | 插入/删除单元格（默认 `<td>`） |
+| `HTMLTableCellElement` | `colSpan` / `rowSpan` | 跨列/跨行数 |
+| | `headers` | 关联表头 ID |
+| | `cellIndex` | 行内单元格索引 |
+
+---
+
+### 嵌入内容与交互元素
+```idl
+interface HTMLImageElement : HTMLElement {
+    [CEReactions] attribute USVString src;
+    [CEReactions] attribute DOMString srcset;
+    [CEReactions] attribute DOMString sizes;
+    [CEReactions] attribute DOMString? crossOrigin;
+    [CEReactions] attribute DOMString useMap;
+    [CEReactions] attribute boolean isMap;
+    [CEReactions] attribute unsigned long width;
+    [CEReactions] attribute unsigned long height;
+    readonly attribute unsigned long naturalWidth;
+    readonly attribute unsigned long naturalHeight;
+    readonly attribute boolean complete;
+    readonly attribute USVString currentSrc;
+    [CEReactions] attribute DOMString referrerPolicy;
+    [CEReactions] attribute DOMString decoding;
+    [CEReactions] attribute DOMString loading;
+    [CEReactions] attribute DOMString fetchPriority;
+    readonly attribute long x;
+    readonly attribute long y;
+    readonly attribute DOMString naturalOrientation;
+
+    Promise<undefined> decode();
+};
+
+interface HTMLIFrameElement : HTMLElement {
+    [CEReactions] attribute USVString src;
+    [CEReactions] attribute DOMString srcdoc;
+    [CEReactions] attribute DOMString name;
+    [CEReactions, Reflect] attribute DOMString sandbox;
+    [CEReactions] attribute DOMString allow;
+    [CEReactions] attribute USVString width;
+    [CEReactions] attribute USVString height;
+    [CEReactions] attribute DOMString referrerPolicy;
+    [CEReactions] attribute DOMString loading;
+    [CEReactions] attribute DOMString csp;
+    readonly attribute Document? contentDocument;
+    readonly attribute WindowProxy? contentWindow;
+    Document? getSVGDocument();
+};
+
+interface HTMLObjectElement : HTMLElement {
+    [CEReactions] attribute USVString data;
+    [CEReactions] attribute DOMString type;
+    [CEReactions] attribute DOMString name;
+    [CEReactions] attribute DOMString useMap;
+    [CEReactions] attribute HTMLFormElement? form;
+    [CEReactions] attribute USVString width;
+    [CEReactions] attribute USVString height;
+    readonly attribute Document? contentDocument;
+    readonly attribute WindowProxy? contentWindow;
+    readonly attribute boolean willValidate;
+    readonly attribute ValidityState validity;
+    readonly attribute DOMString validationMessage;
+    boolean checkValidity();
+    boolean reportValidity();
+    undefined setCustomValidity(DOMString error);
+    Document? getSVGDocument();
+};
+
+interface HTMLEmbedElement : HTMLElement {
+    [CEReactions] attribute USVString src;
+    [CEReactions] attribute DOMString type;
+    [CEReactions] attribute DOMString width;
+    [CEReactions] attribute DOMString height;
+    Document? getSVGDocument();
+};
+
+interface HTMLCanvasElement : HTMLElement {
+    [CEReactions] attribute unsigned long width;
+    [CEReactions] attribute unsigned long height;
+
+    RenderingContext? getContext(DOMString contextId, optional any options = null);
+    boolean probablySupportsContext(DOMString contextId, optional any options = null);
+    USVString toDataURL(optional DOMString type = "image/png", optional any quality);
+    undefined toBlob(BlobCallback _callback, optional DOMString type = "image/png", optional any quality);
+    OffscreenCanvas transferControlToOffscreen();
+    boolean isContextLost();
+};
+
+interface HTMLDialogElement : HTMLElement {
+    [CEReactions] attribute boolean open;
+    attribute DOMString returnValue;
+    [CEReactions] undefined show();
+    [CEReactions] undefined showModal();
+    [CEReactions] undefined close(optional DOMString returnValue);
+};
+
+interface HTMLDetailsElement : HTMLElement {
+    [CEReactions] attribute boolean open;
+    attribute EventHandler ontoggle;
+};
+
+interface HTMLSlotElement : HTMLElement {
+    [CEReactions] attribute DOMString name;
+    sequence<Node> assignedNodes(optional AssignedNodesOptions options = {});
+    sequence<Element> assignedElements(optional AssignedNodesOptions options = {});
+    [CEReactions] undefined assign((Element or Text)... nodes);
+};
+
+dictionary AssignedNodesOptions {
+    boolean flatten = false;
+};
+```
+| 接口 | 关键成员 | 功能描述 |
+|------|---------|---------|
+| `HTMLImageElement` | `src` / `srcset` / `sizes` | 响应式图片源 |
+| | `crossOrigin` | CORS 模式 |
+| | `naturalWidth` / `naturalHeight` | 图片 intrinsic 尺寸 |
+| | `complete` | 是否加载完成 |
+| | `currentSrc` | 实际加载的 URL（考虑 `srcset` 和 `sizes`） |
+| | `decoding` | 解码策略：`"sync"`, `"async"`, `"auto"` |
+| | `loading` | 懒加载：`"eager"`, `"lazy"` |
+| | `fetchPriority` | 获取优先级：`"high"`, `"low"`, `"auto"` |
+| | `decode()` | `Promise` 图片解码完成（避免布局抖动） |
+| `HTMLIFrameElement` | `src` / `srcdoc` | 框架源 URL 或内联 HTML |
+| | `sandbox` | 沙箱权限令牌列表 |
+| | `allow` | 权限策略（如 `"camera; microphone"`） |
+| | `csp` | 嵌入式内容安全策略 |
+| | `contentDocument` / `contentWindow` | 框架内的文档和窗口（跨域限制） |
+| | `getSVGDocument()` | 获取框架内的 SVG 文档 |
+| `HTMLObjectElement` | `data` / `type` | 对象数据和 MIME 类型 |
+| | `contentDocument` / `contentWindow` | 对象内容文档/窗口 |
+| | `willValidate` / `validity` / `validationMessage` | 表单验证状态 |
+| `HTMLCanvasElement` | `width` / `height` | 画布像素尺寸 |
+| | `getContext("2d")` | 获取 2D 渲染上下文 |
+| | `getContext("webgl")` / `getContext("webgl2")` | 获取 WebGL 上下文 |
+| | `getContext("bitmaprenderer")` | 获取位图渲染上下文 |
+| | `toDataURL(type, quality)` | 导出为 Data URL |
+| | `toBlob(callback, type, quality)` | 导出为 Blob |
+| | `transferControlToOffscreen()` | 将控制权转移到 `OffscreenCanvas`（Worker 渲染） |
+| | `isContextLost()` | 上下文是否丢失 |
+| `HTMLDialogElement` | `open` | 是否打开 |
+| | `returnValue` | 关闭时的返回值 |
+| | `show()` | 显示对话框（非模态） |
+| | `showModal()` | 显示模态对话框（背景变暗，焦点陷阱） |
+| | `close(returnValue)` | 关闭对话框 |
+| `HTMLDetailsElement` | `open` | 是否展开 |
+| | `ontoggle` | 展开/折叠时触发 |
+| `HTMLSlotElement` | `name` | 插槽名称 |
+| | `assignedNodes({flatten})` | 返回分配的节点。`flatten = true` 时递归展平嵌套插槽 |
+| | `assignedElements({flatten})` | 返回分配的元素节点 |
+| | `assign(...nodes)` | 手动分配节点到插槽（`slotAssignment="manual"` 模式） |
+
+---
+
+### 脚本、样式与元数据
+```idl
+interface HTMLScriptElement : HTMLElement {
+    [CEReactions] attribute USVString src;
+    [CEReactions] attribute DOMString type;
+    [CEReactions] attribute boolean noModule;
+    [CEReactions] attribute boolean async;
+    [CEReactions] attribute boolean defer;
+    [CEReactions] attribute DOMString? crossOrigin;
+    [CEReactions] attribute DOMString text;
+    [CEReactions] attribute DOMString integrity;
+    [CEReactions] attribute DOMString referrerPolicy;
+    [CEReactions] attribute DOMString fetchPriority;
+    [CEReactions, Reflect] attribute DOMString blocking;
+    [CEReactions] attribute DOMString charset; // 遗留
+    [CEReactions] attribute DOMString event; // 遗留
+    [CEReactions] attribute DOMString htmlFor; // 遗留
+
+    static boolean supports(DOMString type);
+};
+
+interface HTMLLinkElement : HTMLElement {
+    [CEReactions] attribute USVString href;
+    [CEReactions] attribute DOMString? crossOrigin;
+    [CEReactions, Reflect] attribute DOMString rel;
+    [SameObject, PutForwards=value] readonly attribute DOMTokenList relList;
+    [CEReactions] attribute DOMString media;
+    [CEReactions] attribute DOMString hreflang;
+    [CEReactions] attribute DOMString type;
+    [CEReactions] attribute DOMString referrerPolicy;
+    [CEReactions] attribute DOMString integrity;
+    [CEReactions] attribute boolean disabled;
+    [CEReactions] attribute DOMString as;
+    [CEReactions] attribute DOMString fetchPriority;
+    [CEReactions] attribute DOMString imageSrcset;
+    [CEReactions] attribute DOMString imageSizes;
+    [CEReactions, Reflect] attribute DOMString blocking;
+    [CEReactions] attribute DOMString sizes;
+    readonly attribute CSSStyleSheet? sheet;
+
+    static boolean supports(DOMString type);
+};
+
+interface HTMLStyleElement : HTMLElement {
+    [CEReactions] attribute DOMString media;
+    [CEReactions] attribute DOMString nonce;
+    [CEReactions] attribute DOMString type; // 遗留
+    [CEReactions] attribute boolean disabled;
+    [CEReactions, Reflect] attribute DOMString blocking;
+    readonly attribute CSSStyleSheet? sheet;
+};
+
+interface HTMLMetaElement : HTMLElement {
+    [CEReactions] attribute DOMString name;
+    [CEReactions] attribute DOMString httpEquiv;
+    [CEReactions] attribute DOMString content;
+    [CEReactions] attribute DOMString scheme; // 遗留
+    [CEReactions] attribute DOMString media;
+};
+
+interface HTMLBaseElement : HTMLElement {
+    [CEReactions] attribute USVString href;
+    [CEReactions] attribute DOMString target;
+};
+
+interface HTMLTitleElement : HTMLElement {
+    [CEReactions] attribute DOMString text;
+};
+
+interface HTMLHeadElement : HTMLElement { };
+interface HTMLBodyElement : HTMLElement {
+    attribute EventHandler onafterprint;
+    attribute EventHandler onbeforeprint;
+    attribute EventHandler onbeforeunload;
+    attribute EventHandler onhashchange;
+    attribute EventHandler onlanguagechange;
+    attribute EventHandler onmessage;
+    attribute EventHandler onoffline;
+    attribute EventHandler ononline;
+    attribute EventHandler onpageshow;
+    attribute EventHandler onpagehide;
+    attribute EventHandler onpopstate;
+    attribute EventHandler onpageswap;
+    attribute EventHandler onpagereveal;
+    attribute EventHandler onrejectionhandled;
+    attribute EventHandler onstorage;
+    attribute EventHandler onunhandledrejection;
+    attribute EventHandler onunload;
+};
+```
+| 接口 | 关键成员 | 功能描述 |
+|------|---------|---------|
+| `HTMLScriptElement` | `src` / `type` / `text` | 外部脚本源、MIME 类型、内联脚本文本 |
+| | `noModule` | 不在支持模块的浏览器中执行（模块回退） |
+| | `async` / `defer` | 异步/延迟执行 |
+| | `integrity` | SRI 哈希（子资源完整性） |
+| | `blocking` | 阻塞渲染的令牌（如 `"render"`） |
+| | `supports(type)` | 静态方法，检查浏览器是否支持脚本类型（如 `"module"`, `"importmap"`） |
+| `HTMLLinkElement` | `href` / `rel` / `relList` | 链接 URL 和关系 |
+| | `as` | 预加载资源类型（`"script"`, `"style"`, `"image"`, `"font"` 等） |
+| | `media` | 媒体查询条件 |
+| | `disabled` | 禁用样式表 |
+| | `imageSrcset` / `imageSizes` | 预加载响应式图片 |
+| | `sheet` | 关联的 `CSSStyleSheet` 对象 |
+| | `supports(type)` | 静态方法，检查 `rel` 值支持（如 `"preload"`, `"modulepreload"`） |
+| `HTMLStyleElement` | `media` | 样式表适用的媒体 |
+| | `disabled` | 禁用样式表 |
+| | `sheet` | 关联的 `CSSStyleSheet` |
+| `HTMLMetaElement` | `name` / `content` | 元数据名和值（如 `name="viewport"`） |
+| | `httpEquiv` |  pragma 指令（如 `"content-type"`, `"refresh"`, `"content-security-policy"`） |
+| | `media` | 元数据适用的媒体 |
+| `HTMLBaseElement` | `href` / `target` | 文档基础 URL 和默认浏览上下文 |
+
+---
+
+### 其他元素
+```idl
+interface HTMLSourceElement : HTMLElement {
+    [CEReactions] attribute USVString src;
+    [CEReactions] attribute DOMString type;
+    [CEReactions] attribute USVString srcset;
+    [CEReactions] attribute DOMString sizes;
+    [CEReactions] attribute DOMString media;
+    [CEReactions] attribute unsigned long width;
+    [CEReactions] attribute unsigned long height;
+};
+
+interface HTMLTrackElement : HTMLElement {
+    [CEReactions] attribute DOMString kind;
+    [CEReactions] attribute USVString src;
+    [CEReactions] attribute DOMString srclang;
+    [CEReactions] attribute DOMString label;
+    [CEReactions] attribute boolean default;
+    readonly attribute unsigned short readyState; // NONE=0, LOADING=1, LOADED=2, ERROR=3
+    readonly attribute TextTrack track;
+};
+
+interface HTMLAreaElement : HTMLElement {
+    [CEReactions] attribute USVString href;
+    [CEReactions] attribute DOMString target;
+    [CEReactions] attribute DOMString download;
+    [CEReactions] attribute USVString ping;
+    [CEReactions, Reflect] attribute DOMString rel;
+    [SameObject, PutForwards=value] readonly attribute DOMTokenList relList;
+    [CEReactions] attribute DOMString referrerPolicy;
+    [CEReactions] attribute DOMString shape;
+    [CEReactions] attribute DOMString coords;
+    [CEReactions] attribute DOMString alt;
+
+    // URL 分解 IDL 属性（同 HTMLAnchorElement）
+    readonly attribute USVString origin;
+    [CEReactions] attribute USVString protocol;
+    [CEReactions] attribute USVString username;
+    [CEReactions] attribute USVString password;
+    [CEReactions] attribute USVString host;
+    [CEReactions] attribute USVString hostname;
+    [CEReactions] attribute USVString port;
+    [CEReactions] attribute USVString pathname;
+    [CEReactions] attribute USVString search;
+    [CEReactions] attribute USVString hash;
+};
+
+interface HTMLMapElement : HTMLElement {
+    [CEReactions] attribute DOMString name;
+    [SameObject] readonly attribute HTMLCollection areas;
+};
+
+interface HTMLDataListElement : HTMLElement {
+    [SameObject] readonly attribute HTMLCollection options;
+};
+
+interface HTMLPictureElement : HTMLElement { };
+
+interface HTMLTemplateElement : HTMLElement {
+    readonly attribute DocumentFragment content;
+    [CEReactions] attribute DOMString shadowRootMode;
+    [CEReactions] attribute boolean shadowRootDelegatesFocus;
+    [CEReactions] attribute boolean shadowRootClonable;
+    [CEReactions] attribute boolean shadowRootSerializable;
+    DOMString getHTML(optional GetHTMLOptions options = {});
+};
+
+interface HTMLUnknownElement : HTMLElement { };
+```
+| 接口 | 关键成员 | 功能描述 |
+|------|---------|---------|
+| `HTMLSourceElement` | `src` / `type` | 媒体源和 MIME 类型（`<audio>/<video>` 用） |
+| | `srcset` / `sizes` / `media` / `width` / `height` | 响应式图片源（`<picture>` 内用） |
+| `HTMLTrackElement` | `kind` | 轨道类型：`"subtitles"`, `"captions"`, `"descriptions"`, `"chapters"`, `"metadata"` |
+| | `src` / `srclang` / `label` | 轨道源、语言、标签 |
+| | `default` | 默认启用该轨道 |
+| | `readyState` | 加载状态 |
+| | `track` | 关联的 `TextTrack` 对象 |
+| `HTMLAreaElement` | `shape` / `coords` | 热点形状（`"rect"`, `"circle"`, `"poly"`, `"default"`）和坐标 |
+| | `alt` | 替代文本 |
+| | 其他 URL 属性同 `HTMLAnchorElement` |
+| `HTMLMapElement` | `name` | 地图名称（由 `<img useMap>` 引用） |
+| | `areas` | 所有 `<area>` 集合 |
+| `HTMLDataListElement` | `options` | 所有 `<option>` 集合 |
+| `HTMLTemplateElement` | `content` | 模板内容（`DocumentFragment`，解析时不渲染） |
+| | `shadowRootMode` 等 | 声明实例化时的 ShadowRoot 参数 |
+| | `getHTML()` | 序列化模板内容 |
+| `HTMLUnknownElement` | (无) | 未知/自定义标签的兜底接口 |
+
+---
+
+# 五、表单辅助 API
+
+```idl
+[Exposed=Window]
+interface FormData {
+    undefined append(USVString name, Blob value, optional USVString filename);
+    undefined append(USVString name, USVString value);
+    undefined delete(USVString name);
+    FormDataEntryValue? get(USVString name);
+    sequence<FormDataEntryValue> getAll(USVString name);
+    boolean has(USVString name);
+    undefined set(USVString name, Blob value, optional USVString filename);
+    undefined set(USVString name, USVString value);
+    iterable<USVString, FormDataEntryValue>;
+};
+
+[Exposed=Window]
+interface ValidityState {
+    readonly attribute boolean valueMissing;
+    readonly attribute boolean typeMismatch;
+    readonly attribute boolean patternMismatch;
+    readonly attribute boolean tooLong;
+    readonly attribute boolean tooShort;
+    readonly attribute boolean rangeUnderflow;
+    readonly attribute boolean rangeOverflow;
+    readonly attribute boolean stepMismatch;
+    readonly attribute boolean badInput;
+    readonly attribute boolean customError;
+    readonly attribute boolean valid;
+};
+
+[Exposed=Window]
+interface ElementInternals {
+    readonly attribute ShadowRoot? shadowRoot;
+    readonly attribute HTMLFormElement? form;
+    [SameObject] readonly attribute NodeList labels;
+    [CEReactions] undefined setFormValue((File or USVString or FormData)? value, optional (File or USVString or FormData)? state);
+    [CEReactions] undefined setValidity(optional ValidityStateFlags flags = {}, optional DOMString message = "", optional HTMLElement? anchor = null);
+    boolean reportValidity();
+    boolean checkValidity();
+    readonly attribute DOMString validationMessage;
+    readonly attribute ValidityState validity;
+    readonly attribute boolean willValidate;
+    [SameObject] readonly attribute CustomStateSet states;
+};
+
+[Exposed=Window]
+interface CustomStateSet {
+    readonly attribute unsigned long size;
+    undefined add(DOMString value);
+    undefined clear();
+    boolean delete(DOMString value);
+    boolean has(DOMString value);
+    iterable<DOMString>;
+};
+```
+| 接口 | 成员 | 类型 | 功能描述 |
+|------|------|------|---------|
+| `FormData` | `append(name, value, filename)` | `undefined` | 添加表单字段。`Blob` 值可指定文件名 |
+| | `delete(name)` | `undefined` | 删除所有同名字段 |
+| | `get(name)` | `FormDataEntryValue?` | 获取首个同名字段值（`USVString` 或 `Blob`） |
+| | `getAll(name)` | `FormDataEntryValue[]` | 获取所有同名字段值 |
+| | `has(name)` | `boolean` | 是否存在该字段 |
+| | `set(name, value, filename)` | `undefined` | 设置字段值（删除所有旧值后添加） |
+| `ValidityState` | `valueMissing` | `boolean` (只读) | 必填字段为空 |
+| | `typeMismatch` | `boolean` (只读) | 值与 `type` 不匹配（如 `type="email"` 但非邮箱格式） |
+| | `patternMismatch` | `boolean` (只读) | 值不匹配 `pattern` 正则 |
+| | `tooLong` / `tooShort` | `boolean` (只读) | 超出 `maxLength` / 不足 `minLength` |
+| | `rangeUnderflow` / `rangeOverflow` | `boolean` (只读) | 低于 `min` / 超出 `max` |
+| | `stepMismatch` | `boolean` (只读) | 不符合 `step` 步长 |
+| | `badInput` | `boolean` (只读) | 浏览器无法转换输入（如 `type="number"` 输入非数字） |
+| | `customError` | `boolean` (只读) | 通过 `setCustomValidity()` 设置了自定义错误 |
+| | `valid` | `boolean` (只读) | 所有验证通过 |
+| `ElementInternals` | `shadowRoot` | `ShadowRoot?` (只读) | 自定义元素的 ShadowRoot（`closed` 模式下内部访问） |
+| | `form` | `HTMLFormElement?` (只读) | 关联的表单（通过 `form` 属性或祖先表单） |
+| | `labels` | `NodeList` (只读) | 关联的 `<label>` 元素 |
+| | `setFormValue(value, state)` | `undefined` | 设置自定义元素的表单值和状态（用于表单提交和重置） |
+| | `setValidity(flags, message, anchor)` | `undefined` | 设置验证状态和错误消息 |
+| | `reportValidity()` | `boolean` | 报告验证错误（显示提示） |
+| | `checkValidity()` | `boolean` | 检查验证状态 |
+| | `states` | `CustomStateSet` (只读) | 自定义状态集合（通过 `:state()` 伪类选择） |
+| `CustomStateSet` | `add(value)` | `undefined` | 添加自定义状态 |
+| | `delete(value)` | `boolean` | 删除状态 |
+| | `has(value)` | `boolean` | 是否包含状态 |
+
+---
+
+# 六、CSSOM (CSS Object Model)
+
+## 6.1 样式表核心
+```idl
+[Exposed=Window]
+interface StyleSheet {
+    readonly attribute DOMString type;
+    readonly attribute USVString? href;
+    readonly attribute (Element or ProcessingInstruction)? ownerNode;
+    readonly attribute StyleSheet? parentStyleSheet;
+    readonly attribute DOMString? title;
+    [SameObject, PutForwards=mediaText] readonly attribute MediaList media;
+    attribute boolean disabled;
+};
+
+[Exposed=Window]
+interface CSSStyleSheet : StyleSheet {
+    readonly attribute CSSRule? ownerRule;
+    [SameObject] readonly attribute CSSRuleList cssRules;
+    [SameObject] readonly attribute CSSRuleList rules; // 遗留
+
+    [CEReactions] unsigned long insertRule(CSSOMString rule, optional unsigned long index = 0);
+    [CEReactions] undefined deleteRule(unsigned long index);
+    [CEReactions] Promise<CSSStyleSheet> replace(USVString text);
+    [CEReactions] undefined replaceSync(USVString text);
+
+    // 遗留
+    [CEReactions] long addRule(optional CSSOMString selector = "undefined", optional CSSOMString style = "undefined", optional unsigned long index);
+    [CEReactions] undefined removeRule(optional unsigned long index = 0);
+};
+
+[Exposed=Window]
+interface CSSRuleList {
+    readonly attribute unsigned long length;
+    getter CSSRule? item(unsigned long index);
+    iterable<CSSRule>;
+};
+
+[Exposed=Window]
+interface CSSRule {
+    attribute CSSOMString cssText;
+    readonly attribute CSSRule? parentRule;
+    readonly attribute CSSStyleSheet? parentStyleSheet;
+    readonly attribute unsigned short type;
+    // 类型常量
+    const unsigned short STYLE_RULE = 1;
+    const unsigned short CHARSET_RULE = 2; // 遗留
+    const unsigned short IMPORT_RULE = 3;
+    const unsigned short MEDIA_RULE = 4;
+    const unsigned short FONT_FACE_RULE = 5;
+    const unsigned short PAGE_RULE = 6;
+    const unsigned short MARGIN_RULE = 9; // CSS Margin Rules
+    const unsigned short NAMESPACE_RULE = 10;
+    const unsigned short KEYFRAMES_RULE = 7;
+    const unsigned short KEYFRAME_RULE = 8;
+    const unsigned short COUNTER_STYLE_RULE = 11;
+    const unsigned short SUPPORTS_RULE = 12;
+    const unsigned short DOCUMENT_RULE = 13; // 遗留
+    const unsigned short FONT_FEATURE_VALUES_RULE = 14;
+    const unsigned short LAYER_BLOCK_RULE = 16;
+    const unsigned short LAYER_STATEMENT_RULE = 17;
+    const unsigned short PROPERTY_RULE = 15;
+    const unsigned short SCOPE_RULE = 18;
+    const unsigned short CONTAINER_RULE = 19;
+    const unsigned short STARTING_STYLE_RULE = 20;
+    const unsigned short NESTING_RULE = 21;
+};
+
+[Exposed=Window]
+interface CSSStyleRule : CSSRule {
+    attribute CSSOMString selectorText;
+    [SameObject, PutForwards=cssText] readonly attribute CSSStyleDeclaration style;
+    [SameObject] readonly attribute CSSRuleList cssRules;
+    attribute CSSOMString name; // CSSNestedDeclarations
+};
+
+[Exposed=Window]
+interface CSSImportRule : CSSRule {
+    readonly attribute USVString href;
+    [SameObject, PutForwards=mediaText] readonly attribute MediaList media;
+    readonly attribute CSSStyleSheet styleSheet;
+    readonly attribute DOMString? layerName;
+    readonly attribute DOMString? supportsText;
+};
+
+[Exposed=Window]
+interface CSSMediaRule : CSSRule {
+    [SameObject, PutForwards=mediaText] readonly attribute MediaList media;
+    [SameObject] readonly attribute CSSRuleList cssRules;
+    [CEReactions] unsigned long insertRule(CSSOMString rule, optional unsigned long index = 0);
+    [CEReactions] undefined deleteRule(unsigned long index);
+};
+
+[Exposed=Window]
+interface CSSFontFaceRule : CSSRule {
+    [SameObject, PutForwards=cssText] readonly attribute CSSStyleDeclaration style;
+};
+
+[Exposed=Window]
+interface CSSKeyframesRule : CSSRule {
+    attribute CSSOMString name;
+    [SameObject] readonly attribute CSSRuleList cssRules;
+    readonly attribute unsigned long length;
+    getter CSSKeyframeRule? item(unsigned long index);
+    undefined appendRule(CSSOMString rule);
+    undefined deleteRule(CSSOMString key);
+    CSSKeyframeRule? findRule(CSSOMString key);
+};
+
+[Exposed=Window]
+interface CSSKeyframeRule : CSSRule {
+    attribute CSSOMString keyText;
+    [SameObject, PutForwards=cssText] readonly attribute CSSStyleDeclaration style;
+};
+
+[Exposed=Window]
+interface CSSNamespaceRule : CSSRule {
+    readonly attribute USVString namespaceURI;
+    readonly attribute DOMString? prefix;
+};
+
+[Exposed=Window]
+interface CSSPageRule : CSSRule {
+    attribute CSSOMString selectorText;
+    [SameObject, PutForwards=cssText] readonly attribute CSSStyleDeclaration style;
+    [SameObject] readonly attribute CSSMarginRuleList marginRules;
+};
+
+[Exposed=Window]
+interface CSSCounterStyleRule : CSSRule {
+    attribute CSSOMString name;
+    attribute CSSOMString system;
+    attribute CSSOMString symbols;
+    attribute CSSOMString additiveSymbols;
+    attribute CSSOMString negative;
+    attribute CSSOMString prefix;
+    attribute CSSOMString suffix;
+    attribute CSSOMString range;
+    attribute CSSOMString pad;
+    attribute CSSOMString fallback;
+    attribute CSSOMString speakAs;
+};
+
+[Exposed=Window]
+interface CSSLayerBlockRule : CSSRule {
+    readonly attribute CSSOMString name;
+};
+
+[Exposed=Window]
+interface CSSLayerStatementRule : CSSRule {
+    readonly attribute FrozenArray<CSSOMString> nameList;
+};
+
+[Exposed=Window]
+interface CSSContainerRule : CSSRule {
+    readonly attribute CSSOMString containerQuery;
+    [SameObject] readonly attribute CSSRuleList cssRules;
+    [CEReactions] unsigned long insertRule(CSSOMString rule, optional unsigned long index = 0);
+    [CEReactions] undefined deleteRule(unsigned long index);
+};
+
+[Exposed=Window]
+interface CSSScopeRule : CSSRule {
+    attribute CSSOMString start;
+    attribute CSSOMString end;
+    [SameObject] readonly attribute CSSRuleList cssRules;
+    [CEReactions] unsigned long insertRule(CSSOMString rule, optional unsigned long index = 0);
+    [CEReactions] undefined deleteRule(unsigned long index);
+};
+
+[Exposed=Window]
+interface CSSStartingStyleRule : CSSRule {
+    [SameObject] readonly attribute CSSRuleList cssRules;
+    [CEReactions] unsigned long insertRule(CSSOMString rule, optional unsigned long index = 0);
+    [CEReactions] undefined deleteRule(unsigned long index);
+};
+
+[Exposed=Window]
+interface CSSNestedDeclarations : CSSRule {
+    [SameObject, PutForwards=cssText] readonly attribute CSSStyleDeclaration style;
+};
+```
+| 接口 | 成员 | 类型 | 功能描述 |
+|------|------|------|---------|
+| `StyleSheet` | `type` | `DOMString` (只读) | 样式表类型（始终 `"text/css"`） |
+| | `href` | `USVString?` (只读) | 外部样式表 URL，内联为 `null` |
+| | `ownerNode` | `Element?` (只读) | 拥有该样式表的节点（`<link>` 或 `<style>`） |
+| | `parentStyleSheet` | `StyleSheet?` (只读) | 父样式表（`@import` 引入的样式表有父级） |
+| | `title` | `DOMString?` (只读) | `title` 属性值 |
+| | `media` | `MediaList` (只读) | 适用的媒体查询 |
+| | `disabled` | `boolean` | 是否禁用样式表 |
+| `CSSStyleSheet` | `ownerRule` | `CSSRule?` (只读) | 引入该样式表的 `@import` 规则 |
+| | `cssRules` | `CSSRuleList` (只读) | 样式表内所有 CSS 规则 |
+| | `insertRule(rule, index)` | `unsigned long` | 在指定位置插入规则。返回插入的索引 |
+| | `deleteRule(index)` | `undefined` | 删除指定索引的规则 |
+| | `replace(text)` | `Promise<CSSStyleSheet>` | 异步替换整个样式表内容 |
+| | `replaceSync(text)` | `undefined` | 同步替换样式表内容（仅对可构造样式表有效） |
+| `CSSRule` | `cssText` | `CSSOMString` | 规则的文本序列化 |
+| | `parentRule` | `CSSRule?` (只读) | 父规则（嵌套规则用） |
+| | `parentStyleSheet` | `CSSStyleSheet?` (只读) | 所属样式表 |
+| | `type` | `unsigned short` (只读) | 规则类型常量 |
+| `CSSStyleRule` | `selectorText` | `CSSOMString` | 选择器文本（可读写，设置时重新解析） |
+| | `style` | `CSSStyleDeclaration` (只读) | 声明块 |
+| | `cssRules` | `CSSRuleList` (只读) | 嵌套规则（CSS Nesting） |
+| `CSSImportRule` | `href` | `USVString` (只读) | 导入的 URL |
+| | `media` | `MediaList` (只读) | 导入的媒体查询 |
+| | `styleSheet` | `CSSStyleSheet` (只读) | 导入的样式表 |
+| | `layerName` | `DOMString?` (只读) | `@import ... layer(x)` 的层名 |
+| | `supportsText` | `DOMString?` (只读) | `@import ... supports(...)` 的条件文本 |
+| `CSSMediaRule` | `media` | `MediaList` (只读) | `@media` 的媒体查询 |
+| | `cssRules` | `CSSRuleList` (只读) | 媒体块内的规则 |
+| `CSSKeyframesRule` | `name` | `CSSOMString` | 动画名称 |
+| | `cssRules` | `CSSRuleList` (只读) | 关键帧规则列表 |
+| | `appendRule(rule)` | `undefined` | 追加关键帧规则 |
+| | `deleteRule(key)` | `undefined` | 删除指定关键帧（如 `"50%"`） |
+| | `findRule(key)` | `CSSKeyframeRule?` | 查找关键帧规则 |
+| `CSSKeyframeRule` | `keyText` | `CSSOMString` | 关键帧选择器（如 `"0%"`, `"from"`, `"50%, 75%"`） |
+| | `style` | `CSSStyleDeclaration` (只读) | 关键帧样式 |
+| `CSSNamespaceRule` | `namespaceURI` | `USVString` (只读) | 命名空间 URI |
+| | `prefix` | `DOMString?` (只读) | 命名空间前缀 |
+| `CSSCounterStyleRule` | `name` ~ `speakAs` | `CSSOMString` | `@counter-style` 规则各描述符 |
+| `CSSContainerRule` | `containerQuery` | `CSSOMString` (只读) | `@container` 的容器查询条件 |
+| `CSSScopeRule` | `start` / `end` | `CSSOMString` | `@scope` 的起止选择器 |
+| `CSSNestedDeclarations` | `style` | `CSSStyleDeclaration` (只读) | CSS Nesting 中的裸声明块 |
+
+---
+
+## 6.2 样式声明与媒体
+```idl
+[Exposed=Window]
+interface CSSStyleDeclaration {
+    [CEReactions] attribute CSSOMString cssText;
+    readonly attribute unsigned long length;
+    readonly attribute CSSRule? parentRule;
+    [CEReactions] attribute CSSOMString cssFloat;
+
+    CSSOMString item(unsigned long index);
+    CSSOMString getPropertyValue(CSSOMString property);
+    CSSOMString getPropertyPriority(CSSOMString property);
+    [CEReactions] undefined setProperty(CSSOMString property, CSSOMString value, optional CSSOMString priority = "");
+    [CEReactions] CSSOMString removeProperty(CSSOMString property);
+
+    // 遗留
+    [CEReactions] attribute CSSOMString azimuth;
+    [CEReactions] attribute CSSOMString background;
+    // ... 每个 CSS 属性都有对应的 IDL 属性
+    [CEReactions] attribute CSSOMString zIndex;
+};
+
+[Exposed=Window]
+interface MediaList {
+    [CEReactions] attribute CSSOMString mediaText;
+    readonly attribute unsigned long length;
+    CSSOMString item(unsigned long index);
+    [CEReactions] undefined appendMedium(CSSOMString medium);
+    [CEReactions] undefined deleteMedium(CSSOMString medium);
+};
+
+[Exposed=Window]
+interface Screen {
+    readonly attribute long availWidth;
+    readonly attribute long availHeight;
+    readonly attribute long width;
+    readonly attribute long height;
+    readonly attribute unsigned long colorDepth;
+    readonly attribute unsigned long pixelDepth;
+    readonly attribute long availLeft;
+    readonly attribute long availTop;
+    [SameObject] readonly attribute ScreenOrientation orientation;
+    readonly attribute boolean isExtended;
+};
+
+[Exposed=Window]
+interface ScreenOrientation : EventTarget {
+    readonly attribute OrientationType type;
+    readonly attribute unsigned short angle;
+    Promise<undefined> lock(OrientationLockType orientation);
+    Promise<undefined> unlock();
+    attribute EventHandler onchange;
+};
+```
+| 接口 | 成员 | 类型 | 功能描述 |
+|------|------|------|---------|
+| `CSSStyleDeclaration` | `cssText` | `CSSOMString` | 完整的声明块文本（如 `"color: red; margin: 10px"`） |
+| | `length` | `unsigned long` (只读) | 声明数量 |
+| | `parentRule` | `CSSRule?` (只读) | 所属 CSS 规则 |
+| | `cssFloat` | `CSSOMString` | `float` 属性的 IDL 名（因 `float` 是保留字） |
+| | `item(index)` | `CSSOMString` | 按索引获取属性名 |
+| | `getPropertyValue(property)` | `CSSOMString` | 获取属性值（如 `"red"`） |
+| | `getPropertyPriority(property)` | `CSSOMString` | 获取优先级（`"important"` 或 `""`） |
+| | `setProperty(property, value, priority)` | `undefined` | 设置属性。`priority` 可为 `"important"` |
+| | `removeProperty(property)` | `CSSOMString` | 移除属性，返回旧值 |
+| `MediaList` | `mediaText` | `CSSOMString` | 媒体查询文本（如 `"screen and (min-width: 600px)"`） |
+| | `length` | `unsigned long` (只读) | 媒体查询数量 |
+| | `item(index)` | `CSSOMString` | 按索引获取媒体查询 |
+| | `appendMedium(medium)` | `undefined` | 追加媒体查询 |
+| | `deleteMedium(medium)` | `undefined` | 删除媒体查询 |
+| `Screen` | `availWidth` / `availHeight` | `long` (只读) | 可用屏幕尺寸（不含系统 UI） |
+| | `width` / `height` | `long` (只读) | 屏幕总尺寸 |
+| | `colorDepth` / `pixelDepth` | `unsigned long` (只读) | 颜色深度（通常为 24） |
+| | `availLeft` / `availTop` | `long` (只读) | 可用区域左上角坐标（多显示器） |
+| | `orientation` | `ScreenOrientation` (只读) | 屏幕方向对象 |
+| | `isExtended` | `boolean` (只读) | 是否有多显示器扩展 |
+| `ScreenOrientation` | `type` | `OrientationType` (只读) | `"portrait-primary"`, `"portrait-secondary"`, `"landscape-primary"`, `"landscape-secondary"` |
+| | `angle` | `unsigned short` (只读) | 屏幕旋转角度 |
+| | `lock(orientation)` | `Promise<undefined>` | 锁定屏幕方向 |
+| | `unlock()` | `Promise<undefined>` | 解锁方向 |
+
+---
+
+## 6.3 Typed OM (CSS Typed OM)
+```idl
+[Exposed=Window]
+interface CSSStyleValue {
+    static CSSStyleValue? parse(CSSOMString property, CSSOMString cssText);
+    static sequence<CSSStyleValue> parseAll(CSSOMString property, CSSOMString cssText);
+};
+
+[Exposed=Window]
+interface StylePropertyMapReadOnly {
+    readonly attribute unsigned long size;
+    CSSStyleValue? get(CSSOMString property);
+    sequence<CSSStyleValue> getAll(CSSOMString property);
+    boolean has(CSSOMString property);
+    iterable<CSSOMString, sequence<CSSStyleValue>>;
+};
+
+[Exposed=Window]
+interface StylePropertyMap : StylePropertyMapReadOnly {
+    [CEReactions] undefined set(CSSOMString property, (CSSStyleValue or USVString)... values);
+    [CEReactions] undefined append(CSSOMString property, (CSSStyleValue or USVString)... values);
+    [CEReactions] undefined delete(CSSOMString property);
+    [CEReactions] undefined clear();
+};
+
+[Exposed=Window]
+interface CSSUnitValue : CSSStyleValue {
+    attribute double value;
+    readonly attribute CSSUnitType unit;
+};
+
+[Exposed=Window]
+interface CSSKeywordValue : CSSStyleValue {
+    attribute CSSOMString value;
+};
+
+[Exposed=Window]
+interface CSSNumericValue : CSSStyleValue {
+    CSSNumericValue add(CSSNumberish... values);
+    CSSNumericValue sub(CSSNumberish... values);
+    CSSNumericValue mul(CSSNumberish... values);
+    CSSNumericValue div(CSSNumberish... values);
+    CSSNumericValue min(CSSNumberish... values);
+    CSSNumericValue max(CSSNumberish... values);
+    boolean equals(CSSNumberish... values);
+    CSSUnitValue to(CSSOMString unit);
+    CSSMathSum toSum(CSSOMString... units);
+    CSSNumericType type();
+};
+
+[Exposed=Window]
+interface CSSMathValue : CSSNumericValue {
+    readonly attribute CSSMathOperator operator;
+};
+
+[Exposed=Window]
+interface CSSMathSum : CSSMathValue { };
+interface CSSMathProduct : CSSMathValue { };
+interface CSSMathNegate : CSSMathValue {
+    constructor(CSSNumericValue arg);
+};
+interface CSSMathInvert : CSSMathValue {
+    constructor(CSSNumericValue arg);
+};
+interface CSSMathMin : CSSMathValue { };
+interface CSSMathMax : CSSMathValue { };
+interface CSSMathClamp : CSSMathValue {
+    constructor(CSSNumericValue min, CSSNumericValue val, CSSNumericValue max);
+};
+
+[Exposed=Window]
+interface CSSTransformValue : CSSStyleValue {
+    constructor(sequence<CSSTransformComponent> transforms);
+    readonly attribute unsigned long length;
+    getter CSSTransformComponent (unsigned long index);
+    readonly attribute boolean is2D;
+    DOMMatrix toMatrix();
+    iterable<CSSTransformComponent>;
+};
+
+[Exposed=Window]
+interface CSSTransformComponent {
+    attribute boolean is2D;
+    DOMMatrix toMatrix();
+    stringifier;
+};
+
+[Exposed=Window]
+interface CSSTranslate : CSSTransformComponent {
+    constructor(CSSNumericValue x, CSSNumericValue y, optional CSSNumericValue z = new CSSUnitValue(0, "px"));
+    readonly attribute CSSNumericValue x;
+    readonly attribute CSSNumericValue y;
+    readonly attribute CSSNumericValue z;
+};
+
+[Exposed=Window]
+interface CSSRotate : CSSTransformComponent {
+    constructor(CSSNumericValue angle);
+    constructor(CSSNumericValue x, CSSNumericValue y, CSSNumericValue z, CSSNumericValue angle);
+    readonly attribute CSSNumericValue x;
+    readonly attribute CSSNumericValue y;
+    readonly attribute CSSNumericValue z;
+    readonly attribute CSSNumericValue angle;
+};
+
+[Exposed=Window]
+interface CSSScale : CSSTransformComponent {
+    constructor(CSSNumberish x, CSSNumberish y, optional CSSNumberish z = 1);
+    readonly attribute CSSNumberish x;
+    readonly attribute CSSNumberish y;
+    readonly attribute CSSNumberish z;
+};
+
+[Exposed=Window]
+interface CSSSkew : CSSTransformComponent {
+    constructor(CSSNumericValue ax, CSSNumericValue ay);
+    readonly attribute CSSNumericValue ax;
+    readonly attribute CSSNumericValue ay;
+};
+
+[Exposed=Window]
+interface CSSSkewX : CSSTransformComponent {
+    constructor(CSSNumericValue ax);
+    readonly attribute CSSNumericValue ax;
+};
+
+[Exposed=Window]
+interface CSSSkewY : CSSTransformComponent {
+    constructor(CSSNumericValue ay);
+    readonly attribute CSSNumericValue ay;
+};
+
+[Exposed=Window]
+interface CSSPerspective : CSSTransformComponent {
+    constructor(CSSNumericValue length);
+    readonly attribute CSSNumericValue length;
+};
+
+[Exposed=Window]
+interface CSSMatrixComponent : CSSTransformComponent {
+    constructor(DOMMatrixReadOnly matrix, optional CSSMatrixComponentOptions options = {});
+    attribute DOMMatrix matrix;
+};
+
+[Exposed=Window]
+interface CSSImageValue : CSSStyleValue { };
+
+[Exposed=Window]
+interface CSSURLImageValue : CSSImageValue {
+    constructor(USVString url);
+    readonly attribute USVString url;
+};
+```
+| 接口 | 成员 | 类型 | 功能描述 |
+|------|------|------|---------|
+| `CSSStyleValue` | `parse(property, cssText)` | `CSSStyleValue?` (静态) | 解析单个 CSS 属性值为类型化对象 |
+| | `parseAll(property, cssText)` | `CSSStyleValue[]` (静态) | 解析可能返回多个值的属性（如 `background-image`） |
+| `StylePropertyMapReadOnly` | `size` | `unsigned long` (只读) | 属性数量 |
+| | `get(property)` | `CSSStyleValue?` | 获取单个属性值 |
+| | `getAll(property)` | `CSSStyleValue[]` | 获取属性的所有值 |
+| | `has(property)` | `boolean` | 是否包含该属性 |
+| `StylePropertyMap` | `set(property, ...values)` | `undefined` | 设置属性值 |
+| | `append(property, ...values)` | `undefined` | 追加值（如多重背景） |
+| | `delete(property)` | `undefined` | 删除属性 |
+| | `clear()` | `undefined` | 清空所有属性 |
+| `CSSUnitValue` | `value` | `double` | 数值 |
+| | `unit` | `CSSUnitType` (只读) | 单位（`"px"`, `"em"`, `"deg"`, `"ms"` 等） |
+| `CSSKeywordValue` | `value` | `CSSOMString` | 关键字值（如 `"auto"`, `"none"`） |
+| `CSSNumericValue` | `add()` / `sub()` / `mul()` / `div()` | `CSSNumericValue` | 数学运算（自动单位转换） |
+| | `min()` / `max()` | `CSSNumericValue` | 最小/最大值 |
+| | `equals()` | `boolean` | 比较相等 |
+| | `to(unit)` | `CSSUnitValue` | 转换为指定单位 |
+| | `toSum(...units)` | `CSSMathSum` | 转换为单位和 |
+| | `type()` | `CSSNumericType` | 返回数值类型信息（长度、角度、时间等） |
+| `CSSMathSum` / `Product` / `Negate` / `Invert` / `Min` / `Max` / `Clamp` | (构造器/运算数) | — | CSS `calc()`, `min()`, `max()`, `clamp()` 的类型化表示 |
+| `CSSTransformValue` | `length` | `unsigned long` (只读) | 变换组件数量 |
+| | `is2D` | `boolean` (只读) | 是否纯 2D 变换 |
+| | `toMatrix()` | `DOMMatrix` | 转换为变换矩阵 |
+| `CSSTransformComponent` | `is2D` | `boolean` | 组件是否为 2D |
+| | `toMatrix()` | `DOMMatrix` | 转换为矩阵 |
+| `CSSTranslate` | `x` / `y` / `z` | `CSSNumericValue` (只读) | 平移分量 |
+| `CSSRotate` | `x` / `y` / `z` / `angle` | `CSSNumericValue` (只读) | 旋转轴和角度 |
+| `CSSScale` | `x` / `y` / `z` | `CSSNumberish` (只读) | 缩放因子 |
+| `CSSPerspective` | `length` | `CSSNumericValue` (只读) | 透视距离 |
+| `CSSMatrixComponent` | `matrix` | `DOMMatrix` | 4×4 变换矩阵 |
+| `CSSURLImageValue` | `url` | `USVString` (只读) | 图片 URL |
+
+---
+
+# 七、观察器 API
+
+```idl
+[Exposed=*]
+interface MutationObserver {
+    constructor(MutationCallback callback);
+    undefined observe(Node target, optional MutationObserverInit options = {});
+    undefined disconnect();
+    sequence<MutationRecord> takeRecords();
+};
+
+callback MutationCallback = undefined (sequence<MutationRecord> mutations, MutationObserver observer);
+
+dictionary MutationObserverInit {
+    boolean childList = false;
+    boolean attributes;
+    boolean characterData;
+    boolean subtree = false;
+    boolean attributeOldValue;
+    boolean characterDataOldValue;
+    sequence<DOMString> attributeFilter;
+};
+
+[Exposed=*]
+interface MutationRecord {
+    readonly attribute DOMString type;
+    readonly attribute Node target;
+    readonly attribute NodeList addedNodes;
+    readonly attribute NodeList removedNodes;
+    readonly attribute Node? previousSibling;
+    readonly attribute Node? nextSibling;
+    readonly attribute DOMString? attributeName;
+    readonly attribute DOMString? attributeNamespace;
+    readonly attribute DOMString? oldValue;
+};
+
+[Exposed=Window]
+interface IntersectionObserver {
+    constructor(IntersectionObserverCallback callback, optional IntersectionObserverInit options = {});
+    undefined observe(Element target);
+    undefined unobserve(Element target);
+    undefined disconnect();
+    sequence<IntersectionObserverEntry> takeRecords();
+    readonly attribute (Element or Document)? root;
+    readonly attribute DOMString rootMargin;
+    readonly attribute FrozenArray<double> thresholds;
+};
+
+callback IntersectionObserverCallback = undefined (sequence<IntersectionObserverEntry> entries, IntersectionObserver observer);
+
+dictionary IntersectionObserverInit {
+    (Element or Document)? root = null;
+    DOMString rootMargin = "0px";
+    (double or sequence<double>) threshold = 0;
+};
+
+[Exposed=Window]
+interface IntersectionObserverEntry {
+    readonly attribute DOMHighResTimeStamp time;
+    readonly attribute DOMRectReadOnly? rootBounds;
+    readonly attribute DOMRectReadOnly boundingClientRect;
+    readonly attribute DOMRectReadOnly intersectionRect;
+    readonly attribute boolean isIntersecting;
+    readonly attribute double intersectionRatio;
+    readonly attribute Element target;
+};
+
+[Exposed=Window]
+interface ResizeObserver {
+    constructor(ResizeObserverCallback callback);
+    undefined observe(Element target, optional ResizeObserverOptions options = {});
+    undefined unobserve(Element target);
+    undefined disconnect();
+};
+
+callback ResizeObserverCallback = undefined (sequence<ResizeObserverEntry> entries, ResizeObserver observer);
+
+dictionary ResizeObserverOptions {
+    ResizeObserverBoxOptions box = "content-box";
+};
+
+enum ResizeObserverBoxOptions { "content-box", "border-box", "device-pixel-content-box" };
+
+[Exposed=Window]
+interface ResizeObserverEntry {
+    readonly attribute Element target;
+    readonly attribute DOMRectReadOnly contentRect;
+    readonly attribute FrozenArray<ResizeObserverSize> borderBoxSize;
+    readonly attribute FrozenArray<ResizeObserverSize> contentBoxSize;
+    readonly attribute FrozenArray<ResizeObserverSize> devicePixelContentBoxSize;
+};
+
+[Exposed=Window]
+interface ResizeObserverSize {
+    readonly attribute unrestricted double inlineSize;
+    readonly attribute unrestricted double blockSize;
+};
+```
+| 接口 | 成员 | 类型 | 功能描述 |
+|------|------|------|---------|
+| `MutationObserver` | `observe(target, options)` | `undefined` | 观察目标节点。`options`: `childList`（子节点变化）、`attributes`（属性变化）、`characterData`（文本变化）、`subtree`（后代树）、`attributeOldValue`/`characterDataOldValue`（记录旧值）、`attributeFilter`（限定观察的属性列表） |
+| | `disconnect()` | `undefined` | 停止观察并清空记录 |
+| | `takeRecords()` | `MutationRecord[]` | 获取已发生但尚未回调的记录队列 |
+| `MutationRecord` | `type` | `DOMString` (只读) | 记录类型：`"childList"`, `"attributes"`, `"characterData"` |
+| | `target` | `Node` (只读) | 发生变化的节点 |
+| | `addedNodes` / `removedNodes` | `NodeList` (只读) | 添加/移除的节点 |
+| | `previousSibling` / `nextSibling` | `Node?` (只读) | 变化节点的相邻兄弟 |
+| | `attributeName` | `DOMString?` (只读) | 变化的属性名 |
+| | `attributeNamespace` | `DOMString?` (只读) | 属性命名空间 |
+| | `oldValue` | `DOMString?` (只读) | 旧值（需开启 `*OldValue` 选项） |
+| `IntersectionObserver` | `observe(target)` | `undefined` | 观察元素与视口/根元素的交叉 |
+| | `unobserve(target)` | `undefined` | 停止观察特定元素 |
+| | `disconnect()` | `undefined` | 停止所有观察 |
+| | `takeRecords()` | `IntersectionObserverEntry[]` | 获取待处理的交叉记录 |
+| | `root` | `Element?` (只读) | 根元素（`null` 为视口） |
+| | `rootMargin` | `DOMString` (只读) | 根元素外边距（扩大/缩小检测区域） |
+| | `thresholds` | `double[]` (只读) | 触发阈值数组（如 `[0, 0.5, 1]`） |
+| `IntersectionObserverEntry` | `time` | `DOMHighResTimeStamp` (只读) | 记录创建时间 |
+| | `rootBounds` | `DOMRectReadOnly?` (只读) | 根元素矩形（跨域 iframe 中为 `null`） |
+| | `boundingClientRect` | `DOMRectReadOnly` (只读) | 目标元素边界矩形 |
+| | `intersectionRect` | `DOMRectReadOnly` (只读) | 交叉区域矩形 |
+| | `isIntersecting` | `boolean` (只读) | 是否正在交叉 |
+| | `intersectionRatio` | `double` (只读) | 交叉比例（`intersectionRect` / `boundingClientRect` 面积比） |
+| | `target` | `Element` (只读) | 目标元素 |
+| `ResizeObserver` | `observe(target, {box})` | `undefined` | 观察元素尺寸变化。`box`: `"content-box"`, `"border-box"`, `"device-pixel-content-box"` |
+| | `unobserve(target)` | `undefined` | 停止观察 |
+| | `disconnect()` | `undefined` | 停止所有观察 |
+| `ResizeObserverEntry` | `target` | `Element` (只读) | 目标元素 |
+| | `contentRect` | `DOMRectReadOnly` (只读) | 内容矩形（遗留，建议用 `contentBoxSize`） |
+| | `borderBoxSize` | `ResizeObserverSize[]` (只读) | 边框盒尺寸数组（多片段元素如多列布局） |
+| | `contentBoxSize` | `ResizeObserverSize[]` (只读) | 内容盒尺寸数组 |
+| | `devicePixelContentBoxSize` | `ResizeObserverSize[]` (只读) | 设备像素级内容盒尺寸 |
+| `ResizeObserverSize` | `inlineSize` / `blockSize` | `unrestricted double` (只读) | 行内/块轴尺寸（受 writing-mode 影响） |
+
+---
+
+# 八、Web Animations API
+
+```idl
+[Exposed=Window]
+interface AnimationTimeline {
+    readonly attribute CSSNumberish? currentTime;
+};
+
+[Exposed=Window]
+interface DocumentTimeline : AnimationTimeline {
+    constructor(optional DocumentTimelineOptions options = {});
+};
+
+dictionary DocumentTimelineOptions {
+    DOMHighResTimeStamp originTime = 0;
+};
+
+[Exposed=Window]
+interface Animation : EventTarget {
+    constructor(optional AnimationEffect? effect = null, optional AnimationTimeline? timeline = null);
+    attribute DOMString id;
+    attribute AnimationEffect? effect;
+    attribute AnimationTimeline? timeline;
+    attribute CSSNumberish? startTime;
+    attribute CSSNumberish? currentTime;
+    attribute double playbackRate;
+    readonly attribute AnimationPlayState playState;
+    readonly attribute AnimationReplaceState replaceState;
+    readonly attribute boolean pending;
+    readonly attribute Promise<Animation> ready;
+    readonly attribute Promise<Animation> finished;
+    attribute EventHandler onfinish;
+    attribute EventHandler oncancel;
+    attribute EventHandler onremove;
+
+    undefined play();
+    undefined pause();
+    undefined commitStyles();
+    undefined cancel();
+    undefined finish();
+    undefined reverse();
+    undefined updatePlaybackRate(double playbackRate);
+    undefined persist();
+    [NewObject] Animation clone();
+};
+
+enum AnimationPlayState { "idle", "running", "paused", "finished" };
+enum AnimationReplaceState { "active", "removed", "persisted" };
+
+[Exposed=Window]
+interface AnimationEffect {
+    readonly attribute EffectTiming timing;
+    readonly attribute ComputedEffectTiming computedTiming;
+    undefined updateTiming(optional OptionalEffectTiming timing = {});
+    ComputedEffectTiming getComputedTiming();
+};
+
+[Exposed=Window]
+interface KeyframeEffect : AnimationEffect {
+    constructor(Element? target, object? keyframes, optional (unrestricted double or KeyframeEffectOptions) options = {});
+    constructor(KeyframeEffect source);
+    attribute (Element or CSSPseudoElement)? target;
+    attribute DOMString? pseudoElement;
+    attribute CompositeOperation composite;
+    attribute (DOMString or sequence<DOMString>)? iterationComposite;
+    undefined setKeyframes(object? keyframes);
+    sequence<object> getKeyframes();
+};
+
+dictionary EffectTiming {
+    unrestricted double delay = 0;
+    unrestricted double endDelay = 0;
+    FillMode fill = "auto";
+    unrestricted double iterationStart = 0;
+    unrestricted double iterations = 1;
+    (unrestricted double or DOMString) duration = "auto";
+    PlaybackDirection direction = "normal";
+    DOMString easing = "linear";
+    (TimelineRangeOffset or CSSNumericValue or DOMString or undefined) rangeStart;
+    (TimelineRangeOffset or CSSNumericValue or DOMString or undefined) rangeEnd;
+    CompositeOperation composite = "replace";
+    (DOMString or sequence<DOMString>)? iterationComposite;
+};
+
+dictionary OptionalEffectTiming {
+    unrestricted double delay;
+    unrestricted double endDelay;
+    FillMode fill;
+    unrestricted double iterationStart;
+    unrestricted double iterations;
+    (unrestricted double or DOMString) duration;
+    PlaybackDirection direction;
+    DOMString easing;
+    (TimelineRangeOffset or CSSNumericValue or DOMString)? rangeStart;
+    (TimelineRangeOffset or CSSNumericValue or DOMString)? rangeEnd;
+    CompositeOperation composite;
+    (DOMString or sequence<DOMString>)? iterationComposite;
+};
+
+dictionary ComputedEffectTiming : EffectTiming {
+    unrestricted double activeDuration;
+    unrestricted double? endTime;
+    unrestricted double? localTime;
+    unrestricted double? progress;
+    unrestricted double? currentIteration;
+    Phase phase;
+};
+
+enum Phase { "before", "active", "after", "idle" };
+enum FillMode { "none", "forwards", "backwards", "both", "auto" };
+enum PlaybackDirection { "normal", "reverse", "alternate", "alternate-reverse" };
+enum CompositeOperation { "replace", "add", "accumulate" };
+enum CompositeOperationOrAuto { "replace", "add", "accumulate", "auto" };
+```
+| 接口 | 成员 | 类型 | 功能描述 |
+|------|------|------|---------|
+| `AnimationTimeline` | `currentTime` | `CSSNumberish?` (只读) | 时间线当前时间（毫秒或百分比） |
+| `DocumentTimeline` | `originTime` | `DOMHighResTimeStamp` | 时间线原点偏移 |
+| `Animation` | `id` | `DOMString` | 动画标识符 |
+| | `effect` | `AnimationEffect?` | 动画效果（`KeyframeEffect` 等） |
+| | `timeline` | `AnimationTimeline?` | 关联时间线 |
+| | `startTime` | `CSSNumberish?` | 动画开始时间（相对于时间线） |
+| | `currentTime` | `CSSNumberish?` | 动画当前时间 |
+| | `playbackRate` | `double` | 播放速率（负值反向） |
+| | `playState` | `AnimationPlayState` (只读) | `"idle"`, `"running"`, `"paused"`, `"finished"` |
+| | `replaceState` | `AnimationReplaceState` (只读) | `"active"`, `"removed"`, `"persisted"` |
+| | `pending` | `boolean` (只读) | 是否有待处理的异步操作（如等待 `ready` Promise） |
+| | `ready` | `Promise<Animation>` (只读) | 动画可播放时 resolve |
+| | `finished` | `Promise<Animation>` (只读) | 动画完成时 resolve |
+| | `play()` | `undefined` | 播放动画 |
+| | `pause()` | `undefined` | 暂停动画 |
+| | `cancel()` | `undefined` | 取消动画（移除效果，不保留 `forwards` 样式） |
+| | `finish()` | `undefined` | 立即完成动画 |
+| | `commitStyles()` | `undefined` | 将当前动画样式写入元素内联样式（用于动画结束后保留） |
+| | `reverse()` | `undefined` | 反转播放方向 |
+| | `updatePlaybackRate(rate)` | `undefined` | 更新播放速率（平滑过渡） |
+| | `persist()` | `undefined` | 持久化动画（防止被自动移除） |
+| | `clone()` | `Animation` | 克隆动画 |
+| `AnimationEffect` | `timing` | `EffectTiming` (只读) | 效果时序参数 |
+| | `computedTiming` | `ComputedEffectTiming` (只读) | 计算后的时序 |
+| | `updateTiming(timing)` | `undefined` | 更新时序参数 |
+| | `getComputedTiming()` | `ComputedEffectTiming` | 获取计算时序 |
+| `KeyframeEffect` | `target` | `Element?` | 动画目标元素 |
+| | `pseudoElement` | `DOMString?` | 目标伪元素（如 `"::before"`） |
+| | `composite` | `CompositeOperation` | 合成方式：`"replace"`（替换）、`"add"`（叠加）、`"accumulate"`（累积） |
+| | `iterationComposite` | `DOMString?` | 迭代合成方式 |
+| | `setKeyframes(keyframes)` | `undefined` | 设置关键帧 |
+| | `getKeyframes()` | `object[]` | 获取解析后的关键帧对象 |
+| `EffectTiming` | `delay` | `unrestricted double` | 延迟时间（毫秒） |
+| | `endDelay` | `unrestricted double` | 结束延迟 |
+| | `fill` | `FillMode` | 填充模式：`"none"`, `"forwards"`, `"backwards"`, `"both"`, `"auto"` |
+| | `iterationStart` | `unrestricted double` | 迭代起始点（如 `0.5` 从中间开始） |
+| | `iterations` | `unrestricted double` | 迭代次数（`Infinity` 无限循环） |
+| | `duration` | `unrestricted double` or `"auto"` | 单次迭代时长 |
+| | `direction` | `PlaybackDirection` | 方向：`"normal"`, `"reverse"`, `"alternate"`, `"alternate-reverse"` |
+| | `easing` | `DOMString` | 缓动函数（如 `"ease"`, `"linear"`, `"cubic-bezier(...)"`） |
+| | `rangeStart` / `rangeEnd` | `TimelineRangeOffset?` | 滚动驱动动画的范围 |
+| `ComputedEffectTiming` | `activeDuration` | `unrestricted double` (只读) | 活跃时长（不含 delay） |
+| | `endTime` | `unrestricted double?` (只读) | 结束时间 |
+| | `localTime` | `unrestricted double?` (只读) | 本地时间 |
+| | `progress` | `unrestricted double?` (只读) | 当前进度（`0` ~ `1`） |
+| | `currentIteration` | `unrestricted double?` (只读) | 当前迭代次数 |
+| | `phase` | `Phase` (只读) | 当前阶段：`"before"`, `"active"`, `"after"`, `"idle"` |
+
+---
+
+# 九、DOM 异常类型
+
+```idl
+[Exposed=*]
+interface DOMException : Error {
+    constructor(optional DOMString message = "", optional DOMString name = "Error");
+    readonly attribute DOMString name;
+    readonly attribute DOMString message;
+    readonly attribute unsigned short code; // 遗留
+
+    // 常量
+    const unsigned short INDEX_SIZE_ERR = 1;
+    const unsigned short DOMSTRING_SIZE_ERR = 2; // 遗留
+    const unsigned short HIERARCHY_REQUEST_ERR = 3;
+    const unsigned short WRONG_DOCUMENT_ERR = 4;
+    const unsigned short INVALID_CHARACTER_ERR = 5;
+    const unsigned short NO_DATA_ALLOWED_ERR = 6; // 遗留
+    const unsigned short NO_MODIFICATION_ALLOWED_ERR = 7;
+    const unsigned short NOT_FOUND_ERR = 8;
+    const unsigned short NOT_SUPPORTED_ERR = 9;
+    const unsigned short INUSE_ATTRIBUTE_ERR = 10;
+    const unsigned short INVALID_STATE_ERR = 11;
+    const unsigned short SYNTAX_ERR = 12;
+    const unsigned short INVALID_MODIFICATION_ERR = 13;
+    const unsigned short NAMESPACE_ERR = 14;
+    const unsigned short INVALID_ACCESS_ERR = 15; // 遗留
+    const unsigned short VALIDATION_ERR = 16; // 遗留
+    const unsigned short TYPE_MISMATCH_ERR = 17;
+    const unsigned short SECURITY_ERR = 18;
+    const unsigned short NETWORK_ERR = 19;
+    const unsigned short ABORT_ERR = 20;
+    const unsigned short URL_MISMATCH_ERR = 21;
+    const unsigned short QUOTA_EXCEEDED_ERR = 22;
+    const unsigned short TIMEOUT_ERR = 23;
+    const unsigned short INVALID_NODE_TYPE_ERR = 24;
+    const unsigned short DATA_CLONE_ERR = 25;
+    const unsigned short NOT_ALLOWED_ERR = 26;
+};
+```
+| 名称 | 常量 | 功能描述 |
+|------|------|---------|
+| `IndexSizeError` | `INDEX_SIZE_ERR = 1` | 索引超出范围 |
+| `HierarchyRequestError` | `HIERARCHY_REQUEST_ERR = 3` | 节点层级非法（如在 `Text` 节点下插入 `Element`） |
+| `WrongDocumentError` | `WRONG_DOCUMENT_ERR = 4` | 操作涉及不同文档的节点且未先 `adoptNode` |
+| `InvalidCharacterError` | `INVALID_CHARACTER_ERR = 5` | 包含非法字符（如 `createElement("a b")`） |
+| `NoModificationAllowedError` | `NO_MODIFICATION_ALLOWED_ERR = 7` | 只读对象不允许修改 |
+| `NotFoundError` | `NOT_FOUND_ERR = 8` | 节点/属性不存在 |
+| `NotSupportedError` | `NOT_SUPPORTED_ERR = 9` | 不支持的操作 |
+| `InUseAttributeError` | `INUSE_ATTRIBUTE_ERR = 10` | `Attr` 节点已被其他元素使用 |
+| `InvalidStateError` | `INVALID_STATE_ERR = 11` | 对象状态不允许该操作 |
+| `SyntaxError` | `SYNTAX_ERR = 12` | 解析错误（如非法 CSS 选择器） |
+| `InvalidModificationError` | `INVALID_MODIFICATION_ERR = 13` | 非法修改（如改变 `DocumentType` 的 `name`） |
+| `NamespaceError` | `NAMESPACE_ERR = 14` | 命名空间错误 |
+| `TypeMismatchError` | `TYPE_MISMATCH_ERR = 17` | 类型不匹配 |
+| `SecurityError` | `SECURITY_ERR = 18` | 安全策略阻止（如跨域访问） |
+| `NetworkError` | `NETWORK_ERR = 19` | 网络错误 |
+| `AbortError` | `ABORT_ERR = 20` | 操作被中止（如 `AbortController`） |
+| `URLMismatchError` | `URL_MISMATCH_ERR = 21` | URL 不匹配 |
+| `QuotaExceededError` | `QUOTA_EXCEEDED_ERR = 22` | 超出存储配额 |
+| `TimeoutError` | `TIMEOUT_ERR = 23` | 操作超时 |
+| `InvalidNodeTypeError` | `INVALID_NODE_TYPE_ERR = 24` | 节点类型不适合该操作 |
+| `DataCloneError` | `DATA_CLONE_ERR = 25` | 结构化克隆失败（含不可克隆对象） |
+| `NotAllowedError` | `NOT_ALLOWED_ERR = 26` | 用户或策略不允许（如自动播放、权限拒绝） |
+
+---
+
+这份文档覆盖了现代浏览器 DOM 实现的**全部核心接口、IDL 定义、属性类型、方法签名及功能语义**，可直接作为 .NET 浏览器引擎的 DOM API 实现规格书使用。

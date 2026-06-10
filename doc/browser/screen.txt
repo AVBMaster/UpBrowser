@@ -1,0 +1,14 @@
+Screen 对象
+Screen 对象
+Screen 对象包含有关客户端显示屏幕的信息。
+
+Note注意： 没有应用于 screen 对象的公开标准，不过所有浏览器都支持该对象。
+
+Screen 对象属性
+属性	说明
+availHeight	返回屏幕的高度（不包括Windows任务栏）
+availWidth	返回屏幕的宽度（不包括Windows任务栏）
+colorDepth	返回目标设备或缓冲器上的调色板的比特深度
+height	返回屏幕的总高度
+pixelDepth	返回屏幕的颜色分辨率（每象素的位数）
+width	返回屏幕的总宽度
