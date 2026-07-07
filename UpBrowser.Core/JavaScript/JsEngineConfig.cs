@@ -63,6 +63,7 @@ public static class JsEngineConfig
         }
 
         switcher.DefaultEngineName = GetEngineName(_defaultEngineType);
+        Console.WriteLine($"[JS] Using {_defaultEngineType} engine");
     }
 
     public static IJsEngine CreateEngine()
@@ -116,7 +117,6 @@ public static class JsEngineConfig
                         {
                             addV8.Invoke(null, new object[] { switcher.EngineFactories });
                             _v8Available = true;
-                            Console.WriteLine("[JS] V8 engine registered");
                             return;
                         }
                     }
