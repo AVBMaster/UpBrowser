@@ -592,6 +592,12 @@ public class BrowserApp : IDisposable
                     LoadAndRenderHtml(_currentHtml);
                     _scroll.ScrollTo(0, 0);
                 }
+                else if (url == "upbrowser://js-test")
+                {
+                    _currentHtml = DocumentManager.JsTestHtml;
+                    LoadAndRenderHtml(_currentHtml);
+                    _scroll.ScrollTo(0, 0);
+                }
             }
             else if (url.StartsWith("http://") || url.StartsWith("https://"))
             {
@@ -687,6 +693,11 @@ public class BrowserApp : IDisposable
                 else if (url == "upbrowser://newtab" || url == "upbrowser://local")
                 {
                     _currentHtml = DocumentManager.DefaultHtml;
+                    LoadAndRenderHtml(_currentHtml);
+                }
+                else if (url == "upbrowser://js-test")
+                {
+                    _currentHtml = DocumentManager.JsTestHtml;
                     LoadAndRenderHtml(_currentHtml);
                 }
             }
