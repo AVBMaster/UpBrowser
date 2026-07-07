@@ -3,7 +3,7 @@ using DomElement = UpBrowser.Core.Dom.Element;
 
 namespace UpBrowser.Core.JavaScript;
 
-public class JsHtmlCollection : IEnumerable<object>
+public class JsHtmlCollection : IList
 {
     private readonly DomElement _root;
     private readonly string? _tagName;
@@ -21,7 +21,7 @@ public class JsHtmlCollection : IEnumerable<object>
     public int length => GetFilteredElements().Count;
     public int Length => GetFilteredElements().Count;
 
-    public object? this[int index] => GetItem(index);
+    public object? this[int index] { get => GetItem(index); set => throw new NotSupportedException(); }
 
     public object? GetItem(int index)
     {
@@ -45,6 +45,21 @@ public class JsHtmlCollection : IEnumerable<object>
     public IEnumerator<object> GetEnumerator() => GetFilteredElements().GetEnumerator();
 
     IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
+
+    public int Count => GetFilteredElements().Count;
+    public bool IsReadOnly => true;
+    public bool IsFixedSize => true;
+    public bool IsSynchronized => false;
+    public object SyncRoot => this;
+
+    public int Add(object? value) => throw new NotSupportedException();
+    public void Clear() => throw new NotSupportedException();
+    public bool Contains(object? value) => GetFilteredElements().Contains(value);
+    public int IndexOf(object? value) => GetFilteredElements().IndexOf(value);
+    public void Insert(int index, object? value) => throw new NotSupportedException();
+    public void Remove(object? value) => throw new NotSupportedException();
+    public void RemoveAt(int index) => throw new NotSupportedException();
+    public void CopyTo(Array array, int index) => GetFilteredElements().ToArray().CopyTo(array, index);
 
     public object?[] ToArray() => GetFilteredElements().ToArray();
 
@@ -103,7 +118,7 @@ public class JsHtmlCollection : IEnumerable<object>
     }
 }
 
-public class JsNodeList : IEnumerable<object>
+public class JsNodeList : IList
 {
     private readonly DomElement _root;
     private readonly Func<DomElement, List<DomElement>>? _filter;
@@ -118,7 +133,7 @@ public class JsNodeList : IEnumerable<object>
     public int length => GetNodes().Count;
     public int Length => GetNodes().Count;
 
-    public object? this[int index] => GetItem(index);
+    public object? this[int index] { get => GetItem(index); set => throw new NotSupportedException(); }
 
     public object? GetItem(int index)
     {
@@ -129,6 +144,21 @@ public class JsNodeList : IEnumerable<object>
     public IEnumerator<object> GetEnumerator() => GetNodes().Select(WrapNode).GetEnumerator();
 
     IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
+
+    public int Count => GetNodes().Count;
+    public bool IsReadOnly => true;
+    public bool IsFixedSize => true;
+    public bool IsSynchronized => false;
+    public object SyncRoot => this;
+
+    public int Add(object? value) => throw new NotSupportedException();
+    public void Clear() => throw new NotSupportedException();
+    public bool Contains(object? value) => GetNodes().Any(n => WrapNode(n) == value);
+    public int IndexOf(object? value) => GetNodes().Select(WrapNode).ToList().IndexOf(value);
+    public void Insert(int index, object? value) => throw new NotSupportedException();
+    public void Remove(object? value) => throw new NotSupportedException();
+    public void RemoveAt(int index) => throw new NotSupportedException();
+    public void CopyTo(Array array, int index) => GetNodes().Select(WrapNode).ToArray().CopyTo(array, index);
 
     public object?[] ToArray() => GetNodes().Select(WrapNode).ToArray();
 

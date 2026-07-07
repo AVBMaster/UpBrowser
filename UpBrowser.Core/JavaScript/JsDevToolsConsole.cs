@@ -33,20 +33,6 @@ public class JsDevToolsConsole
         }
 
         OnNewEntry?.Invoke(entry);
-
-        var color = level switch
-        {
-            "error" => ConsoleColor.Red,
-            "warn" => ConsoleColor.Yellow,
-            "info" => ConsoleColor.Cyan,
-            "debug" => ConsoleColor.Gray,
-            "trace" => ConsoleColor.DarkGray,
-            _ => ConsoleColor.White
-        };
-        var prevColor = Console.ForegroundColor;
-        Console.ForegroundColor = color;
-        Console.WriteLine($"[console.{level}] {message}");
-        Console.ForegroundColor = prevColor;
     }
 
     public void Clear()

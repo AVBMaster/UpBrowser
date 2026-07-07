@@ -331,13 +331,14 @@ public class DocumentManager
     allLines.push("""");
 
     function collectElementInfo(el, depth) {
+        if (!el) return;
         try {
             var rect = el.getBoundingClientRect();
             var computed = window.getComputedStyle(el);
             var indent = ""  "".repeat(depth);
             var cls = (typeof el.className === ""string"") ? el.className : """";
             var tagInfo = el.tagName + (el.id ? ""#"" + el.id : """") + (cls ? ""."" + cls.split("" "").join(""."") : """");
-            var line = indent + ""▶ "" + tagInfo;
+            var line = indent + ""> "" + tagInfo;
             allLines.push(line);
             allLines.push(indent + ""  [尺寸] offsetW="" + el.offsetWidth + "", offsetH="" + el.offsetHeight + "", clientW="" + el.clientWidth + "", clientH="" + el.clientHeight + "", scrollW="" + el.scrollWidth + "", scrollH="" + el.scrollHeight);
             allLines.push(indent + ""  [位置] offsetTop="" + el.offsetTop + "", offsetLeft="" + el.offsetLeft + "", rect(top="" + rect.top.toFixed(1) + "", left="" + rect.left.toFixed(1) + "", right="" + rect.right.toFixed(1) + "", bottom="" + rect.bottom.toFixed(1) + "", w="" + rect.width.toFixed(1) + "", h="" + rect.height.toFixed(1) + "")"");
@@ -347,15 +348,20 @@ public class DocumentManager
             allLines.push(indent + ""  [层级] parent="" + (el.parentElement ? el.parentElement.tagName : ""(none)"") + "", children="" + el.children.length);
             allLines.push("""");
         } catch(e) {
-            allLines.push(""  "".repeat(depth) + ""▶ "" + el.tagName + "" [读取失败: "" + e.message + ""]"");
+            allLines.push(""  "".repeat(depth) + ""> "" + (el ? el.tagName : ""(null)"") + "" [读取失败: "" + e.message + ""]"");
             allLines.push("""");
         }
     }
 
     function traverse(el, depth) {
+        if (!el) return;
         collectElementInfo(el, depth);
-        for (var i = 0; i < el.children.length; i++) {
-            traverse(el.children[i], depth + 1);
+        var kids = el.children;
+        for (var i = 0; i < kids.length; i++) {
+            var child = kids[i];
+            if (child) {
+                traverse(child, depth + 1);
+            }
         }
     }
 
