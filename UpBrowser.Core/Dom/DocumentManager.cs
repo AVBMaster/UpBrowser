@@ -395,7 +395,12 @@ public class DocumentManager
     catch(e) { allResults.push({c:cat, n:name, p:false, e:(e.message||'')}); }
   }
   function assertEq(a, b, msg) {
-    if (a !== b) throw new Error(msg || (JSON.stringify(a) + ' !== ' + JSON.stringify(b)));
+    if (a !== b) {
+      var sa, sb;
+      try { sa = JSON.stringify(a); } catch(e) { sa = String(a); }
+      try { sb = JSON.stringify(b); } catch(e) { sb = String(b); }
+      throw new Error(msg || (sa + ' !== ' + sb));
+    }
   }
 
   // ========== 1. Core JS ==========
@@ -628,11 +633,16 @@ public class DocumentManager
   }
   html.push('</table>');
   document.getElementById('results').innerHTML=html.join('');
-  document.getElementById('passCount').textContent=pass;
-  document.getElementById('failCount').textContent=fail;
-  document.getElementById('totalCount').textContent=allResults.length;
+  document.getElementById('passCount').innerHTML=''+pass;
+  document.getElementById('failCount').innerHTML=''+fail;
+  document.getElementById('totalCount').innerHTML=''+allResults.length;
 
-  console.log('JS Compatibility Test: '+pass+' passed, '+fail+' failed, '+allResults.length+' total');
+  console.log('=== JS Compatibility Test ===');
+  for (var i = 0; i < allResults.length; i++) {
+    var r = allResults[i];
+    console.log((r.p ? 'PASS' : 'FAIL') + ' | ' + r.c + ' | ' + r.n + (r.e ? ' | ' + r.e : ''));
+  }
+  console.log('Total: '+pass+'/'+allResults.length+' passed, '+fail+' failed');
   console.log(allResults);
 })();
 </script>

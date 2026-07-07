@@ -138,10 +138,16 @@ namespace UpBrowser.Core.JavaScript;
     public object? WrapDomNode(DomElement element)
     {
         if (element == null) return null;
-        var host = new ElementHost(element);
-        var handle = _identityMap.GetOrCreateHandle(element, () => host);
-        FixHostProto(host);
-        return host;
+        var tempHost = new ElementHost(element);
+        var handle = _identityMap.GetOrCreateHandle(element, () => tempHost);
+        var cached = _identityMap.GetWrapper(handle);
+        if (cached != null)
+        {
+            FixHostProto(cached);
+            return cached;
+        }
+        FixHostProto(tempHost);
+        return tempHost;
     }
 
     public void FixHostProto(object host)

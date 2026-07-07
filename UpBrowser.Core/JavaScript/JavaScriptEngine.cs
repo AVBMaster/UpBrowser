@@ -929,6 +929,27 @@ public class ConsoleHost
         _timers.Push((key, Environment.TickCount64));
         Console.WriteLine($"Timer '{key}' started");
     }
+    public void timeLog(string? label = null, params object?[] args)
+    {
+        var key = label ?? "default";
+        long startTime = 0;
+        bool found = false;
+        foreach (var (l, t) in _timers)
+        {
+            if (l == key) { startTime = t; found = true; break; }
+        }
+        if (found)
+        {
+            var elapsed = Environment.TickCount64 - startTime;
+            var msg = $"{key}: {elapsed}ms";
+            if (args.Length > 0) msg += " " + string.Join(" ", args.Select(a => a?.ToString() ?? "undefined"));
+            Console.WriteLine(msg);
+        }
+        else
+        {
+            Console.WriteLine($"Timer '{key}' not found");
+        }
+    }
     public void timeEnd(string? label = null)
     {
         var key = label ?? "default";

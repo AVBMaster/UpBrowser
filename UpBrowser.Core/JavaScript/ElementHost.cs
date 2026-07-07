@@ -87,13 +87,18 @@ public class ElementHost
         set => _element.SelectionEnd = value;
     }
 
+    private static ElementHost? WrapWithCache(Element? element)
+    {
+        if (element == null) return null;
+        var engine = JavaScriptEngine.Current;
+        if (engine?.IntegrationService != null)
+            return engine.IntegrationService.WrapDomNode(element) as ElementHost;
+        return new ElementHost(element);
+    }
+
     public ElementHost? parentElement
     {
-        get
-        {
-            var parent = _element.ParentElement;
-            return parent != null ? new ElementHost(parent) : null;
-        }
+        get => WrapWithCache(_element.ParentElement);
     }
 
     public ElementHost? parentNode => parentElement;
@@ -376,6 +381,18 @@ public class ElementHost
         }
     }
 
+    public float clientLeft => 0;
+    public float clientTop => 0;
+
+    public ElementHost? offsetParent
+    {
+        get
+        {
+            var op = _element.OffsetParent;
+            return op != null ? WrapWithCache(op) : null;
+        }
+    }
+
     public float scrollWidth 
     {
         get 
@@ -467,22 +484,60 @@ public class ElementHost
     public void setAttributeNS(string ns, string name, string value) => _element.SetAttribute(name, value);
     public void removeAttributeNS(string ns, string name) => _element.RemoveAttribute(name);
 
-    public object? dispatchEvent(ScriptEvent evt)
+    public object? dispatchEvent(object evt)
     {
-        DispatchEvent(evt);
-        return !evt.DefaultPrevented;
+        ScriptEvent? scriptEvt = evt as ScriptEvent;
+        if (scriptEvt == null)
+        {
+            if (evt is Dom.Event domEvt)
+            {
+                scriptEvt = new ScriptEvent(domEvt.Type, this)
+                {
+                    bubbles = domEvt.Bubbles,
+                    cancelable = domEvt.Cancelable,
+                    detail = (domEvt is Dom.CustomEvent ce) ? ce.Detail : null,
+                    composed = domEvt.Composed,
+                };
+            }
+        }
+        if (scriptEvt == null) return false;
+        DispatchEvent(scriptEvt);
+        return !scriptEvt.DefaultPrevented;
     }
 
     internal bool DispatchEvent(ScriptEvent evt)
     {
         if (string.IsNullOrEmpty(evt.type)) return true;
 
-        // Capturing phase (not implemented yet, would go from root to target)
-        
-        // Target phase
+        var engine = JavaScriptEngine.Current;
+
+        // Target phase - EventBridge listeners (integration path)
+        if (engine?.IntegrationService != null)
+        {
+            var bridge = engine.IntegrationService.EventBridge;
+            var listeners = bridge.GetListeners(evt.type);
+            foreach (var listener in listeners)
+            {
+                if (listener.Signal?.Aborted == true)
+                {
+                    bridge.RemoveListener(evt.type, listener.CallbackId);
+                    continue;
+                }
+                if (listener.Once)
+                    bridge.RemoveListener(evt.type, listener.CallbackId);
+                try
+                {
+                    evt.currentTarget = this;
+                    evt.eventPhase = 2; // AT_TARGET
+                    engine.IntegrationService.Facade.InvokeJsFunction(listener.CallbackId, evt);
+                }
+                catch { }
+            }
+        }
+
+        // Target phase - legacy _eventCallbackIds
         if (_eventCallbackIds.TryGetValue(evt.type, out var cbIds))
         {
-            var engine = JavaScriptEngine.Current;
             if (engine != null)
             {
                 foreach (var cbId in cbIds.ToList())
@@ -504,14 +559,16 @@ public class ElementHost
             var parent = _element.ParentElement;
             if (parent != null)
             {
-                var parentHost = new ElementHost(parent);
-                evt.eventPhase = 3; // BUBBLING_PHASE
-                parentHost.DispatchEvent(evt);
+                var parentHost = WrapWithCache(parent);
+                if (parentHost != null)
+                {
+                    evt.eventPhase = 3; // BUBBLING_PHASE
+                    parentHost.DispatchEvent(evt);
+                }
             }
             else if (_element.Parent is Core.Dom.Document)
             {
                 // Dispatch to document when bubbling reaches root element
-                var engine = JavaScriptEngine.Current;
                 if (engine?.DocumentHost != null)
                 {
                     try
@@ -529,7 +586,6 @@ public class ElementHost
         var attr = _element.GetAttribute(attrName);
         if (!string.IsNullOrEmpty(attr))
         {
-            var engine = JavaScriptEngine.Current;
             if (engine != null)
             {
                 try { engine.Evaluate(attr); }
@@ -799,7 +855,23 @@ public class ElementHost
         return _element.HasAttribute(name);
     }
 
-    public object? dataset => null;
+    public object dataset
+    {
+        get
+        {
+            var dict = new Dictionary<string, object?>();
+            foreach (var attr in _element.Attributes)
+            {
+                if (attr.Key.StartsWith("data-"))
+                {
+                    var key = attr.Key.Substring(5);
+                    key = KebabToCamel(key);
+                    dict[key] = attr.Value;
+                }
+            }
+            return dict;
+        }
+    }
 
     public string? dir
     {
@@ -992,6 +1064,11 @@ public class ElementHost
     public bool hasPointerCapture(int pointerId) => false;
 
     // ===== HTMLInputElement / HTMLTextAreaElement specific =====
+    public string? type
+    {
+        get => inputType;
+        set => inputType = value;
+    }
     public string? inputType
     {
         get => _element.GetAttribute("type") ?? "text";
@@ -1256,6 +1333,16 @@ public class ElementHost
     public object? contentDocument => null;
     public object? contentWindow => null;
 
+    private static string KebabToCamel(string s)
+    {
+        if (string.IsNullOrEmpty(s)) return s;
+        var parts = s.Split('-');
+        for (int i = 1; i < parts.Length; i++)
+            if (parts[i].Length > 0)
+                parts[i] = char.ToUpperInvariant(parts[i][0]) + parts[i].Substring(1);
+        return string.Join("", parts);
+    }
+
     private static void CollectFormElements(Element root, List<object> elements)
     {
         foreach (var child in root.Children.OfType<Element>())
@@ -1286,7 +1373,11 @@ public class DomTokenListHost
     private readonly ElementHost _element;
     public DomTokenListHost(ElementHost element) => _element = element;
     public int length => _element.NativeElement.ClassList.Length;
-    public void add(string className) => _element.classList_add(className);
+    public void add(params string[] classNames)
+    {
+        foreach (var cn in classNames)
+            _element.classList_add(cn);
+    }
     public void remove(string className) => _element.classList_remove(className);
     public bool contains(string className) => _element.classList_contains(className);
     public bool toggle(string className) => _element.classList_toggle(className);
