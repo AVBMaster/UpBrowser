@@ -570,10 +570,34 @@ public class JavaScriptEngine : IDisposable
             Object.defineProperty(window, 'screenX', { configurable: true, get: function() { return 0; } });
             Object.defineProperty(window, 'screenY', { configurable: true, get: function() { return 0; } });
 
-            function CustomEvent(type, detail) {
+            function CustomEvent(type, init) {
                 var evt = document.createEvent('customevent');
                 evt.type = type;
-                if (detail) evt.detail = detail;
+                if (init) {
+                    if (init.detail !== undefined) evt.detail = init.detail;
+                    if (init.bubbles !== undefined) evt.bubbles = init.bubbles;
+                    if (init.cancelable !== undefined) evt.cancelable = init.cancelable;
+                }
+                return evt;
+            }
+
+            function MouseEvent(type, init) {
+                var evt = document.createEvent('mouseevent');
+                evt.type = type;
+                if (init) {
+                    if (init.bubbles !== undefined) evt.bubbles = init.bubbles;
+                    if (init.cancelable !== undefined) evt.cancelable = init.cancelable;
+                    if (init.detail !== undefined) evt.detail = init.detail;
+                    if (init.clientX !== undefined) evt.clientX = init.clientX;
+                    if (init.clientY !== undefined) evt.clientY = init.clientY;
+                    if (init.screenX !== undefined) evt.screenX = init.screenX;
+                    if (init.screenY !== undefined) evt.screenY = init.screenY;
+                    if (init.button !== undefined) evt.button = init.button;
+                    if (init.ctrlKey !== undefined) evt.ctrlKey = init.ctrlKey;
+                    if (init.shiftKey !== undefined) evt.shiftKey = init.shiftKey;
+                    if (init.altKey !== undefined) evt.altKey = init.altKey;
+                    if (init.metaKey !== undefined) evt.metaKey = init.metaKey;
+                }
                 return evt;
             }
 

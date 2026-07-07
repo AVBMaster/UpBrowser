@@ -113,7 +113,7 @@ public class ElementHost
             for (int i = idx - 1; i >= 0; i--)
             {
                 if (parent.Children[i] is Element e)
-                    return new ElementHost(e);
+                    return WrapWithCache(e);
             }
             return null;
         }
@@ -129,7 +129,7 @@ public class ElementHost
             for (int i = idx + 1; i < parent.Children.Count; i++)
             {
                 if (parent.Children[i] is Element e)
-                    return new ElementHost(e);
+                    return WrapWithCache(e);
             }
             return null;
         }
@@ -499,6 +499,39 @@ public class ElementHost
                     composed = domEvt.Composed,
                 };
             }
+            else
+            {
+                // Handle JS event objects (e.g. from V8/ClearScript) that didn't unwrap
+                try
+                {
+                    var engine = JavaScriptEngine.Current;
+                    if (engine?.Adapter != null)
+                    {
+                        var tmp = $"__tmp_dispatch_{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}";
+                        try
+                        {
+                            engine.Adapter.InnerEngine?.EmbedHostObject(tmp, evt);
+                            var type = engine.Adapter.InnerEngine?.Evaluate($"{tmp}.type") as string;
+                            if (!string.IsNullOrEmpty(type))
+                            {
+                                scriptEvt = new ScriptEvent(type, this);
+                                var bubbles = engine.Adapter.InnerEngine?.Evaluate($"{tmp}.bubbles");
+                                if (bubbles is bool b) scriptEvt.bubbles = b;
+                                var cancelable = engine.Adapter.InnerEngine?.Evaluate($"{tmp}.cancelable");
+                                if (cancelable is bool c) scriptEvt.cancelable = c;
+                                var detail = engine.Adapter.InnerEngine?.Evaluate($"{tmp}.detail");
+                                if (detail != null) scriptEvt.detail = detail;
+                            }
+                            engine.Adapter.InnerEngine?.Evaluate($"delete {tmp};");
+                        }
+                        catch
+                        {
+                            try { engine.Adapter?.InnerEngine?.Evaluate($"delete {tmp};"); } catch { }
+                        }
+                    }
+                }
+                catch { }
+            }
         }
         if (scriptEvt == null) return false;
         DispatchEvent(scriptEvt);
@@ -745,7 +778,7 @@ public class ElementHost
         {
             foreach (var child in _element.Children)
             {
-                if (child is Element el) return new ElementHost(el);
+                if (child is Element el) return WrapWithCache(el);
             }
             return null;
         }
@@ -760,7 +793,7 @@ public class ElementHost
             {
                 if (child is Element el) last = el;
             }
-            return last != null ? new ElementHost(last) : null;
+            return last != null ? WrapWithCache(last) : null;
         }
     }
 
@@ -855,23 +888,7 @@ public class ElementHost
         return _element.HasAttribute(name);
     }
 
-    public object dataset
-    {
-        get
-        {
-            var dict = new Dictionary<string, object?>();
-            foreach (var attr in _element.Attributes)
-            {
-                if (attr.Key.StartsWith("data-"))
-                {
-                    var key = attr.Key.Substring(5);
-                    key = KebabToCamel(key);
-                    dict[key] = attr.Value;
-                }
-            }
-            return dict;
-        }
-    }
+    // dataset is implemented via JS Proxy on HTMLElement.prototype
 
     public string? dir
     {
@@ -1083,6 +1100,12 @@ public class ElementHost
             if (value) _element.SetAttribute("checked", "");
             else _element.RemoveAttribute("checked");
         }
+    }
+
+    public bool @checked
+    {
+        get => inputChecked;
+        set => inputChecked = value;
     }
 
     public string? placeholder
@@ -1446,6 +1469,13 @@ public class ScriptEvent
         this.cancelable = cancelable;
     }
     public void initUIEvent(string type, bool bubbles = true, bool cancelable = true, object? view = null, int detail = 0)
+    {
+        this.type = type;
+        this.bubbles = bubbles;
+        this.cancelable = cancelable;
+        this.detail = detail;
+    }
+    public void initCustomEvent(string type, bool bubbles = true, bool cancelable = true, object? detail = null)
     {
         this.type = type;
         this.bubbles = bubbles;

@@ -7,6 +7,7 @@ namespace UpBrowser.Core.JavaScript;
 public class JsEventListenerEntry
 {
     public int CallbackId { get; set; }
+    public object? JsCallback { get; set; }
     public bool UseCapture { get; set; }
     public bool Once { get; set; }
     public bool Passive { get; set; }
@@ -30,6 +31,7 @@ public class JsEventListenerBridge
         var entry = new JsEventListenerEntry
         {
             CallbackId = callbackId,
+            JsCallback = jsCallback,
             UseCapture = useCapture,
             Once = once,
             Passive = passive,
@@ -72,7 +74,7 @@ public class JsEventListenerBridge
         {
             if (_listeners.TryGetValue(type, out var list))
             {
-                list.RemoveAll(l => l.CallbackId == _facade.StoreJsFunction(jsCallback));
+                list.RemoveAll(l => ReferenceEquals(l.JsCallback, jsCallback));
                 if (list.Count == 0)
                     _listeners.TryRemove(type, out _);
             }

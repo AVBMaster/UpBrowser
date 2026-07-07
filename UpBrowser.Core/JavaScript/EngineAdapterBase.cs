@@ -102,32 +102,39 @@ public abstract class EngineAdapterBase : IJavaScriptEngineAdapter
     {
         if (_disposed) return;
 
-        if (arg is ScriptEvent evt)
+        // For host objects (ScriptEvent, etc.), pass as embedded host object to preserve
+        // methods (preventDefault, stopPropagation) and all properties (target, detail, etc.)
+        if (arg != null && !IsSimpleType(arg.GetType()))
         {
-            var dict = new Dictionary<string, object?>
-            {
-                ["type"] = evt.type,
-                ["bubbles"] = evt.bubbles,
-                ["cancelable"] = evt.cancelable,
-                ["defaultPrevented"] = evt.DefaultPrevented,
-                ["timeStamp"] = evt.timeStamp
-            };
-            var json = System.Text.Json.JsonSerializer.Serialize(dict, _jsonOpts);
+            var tmp = $"__g_cbarg_{id}";
             try
             {
-                _engine.Execute($"__g_invoke({id}, JSON.parse('{EscapeJs(json)}'))");
+                _engine.EmbedHostObject(tmp, arg);
+                _engine.Execute($"__g_invoke({id}, {tmp}); delete {tmp};");
+                return;
             }
-            catch { }
+            catch
+            {
+                try { _engine.Evaluate($"delete {tmp};"); } catch { }
+                // Fall through to JSON fallback
+            }
         }
-        else
+
+        // Fallback: serialize to JSON
+        try
         {
             var json = System.Text.Json.JsonSerializer.Serialize(arg, _jsonOpts);
-            try
-            {
-                _engine.Execute($"__g_invoke({id}, JSON.parse('{EscapeJs(json)}'))");
-            }
-            catch { }
+            _engine.Execute($"__g_invoke({id}, JSON.parse('{EscapeJs(json)}'))");
         }
+        catch { }
+    }
+
+    private static bool IsSimpleType(Type type)
+    {
+        return type.IsPrimitive || type == typeof(string) || type == typeof(decimal)
+            || type == typeof(DateTime) || type == typeof(DateTimeOffset)
+            || type == typeof(Guid) || type == typeof(Uri)
+            || type.IsEnum;
     }
 
     public virtual void RemoveCallback(int id)

@@ -105,6 +105,40 @@ namespace UpBrowser.Core.JavaScript;
             _prototypeSystem.Reset();
             _prototypeSystem.RegisterBuiltinConstructors();
 
+            // Setup dataset property on HTMLElement prototype via JS Proxy
+            _facade.Execute(@"
+(function() {
+    if (window.HTMLElement && window.HTMLElement.prototype && typeof Proxy !== 'undefined') {
+        Object.defineProperty(window.HTMLElement.prototype, 'dataset', {
+            get: function() {
+                var el = this;
+                return new Proxy({}, {
+                    get: function(target, prop) {
+                        if (typeof prop !== 'string' || prop === '__proto__' || prop === 'constructor') return;
+                        if (prop === 'toJSON') return;
+                        var attrName = 'data-' + prop.replace(/[A-Z]/g, function(m) { return '-' + m.toLowerCase(); });
+                        try { return el.getAttribute(attrName); } catch(e) { return; }
+                    },
+                    set: function(target, prop, value) {
+                        if (typeof prop !== 'string') return false;
+                        var attrName = 'data-' + prop.replace(/[A-Z]/g, function(m) { return '-' + m.toLowerCase(); });
+                        try {
+                            if (value === null || value === undefined) {
+                                el.removeAttribute(attrName);
+                            } else {
+                                el.setAttribute(attrName, String(value));
+                            }
+                            return true;
+                        } catch(e) { return false; }
+                    }
+                });
+            },
+            set: function(v) {}
+        });
+    }
+})();
+");
+
             var docHost = new DocumentHost(document);
             _facade.SetGlobalObject("document", docHost);
 

@@ -63,7 +63,7 @@ public class DocumentHost
         get
         {
             if (_document.Head == null) return null;
-            return new ElementHost(_document.Head);
+            return WrapElement(_document.Head);
         }
     }
 
@@ -187,6 +187,10 @@ public class DocumentHost
     public ElementHost createElement(string tagName)
     {
         var el = new HtmlElement(tagName);
+        var engine = JavaScriptEngine.Current;
+        var integration = engine?.IntegrationService;
+        if (integration != null)
+            return (integration.WrapDomNode(el) as ElementHost)!;
         return new ElementHost(el);
     }
 
@@ -525,6 +529,15 @@ public class DocumentHost
             "keyevent" => new ScriptEvent("Key", null),
             _ => new ScriptEvent(type ?? "Event", null)
         };
+    }
+
+    private static ElementHost? WrapElement(Element? element)
+    {
+        if (element == null) return null;
+        var engine = JavaScriptEngine.Current;
+        if (engine?.IntegrationService != null)
+            return engine.IntegrationService.WrapDomNode(element) as ElementHost;
+        return new ElementHost(element);
     }
 
     // ===== Private helpers =====
