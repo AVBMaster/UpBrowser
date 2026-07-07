@@ -48,24 +48,28 @@ public class JsEventListenerBridge
             callbackId = _facade.StoreJsFunction(jsCallback);
         }
 
-        var entry = new JsEventListenerEntry
-        {
-            CallbackId = callbackId,
-            JsCallback = jsCallback,
-            UseCapture = useCapture,
-            Once = once,
-            Passive = passive,
-            Signal = signal
-        };
-
         lock (_lock)
         {
-            if (!_listeners.TryGetValue(type, out var list))
+            // Check if this callbackId is already registered for this type to avoid duplicates
+            if (_listeners.TryGetValue(type, out var existing))
             {
-                list = new List<JsEventListenerEntry>();
-                _listeners[type] = list;
+                if (existing.Any(l => l.CallbackId == callbackId))
+                    return callbackId;
             }
+
+            var entry = new JsEventListenerEntry
+            {
+                CallbackId = callbackId,
+                JsCallback = jsCallback,
+                UseCapture = useCapture,
+                Once = once,
+                Passive = passive,
+                Signal = signal
+            };
+
+            var list = existing ?? new List<JsEventListenerEntry>();
             list.Add(entry);
+            _listeners[type] = list;
         }
 
         if (signal != null && !signal.Aborted)
@@ -90,11 +94,25 @@ public class JsEventListenerBridge
 
     public void RemoveListener(string type, object jsCallback)
     {
+        // Use __g_store to resolve the callback to an ID (reuses existing ID if already stored)
+        int? callbackId = null;
+        try
+        {
+            var result = _facade.CallFunction("__g_store", jsCallback);
+            if (result is int id) callbackId = id;
+            else if (result is double d) callbackId = (int)d;
+            else if (result is long l) callbackId = (int)l;
+        }
+        catch { }
+
         lock (_lock)
         {
             if (_listeners.TryGetValue(type, out var list))
             {
-                list.RemoveAll(l => ReferenceEquals(l.JsCallback, jsCallback));
+                if (callbackId.HasValue)
+                    list.RemoveAll(l => l.CallbackId == callbackId.Value);
+                else
+                    list.RemoveAll(l => ReferenceEquals(l.JsCallback, jsCallback));
                 if (list.Count == 0)
                     _listeners.TryRemove(type, out _);
             }

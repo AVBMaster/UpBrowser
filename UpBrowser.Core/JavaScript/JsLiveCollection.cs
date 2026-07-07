@@ -9,10 +9,21 @@ public class JsHtmlCollection : IList
     private readonly string? _tagName;
     private readonly string? _className;
     private readonly string? _name;
+    private readonly JavaScriptEngine? _engine;
 
     public JsHtmlCollection(DomElement root, string? tagName = null, string? className = null, string? name = null)
     {
         _root = root;
+        _tagName = tagName;
+        _className = className;
+        _name = name;
+        _engine = JavaScriptEngine.Current;
+    }
+
+    internal JsHtmlCollection(DomElement root, JavaScriptEngine? engine, string? tagName = null, string? className = null, string? name = null)
+    {
+        _root = root;
+        _engine = engine;
         _tagName = tagName;
         _className = className;
         _name = name;
@@ -77,13 +88,21 @@ public class JsHtmlCollection : IList
         return elements;
     }
 
+    private object WrapDom(DomElement el)
+    {
+        var host = new ElementHost(el);
+        if (host.Engine == null && _engine != null)
+            host.Engine = _engine;
+        return host;
+    }
+
     private void CollectByTagName(DomElement root, string tagName, List<object> result)
     {
         foreach (var child in root.Children.OfType<DomElement>())
         {
             if (child.TagName.Equals(tagName, StringComparison.OrdinalIgnoreCase) ||
                 tagName == "*")
-                result.Add(new ElementHost(child));
+                result.Add(WrapDom(child));
             CollectByTagName(child, tagName, result);
         }
     }
@@ -93,7 +112,7 @@ public class JsHtmlCollection : IList
         foreach (var child in root.Children.OfType<DomElement>())
         {
             if (child.HasClass(className))
-                result.Add(new ElementHost(child));
+                result.Add(WrapDom(child));
             CollectByClassName(child, className, result);
         }
     }
@@ -103,7 +122,7 @@ public class JsHtmlCollection : IList
         foreach (var child in root.Children.OfType<DomElement>())
         {
             if (child.GetAttribute("name") == name)
-                result.Add(new ElementHost(child));
+                result.Add(WrapDom(child));
             CollectByName(child, name, result);
         }
     }
@@ -112,7 +131,7 @@ public class JsHtmlCollection : IList
     {
         foreach (var child in root.Children.OfType<DomElement>())
         {
-            result.Add(new ElementHost(child));
+            result.Add(WrapDom(child));
             CollectAllChildren(child, result);
         }
     }
@@ -123,10 +142,19 @@ public class JsNodeList : IList
     private readonly DomElement _root;
     private readonly Func<DomElement, List<DomElement>>? _filter;
     private List<DomElement>? _cached;
+    private readonly JavaScriptEngine? _engine;
 
     public JsNodeList(DomElement root, Func<DomElement, List<DomElement>>? filter = null)
     {
         _root = root;
+        _filter = filter;
+        _engine = JavaScriptEngine.Current;
+    }
+
+    internal JsNodeList(DomElement root, JavaScriptEngine? engine, Func<DomElement, List<DomElement>>? filter = null)
+    {
+        _root = root;
+        _engine = engine;
         _filter = filter;
     }
 
@@ -169,5 +197,11 @@ public class JsNodeList : IList
         return _root.Children.OfType<DomElement>().ToList();
     }
 
-    private static object WrapNode(DomElement el) => new ElementHost(el);
+    private object WrapNode(DomElement el)
+    {
+        var host = new ElementHost(el);
+        if (host.Engine == null && _engine != null)
+            host.Engine = _engine;
+        return host;
+    }
 }

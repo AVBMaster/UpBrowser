@@ -1,3 +1,4 @@
+using System.Threading;
 using UpBrowser.Core.Dom;
 using UpBrowser.Core.Dom.Html;
 
@@ -8,10 +9,12 @@ public class ElementHost
     private readonly Element _element;
     private CssStyleDeclaration? _styleHost;
     private readonly Dictionary<string, List<int>> _eventCallbackIds = new();
+    internal JavaScriptEngine? Engine { get; set; }
 
     public ElementHost(Element element)
     {
         _element = element;
+        Engine = JavaScriptEngine.Current;
         JsIntegrationService.FixProto(this);
     }
 
@@ -87,13 +90,16 @@ public class ElementHost
         set => _element.SelectionEnd = value;
     }
 
-    private static ElementHost? WrapWithCache(Element? element)
+    private ElementHost? WrapWithCache(Element? element)
     {
         if (element == null) return null;
-        var engine = JavaScriptEngine.Current;
+        var engine = JavaScriptEngine.Current ?? Engine;
         if (engine?.IntegrationService != null)
             return engine.IntegrationService.WrapDomNode(element) as ElementHost;
-        return new ElementHost(element);
+        var host = new ElementHost(element);
+        if (host.Engine == null && Engine != null)
+            host.Engine = Engine;
+        return host;
     }
 
     public ElementHost? parentElement
@@ -171,11 +177,11 @@ public class ElementHost
         }
     }
 
-    public JsNodeList children => new JsNodeList(_element);
+    public JsNodeList children => new JsNodeList(_element, Engine);
 
     public int childElementCount => _element.Children.OfType<Element>().Count();
 
-    public JsNodeList childNodes => new JsNodeList(_element);
+    public JsNodeList childNodes => new JsNodeList(_element, Engine);
 
     public NamedNodeMapHost attributes => new(_element);
 
@@ -195,7 +201,7 @@ public class ElementHost
         while (el != null)
         {
             if (MatchesSelector(el, selector))
-                return new ElementHost(el);
+                return WrapWithCache(el);
             el = el.ParentElement;
         }
         return null;
@@ -204,17 +210,17 @@ public class ElementHost
     public object? querySelector(string selector)
     {
         var result = QuerySelectorAllInternal(_element, selector).FirstOrDefault();
-        return result != null ? new ElementHost(result) : null;
+        return result != null ? WrapWithCache(result) : null;
     }
 
     public JsNodeList querySelectorAll(string selector) =>
-        new JsNodeList(_element, root => QuerySelectorAllInternal(root, selector));
+        new JsNodeList(_element, Engine, root => QuerySelectorAllInternal(root, selector));
 
     public JsHtmlCollection getElementsByTagName(string tagName) =>
-        new JsHtmlCollection(_element, tagName);
+        new JsHtmlCollection(_element, Engine, tagName);
 
     public JsHtmlCollection getElementsByClassName(string className) =>
-        new JsHtmlCollection(_element, null, className);
+        new JsHtmlCollection(_element, Engine, null, className);
 
     public void appendChild(object child)
     {
@@ -257,7 +263,7 @@ public class ElementHost
     public object cloneNode(bool deep)
     {
         var cloned = CloneElement(_element, deep);
-        return new ElementHost(cloned);
+        return WrapWithCache(cloned) ?? new ElementHost(cloned);
     }
 
     public bool contains(object? other)
@@ -269,41 +275,58 @@ public class ElementHost
 
     public void addEventListener(string type, object callback)
     {
-        var engine = JavaScriptEngine.Current;
+        var engine = JavaScriptEngine.Current ?? Engine;
         if (engine == null) return;
 
+        int cbId;
         var integration = engine.IntegrationService;
         if (integration != null)
         {
-            integration.EventBridge.AddListener(type, callback);
+            // Try __g_store first (works for ClearScript, returns same ID for same JS function).
+            // If it fails, use StoreJsFunction fallback (works for Jint).
+            try
+            {
+                var result = integration.Facade.CallFunction("__g_store", callback);
+                if (result is int id) cbId = id;
+                else if (result is double d) cbId = (int)d;
+                else if (result is long l) cbId = (int)l;
+                else
+                    cbId = integration.Facade.StoreJsFunction(callback);
+            }
+            catch
+            {
+                cbId = integration.Facade.StoreJsFunction(callback);
+            }
         }
         else
         {
-            var cbId = engine.StoreCallbackRef(callback);
-            if (!_eventCallbackIds.TryGetValue(type, out var list))
-            {
-                list = new List<int>();
-                _eventCallbackIds[type] = list;
-            }
-            list.Add(cbId);
+            cbId = engine.StoreCallbackRef(callback);
         }
+
+        if (!_eventCallbackIds.TryGetValue(type, out var list))
+        {
+            list = new List<int>();
+            _eventCallbackIds[type] = list;
+        }
+        if (!list.Contains(cbId))
+            list.Add(cbId);
     }
 
     public void removeEventListener(string type, object callback)
     {
-        var engine = JavaScriptEngine.Current;
-        if (engine?.IntegrationService != null)
+        var engine = JavaScriptEngine.Current ?? Engine;
+        if (engine == null) return;
+
+        // Remove all listeners of this type on this element.
+        // Jint creates different CLR wrappers for the same JS function each time
+        // it crosses the boundary, so matching individual callbacks is unreliable.
+        // Tracked callbackIds from addEventListener guarantee correct cleanup.
+        if (_eventCallbackIds.TryGetValue(type, out var list))
         {
-            engine.IntegrationService.EventBridge.RemoveListener(type, callback);
-        }
-        else
-        {
-            if (_eventCallbackIds.TryGetValue(type, out var list))
-            {
-                foreach (var cbId in list)
-                    engine?.RemoveCallback(cbId);
-                list.Clear();
-            }
+            foreach (var cbId in list)
+                engine.RemoveCallback(cbId);
+            list.Clear();
+            _eventCallbackIds.Remove(type);
         }
     }
 
@@ -504,7 +527,7 @@ public class ElementHost
                 // Handle JS event objects (e.g. from V8/ClearScript) that didn't unwrap
                 try
                 {
-                    var engine = JavaScriptEngine.Current;
+                    var engine = JavaScriptEngine.Current ?? Engine;
                     if (engine?.Adapter != null)
                     {
                         var tmp = $"__tmp_dispatch_{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}";
@@ -542,33 +565,9 @@ public class ElementHost
     {
         if (string.IsNullOrEmpty(evt.type)) return true;
 
-        var engine = JavaScriptEngine.Current;
+        var engine = JavaScriptEngine.Current ?? Engine;
 
-        // Target phase - EventBridge listeners (integration path)
-        if (engine?.IntegrationService != null)
-        {
-            var bridge = engine.IntegrationService.EventBridge;
-            var listeners = bridge.GetListeners(evt.type);
-            foreach (var listener in listeners)
-            {
-                if (listener.Signal?.Aborted == true)
-                {
-                    bridge.RemoveListener(evt.type, listener.CallbackId);
-                    continue;
-                }
-                if (listener.Once)
-                    bridge.RemoveListener(evt.type, listener.CallbackId);
-                try
-                {
-                    evt.currentTarget = this;
-                    evt.eventPhase = 2; // AT_TARGET
-                    engine.IntegrationService.Facade.InvokeJsFunction(listener.CallbackId, evt);
-                }
-                catch { }
-            }
-        }
-
-        // Target phase - legacy _eventCallbackIds
+        // Target phase - dispatch element-level listeners
         if (_eventCallbackIds.TryGetValue(evt.type, out var cbIds))
         {
             if (engine != null)
@@ -630,7 +629,7 @@ public class ElementHost
     }
 
     internal IEnumerable<ElementHost> GetChildHosts() =>
-        _element.Children.OfType<Element>().Select(e => new ElementHost(e));
+        _element.Children.OfType<Element>().Select(e => WrapWithCache(e) ?? new ElementHost(e));
 
     private string GetTextContent()
     {
@@ -762,9 +761,9 @@ public class ElementHost
         return false;
     }
 
-    private static object WrapNode(Node node)
+    private object WrapNode(Node node)
     {
-        if (node is Element e) return new ElementHost(e);
+        if (node is Element e) return WrapWithCache(e) ?? new ElementHost(e);
         return new TextNodeWrapper((TextNode)node);
     }
 
@@ -888,7 +887,68 @@ public class ElementHost
         return _element.HasAttribute(name);
     }
 
-    // dataset is implemented via JS Proxy on HTMLElement.prototype
+    private static int _datasetProxyCounter;
+    private object? _datasetProxyCache;
+
+    public object? dataset
+    {
+        get
+        {
+            var engine = JavaScriptEngine.Current ?? Engine;
+            if (engine == null)
+                return new DatasetHost(_element);
+
+            if (engine.EngineType == JsEngineType.V8)
+            {
+                if (_datasetProxyCache != null)
+                    return _datasetProxyCache;
+
+                try
+                {
+                    var adapter = engine.Adapter;
+                    if (adapter?.InnerEngine != null)
+                    {
+                        var tmp = $"__tmp_ds_{Interlocked.Increment(ref _datasetProxyCounter)}";
+                        adapter.InnerEngine.EmbedHostObject(tmp, this);
+                        var result = adapter.InnerEngine.Evaluate(@"
+                            (function() {
+                                var el = " + tmp + @";
+                                return new Proxy({}, {
+                                    get: function(t, p) {
+                                        if (typeof p === 'string') {
+                                            var v = el.getAttribute('data-' + p);
+                                            return v !== null ? v : undefined;
+                                        }
+                                    },
+                                    set: function(t, p, v) {
+                                        el.setAttribute('data-' + p, v);
+                                        return true;
+                                    },
+                                    deleteProperty: function(t, p) {
+                                        el.removeAttribute('data-' + p);
+                                        return true;
+                                    },
+                                    has: function(t, p) {
+                                        return el.getAttribute('data-' + p) !== null;
+                                    },
+                                    ownKeys: function(t) { return []; },
+                                    getOwnPropertyDescriptor: function(t, p) {
+                                        return { configurable: true, enumerable: true };
+                                    }
+                                });
+                            })()
+                        ");
+                        try { adapter.InnerEngine.Evaluate($"delete {tmp};"); } catch { }
+                        _datasetProxyCache = result;
+                        return _datasetProxyCache;
+                    }
+                }
+                catch { }
+            }
+
+            return new DatasetHost(_element);
+        }
+    }
 
     public string? dir
     {
@@ -1193,7 +1253,7 @@ public class ElementHost
 
     public object[] options
     {
-        get => _element.Children.OfType<Element>().Select(e => (object)new ElementHost(e)).ToArray();
+        get => _element.Children.OfType<Element>().Select(e => (object)(WrapWithCache(e) ?? new ElementHost(e))).ToArray();
     }
 
     public int selectLength => _element.Children.OfType<Element>().Count();
@@ -1366,13 +1426,13 @@ public class ElementHost
         return string.Join("", parts);
     }
 
-    private static void CollectFormElements(Element root, List<object> elements)
+    private void CollectFormElements(Element root, List<object> elements)
     {
         foreach (var child in root.Children.OfType<Element>())
         {
             var tag = child.TagName.ToLowerInvariant();
             if (tag is "input" or "select" or "textarea" or "button" or "output" or "datalist" or "progress" or "meter")
-                elements.Add(new ElementHost(child));
+                elements.Add(WrapWithCache(child) ?? new ElementHost(child));
             CollectFormElements(child, elements);
         }
     }
@@ -1497,6 +1557,68 @@ public class ScriptEvent
         this.shiftKey = shiftKey;
         this.metaKey = metaKey;
         this.button = button;
+    }
+}
+
+public class DatasetHost : System.Dynamic.DynamicObject
+{
+    private readonly Element _element;
+
+    public DatasetHost(Element element) => _element = element;
+
+    public override bool TryGetMember(System.Dynamic.GetMemberBinder binder, out object? result)
+    {
+        var attrName = ToDataDash(binder.Name);
+        result = _element.GetAttribute(attrName);
+        return true;
+    }
+
+    public override bool TrySetMember(System.Dynamic.SetMemberBinder binder, object? value)
+    {
+        var attrName = ToDataDash(binder.Name);
+        if (value == null)
+            _element.RemoveAttribute(attrName);
+        else
+            _element.SetAttribute(attrName, value.ToString() ?? "");
+        return true;
+    }
+
+    public override bool TryDeleteMember(System.Dynamic.DeleteMemberBinder binder)
+    {
+        var attrName = ToDataDash(binder.Name);
+        _element.RemoveAttribute(attrName);
+        return true;
+    }
+
+    public bool Has(string name) => _element.GetAttribute(ToDataDash(name)) != null;
+
+    public string? Get(string name) => _element.GetAttribute(ToDataDash(name));
+
+    public void Set(string name, string? value)
+    {
+        if (value == null)
+            _element.RemoveAttribute(ToDataDash(name));
+        else
+            _element.SetAttribute(ToDataDash(name), value);
+    }
+
+    private static string ToDataDash(string camelCase)
+    {
+        if (string.IsNullOrEmpty(camelCase)) return "data-";
+        var sb = new System.Text.StringBuilder("data-");
+        foreach (var ch in camelCase)
+        {
+            if (char.IsUpper(ch))
+            {
+                sb.Append('-');
+                sb.Append(char.ToLowerInvariant(ch));
+            }
+            else
+            {
+                sb.Append(ch);
+            }
+        }
+        return sb.ToString();
     }
 }
 

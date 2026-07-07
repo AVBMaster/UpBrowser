@@ -117,6 +117,7 @@ public class JavaScriptEngine : IDisposable
     {
         _currentDocument = document;
         _documentHost = new DocumentHost(document);
+        _documentHost.Engine = this;
 
         if (_adapter != null)
         {

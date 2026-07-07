@@ -11,6 +11,7 @@ public class DocumentHost
     private ElementHost? _documentElementHost;
     private ElementHost? _bodyHost;
     private readonly Dictionary<string, string> _cookies = new();
+    internal JavaScriptEngine? Engine { get; set; }
 
     public string cookie
     {
@@ -27,6 +28,7 @@ public class DocumentHost
     public DocumentHost(Document document)
     {
         _document = document;
+        Engine = JavaScriptEngine.Current;
         JsIntegrationService.FixProto(this);
     }
 
@@ -162,36 +164,39 @@ public class DocumentHost
     public object querySelectorAll(string selector)
     {
         if (_document.DocumentElement == null) return new object[0];
-        return new JsNodeList(_document.DocumentElement,
+        return new JsNodeList(_document.DocumentElement, Engine,
             root => QuerySelectorAllInternal(root, selector));
     }
 
     public object getElementsByTagName(string tagName)
     {
         if (_document.DocumentElement == null) return new object[0];
-        return new JsHtmlCollection(_document.DocumentElement, tagName);
+        return new JsHtmlCollection(_document.DocumentElement, Engine, tagName);
     }
 
     public object getElementsByClassName(string className)
     {
         if (_document.DocumentElement == null) return new object[0];
-        return new JsHtmlCollection(_document.DocumentElement, null, className);
+        return new JsHtmlCollection(_document.DocumentElement, Engine, null, className);
     }
 
     public object getElementsByName(string name)
     {
         if (_document.DocumentElement == null) return new object[0];
-        return new JsHtmlCollection(_document.DocumentElement, null, null, name);
+        return new JsHtmlCollection(_document.DocumentElement, Engine, null, null, name);
     }
 
     public ElementHost createElement(string tagName)
     {
         var el = new HtmlElement(tagName);
-        var engine = JavaScriptEngine.Current;
+        var engine = JavaScriptEngine.Current ?? Engine;
         var integration = engine?.IntegrationService;
         if (integration != null)
             return (integration.WrapDomNode(el) as ElementHost)!;
-        return new ElementHost(el);
+        var host = new ElementHost(el);
+        if (host.Engine == null && engine != null)
+            host.Engine = engine;
+        return host;
     }
 
     public ElementHost createElementNS(string? ns, string tagName)
@@ -341,7 +346,7 @@ public class DocumentHost
 
     public void addEventListener(string type, object callback)
     {
-        var engine = JavaScriptEngine.Current;
+        var engine = JavaScriptEngine.Current ?? Engine;
         if (engine == null) return;
 
         var integration = engine.IntegrationService;
@@ -357,7 +362,7 @@ public class DocumentHost
 
     public void removeEventListener(string type, object callback)
     {
-        var engine = JavaScriptEngine.Current;
+        var engine = JavaScriptEngine.Current ?? Engine;
         if (engine?.IntegrationService != null)
         {
             engine.IntegrationService.EventBridge.RemoveListener(type, callback);
@@ -366,7 +371,7 @@ public class DocumentHost
 
     public void dispatchEvent(ScriptEvent evt)
     {
-        var engine = JavaScriptEngine.Current;
+        var engine = JavaScriptEngine.Current ?? Engine;
         if (engine == null) return;
 
         var integration = engine.IntegrationService;
@@ -530,13 +535,16 @@ public class DocumentHost
         };
     }
 
-    private static ElementHost? WrapElement(Element? element)
+    private ElementHost? WrapElement(Element? element)
     {
         if (element == null) return null;
-        var engine = JavaScriptEngine.Current;
+        var engine = JavaScriptEngine.Current ?? Engine;
         if (engine?.IntegrationService != null)
             return engine.IntegrationService.WrapDomNode(element) as ElementHost;
-        return new ElementHost(element);
+        var host = new ElementHost(element);
+        if (host.Engine == null && engine != null)
+            host.Engine = engine;
+        return host;
     }
 
     // ===== Private helpers =====
