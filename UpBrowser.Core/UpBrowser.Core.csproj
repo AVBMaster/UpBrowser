@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
@@ -6,12 +6,12 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="AngleSharp" Version="*" />
+    <PackageReference Include="AngleSharp" Version="1.5.2" />
     <PackageReference Include="JavaScriptEngineSwitcher.Core" Version="*" />
     <PackageReference Include="JavaScriptEngineSwitcher.V8" Version="*" Condition="$([MSBuild]::IsOSPlatform('Windows'))" />
     <PackageReference Include="JavaScriptEngineSwitcher.ChakraCore.Native.win-x64" Version="*" Condition="$([MSBuild]::IsOSPlatform('Windows'))" />
-    <PackageReference Include="SkiaSharp" Version="*" />
-    <PackageReference Include="JavaScriptEngineSwitcher.Jint" Version="*" />
+    <PackageReference Include="SkiaSharp" Version="3.119.1" />
+    <PackageReference Include="JavaScriptEngineSwitcher.Jint" Version="3.34.3" />
     <PackageReference Include="JavaScriptEngineSwitcher.Jurassic" Version="*" />
   </ItemGroup>
 </Project>

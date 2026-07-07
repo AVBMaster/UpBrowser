@@ -11,6 +11,9 @@ public class EventLoop
 
     public bool IsRunning => _running;
 
+    public event Action? OnBeforeTask;
+    public event Action? OnAfterTask;
+
     public void Start()
     {
         _running = true;
@@ -39,6 +42,8 @@ public class EventLoop
 
     public void ProcessTasks()
     {
+        OnBeforeTask?.Invoke();
+
         while (_taskQueue.TryDequeue(out var task))
         {
             try
@@ -59,6 +64,8 @@ public class EventLoop
             }
             _timers.Clear();
         }
+
+        OnAfterTask?.Invoke();
     }
 
     public async Task RunAsync()

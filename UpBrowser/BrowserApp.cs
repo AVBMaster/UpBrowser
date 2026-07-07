@@ -366,6 +366,17 @@ public class BrowserApp : IDisposable
 
     private void Initialize()
     {
+        // Wire the new JsIntegrationService for enhanced JS support
+        if (_jsEngine.IntegrationService != null)
+        {
+            var jsInt = _jsEngine.IntegrationService;
+            _eventLoop.OnAfterTask += () =>
+            {
+                jsInt.ProcessTimers();
+                jsInt.MicrotaskQueue.DrainMicrotasks();
+            };
+        }
+
         // Performance hub must be live before anything else uses the heavy
         // subsystems, so the first layout/style pass is already instrumented.
         InitializePerformanceHub();
@@ -720,132 +731,87 @@ public class BrowserApp : IDisposable
 
         var angleDoc = _currentLoad.AngleSharpDoc;
 
-        // First pass: collect all script elements
         var scriptElements = angleDoc.All.Where(e =>
             e.LocalName?.ToLowerInvariant() == "script").ToList();
 
-        // Separate scripts by type
-        var syncScripts = new List<AngleSharp.Dom.IElement>();
-        var asyncScripts = new List<AngleSharp.Dom.IElement>();
-        var deferScripts = new List<AngleSharp.Dom.IElement>();
+        var integration = _jsEngine.IntegrationService;
 
         foreach (var scriptEl in scriptElements)
         {
             var type = scriptEl.GetAttribute("type");
             if (!string.IsNullOrEmpty(type) && type != "text/javascript" && type != "application/javascript" && type != "module")
-                continue; // Skip non-JS scripts
+                continue;
 
             var isAsync = scriptEl.HasAttribute("async");
             var isDefer = scriptEl.HasAttribute("defer");
             var isModule = type == "module";
+            var src = scriptEl.GetAttribute("src");
 
-            if (isAsync || isModule)
-                asyncScripts.Add(scriptEl);
-            else if (isDefer)
-                deferScripts.Add(scriptEl);
-            else
-                syncScripts.Add(scriptEl);
-        }
+            ScriptType scriptType;
+            if (isModule) scriptType = ScriptType.Module;
+            else if (isAsync) scriptType = ScriptType.Async;
+            else if (isDefer) scriptType = ScriptType.Defer;
+            else scriptType = string.IsNullOrEmpty(src) ? ScriptType.Inline : ScriptType.External;
 
-        // Execute synchronous scripts immediately (in order)
-        foreach (var scriptEl in syncScripts)
-        {
-            ExecuteScriptElement(scriptEl, baseUrl);
-        }
-
-        // Execute async scripts as soon as they're loaded
-        foreach (var scriptEl in asyncScripts)
-        {
-            ExecuteScriptElementAsync(scriptEl, baseUrl);
-        }
-
-        // Execute defer scripts after document parsing (simulate)
-        foreach (var scriptEl in deferScripts)
-        {
-            ExecuteScriptElementAsync(scriptEl, baseUrl);
-        }
-    }
-
-    private void ExecuteScriptElement(AngleSharp.Dom.IElement scriptEl, string? baseUrl)
-    {
-        var src = scriptEl.GetAttribute("src");
-        if (!string.IsNullOrEmpty(src))
-        {
-            var absoluteUrl = ResolveUrl(src, baseUrl);
-            if (absoluteUrl == null)
+            if (!string.IsNullOrEmpty(src))
             {
-                Console.WriteLine($"[JS] Invalid script URL: {src}");
-                return;
-            }
-
-            try
-            {
-                var resp = _httpFetcher.FetchAsync(new ResourceRequest
+                var absoluteUrl = ResolveUrl(src, baseUrl);
+                if (absoluteUrl == null)
                 {
-                    Url = absoluteUrl,
-                    Kind = ResourceKind.Script,
-                    Priority = ResourcePriority.High,
-                    Timeout = TimeSpan.FromSeconds(10),
-                }).GetAwaiter().GetResult();
-                var code = System.Text.Encoding.UTF8.GetString(resp.Body);
-                _jsEngine.Execute(code);
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[JS] Failed to load script '{src}': {ex.Message}");
-            }
-        }
-        else
-        {
-            var code = scriptEl.TextContent;
-            if (!string.IsNullOrWhiteSpace(code))
-            {
-                _jsEngine.Execute(code);
-            }
-        }
-    }
+                    Console.WriteLine($"[JS] Invalid script URL: {src}");
+                    continue;
+                }
 
-    private void ExecuteScriptElementAsync(AngleSharp.Dom.IElement scriptEl, string? baseUrl)
-    {
-        Task.Run(async () =>
-        {
-            try
-            {
-                var src = scriptEl.GetAttribute("src");
-                string code;
-                if (!string.IsNullOrEmpty(src))
+                if (integration != null)
                 {
-                    var absoluteUrl = ResolveUrl(src, baseUrl);
-                    if (absoluteUrl == null)
-                    {
-                        Console.WriteLine($"[JS] Invalid script URL: {src}");
-                        return;
-                    }
-
-                    var resp = await _httpFetcher.FetchAsync(new ResourceRequest
-                    {
-                        Url = absoluteUrl,
-                        Kind = ResourceKind.Script,
-                        Priority = ResourcePriority.High,
-                        Timeout = TimeSpan.FromSeconds(10),
-                    });
-                    code = System.Text.Encoding.UTF8.GetString(resp.Body);
+                    integration.ScriptQueue.EnqueueExternalScript(absoluteUrl, scriptType, absoluteUrl);
                 }
                 else
                 {
-                    code = scriptEl.TextContent;
+                    ExecuteExternalScriptFallback(absoluteUrl, scriptType);
                 }
-
+            }
+            else
+            {
+                var code = scriptEl.TextContent;
                 if (!string.IsNullOrWhiteSpace(code))
                 {
-                    _eventLoop.PostTask(() => _jsEngine.Execute(code));
+                    if (integration != null)
+                    {
+                        integration.ExecuteScript(code, null, scriptType);
+                    }
+                    else
+                    {
+                        _jsEngine.Execute(code);
+                    }
                 }
             }
-            catch (Exception ex)
+        }
+
+        if (integration != null)
+        {
+            integration.FireDOMContentLoaded();
+        }
+    }
+
+    private void ExecuteExternalScriptFallback(string url, ScriptType type)
+    {
+        try
+        {
+            var resp = _httpFetcher.FetchAsync(new ResourceRequest
             {
-                Console.WriteLine($"[JS] Failed to load script: {ex.Message}");
-            }
-        });
+                Url = url,
+                Kind = ResourceKind.Script,
+                Priority = ResourcePriority.High,
+                Timeout = TimeSpan.FromSeconds(10),
+            }).GetAwaiter().GetResult();
+            var code = System.Text.Encoding.UTF8.GetString(resp.Body);
+            _jsEngine.Execute(code);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[JS] Failed to load script '{url}': {ex.Message}");
+        }
     }
 
     private static string? ResolveUrl(string url, string? baseUrl)
@@ -1204,10 +1170,16 @@ public class BrowserApp : IDisposable
         RunPerfFrame(dt);
 
         _eventLoop.ProcessTasks();
-        // Run JS-engine timer callbacks through the cooperative scheduler. The
-        // scheduler is configured with a per-frame budget so a runaway timer
-        // cannot starve the render loop.
-        if (_jsEngine.HasTimers)
+
+        var jsInt = _jsEngine.IntegrationService;
+        if (jsInt != null)
+        {
+            jsInt.ProcessTimers();
+            jsInt.MicrotaskQueue.DrainMicrotasks();
+            jsInt.IdentityMap.CleanupStaleEntries();
+        }
+
+        if (_jsEngine.HasTimers && jsInt == null)
         {
             if (_perfHub is { Enabled: true })
             {

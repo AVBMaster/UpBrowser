@@ -24,6 +24,8 @@ public class JavaScriptEngine : IDisposable
     private LocationHost? _locationHost;
     private UpBrowserBuiltins? _builtins;
 
+    private JsIntegrationService? _integrationService;
+
     [ThreadStatic]
     public static JavaScriptEngine? Current;
 
@@ -32,6 +34,7 @@ public class JavaScriptEngine : IDisposable
     public UpBrowserBuiltins? Builtins => _builtins;
     public DocumentHost? DocumentHost => _documentHost;
     public IJavaScriptEngineAdapter? Adapter => _adapter;
+    public JsIntegrationService? IntegrationService => _integrationService;
 
     public event Action? OnDomChanged;
     public Func<string, string?, string?>? ShowDialog { get; set; }
@@ -52,12 +55,16 @@ public class JavaScriptEngine : IDisposable
     public JavaScriptEngine(IJavaScriptEngineAdapter adapter)
     {
         _adapter = adapter;
+        _integrationService = new JsIntegrationService(adapter);
+        _integrationService.SetJsEngine(this);
         SetupGlobals();
     }
 
     public JavaScriptEngine(IJsEngine existingEngine)
     {
         _adapter = CreateAdapterForEngine(existingEngine);
+        _integrationService = new JsIntegrationService(_adapter);
+        _integrationService.SetJsEngine(this);
         SetupGlobals();
     }
 
@@ -87,7 +94,9 @@ public class JavaScriptEngine : IDisposable
 
         _adapter.Execute(JsCallbackStore.JsSetup);
 
-        _adapter.SetGlobal("console", new ConsoleHost());
+        var consoleHost = new ConsoleHost();
+        consoleHost.DevToolsConsole = new JsDevToolsConsole();
+        _adapter.SetGlobal("console", consoleHost);
         _builtins = new UpBrowserBuiltins(this);
         _adapter.SetGlobal("__upbrowser", _builtins);
         _adapter.SetGlobal("__win", new WindowHost(this));
@@ -112,10 +121,32 @@ public class JavaScriptEngine : IDisposable
         if (_adapter != null)
         {
             ClearState();
+            _integrationService?.LoadDocument(document);
+            ReapplyGlobals();
             _adapter.SetGlobal("document", _documentHost);
         }
 
         MarkDirty();
+    }
+
+    private void ReapplyGlobals()
+    {
+        if (_adapter == null) return;
+
+        _adapter.Execute(JsCallbackStore.JsSetup);
+        if (_builtins != null)
+            _adapter.SetGlobal("__upbrowser", _builtins);
+        _adapter.SetGlobal("__win", new WindowHost(this));
+        _adapter.SetGlobal("navigator", new NavigatorHost());
+        if (_locationHost != null)
+            _adapter.SetGlobal("location", _locationHost);
+        _adapter.SetGlobal("history", new HistoryHost(_locationHost ?? new LocationHost()));
+        _adapter.SetGlobal("screen", new ScreenHost());
+        _adapter.SetGlobal("localStorage", new StorageHost("localStorage"));
+        _adapter.SetGlobal("sessionStorage", new StorageHost("sessionStorage"));
+        _adapter.SetGlobal("console", new ConsoleHost { DevToolsConsole = new JsDevToolsConsole() });
+
+        _adapter.Execute(GetSetupScript());
     }
 
     public void ClearState()
@@ -153,13 +184,13 @@ public class JavaScriptEngine : IDisposable
         }
     }
 
-    public void Execute(string code)
+    public void Execute(string code, string? sourceUrl = null, ScriptType type = ScriptType.Inline, int lineOffset = 0)
     {
         if (_adapter == null || string.IsNullOrEmpty(code)) return;
         Current = this;
         try
         {
-            _adapter.Execute(code);
+            _integrationService?.ExecuteScript(code, sourceUrl, type, lineOffset);
             MarkDirty();
         }
         finally
@@ -344,6 +375,13 @@ public class JavaScriptEngine : IDisposable
 
     internal int SetTimer(int callbackId, int delayMs, bool recurring)
     {
+        if (_integrationService != null)
+        {
+            if (recurring)
+                return _integrationService.SetInterval(callbackId, delayMs);
+            return _integrationService.SetTimeout(callbackId, delayMs);
+        }
+
         lock (_timersLock)
         {
             var id = _nextTimerId++;
@@ -359,6 +397,8 @@ public class JavaScriptEngine : IDisposable
 
     internal void ClearTimer(int id)
     {
+        _integrationService?.ClearTimer(id);
+
         lock (_timersLock)
         {
             if (_timers.TryGetValue(id, out var info))
@@ -482,15 +522,15 @@ public class JavaScriptEngine : IDisposable
                 return __upbrowser.createURLSearchParams(query || '');
             }
 
-            Object.defineProperty(window, 'innerWidth', { get: function() { return __upbrowser.innerWidth(); } });
-            Object.defineProperty(window, 'innerHeight', { get: function() { return __upbrowser.innerHeight(); } });
-            Object.defineProperty(window, 'outerWidth', { get: function() { return __upbrowser.innerWidth(); } });
-            Object.defineProperty(window, 'outerHeight', { get: function() { return __upbrowser.innerHeight(); } });
-            Object.defineProperty(window, 'devicePixelRatio', { get: function() { return __upbrowser.devicePixelRatio(); } });
-            Object.defineProperty(window, 'pageXOffset', { get: function() { return __upbrowser.scrollX(); } });
-            Object.defineProperty(window, 'pageYOffset', { get: function() { return __upbrowser.scrollY(); } });
-            Object.defineProperty(window, 'scrollX', { get: function() { return __upbrowser.scrollX(); } });
-            Object.defineProperty(window, 'scrollY', { get: function() { return __upbrowser.scrollY(); } });
+            Object.defineProperty(window, 'innerWidth', { configurable: true, get: function() { return __upbrowser.innerWidth(); } });
+            Object.defineProperty(window, 'innerHeight', { configurable: true, get: function() { return __upbrowser.innerHeight(); } });
+            Object.defineProperty(window, 'outerWidth', { configurable: true, get: function() { return __upbrowser.innerWidth(); } });
+            Object.defineProperty(window, 'outerHeight', { configurable: true, get: function() { return __upbrowser.innerHeight(); } });
+            Object.defineProperty(window, 'devicePixelRatio', { configurable: true, get: function() { return __upbrowser.devicePixelRatio(); } });
+            Object.defineProperty(window, 'pageXOffset', { configurable: true, get: function() { return __upbrowser.scrollX(); } });
+            Object.defineProperty(window, 'pageYOffset', { configurable: true, get: function() { return __upbrowser.scrollY(); } });
+            Object.defineProperty(window, 'scrollX', { configurable: true, get: function() { return __upbrowser.scrollX(); } });
+            Object.defineProperty(window, 'scrollY', { configurable: true, get: function() { return __upbrowser.scrollY(); } });
 
             window.scrollTo = function(x, y) { __upbrowser.scrollTo(x || 0, y || 0); };
             window.scrollBy = function(x, y) { __upbrowser.scrollBy(x || 0, y || 0); };
@@ -515,20 +555,20 @@ public class JavaScriptEngine : IDisposable
             window.requestIdleCallback = function(cb, opts) { return setTimeout(cb, 50); };
             window.cancelIdleCallback = function(id) { clearTimeout(id); };
 
-            Object.defineProperty(window, 'closed', { get: function() { return false; } });
-            Object.defineProperty(window, 'name', { get: function() { return ''; }, set: function(v) {} });
-            Object.defineProperty(window, 'opener', { get: function() { return null; } });
-            Object.defineProperty(window, 'parent', { get: function() { return window; } });
-            Object.defineProperty(window, 'self', { get: function() { return window; } });
-            Object.defineProperty(window, 'top', { get: function() { return window; } });
-            Object.defineProperty(window, 'frames', { get: function() { return window; } });
-            Object.defineProperty(window, 'length', { get: function() { return 0; } });
-            Object.defineProperty(window, 'status', { get: function() { return ''; }, set: function(v) {} });
-            Object.defineProperty(window, 'defaultStatus', { get: function() { return ''; }, set: function(v) {} });
-            Object.defineProperty(window, 'screenLeft', { get: function() { return 0; } });
-            Object.defineProperty(window, 'screenTop', { get: function() { return 0; } });
-            Object.defineProperty(window, 'screenX', { get: function() { return 0; } });
-            Object.defineProperty(window, 'screenY', { get: function() { return 0; } });
+            Object.defineProperty(window, 'closed', { configurable: true, get: function() { return false; } });
+            Object.defineProperty(window, 'name', { configurable: true, get: function() { return ''; }, set: function(v) {} });
+            Object.defineProperty(window, 'opener', { configurable: true, get: function() { return null; } });
+            Object.defineProperty(window, 'parent', { configurable: true, get: function() { return window; } });
+            window.self = window;
+            Object.defineProperty(window, 'top', { configurable: true, get: function() { return window; } });
+            Object.defineProperty(window, 'frames', { configurable: true, get: function() { return window; } });
+            Object.defineProperty(window, 'length', { configurable: true, get: function() { return 0; } });
+            Object.defineProperty(window, 'status', { configurable: true, get: function() { return ''; }, set: function(v) {} });
+            Object.defineProperty(window, 'defaultStatus', { configurable: true, get: function() { return ''; }, set: function(v) {} });
+            Object.defineProperty(window, 'screenLeft', { configurable: true, get: function() { return 0; } });
+            Object.defineProperty(window, 'screenTop', { configurable: true, get: function() { return 0; } });
+            Object.defineProperty(window, 'screenX', { configurable: true, get: function() { return 0; } });
+            Object.defineProperty(window, 'screenY', { configurable: true, get: function() { return 0; } });
 
             function CustomEvent(type, detail) {
                 var evt = document.createEvent('customevent');
@@ -781,14 +821,42 @@ public class ConsoleHost
     private readonly Dictionary<string, int> _counters = new();
     private readonly Stack<(string label, long time)> _timers = new();
     private int _groupLevel = 0;
+    private JsDevToolsConsole? _devToolsConsole;
 
-    public void log(params object?[] args) => WriteLine("[JS]", args);
-    public void error(params object?[] args) => WriteLine("[JS Error]", args);
-    public void warn(params object?[] args) => WriteLine("[JS Warning]", args);
-    public void info(params object?[] args) => WriteLine("[JS Info]", args);
-    public void debug(params object?[] args) => WriteLine("[JS Debug]", args);
+    public JsDevToolsConsole? DevToolsConsole
+    {
+        get => _devToolsConsole;
+        set => _devToolsConsole = value;
+    }
+
+    public void log(params object?[] args)
+    {
+        _devToolsConsole?.Log("log", args);
+        WriteLine("[JS]", args);
+    }
+    public void error(params object?[] args)
+    {
+        _devToolsConsole?.Log("error", args);
+        WriteLine("[JS Error]", args);
+    }
+    public void warn(params object?[] args)
+    {
+        _devToolsConsole?.Log("warn", args);
+        WriteLine("[JS Warning]", args);
+    }
+    public void info(params object?[] args)
+    {
+        _devToolsConsole?.Log("info", args);
+        WriteLine("[JS Info]", args);
+    }
+    public void debug(params object?[] args)
+    {
+        _devToolsConsole?.Log("debug", args);
+        WriteLine("[JS Debug]", args);
+    }
     public void trace(params object?[] args)
     {
+        _devToolsConsole?.Log("trace", args);
         WriteLine("[JS Trace]", args);
         Console.WriteLine(new System.Diagnostics.StackTrace(true).ToString());
     }
@@ -796,24 +864,21 @@ public class ConsoleHost
     {
         if (obj == null)
         {
-            Console.WriteLine("null");
+            var msg = "null";
+            _devToolsConsole?.Log("log", msg);
+            Console.WriteLine(msg);
             return;
         }
         if (obj is System.Collections.IDictionary dict)
         {
             foreach (var key in dict.Keys)
-            {
                 Console.WriteLine($"  {key}: {dict[key]}");
-            }
         }
         else
         {
             foreach (var prop in obj.GetType().GetProperties())
             {
-                try
-                {
-                    Console.WriteLine($"  {prop.Name}: {prop.GetValue(obj)}");
-                }
+                try { Console.WriteLine($"  {prop.Name}: {prop.GetValue(obj)}"); }
                 catch { }
             }
         }
@@ -823,11 +888,9 @@ public class ConsoleHost
         if (args.Length == 0) return;
         if (args[0] is System.Collections.IEnumerable enumerable && args[0] is not string)
         {
-            Console.WriteLine("[Table output - tabular data]");
+            Console.WriteLine("[Table output]");
             foreach (var item in enumerable)
-            {
                 Console.WriteLine($"  {item}");
-            }
         }
         else
         {
@@ -838,7 +901,8 @@ public class ConsoleHost
     {
         _groupLevel++;
         var prefix = new string(' ', _groupLevel * 2);
-        Console.WriteLine($"{prefix}Group: {string.Join(" ", args.Select(a => a?.ToString() ?? "null"))}");
+        var msg = $"{prefix}Group: {string.Join(" ", args.Select(a => a?.ToString() ?? "null"))}";
+        Console.WriteLine(msg);
     }
     public void groupEnd()
     {
@@ -850,7 +914,8 @@ public class ConsoleHost
         if (!_counters.ContainsKey(key))
             _counters[key] = 0;
         _counters[key]++;
-        Console.WriteLine($"{key}: {_counters[key]}");
+        var msg = $"{key}: {_counters[key]}";
+        Console.WriteLine(msg);
     }
     public void countReset(string? label = null)
     {
@@ -887,6 +952,7 @@ public class ConsoleHost
     {
         if (!condition)
         {
+            _devToolsConsole?.Log("error", args.Prepend("Assertion failed: ").ToArray());
             WriteLine("[JS Assertion Failed]", args);
         }
     }
@@ -895,9 +961,14 @@ public class ConsoleHost
         _counters.Clear();
         _timers.Clear();
         _groupLevel = 0;
+        _devToolsConsole?.Clear();
     }
 
-    public void clear() => Console.Clear();
+    public void clear()
+    {
+        _devToolsConsole?.Clear();
+        Console.Clear();
+    }
 
     private void WriteLine(string prefix, object?[] args)
     {

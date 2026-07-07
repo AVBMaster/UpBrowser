@@ -12,6 +12,7 @@ public class ElementHost
     public ElementHost(Element element)
     {
         _element = element;
+        JsIntegrationService.FixProto(this);
     }
 
     public Element NativeElement => _element;
@@ -31,6 +32,10 @@ public class ElementHost
     public string tagName => _element.TagName;
 
     public string nodeName => _element.NodeName;
+
+    public string __domType => "HTMLElement";
+
+    public string[] __domTypeChain => new[] { "EventTarget", "Node", "Element", "HTMLElement" };
 
     public string? textContent
     {
@@ -161,13 +166,11 @@ public class ElementHost
         }
     }
 
-    public object[] children =>
-        _element.Children.OfType<Element>().Select(e => (object)new ElementHost(e)).ToArray();
+    public JsNodeList children => new JsNodeList(_element);
 
     public int childElementCount => _element.Children.OfType<Element>().Count();
 
-    public object[] childNodes =>
-        _element.Children.Select(WrapNode).ToArray();
+    public JsNodeList childNodes => new JsNodeList(_element);
 
     public NamedNodeMapHost attributes => new(_element);
 
@@ -199,14 +202,14 @@ public class ElementHost
         return result != null ? new ElementHost(result) : null;
     }
 
-    public object[] querySelectorAll(string selector) =>
-        QuerySelectorAllInternal(_element, selector).Select(e => (object)new ElementHost(e)).ToArray();
+    public JsNodeList querySelectorAll(string selector) =>
+        new JsNodeList(_element, root => QuerySelectorAllInternal(root, selector));
 
-    public object[] getElementsByTagName(string tagName) =>
-        GetElementsByTagNameInternal(_element, tagName).Select(e => (object)new ElementHost(e)).ToArray();
+    public JsHtmlCollection getElementsByTagName(string tagName) =>
+        new JsHtmlCollection(_element, tagName);
 
-    public object[] getElementsByClassName(string className) =>
-        GetElementsByClassNameInternal(_element, className).Select(e => (object)new ElementHost(e)).ToArray();
+    public JsHtmlCollection getElementsByClassName(string className) =>
+        new JsHtmlCollection(_element, null, className);
 
     public void appendChild(object child)
     {
@@ -264,25 +267,38 @@ public class ElementHost
         var engine = JavaScriptEngine.Current;
         if (engine == null) return;
 
-        var cbId = engine.StoreCallbackRef(callback);
-        if (!_eventCallbackIds.TryGetValue(type, out var list))
+        var integration = engine.IntegrationService;
+        if (integration != null)
         {
-            list = new List<int>();
-            _eventCallbackIds[type] = list;
+            integration.EventBridge.AddListener(type, callback);
         }
-        list.Add(cbId);
+        else
+        {
+            var cbId = engine.StoreCallbackRef(callback);
+            if (!_eventCallbackIds.TryGetValue(type, out var list))
+            {
+                list = new List<int>();
+                _eventCallbackIds[type] = list;
+            }
+            list.Add(cbId);
+        }
     }
 
     public void removeEventListener(string type, object callback)
     {
-        if (_eventCallbackIds.TryGetValue(type, out var list))
+        var engine = JavaScriptEngine.Current;
+        if (engine?.IntegrationService != null)
         {
-            foreach (var cbId in list)
+            engine.IntegrationService.EventBridge.RemoveListener(type, callback);
+        }
+        else
+        {
+            if (_eventCallbackIds.TryGetValue(type, out var list))
             {
-                var engine = JavaScriptEngine.Current;
-                engine?.RemoveCallback(cbId);
+                foreach (var cbId in list)
+                    engine?.RemoveCallback(cbId);
+                list.Clear();
             }
-            list.Clear();
         }
     }
 
@@ -420,6 +436,8 @@ public class ElementHost
 
     public object[] classListValues => _element.ClassList.Select(c => (object)c).ToArray();
 
+    public DomTokenListHost classList => new(this);
+
     public bool classList_contains(string className) => _element.HasClass(className);
 
     public void classList_add(string className)
@@ -450,6 +468,12 @@ public class ElementHost
         }
         classList_add(className);
         return true;
+    }
+
+    public string? classList_item(int index)
+    {
+        var classes = _element.ClassList.ToList();
+        return index >= 0 && index < classes.Count ? classes[index] : null;
     }
 
     public string? getAttributeNS(string ns, string name) => _element.GetAttribute(name);
@@ -1267,6 +1291,20 @@ public class TextNodeWrapper
     public string? data { get => _node.TextContent; set => _node.Data = value ?? ""; }
     public int nodeType => 3;
     public string? wholeText => _node.TextContent;
+    public string? __domType => "Text";
+    public string[] __domTypeChain => new[] { "EventTarget", "Node", "Text" };
+}
+
+public class DomTokenListHost
+{
+    private readonly ElementHost _element;
+    public DomTokenListHost(ElementHost element) => _element = element;
+    public int length => _element.NativeElement.ClassList.Length;
+    public void add(string className) => _element.classList_add(className);
+    public void remove(string className) => _element.classList_remove(className);
+    public bool contains(string className) => _element.classList_contains(className);
+    public bool toggle(string className) => _element.classList_toggle(className);
+    public string? item(int index) => _element.classList_item(index);
 }
 
 public class ScriptEvent

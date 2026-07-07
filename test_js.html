@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>JS Test</title></head>
+<body>
+<h1 id="title">JS Engine Test</h1>
+<p id="msg">Hello</p>
+<ul id="list"><li>item1</li><li>item2</li></ul>
+<button id="btn">Click</button>
+<script>
+console.log("=== JS Engine Test Start ===");
+
+// 1. Basic script execution
+console.log("1: Basic execution OK");
+
+// 2. DOM access
+var title = document.getElementById("title");
+console.log("2: getElementById OK, text=" + title.textContent);
+
+// 3. DOM manipulation
+var p = document.getElementById("msg");
+p.textContent = "modified";
+console.log("3: DOM manipulation OK, text=" + p.textContent);
+
+// 4. document.createElement
+var div = document.createElement("div");
+div.id = "newdiv";
+div.textContent = "created";
+document.body.appendChild(div);
+console.log("4: createElement OK, id=" + div.id);
+
+// 5. Event listener
+var btn = document.getElementById("btn");
+btn.addEventListener("click", function() {
+    console.log("5: click event OK");
+});
+var clickEvent = document.createEvent("MouseEvents");
+clickEvent.initEvent("click", true, true);
+btn.dispatchEvent(clickEvent);
+console.log("5b: dispatchEvent OK");
+
+// 6. Timer (setTimeout)
+var timerRan = false;
+setTimeout(function() {
+    timerRan = true;
+    console.log("6: setTimeout OK");
+}, 10);
+
+// 7. Timer (setInterval - run once then cancel)
+var intervalCount = 0;
+var intervalId = setInterval(function() {
+    intervalCount++;
+    console.log("7: setInterval fired #" + intervalCount);
+    if (intervalCount >= 1) {
+        clearInterval(intervalId);
+        console.log("7b: clearInterval OK");
+    }
+}, 10);
+
+// 8. instanceof
+console.log("8: instanceof HTMLElement=" + (div instanceof HTMLElement));
+console.log("8b: instanceof Node=" + (div instanceof Node));
+console.log("8c: instanceof EventTarget=" + (div instanceof EventTarget));
+
+// 9. Live collection
+var items = document.getElementsByTagName("li");
+console.log("9: live collection length=" + items.length);
+var newLi = document.createElement("li");
+newLi.textContent = "item3";
+document.getElementById("list").appendChild(newLi);
+console.log("9b: after append length=" + items.length + " (should be 3)");
+
+// 10. innerHTML
+var testDiv = document.createElement("div");
+testDiv.innerHTML = "<span>inner</span>";
+console.log("10: innerHTML OK, childCount=" + testDiv.childNodes.length);
+
+// 11. classList
+div.classList.add("test-class");
+console.log("11: classList OK, contains=" + div.classList.contains("test-class"));
+
+// 12. style
+div.style.color = "red";
+div.style.fontSize = "20px";
+console.log("12: style OK, color=" + div.style.color);
+
+// 13. parentNode / children
+console.log("13: parentNode OK=" + (div.parentNode === document.body));
+console.log("13b: children OK, count=" + document.body.children.length);
+
+// 14. navigator
+console.log("14: navigator.userAgent=" + navigator.userAgent);
+
+// 15. location
+console.log("15: location.href=" + location.href);
+
+// 16. localStorage
+localStorage.setItem("test", "value");
+console.log("16: localStorage OK, get=" + localStorage.getItem("test"));
+
+console.log("=== JS Engine Test Complete ===");
+</script>
+</body>
+</html>

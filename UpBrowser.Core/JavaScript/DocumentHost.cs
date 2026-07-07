@@ -24,11 +24,10 @@ public class DocumentHost
         }
     }
 
-    private readonly Dictionary<string, List<int>> _eventCallbackIds = new();
-
     public DocumentHost(Document document)
     {
         _document = document;
+        JsIntegrationService.FixProto(this);
     }
 
     public Document NativeDocument => _document;
@@ -79,6 +78,10 @@ public class DocumentHost
     public string? baseURI => _document.Url;
 
     public string? compatMode => "CSS1Compat";
+
+    public string __domType => "HTMLDocument";
+
+    public string[] __domTypeChain => new[] { "EventTarget", "Node", "HTMLDocument" };
     public string? characterSet => "UTF-8";
     public string? contentType => "text/html";
 
@@ -156,33 +159,29 @@ public class DocumentHost
         return el != null ? new ElementHost(el) : null;
     }
 
-    public object[] querySelectorAll(string selector)
+    public object querySelectorAll(string selector)
     {
-        if (_document.DocumentElement == null) return Array.Empty<object>();
-        return QuerySelectorAllInternal(_document.DocumentElement, selector)
-            .Select(e => (object)new ElementHost(e)).ToArray();
+        if (_document.DocumentElement == null) return new object[0];
+        return new JsNodeList(_document.DocumentElement,
+            root => QuerySelectorAllInternal(root, selector));
     }
 
-    public object[] getElementsByTagName(string tagName)
+    public object getElementsByTagName(string tagName)
     {
-        if (_document.DocumentElement == null) return Array.Empty<object>();
-        return GetElementsByTagNameInternal(_document.DocumentElement, tagName)
-            .Select(e => (object)new ElementHost(e)).ToArray();
+        if (_document.DocumentElement == null) return new object[0];
+        return new JsHtmlCollection(_document.DocumentElement, tagName);
     }
 
-    public object[] getElementsByClassName(string className)
+    public object getElementsByClassName(string className)
     {
-        if (_document.DocumentElement == null) return Array.Empty<object>();
-        return GetElementsByClassNameInternal(_document.DocumentElement, className)
-            .Select(e => (object)new ElementHost(e)).ToArray()
-            ?? Array.Empty<object>();
+        if (_document.DocumentElement == null) return new object[0];
+        return new JsHtmlCollection(_document.DocumentElement, null, className);
     }
 
-    public object[] getElementsByName(string name)
+    public object getElementsByName(string name)
     {
-        if (_document.DocumentElement == null) return Array.Empty<object>();
-        return GetElementsByNameInternal(_document.DocumentElement, name)
-            .Select(e => (object)new ElementHost(e)).ToArray();
+        if (_document.DocumentElement == null) return new object[0];
+        return new JsHtmlCollection(_document.DocumentElement, null, null, name);
     }
 
     public ElementHost createElement(string tagName)
@@ -218,8 +217,16 @@ public class DocumentHost
 
     public object? createAttributeNS(string? ns, string name) => new AttributeHost(name, ns);
 
-    public ElementHost? getElementByClassName(string className) =>
-        getElementsByClassName(className).FirstOrDefault() as ElementHost;
+    public ElementHost? getElementByClassName(string className)
+    {
+        var coll = getElementsByClassName(className);
+        if (coll is JsHtmlCollection htmlColl)
+        {
+            foreach (var item in htmlColl)
+                return item as ElementHost;
+        }
+        return null;
+    }
 
     public bool hasFocus() => true;
 
@@ -333,26 +340,24 @@ public class DocumentHost
         var engine = JavaScriptEngine.Current;
         if (engine == null) return;
 
-        var cbId = engine.StoreCallbackRef(callback);
-        if (!_eventCallbackIds.TryGetValue(type, out var list))
+        var integration = engine.IntegrationService;
+        if (integration != null)
         {
-            list = new List<int>();
-            _eventCallbackIds[type] = list;
+            var cbId = integration.Facade.StoreJsFunction(callback);
+            integration.EventBridge.AddListener(type, callback);
         }
-        if (!list.Contains(cbId))
-            list.Add(cbId);
+        else
+        {
+            var cbId = engine.StoreCallbackRef(callback);
+        }
     }
 
     public void removeEventListener(string type, object callback)
     {
-        if (_eventCallbackIds.TryGetValue(type, out var list))
+        var engine = JavaScriptEngine.Current;
+        if (engine?.IntegrationService != null)
         {
-            var engine = JavaScriptEngine.Current;
-            foreach (var cbId in list.ToList())
-            {
-                engine?.RemoveCallback(cbId);
-            }
-            list.Clear();
+            engine.IntegrationService.EventBridge.RemoveListener(type, callback);
         }
     }
 
@@ -361,16 +366,10 @@ public class DocumentHost
         var engine = JavaScriptEngine.Current;
         if (engine == null) return;
 
-        if (_eventCallbackIds.TryGetValue(evt.type, out var cbIds))
+        var integration = engine.IntegrationService;
+        if (integration != null)
         {
-            foreach (var cbId in cbIds.ToList())
-            {
-                try
-                {
-                    engine.InvokeCallbackWith(cbId, evt);
-                }
-                catch { }
-            }
+            integration.EventBridge.DispatchEvent(evt.type, null);
         }
 
         // Check for inline event handler on document
