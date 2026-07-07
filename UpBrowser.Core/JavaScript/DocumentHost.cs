@@ -347,7 +347,6 @@ public class DocumentHost
         var integration = engine.IntegrationService;
         if (integration != null)
         {
-            var cbId = integration.Facade.StoreJsFunction(callback);
             integration.EventBridge.AddListener(type, callback);
         }
         else

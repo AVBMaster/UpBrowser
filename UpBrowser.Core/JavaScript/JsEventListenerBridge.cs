@@ -27,7 +27,27 @@ public class JsEventListenerBridge
 
     public int AddListener(string type, object jsCallback, bool useCapture = false, bool once = false, bool passive = false, AbortSignal? signal = null)
     {
-        var callbackId = _facade.StoreJsFunction(jsCallback);
+        // Use __g_store from JS side to properly store the callback function reference.
+        // This avoids StoreJsFunction which uses EmbedHostObject and fails for
+        // ClearScript/V8 ScriptObject types, silently replacing the callback with a no-op.
+        int callbackId;
+        try
+        {
+            var result = _facade.CallFunction("__g_store", jsCallback);
+            if (result is int id)
+                callbackId = id;
+            else if (result is double d)
+                callbackId = (int)d;
+            else if (result is long l)
+                callbackId = (int)l;
+            else
+                callbackId = _facade.StoreJsFunction(jsCallback);
+        }
+        catch
+        {
+            callbackId = _facade.StoreJsFunction(jsCallback);
+        }
+
         var entry = new JsEventListenerEntry
         {
             CallbackId = callbackId,
