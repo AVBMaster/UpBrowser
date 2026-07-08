@@ -275,8 +275,22 @@ public class ElementHost
 
     public void addEventListener(string type, object callback)
     {
+        addEventListener(type, callback, null);
+    }
+
+    public void addEventListener(string type, object callback, object? options)
+    {
         var engine = JavaScriptEngine.Current ?? Engine;
         if (engine == null) return;
+
+        bool useCapture = false;
+        if (options is bool b)
+            useCapture = b;
+        else if (options != null)
+        {
+            // Try to extract capture/once/passive from options object
+            try { useCapture = Convert.ToBoolean(options.GetType().GetProperty("capture")?.GetValue(options) ?? false); } catch { }
+        }
 
         int cbId;
         var integration = engine.IntegrationService;
@@ -313,6 +327,11 @@ public class ElementHost
     }
 
     public void removeEventListener(string type, object callback)
+    {
+        removeEventListener(type, callback, null);
+    }
+
+    public void removeEventListener(string type, object callback, object? options)
     {
         var engine = JavaScriptEngine.Current ?? Engine;
         if (engine == null) return;

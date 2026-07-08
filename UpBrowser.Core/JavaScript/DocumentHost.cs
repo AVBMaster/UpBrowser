@@ -348,13 +348,26 @@ public class DocumentHost
 
     public void addEventListener(string type, object callback)
     {
+        addEventListener(type, callback, null);
+    }
+
+    public void addEventListener(string type, object callback, object? options)
+    {
         var engine = JavaScriptEngine.Current ?? Engine;
         if (engine == null) return;
+
+        bool useCapture = false;
+        if (options is bool b)
+            useCapture = b;
+        else if (options != null)
+        {
+            try { dynamic opts = options; useCapture = opts.capture ?? false; } catch { }
+        }
 
         var integration = engine.IntegrationService;
         if (integration != null)
         {
-            integration.EventBridge.AddListener(type, callback);
+            integration.EventBridge.AddListener(type, callback, useCapture);
         }
         else
         {
@@ -363,6 +376,11 @@ public class DocumentHost
     }
 
     public void removeEventListener(string type, object callback)
+    {
+        removeEventListener(type, callback, null);
+    }
+
+    public void removeEventListener(string type, object callback, object? options)
     {
         var engine = JavaScriptEngine.Current ?? Engine;
         if (engine?.IntegrationService != null)
