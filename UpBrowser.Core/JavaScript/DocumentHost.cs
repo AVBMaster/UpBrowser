@@ -81,6 +81,8 @@ public class DocumentHost
 
     public string? compatMode => "CSS1Compat";
 
+    public object? location => Engine?.LocationHost;
+
     public string __domType => "HTMLDocument";
 
     public string[] __domTypeChain => new[] { "EventTarget", "Node", "HTMLDocument" };

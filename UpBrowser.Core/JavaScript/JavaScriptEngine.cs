@@ -523,6 +523,24 @@ public class JavaScriptEngine : IDisposable
                 return __upbrowser.createURLSearchParams(query || '');
             }
 
+            function Image(width, height) {
+                var img = document.createElement('img');
+                if (width !== undefined) img.width = width;
+                if (height !== undefined) img.height = height;
+                return img;
+            }
+
+            window.addEventListener = function(type, listener, options) {
+                if (document && document.addEventListener) {
+                    document.addEventListener(type, listener, options);
+                }
+            };
+            window.removeEventListener = function(type, listener, options) {
+                if (document && document.removeEventListener) {
+                    document.removeEventListener(type, listener, options);
+                }
+            };
+
             Object.defineProperty(window, 'innerWidth', { configurable: true, get: function() { return __upbrowser.innerWidth(); } });
             Object.defineProperty(window, 'innerHeight', { configurable: true, get: function() { return __upbrowser.innerHeight(); } });
             Object.defineProperty(window, 'outerWidth', { configurable: true, get: function() { return __upbrowser.innerWidth(); } });

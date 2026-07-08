@@ -1356,6 +1356,13 @@ public class ElementHost
     public void load() { }
     public string? canPlayType(string type) => "";
 
+    // Generic attribute-backed src (works for script, img, iframe, media, etc.)
+    public string? src
+    {
+        get => _element.GetAttribute("src");
+        set => _element.SetAttribute("src", value ?? "");
+    }
+
     // ===== HTMLAnchorElement specific =====
     public string? href
     {
