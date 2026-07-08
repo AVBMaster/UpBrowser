@@ -278,8 +278,6 @@ public class ElementHost
         var engine = JavaScriptEngine.Current ?? Engine;
         if (engine == null) return;
 
-        Console.Error.WriteLine($"[EH] addEventListener type={type} callback={callback?.GetType().FullName ?? "null"} adapter={engine.Adapter?.GetType().Name}");
-
         int cbId;
         var integration = engine.IntegrationService;
         if (integration != null)
@@ -288,18 +286,15 @@ public class ElementHost
             // If it fails, use StoreJsFunction fallback (works for Jint).
             try
             {
-                Console.Error.WriteLine($"[EH] Calling __g_store...");
                 var result = integration.Facade.CallFunction("__g_store", callback);
-                Console.Error.WriteLine($"[EH] __g_store result={result} type={result?.GetType().Name}");
                 if (result is int id) cbId = id;
                 else if (result is double d) cbId = (int)d;
                 else if (result is long l) cbId = (int)l;
                 else
                     cbId = integration.Facade.StoreJsFunction(callback);
             }
-            catch (Exception ex)
+            catch
             {
-                Console.Error.WriteLine($"[EH] __g_store failed: {ex.GetType().Name}: {ex.Message}");
                 cbId = integration.Facade.StoreJsFunction(callback);
             }
         }

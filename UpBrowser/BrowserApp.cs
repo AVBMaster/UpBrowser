@@ -114,7 +114,7 @@ public class BrowserApp : IDisposable
         _chrome = new ChromeRenderer();
         _scroll = new ScrollManager();
         _skiaRenderer = new SkiaRenderer();
-        JsEngineConfig.DefaultEngineType = JsEngineType.V8;
+        JsEngineConfig.DefaultEngineType = JsEngineType.Jint;
         JsEngineConfig.Initialize();
         _jsEngine = new JavaScriptEngine();
         _eventLoop = new EventLoop();

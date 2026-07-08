@@ -1,9 +1,13 @@
+using System.Collections.Concurrent;
 using JavaScriptEngineSwitcher.Core;
 
 namespace UpBrowser.Core.JavaScript;
 
 public class V8EngineAdapter : EngineAdapterBase
 {
+    private readonly ConcurrentDictionary<int, object?> _directCallbacks = new();
+    private int _nextDirectCbId;
+
     public override JsEngineType EngineType => JsEngineType.V8;
     public override bool SupportsHostObjects => true;
     public override bool SupportsES6Proxy => true;
@@ -26,27 +30,81 @@ public class V8EngineAdapter : EngineAdapterBase
         return JsEngineConfig.CreateEngine(JsEngineType.V8);
     }
 
+    public override object? CallFunction(string functionName, params object?[] args)
+    {
+        // V8 does not support re-entrant CallFunction/EmbedHostObject/Execute/Evaluate
+        // from within a host callback. Handle __g_store in C# to avoid engine re-entry.
+        if (functionName == "__g_store" && args.Length > 0 && IsScriptObject(args[0]))
+        {
+            return StoreScriptObject(args[0]);
+        }
+        return base.CallFunction(functionName, args);
+    }
+
+    public override int StoreCallback(object callback)
+    {
+        if (IsScriptObject(callback))
+            return StoreScriptObject(callback);
+        return base.StoreCallback(callback);
+    }
+
     public override void InvokeCallbackWith(int id, object? arg)
     {
-        // V8/ClearScript supports re-entrant CallFunction from within
-        // host callbacks, but NOT EmbedHostObject + Execute/Evaluate.
-        // Use direct CallFunction to pass the argument to the JS callback.
-        try
+        if (_directCallbacks.TryGetValue(id, out var cb) && IsScriptObject(cb))
         {
-            if (arg != null)
+            try
             {
-                Console.Error.WriteLine($"[V8] InvokeCallbackWith id={id} arg={arg.GetType().Name}");
-                _engine.CallFunction("__g_invoke", id, arg);
-                Console.Error.WriteLine($"[V8] CallFunction OK");
+                dynamic dyn = cb;
+                if (arg != null)
+                    dyn.Invoke(false, arg);
+                else
+                    dyn.Invoke(false);
+                return;
             }
-            else
-            {
-                _engine.CallFunction("__g_invoke", id);
-            }
+            catch { }
         }
-        catch (Exception ex)
+        base.InvokeCallbackWith(id, arg);
+    }
+
+    public override void InvokeCallback(int id)
+    {
+        if (_directCallbacks.TryGetValue(id, out var cb) && IsScriptObject(cb))
         {
-            Console.Error.WriteLine($"[V8] CallFunction FAIL: {ex.GetType().Name}: {ex.Message}");
+            try
+            {
+                dynamic dyn = cb;
+                dyn.Invoke(false);
+                return;
+            }
+            catch { }
         }
+        base.InvokeCallback(id);
+    }
+
+    public override void RemoveCallback(int id)
+    {
+        if (_directCallbacks.TryRemove(id, out _))
+            return;
+        base.RemoveCallback(id);
+    }
+
+    public override void ClearCallbacks()
+    {
+        _directCallbacks.Clear();
+        base.ClearCallbacks();
+    }
+
+    private static bool IsScriptObject(object? obj)
+    {
+        if (obj == null) return false;
+        var name = obj.GetType().FullName;
+        return name != null && (name.Contains("ScriptObject") || name.Contains("V8ScriptItem"));
+    }
+
+    private int StoreScriptObject(object callback)
+    {
+        var id = Interlocked.Increment(ref _nextDirectCbId);
+        _directCallbacks[id] = callback;
+        return id;
     }
 }
