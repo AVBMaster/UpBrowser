@@ -25,4 +25,28 @@ public class V8EngineAdapter : EngineAdapterBase
         }
         return JsEngineConfig.CreateEngine(JsEngineType.V8);
     }
+
+    public override void InvokeCallbackWith(int id, object? arg)
+    {
+        // V8/ClearScript supports re-entrant CallFunction from within
+        // host callbacks, but NOT EmbedHostObject + Execute/Evaluate.
+        // Use direct CallFunction to pass the argument to the JS callback.
+        try
+        {
+            if (arg != null)
+            {
+                Console.Error.WriteLine($"[V8] InvokeCallbackWith id={id} arg={arg.GetType().Name}");
+                _engine.CallFunction("__g_invoke", id, arg);
+                Console.Error.WriteLine($"[V8] CallFunction OK");
+            }
+            else
+            {
+                _engine.CallFunction("__g_invoke", id);
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[V8] CallFunction FAIL: {ex.GetType().Name}: {ex.Message}");
+        }
+    }
 }
