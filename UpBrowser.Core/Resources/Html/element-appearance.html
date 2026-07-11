@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html>
+<head><title>Element Appearance Test</title></head>
+<body>
+
+<h1>Element Appearance &amp; Functionality Test</h1>
+<p>This page tests basic element rendering with <b>no custom CSS</b> — only browser defaults.</p>
+
+<h2>Text Elements</h2>
+<p>Paragraph text. The quick brown fox jumps over the lazy dog.</p>
+<h1>Heading 1</h1>
+<h2>Heading 2</h2>
+<h3>Heading 3</h3>
+<h4>Heading 4</h4>
+<h5>Heading 5</h5>
+<h6>Heading 6</h6>
+
+<h2>Inline Elements</h2>
+<p><strong>bold</strong> <b>b tag</b> <em>italic</em> <i>i tag</i> <u>underline</u> <s>strikethrough</s></p>
+<p><del>deleted</del> <ins>inserted</ins> <code>inline code</code> <kbd>keyboard</kbd></p>
+<p><mark>highlighted</mark> <small>small text</small> X<sub>sub</sub> X<sup>sup</sup></p>
+<p><a href="#">Link text</a></p>
+
+<h2>Text Decoration</h2>
+<p style="text-decoration:underline;">Underline</p>
+<p style="text-decoration:line-through;">Line-through</p>
+<p style="text-decoration:overline;">Overline</p>
+
+<h2>Font Styles</h2>
+<p style="font-style:normal;">font-style: normal</p>
+<p style="font-style:italic;">font-style: italic</p>
+<p style="font-weight:normal;">font-weight: normal</p>
+<p style="font-weight:bold;">font-weight: bold</p>
+
+<h2>Lists</h2>
+<h3>Unordered List</h3>
+<ul>
+  <li>First item</li>
+  <li>Second item</li>
+  <li>Third item</li>
+</ul>
+
+<h3>Ordered List</h3>
+<ol>
+  <li>First item</li>
+  <li>Second item</li>
+  <li>Third item</li>
+</ol>
+
+<h3>Description List</h3>
+<dl>
+  <dt>Term 1</dt>
+  <dd>Definition for term 1</dd>
+  <dt>Term 2</dt>
+  <dd>Definition for term 2</dd>
+</dl>
+
+<h2>Table</h2>
+<table border="1" cellpadding="6" cellspacing="0">
+  <caption>Simple Table</caption>
+  <thead>
+    <tr><th>Name</th><th>Value</th><th>Status</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>Alpha</td><td>100</td><td>Active</td></tr>
+    <tr><td>Beta</td><td>200</td><td>Inactive</td></tr>
+    <tr><td>Gamma</td><td>300</td><td>Active</td></tr>
+  </tbody>
+  <tfoot>
+    <tr><td>Total</td><td>600</td><td></td></tr>
+  </tfoot>
+</table>
+
+<h2>Form Elements — Text Inputs</h2>
+<p><input type="text" placeholder="text input"></p>
+<p><input type="password" placeholder="password input"></p>
+<p><input type="email" placeholder="email input"></p>
+<p><input type="tel" placeholder="tel input"></p>
+<p><input type="url" placeholder="url input"></p>
+<p><input type="search" placeholder="search input"></p>
+<p><input type="number" value="42"></p>
+<p><input type="text" value="read-only" readonly></p>
+<p><input type="text" value="disabled" disabled></p>
+
+<h2>Form Elements — Buttons</h2>
+<p>
+  <button>Default Button</button>
+  <button type="submit">Submit</button>
+  <button type="reset">Reset</button>
+  <button disabled>Disabled</button>
+</p>
+
+<h2>Form Elements — Checkboxes &amp; Radios</h2>
+<p>
+  <label><input type="checkbox" checked> Checked</label>
+  <label><input type="checkbox"> Unchecked</label>
+  <label><input type="checkbox" disabled> Disabled</label>
+</p>
+<p>
+  <label><input type="radio" name="r1" checked> Option A</label>
+  <label><input type="radio" name="r1"> Option B</label>
+  <label><input type="radio" name="r1"> Option C</label>
+</p>
+
+<h2>Form Elements — Select</h2>
+<p>
+  <select>
+    <option>Apple</option>
+    <option selected>Banana</option>
+    <option>Cherry</option>
+    <option disabled>Disabled</option>
+  </select>
+</p>
+
+<h2>Form Elements — Textarea</h2>
+<p><textarea rows="3" cols="40" placeholder="Multi-line text input..."></textarea></p>
+
+<h2>Form Elements — Range &amp; Color</h2>
+<p><input type="range" min="0" max="100" value="50"></p>
+<p><input type="color" value="#667eea"></p>
+
+<h2>Form Elements — Date/Time</h2>
+<p><input type="date"></p>
+<p><input type="time"></p>
+<p><input type="datetime-local"></p>
+<p><input type="month"></p>
+<p><input type="week"></p>
+
+<h2>Form — Fieldset</h2>
+<fieldset>
+  <legend>Fieldset Legend</legend>
+  <p>Content inside a fieldset.</p>
+  <p><input type="text" placeholder="Inside fieldset"></p>
+</fieldset>
+
+<h2>Media Placeholders</h2>
+<div style="width:200px;height:120px;background:#ccc;border:2px dashed #999;display:flex;align-items:center;justify-content:center;">
+  &lt;img&gt; placeholder (200x120)
+</div>
+<br>
+<video width="320" height="180" controls>
+  <source src="test.mp4" type="video/mp4">
+  Video not supported
+</video>
+<br><br>
+<audio controls>
+  <source src="test.mp3" type="audio/mpeg">
+  Audio not supported
+</audio>
+
+<h2>Preformatted Text</h2>
+<pre>function hello() {
+  console.log("Hello, world!");
+  return 42;
+}</pre>
+
+<h2>Blockquote</h2>
+<blockquote>
+  This is a blockquote. It should be indented and styled differently from regular paragraphs.
+</blockquote>
+
+<h2>Horizontal Rule</h2>
+<p>Above the line</p>
+<hr>
+<p>Below the line</p>
+
+<h2>Details / Summary</h2>
+<details>
+  <summary>Click to expand</summary>
+  <p>Hidden content revealed!</p>
+</details>
+<details open>
+  <summary>Open by default</summary>
+  <p>This content is visible immediately.</p>
+</details>
+
+<h2>Address</h2>
+<address>
+  Written by <a href="#">Author Name</a>.<br>
+  123 Main Street<br>
+  City, Country
+</address>
+
+<h2>Abbr &amp; Cite &amp; DFN</h2>
+<p><abbr title="HyperText Markup Language">HTML</abbr> is a markup language.</p>
+<p><cite>The Great Gatsby</cite> is a novel.</p>
+<p><dfn>Definition term</dfn> — a defined term.</p>
+
+<h2>Mark &amp; Time &amp; Output</h2>
+<p>Please <mark>highlight</mark> this text.</p>
+<p>The event is at <time datetime="2026-07-11">July 11</time>.</p>
+<p>Calculation: <output name="result">42</output></p>
+
+<h2>Progress &amp; Meter</h2>
+<progress value="70" max="100">70%</progress>
+<br><br>
+<meter value="0.6" min="0" max="1">60%</meter>
+
+<h2>Figures</h2>
+<figure>
+  <div style="width:150px;height:100px;background:#ddd;border:1px solid #999;display:flex;align-items:center;justify-content:center;">Image placeholder</div>
+  <figcaption>Figure 1: A placeholder image</figcaption>
+</figure>
+
+<h2>Div &amp; Span Layout</h2>
+<div style="width:300px;height:80px;background:#eef;border:1px solid #99c;padding:10px;">
+  This is a div block.
+  <span style="background:#fee;border:1px solid #c99;padding:2px 6px;">This is a span inside the div.</span>
+  More div content.
+</div>
+
+<h2>Superscript &amp; Subscript</h2>
+<p>H<sub>2</sub>O is water.</p>
+<p>E=mc<sup>2</sup> is mass-energy equivalence.</p>
+
+<h2>Word Break</h2>
+<p style="width:200px;background:#f5f5f5;padding:8px;">This_is_a_very_long_unbreakable_word_that_should_wrap_or_break_in_the_container_properly.</p>
+
+<h2>Sample / Variable / Kbd in paragraph</h2>
+<p>Use <kbd>Ctrl</kbd>+<kbd>C</kbd> to copy. The variable <var>x</var> equals 10. Output: <samp>result = 10</samp></p>
+
+<div style="margin-top:40px;padding:20px;border-top:2px solid #ccc;text-align:center;color:#666;">
+  End of Element Appearance Test Page
+</div>
+
+</body>
+</html>

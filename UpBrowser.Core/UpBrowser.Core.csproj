@@ -6,6 +6,11 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <EmbeddedResource Include="Resources\Html\*.html" />
+    <EmbeddedResource Include="Resources\Css\*.css" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="AngleSharp" Version="1.5.2" />
     <PackageReference Include="JavaScriptEngineSwitcher.Core" Version="*" />
     <PackageReference Include="JavaScriptEngineSwitcher.V8" Version="*" Condition="$([MSBuild]::IsOSPlatform('Windows'))" />
