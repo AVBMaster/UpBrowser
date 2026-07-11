@@ -171,6 +171,13 @@ public class DrawRectOp : PaintOp
 
     private static void DrawBorderSide(SKCanvas canvas, float x1, float y1, float x2, float y2, float width, SKColor color, BorderStyle style)
     {
+        if (style == BorderStyle.Groove || style == BorderStyle.Ridge ||
+            style == BorderStyle.Inset || style == BorderStyle.Outset)
+        {
+            DrawSpecialBorderSide(canvas, x1, y1, x2, y2, width, color, style);
+            return;
+        }
+
         using var paint = new SKPaint
         {
             Color = color,
@@ -183,6 +190,66 @@ public class DrawRectOp : PaintOp
         else if (style == BorderStyle.Dotted)
             paint.PathEffect = SKPathEffect.CreateDash(new[] { width, width }, 0);
         canvas.DrawLine(x1, y1, x2, y2, paint);
+    }
+
+    private static void DrawSpecialBorderSide(SKCanvas canvas, float x1, float y1, float x2, float y2, float width, SKColor color, BorderStyle style)
+    {
+        bool isHorizontal = MathF.Abs(y1 - y2) < 0.5f;
+        SKColor light = AdjustBrightness(color, 1.4f);
+        SKColor dark = AdjustBrightness(color, 0.6f);
+        SKColor half = AdjustBrightness(color, 0.8f);
+
+        float halfW = width / 2f;
+        if (isHorizontal)
+        {
+            float left = MathF.Min(x1, x2);
+            float right = MathF.Max(x1, x2);
+            SKColor topColor, bottomColor;
+            switch (style)
+            {
+                case BorderStyle.Groove:
+                    topColor = dark; bottomColor = light; break;
+                case BorderStyle.Ridge:
+                    topColor = light; bottomColor = dark; break;
+                case BorderStyle.Inset:
+                    topColor = dark; bottomColor = light; break;
+                default: // Outset
+                    topColor = light; bottomColor = dark; break;
+            }
+            using var p1 = new SKPaint { Color = topColor, Style = SKPaintStyle.Fill, IsAntialias = true };
+            canvas.DrawRect(left, y1 - halfW, right, y1, p1);
+            using var p2 = new SKPaint { Color = bottomColor, Style = SKPaintStyle.Fill, IsAntialias = true };
+            canvas.DrawRect(left, y1, right, y1 + halfW, p2);
+        }
+        else
+        {
+            float top = MathF.Min(y1, y2);
+            float bottom = MathF.Max(y1, y2);
+            SKColor leftColor, rightColor;
+            switch (style)
+            {
+                case BorderStyle.Groove:
+                    leftColor = dark; rightColor = light; break;
+                case BorderStyle.Ridge:
+                    leftColor = light; rightColor = dark; break;
+                case BorderStyle.Inset:
+                    leftColor = dark; rightColor = light; break;
+                default: // Outset
+                    leftColor = light; rightColor = dark; break;
+            }
+            using var p1 = new SKPaint { Color = leftColor, Style = SKPaintStyle.Fill, IsAntialias = true };
+            canvas.DrawRect(x1 - halfW, top, x1, bottom, p1);
+            using var p2 = new SKPaint { Color = rightColor, Style = SKPaintStyle.Fill, IsAntialias = true };
+            canvas.DrawRect(x1, top, x1 + halfW, bottom, p2);
+        }
+    }
+
+    private static SKColor AdjustBrightness(SKColor color, float factor)
+    {
+        byte r = (byte)MathF.Min(255, color.Red * factor);
+        byte g = (byte)MathF.Min(255, color.Green * factor);
+        byte b = (byte)MathF.Min(255, color.Blue * factor);
+        return new SKColor(r, g, b, color.Alpha);
     }
 }
 
@@ -199,9 +266,12 @@ public class DrawTextOp : PaintOp
     public float? MaxWidth { get; set; }
     public bool Underline { get; set; }
     public bool LineThrough { get; set; }
+    public bool Overline { get; set; }
     public SKColor UnderlineColor { get; set; }
     public TextDecorationStyleType DecorationStyle { get; set; } = TextDecorationStyleType.Solid;
     public List<TextShadowValue>? TextShadows { get; set; }
+    public float LetterSpacing { get; set; }
+    public bool Italic { get; set; }
 
     public override void Reset()
     {
@@ -214,10 +284,12 @@ public class DrawTextOp : PaintOp
         FontWeight = FontWeight.Normal;
         TextAlign = TextAlignType.Start;
         MaxWidth = null;
-        Underline = LineThrough = false;
+        Underline = LineThrough = Overline = false;
         UnderlineColor = default;
         DecorationStyle = TextDecorationStyleType.Solid;
         TextShadows = null;
+        LetterSpacing = 0;
+        Italic = false;
     }
 
     public override void Execute(SKCanvas canvas)
@@ -357,6 +429,20 @@ public class DrawTextOp : PaintOp
             };
             canvas.DrawLine(x, strikeY, x + actualWidth, strikeY, strikePaint);
         }
+
+        if (Overline)
+        {
+            float overlineY = Y - FontSize * 1.15f;
+            var overlineColor = UnderlineColor.Alpha > 0 ? UnderlineColor : Color;
+            using var overlinePaint = new SKPaint
+            {
+                Color = overlineColor,
+                StrokeWidth = 1,
+                Style = SKPaintStyle.Stroke,
+                IsAntialias = true
+            };
+            canvas.DrawLine(drawX, overlineY, drawX + actualWidth, overlineY, overlinePaint);
+        }
     }
 
     private float MeasureTextWithFallback(SKCanvas canvas, SKPaint paint, float x, float y, bool dryRun)
@@ -367,7 +453,6 @@ public class DrawTextOp : PaintOp
         int len = text.Length;
         float currentX = x;
 
-        // Initialize with first character's typeface so the first run starts at index 0
         int runStart = 0;
         SKTypeface currentTypeface = GetTypefaceForChar(text[0]);
 
@@ -380,15 +465,9 @@ public class DrawTextOp : PaintOp
 
                 if (neededTypeface != currentTypeface)
                 {
-                    // Flush current run: draw text[runStart..i] with currentTypeface
                     string run = text[runStart..i];
-                    using var font = new SKFont(currentTypeface, FontSize)
-                    {
-                        Edging = SKFontEdging.SubpixelAntialias,
-                        Subpixel = true,
-                        Hinting = SKFontHinting.Normal
-                    };
-                    float runWidth = font.MeasureText(run);
+                    using var font = CreateFont(currentTypeface);
+                    float runWidth = font.MeasureText(run) + (run.Length - 1) * LetterSpacing;
                     if (!dryRun)
                         canvas.DrawText(run, currentX, y, font, paint);
                     currentX += runWidth;
@@ -399,15 +478,9 @@ public class DrawTextOp : PaintOp
             }
             else
             {
-                // End of string: flush remaining run
                 string run = text[runStart..i];
-                using var font = new SKFont(currentTypeface, FontSize)
-                {
-                    Edging = SKFontEdging.SubpixelAntialias,
-                    Subpixel = true,
-                    Hinting = SKFontHinting.Normal
-                };
-                float runWidth = font.MeasureText(run);
+                using var font = CreateFont(currentTypeface);
+                float runWidth = font.MeasureText(run) + (run.Length - 1) * LetterSpacing;
                 if (!dryRun)
                     canvas.DrawText(run, currentX, y, font, paint);
                 currentX += runWidth;
@@ -415,6 +488,31 @@ public class DrawTextOp : PaintOp
         }
 
         return currentX - x;
+    }
+
+    private SKFont CreateFont(SKTypeface typeface)
+    {
+        var fontStyle = Italic ? SKFontStyle.BoldItalic : SKFontStyle.Normal;
+        var actualTypeface = typeface;
+        if (Italic && typeface != null)
+        {
+            var italicStyle = new SKFontStyle(SKFontStyleWeight.Normal, SKFontStyleWidth.Normal, SKFontStyleSlant.Italic);
+            var families = GetFontFamilies();
+            var familyName = typeface.FamilyName;
+            var index = Array.IndexOf(families, familyName);
+            if (index >= 0)
+            {
+                var styles = SKFontManager.Default.GetFontStyles(index);
+                var italicTf = styles.CreateTypeface(italicStyle);
+                if (italicTf != null) actualTypeface = italicTf;
+            }
+        }
+        return new SKFont(actualTypeface, FontSize)
+        {
+            Edging = SKFontEdging.SubpixelAntialias,
+            Subpixel = true,
+            Hinting = SKFontHinting.Normal
+        };
     }
 
     private SKTypeface GetTypefaceForChar(char c)

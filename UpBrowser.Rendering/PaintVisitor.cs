@@ -354,8 +354,9 @@ public class PaintVisitor
         float markerWidth = style.ListStyleType switch
         {
             ListStyleType.Disc or ListStyleType.Circle or ListStyleType.Square => 12f,
-            ListStyleType.Decimal => ((itemIndex + 1).ToString() + ".").Length * style.FontSize * 0.6f,
+            ListStyleType.Decimal or ListStyleType.DecimalLeadingZero => ((itemIndex + 1).ToString().PadLeft(2, '0') + ".").Length * style.FontSize * 0.6f,
             ListStyleType.LowerRoman or ListStyleType.UpperRoman => (ToRoman(itemIndex + 1) + ".").Length * style.FontSize * 0.6f,
+            ListStyleType.LowerAlpha or ListStyleType.UpperAlpha => 2 * style.FontSize * 0.6f,
             _ => 12f
         };
 
@@ -370,8 +371,11 @@ public class PaintVisitor
             ListStyleType.Circle => "\u25CB",
             ListStyleType.Square => "\u25A0",
             ListStyleType.Decimal => (itemIndex + 1).ToString() + ".",
+            ListStyleType.DecimalLeadingZero => (itemIndex + 1).ToString().PadLeft(2, '0') + ".",
             ListStyleType.LowerRoman => ToRoman(itemIndex + 1).ToLower() + ".",
             ListStyleType.UpperRoman => ToRoman(itemIndex + 1) + ".",
+            ListStyleType.LowerAlpha => ((char)('a' + (itemIndex % 26))).ToString() + ".",
+            ListStyleType.UpperAlpha => ((char)('A' + (itemIndex % 26))).ToString() + ".",
             _ => "\u2022"
         };
         var op = PaintOpPool.GetDrawTextOp();
@@ -1101,6 +1105,22 @@ public class PaintVisitor
     {
         if (element.TagName.Equals("INPUT", StringComparison.OrdinalIgnoreCase))
         {
+            var inputType = element.InputType?.ToLowerInvariant();
+            if (inputType == "checkbox" || inputType == "radio")
+            {
+                DrawCheckRadioElement(element, box, style, inputType);
+                return;
+            }
+            if (inputType == "range")
+            {
+                DrawRangeElement(element, box, style);
+                return;
+            }
+            if (inputType == "color")
+            {
+                DrawColorInputElement(element, box, style);
+                return;
+            }
             DrawInputElement(element, box, style);
             return;
         }
@@ -1269,6 +1289,7 @@ public class PaintVisitor
         textOp.FontSize = btnFontSize;
         textOp.FontFamily = style.FontFamily ?? "Arial, sans-serif";
         textOp.FontWeight = style.FontWeight;
+        textOp.Italic = style.FontStyle == FontStyleType.Italic || style.FontStyle == FontStyleType.Oblique;
         textOp.TextAlign = TextAlignType.Left;
         textOp.Bounds = new SKRect(textX, textY, textX + textWidth, textY + btnFontSize);
         _displayList.Add(textOp);
@@ -1309,6 +1330,7 @@ public class PaintVisitor
         op.FontSize = fontSize;
         op.FontFamily = style.FontFamily ?? "Arial";
         op.FontWeight = style.FontWeight;
+        op.Italic = style.FontStyle == FontStyleType.Italic || style.FontStyle == FontStyleType.Oblique;
         op.Bounds = new SKRect(textX, contentBox.Top + TotalOffsetY, textX + textWidth, contentBox.Bottom + TotalOffsetY);
         _displayList.Add(op);
 
@@ -1317,12 +1339,13 @@ public class PaintVisitor
             float cursorX = textX + Math.Min(textWidth, contentBox.Width - 4);
             float cursorTop = contentBox.Top + TotalOffsetY + 2;
             float cursorBottom = contentBox.Bottom + TotalOffsetY - 2;
+            var caretColor = style.CaretColor ?? new SKColor(0, 0, 0);
             var cursorOp = PaintOpPool.GetDrawLineOp();
             cursorOp.X1 = cursorX;
             cursorOp.Y1 = cursorTop;
             cursorOp.X2 = cursorX;
             cursorOp.Y2 = cursorBottom;
-            cursorOp.Color = new SKColor(0, 0, 0);
+            cursorOp.Color = caretColor;
             cursorOp.StrokeWidth = 1.5f;
             cursorOp.Bounds = new SKRect(cursorX - 1, cursorTop, cursorX + 1, cursorBottom);
             _displayList.Add(cursorOp);
@@ -1385,10 +1408,137 @@ public class PaintVisitor
         return text.Length * avgCharWidth;
     }
 
+    private void DrawCheckRadioElement(Element element, LayoutBox box, ComputedStyle style, string inputType)
+    {
+        bool isChecked = element.HasAttribute("checked");
+        var contentBox = box.ContentBox;
+        float size = Math.Min(contentBox.Width, contentBox.Height);
+        float cx = contentBox.Left + contentBox.Width / 2;
+        float cy = contentBox.Top + contentBox.Height / 2 + TotalOffsetY;
+        float boxSize = Math.Min(size, 16);
+        float halfBox = boxSize / 2;
+
+        SKColor borderColor = new SKColor(120, 120, 120);
+        SKColor fillColor = isChecked ? new SKColor(0x1A, 0x73, 0xE8) : SKColors.White;
+
+        if (inputType == "checkbox")
+        {
+            var rect = new SKRect(cx - halfBox, cy - halfBox, cx + halfBox, cy + halfBox);
+            var bgOp = PaintOpPool.GetDrawPathOp();
+            bgOp.Path = CreateRoundedRectPath(rect, 3);
+            bgOp.FillPaint = new SKPaint { Color = fillColor, Style = SKPaintStyle.Fill, IsAntialias = true };
+            bgOp.StrokePaint = new SKPaint { Color = borderColor, Style = SKPaintStyle.Stroke, StrokeWidth = 1.5f, IsAntialias = true };
+            bgOp.Bounds = rect;
+            _displayList.Add(bgOp);
+
+            if (isChecked)
+            {
+                var checkPath = new SKPath();
+                checkPath.MoveTo(cx - halfBox * 0.5f, cy);
+                checkPath.LineTo(cx - halfBox * 0.1f, cy + halfBox * 0.4f);
+                checkPath.LineTo(cx + halfBox * 0.5f, cy - halfBox * 0.35f);
+                var checkOp = PaintOpPool.GetDrawPathOp();
+                checkOp.Path = checkPath;
+                checkOp.StrokePaint = new SKPaint { Color = SKColors.White, Style = SKPaintStyle.Stroke, StrokeWidth = 2f, IsAntialias = true, StrokeCap = SKStrokeCap.Round, StrokeJoin = SKStrokeJoin.Round };
+                checkOp.Bounds = rect;
+                _displayList.Add(checkOp);
+            }
+        }
+        else // radio
+        {
+            var bgOp = PaintOpPool.GetDrawPathOp();
+            bgOp.Path = new SKPath();
+            bgOp.Path.AddCircle(cx, cy, halfBox);
+            bgOp.FillPaint = new SKPaint { Color = fillColor, Style = SKPaintStyle.Fill, IsAntialias = true };
+            bgOp.StrokePaint = new SKPaint { Color = borderColor, Style = SKPaintStyle.Stroke, StrokeWidth = 1.5f, IsAntialias = true };
+            bgOp.Bounds = new SKRect(cx - halfBox, cy - halfBox, cx + halfBox, cy + halfBox);
+            _displayList.Add(bgOp);
+
+            if (isChecked)
+            {
+                var dotOp = PaintOpPool.GetDrawPathOp();
+                dotOp.Path = new SKPath();
+                dotOp.Path.AddCircle(cx, cy, halfBox * 0.45f);
+                dotOp.FillPaint = new SKPaint { Color = new SKColor(0x1A, 0x73, 0xE8), Style = SKPaintStyle.Fill, IsAntialias = true };
+                dotOp.Bounds = new SKRect(cx - halfBox, cy - halfBox, cx + halfBox, cy + halfBox);
+                _displayList.Add(dotOp);
+            }
+        }
+    }
+
+    private void DrawRangeElement(Element element, LayoutBox box, ComputedStyle style)
+    {
+        var contentBox = box.ContentBox;
+        float trackY = contentBox.Top + contentBox.Height / 2 + TotalOffsetY;
+        float trackLeft = contentBox.Left + 4;
+        float trackRight = contentBox.Right - 4;
+
+        var trackOp = PaintOpPool.GetDrawLineOp();
+        trackOp.X1 = trackLeft;
+        trackOp.Y1 = trackY;
+        trackOp.X2 = trackRight;
+        trackOp.Y2 = trackY;
+        trackOp.Color = new SKColor(200, 200, 200);
+        trackOp.StrokeWidth = 4;
+        trackOp.Bounds = new SKRect(trackLeft, trackY - 2, trackRight, trackY + 2);
+        _displayList.Add(trackOp);
+
+        float min = 0, max = 100, val = 50;
+        float.TryParse(element.GetAttribute("min") ?? "0", out min);
+        float.TryParse(element.GetAttribute("max") ?? "100", out max);
+        float.TryParse(element.GetAttribute("value") ?? "50", out val);
+        float ratio = max > min ? (val - min) / (max - min) : 0.5f;
+        float thumbX = trackLeft + (trackRight - trackLeft) * ratio;
+
+        var filledOp = PaintOpPool.GetDrawLineOp();
+        filledOp.X1 = trackLeft;
+        filledOp.Y1 = trackY;
+        filledOp.X2 = thumbX;
+        filledOp.Y2 = trackY;
+        filledOp.Color = new SKColor(0x1A, 0x73, 0xE8);
+        filledOp.StrokeWidth = 4;
+        filledOp.Bounds = new SKRect(trackLeft, trackY - 2, thumbX, trackY + 2);
+        _displayList.Add(filledOp);
+
+        float thumbRadius = 8;
+        var thumbOp = PaintOpPool.GetDrawPathOp();
+        thumbOp.Path = new SKPath();
+        thumbOp.Path.AddCircle(thumbX, trackY, thumbRadius);
+        thumbOp.FillPaint = new SKPaint { Color = SKColors.White, Style = SKPaintStyle.Fill, IsAntialias = true };
+        thumbOp.StrokePaint = new SKPaint { Color = new SKColor(0x1A, 0x73, 0xE8), Style = SKPaintStyle.Stroke, StrokeWidth = 2, IsAntialias = true };
+        thumbOp.Bounds = new SKRect(thumbX - thumbRadius, trackY - thumbRadius, thumbX + thumbRadius, trackY + thumbRadius);
+        _displayList.Add(thumbOp);
+    }
+
+    private void DrawColorInputElement(Element element, LayoutBox box, ComputedStyle style)
+    {
+        var contentBox = box.ContentBox;
+        string colorStr = element.GetAttribute("value") ?? "#000000";
+        SKColor color;
+        try { color = SKColor.Parse(colorStr); } catch { color = SKColors.Black; }
+
+        float swatchSize = Math.Min(contentBox.Width, contentBox.Height) - 4;
+        float x = contentBox.Left + (contentBox.Width - swatchSize) / 2;
+        float y = contentBox.Top + (contentBox.Height - swatchSize) / 2 + TotalOffsetY;
+
+        var borderOp = PaintOpPool.GetDrawPathOp();
+        borderOp.Path = CreateRoundedRectPath(new SKRect(x - 1, y - 1, x + swatchSize + 1, y + swatchSize + 1), 3);
+        borderOp.StrokePaint = new SKPaint { Color = new SKColor(120, 120, 120), Style = SKPaintStyle.Stroke, StrokeWidth = 1, IsAntialias = true };
+        borderOp.Bounds = new SKRect(x - 1, y - 1, x + swatchSize + 1, y + swatchSize + 1);
+        _displayList.Add(borderOp);
+
+        var fillOp = PaintOpPool.GetDrawPathOp();
+        fillOp.Path = CreateRoundedRectPath(new SKRect(x, y, x + swatchSize, y + swatchSize), 2);
+        fillOp.FillPaint = new SKPaint { Color = color, Style = SKPaintStyle.Fill, IsAntialias = true };
+        fillOp.Bounds = new SKRect(x, y, x + swatchSize, y + swatchSize);
+        _displayList.Add(fillOp);
+    }
+
     private void DrawTextNode(TextNode textNode, LayoutBox box, ComputedStyle parentStyle)
     {
         var text = textNode.TextContent;
         if (string.IsNullOrEmpty(text)) return;
+        text = ApplyTextTransform(text, parentStyle?.TextTransform);
         var contentBox = box.ContentBox;
         float y = contentBox.Top + (parentStyle?.FontSize ?? 16) + TotalOffsetY;
         var textColor = parentStyle?.Color ?? SKColors.Black;
@@ -1405,8 +1555,11 @@ public class PaintVisitor
         op.TextAlign = parentStyle?.TextAlign ?? TextAlignType.Start;
         op.Underline = parentStyle?.TextDecorationLine == TextDecorationLineType.Underline || parentStyle?.TextDecoration == TextDecorationType.Underline;
         op.LineThrough = parentStyle?.TextDecorationLine == TextDecorationLineType.LineThrough || parentStyle?.TextDecoration == TextDecorationType.LineThrough;
+        op.Overline = parentStyle?.TextDecorationLine == TextDecorationLineType.Overline || parentStyle?.TextDecoration == TextDecorationType.Overline;
         if (parentStyle != null) op.UnderlineColor = parentStyle.TextDecorationColor;
         op.DecorationStyle = parentStyle?.TextDecorationStyle ?? TextDecorationStyleType.Solid;
+        op.LetterSpacing = parentStyle?.LetterSpacing ?? 0;
+        op.Italic = parentStyle?.FontStyle == FontStyleType.Italic || parentStyle?.FontStyle == FontStyleType.Oblique;
         if (parentStyle?.TextShadow != null && parentStyle.TextShadow.Count > 0)
             op.TextShadows = parentStyle.TextShadow;
         op.Bounds = new SKRect(contentBox.Left, contentBox.Top + TotalOffsetY, contentBox.Right, contentBox.Bottom + TotalOffsetY);
@@ -1475,6 +1628,18 @@ public class PaintVisitor
         return length is PixelLength pixelLength ? pixelLength.Value : defaultValue;
     }
 
+    private static string ApplyTextTransform(string text, string? transform)
+    {
+        if (string.IsNullOrEmpty(transform) || transform == "none") return text;
+        return transform.ToLowerInvariant() switch
+        {
+            "uppercase" => text.ToUpperInvariant(),
+            "lowercase" => text.ToLowerInvariant(),
+            "capitalize" => System.Globalization.CultureInfo.CurrentCulture.TextInfo.ToTitleCase(text.ToLowerInvariant()),
+            _ => text
+        };
+    }
+
     private static ImageFit MapObjectFitToImageFit(ObjectFitType objectFit) => objectFit switch
     {
         ObjectFitType.Fill => ImageFit.Fill,
@@ -1522,8 +1687,9 @@ public class PaintVisitor
                     {
                         var parentStyle = textNode.ParentElement?.ComputedStyle;
                         var actualFontSize = run.FontSize ?? parentStyle?.FontSize ?? 16;
+                        var runText = ApplyTextTransform(run.Text, parentStyle?.TextTransform);
                         var op = PaintOpPool.GetDrawTextOp();
-                        op.Text = run.Text;
+                        op.Text = runText;
                         op.X = currentX + lineOffsetX;
                         op.Y = baseline;
                         op.Color = run.Color ?? parentStyle?.Color ?? SKColors.Black;
@@ -1531,8 +1697,11 @@ public class PaintVisitor
                         op.FontFamily = run.FontFamily ?? parentStyle?.FontFamily ?? "Arial";
                         op.Underline = parentStyle?.TextDecorationLine == TextDecorationLineType.Underline || parentStyle?.TextDecoration == TextDecorationType.Underline;
                         op.LineThrough = parentStyle?.TextDecorationLine == TextDecorationLineType.LineThrough || parentStyle?.TextDecoration == TextDecorationType.LineThrough;
+                        op.Overline = parentStyle?.TextDecorationLine == TextDecorationLineType.Overline || parentStyle?.TextDecoration == TextDecorationType.Overline;
                         if (parentStyle != null) op.UnderlineColor = parentStyle.TextDecorationColor;
                         op.DecorationStyle = parentStyle?.TextDecorationStyle ?? TextDecorationStyleType.Solid;
+                        op.LetterSpacing = parentStyle?.LetterSpacing ?? 0;
+                        op.Italic = parentStyle?.FontStyle == FontStyleType.Italic || parentStyle?.FontStyle == FontStyleType.Oblique;
                         if (parentStyle?.TextShadow != null && parentStyle.TextShadow.Count > 0)
                             op.TextShadows = parentStyle.TextShadow;
                         op.Bounds = new SKRect(currentX + lineOffsetX, lineY, currentX + run.Width + lineOffsetX, lineY + line.Height);
@@ -1571,8 +1740,9 @@ public class PaintVisitor
                 {
                     var parentStyle = textNode.ParentElement?.ComputedStyle;
                     var actualFontSize = run.FontSize ?? parentStyle?.FontSize ?? 16;
+                    var runText = ApplyTextTransform(run.Text, parentStyle?.TextTransform);
                     var op = PaintOpPool.GetDrawTextOp();
-                    op.Text = run.Text;
+                    op.Text = runText;
                     op.X = x;
                     op.Y = baseline;
                     op.Color = run.Color ?? parentStyle?.Color ?? SKColors.Black;
@@ -1580,8 +1750,11 @@ public class PaintVisitor
                     op.FontFamily = run.FontFamily ?? parentStyle?.FontFamily ?? "Arial";
                     op.Underline = parentStyle?.TextDecorationLine == TextDecorationLineType.Underline || parentStyle?.TextDecoration == TextDecorationType.Underline;
                     op.LineThrough = parentStyle?.TextDecorationLine == TextDecorationLineType.LineThrough || parentStyle?.TextDecoration == TextDecorationType.LineThrough;
+                    op.Overline = parentStyle?.TextDecorationLine == TextDecorationLineType.Overline || parentStyle?.TextDecoration == TextDecorationType.Overline;
                     if (parentStyle != null) op.UnderlineColor = parentStyle.TextDecorationColor;
                     op.DecorationStyle = parentStyle?.TextDecorationStyle ?? TextDecorationStyleType.Solid;
+                    op.LetterSpacing = parentStyle?.LetterSpacing ?? 0;
+                    op.Italic = parentStyle?.FontStyle == FontStyleType.Italic || parentStyle?.FontStyle == FontStyleType.Oblique;
                     if (parentStyle?.TextShadow != null && parentStyle.TextShadow.Count > 0)
                         op.TextShadows = parentStyle.TextShadow;
                     op.Bounds = new SKRect(x, boxTop, x + run.Width, boxTop + run.Height);
