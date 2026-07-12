@@ -84,8 +84,8 @@ public class DocumentManager
     private static string? _elementTestHtml;
     public static string ElementTestHtml => _elementTestHtml ??= LoadEmbeddedResource("Html.element-test.html");
 
-    private static string? _elementAppearanceHtml;
-    public static string ElementAppearanceHtml => _elementAppearanceHtml ??= LoadEmbeddedResource("Html.element-appearance.html");
+    private static string? _debugHtml;
+    public static string DebugHtml => _debugHtml ??= LoadEmbeddedResource("Html.debug.html");
 
     private async Task LoadStylesFromHtml(AngleSharp.Dom.IDocument angleSharpDoc, StyleComputer styleComputer, string? baseUrl)
     {

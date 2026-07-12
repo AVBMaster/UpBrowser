@@ -604,9 +604,9 @@ public class BrowserApp : IDisposable
                     LoadAndRenderHtml(_currentHtml);
                     _scroll.ScrollTo(0, 0);
                 }
-                else if (url == "upbrowser://element-appearance")
+                else if (url == "upbrowser://debug")
                 {
-                    _currentHtml = DocumentManager.ElementAppearanceHtml;
+                    _currentHtml = DocumentManager.DebugHtml;
                     LoadAndRenderHtml(_currentHtml);
                     _scroll.ScrollTo(0, 0);
                 }
@@ -717,9 +717,9 @@ public class BrowserApp : IDisposable
                     _currentHtml = DocumentManager.ElementTestHtml;
                     LoadAndRenderHtml(_currentHtml);
                 }
-                else if (url == "upbrowser://element-appearance")
+                else if (url == "upbrowser://debug")
                 {
-                    _currentHtml = DocumentManager.ElementAppearanceHtml;
+                    _currentHtml = DocumentManager.DebugHtml;
                     LoadAndRenderHtml(_currentHtml);
                 }
             }
