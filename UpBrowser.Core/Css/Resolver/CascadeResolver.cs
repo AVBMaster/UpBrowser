@@ -120,6 +120,7 @@ public class CascadeResolver
         _cascadeMap.Clear();
 
         AnalyzeUAStyles(element, treeOrder);
+        AnalyzePresentationalHints(element, treeOrder);
         Analyze(element, treeOrder);
         AnalyzeInlineStyle(element, treeOrder);
         AnalyzeJsModifiedStyle(element, treeOrder);
@@ -387,6 +388,65 @@ public class CascadeResolver
         {
             var priority = new CascadePriority(false, CascadeOrigin.UserAgent, treeOrder);
             _cascadeMap.Insert(kv.Key, kv.Value, priority);
+        }
+    }
+
+    private void AnalyzePresentationalHints(Element element, int treeOrder)
+    {
+        string tag = element.TagName.ToUpperInvariant();
+        var phPriority = new CascadePriority(false, CascadeOrigin.UserAgent, treeOrder);
+
+        if (tag == "VIDEO" || tag == "IFRAME" || tag == "EMBED" || tag == "OBJECT")
+        {
+            string? wAttr = element.GetAttribute("width");
+            string? hAttr = element.GetAttribute("height");
+            if (uint.TryParse(wAttr, out uint w) && w > 0)
+                _cascadeMap.Insert("width", $"{w}px", phPriority);
+            if (uint.TryParse(hAttr, out uint h) && h > 0)
+                _cascadeMap.Insert("height", $"{h}px", phPriority);
+        }
+
+        if (tag == "IMG")
+        {
+            string? wAttr = element.GetAttribute("width");
+            string? hAttr = element.GetAttribute("height");
+            if (uint.TryParse(wAttr, out uint w) && w > 0)
+                _cascadeMap.Insert("width", $"{w}px", phPriority);
+            if (uint.TryParse(hAttr, out uint h) && h > 0)
+                _cascadeMap.Insert("height", $"{h}px", phPriority);
+        }
+
+        if (tag == "TABLE")
+        {
+            string? border = element.GetAttribute("border");
+            string? cellspacing = element.GetAttribute("cellspacing");
+            if (int.TryParse(border, out int b) && b > 0)
+            {
+                for (int i = 0; i < 4; i++)
+                {
+                    string side = i switch { 0 => "top", 1 => "right", 2 => "bottom", 3 => "left" };
+                    _cascadeMap.Insert($"border-{side}-width", $"{b}px", phPriority);
+                    _cascadeMap.Insert($"border-{side}-style", "solid", phPriority);
+                    _cascadeMap.Insert($"border-{side}-color", "#000000", phPriority);
+                }
+            }
+            if (int.TryParse(cellspacing, out int cs))
+                _cascadeMap.Insert("border-spacing", $"{cs}px", phPriority);
+        }
+
+        if (tag == "TD" || tag == "TH")
+        {
+            var tableParent = element.ParentElement;
+            while (tableParent != null && tableParent.TagName.ToUpperInvariant() != "TABLE")
+                tableParent = tableParent.ParentElement;
+            if (tableParent != null)
+            {
+                string? cellpadding = tableParent.GetAttribute("cellpadding");
+                if (int.TryParse(cellpadding, out int cp) && cp >= 0)
+                {
+                    _cascadeMap.Insert("padding", $"{cp}px", phPriority);
+                }
+            }
         }
     }
 

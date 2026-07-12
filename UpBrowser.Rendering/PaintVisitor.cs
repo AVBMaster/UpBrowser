@@ -1144,6 +1144,16 @@ public class PaintVisitor
             DrawImageElement(element, style, box);
             return;
         }
+        if (element.TagName.Equals("PROGRESS", StringComparison.OrdinalIgnoreCase))
+        {
+            DrawProgressElement(element, box, style);
+            return;
+        }
+        if (element.TagName.Equals("METER", StringComparison.OrdinalIgnoreCase))
+        {
+            DrawMeterElement(element, box, style);
+            return;
+        }
         if (style.Display == DisplayType.Inline)
             return;
         if (box.LineRuns != null && box.LineRuns.Count > 0)
@@ -1532,6 +1542,80 @@ public class PaintVisitor
         fillOp.FillPaint = new SKPaint { Color = color, Style = SKPaintStyle.Fill, IsAntialias = true };
         fillOp.Bounds = new SKRect(x, y, x + swatchSize, y + swatchSize);
         _displayList.Add(fillOp);
+    }
+
+    private void DrawProgressElement(Element element, LayoutBox box, ComputedStyle style)
+    {
+        var contentBox = box.ContentBox;
+        float radius = contentBox.Height / 2;
+        float barY = contentBox.Top + TotalOffsetY;
+
+        var bgPath = CreateRoundedRectPath(new SKRect(contentBox.Left, barY, contentBox.Right, barY + contentBox.Height), radius);
+        var bgOp = PaintOpPool.GetDrawPathOp();
+        bgOp.Path = bgPath;
+        bgOp.FillPaint = new SKPaint { Color = new SKColor(220, 220, 220), Style = SKPaintStyle.Fill, IsAntialias = true };
+        bgOp.Bounds = new SKRect(contentBox.Left, barY, contentBox.Right, barY + contentBox.Height);
+        _displayList.Add(bgOp);
+
+        float max = 1, val = 0;
+        float.TryParse(element.GetAttribute("max") ?? "1", out max);
+        float.TryParse(element.GetAttribute("value") ?? "0", out val);
+        float ratio = max > 0 ? Math.Clamp(val / max, 0, 1) : 0;
+        float fillRight = contentBox.Left + contentBox.Width * ratio;
+
+        if (ratio > 0)
+        {
+            var fillPath = CreateRoundedRectPath(new SKRect(contentBox.Left, barY, fillRight, barY + contentBox.Height), radius);
+            var fillOp = PaintOpPool.GetDrawPathOp();
+            fillOp.Path = fillPath;
+            fillOp.FillPaint = new SKPaint { Color = new SKColor(0x1A, 0x73, 0xE8), Style = SKPaintStyle.Fill, IsAntialias = true };
+            fillOp.Bounds = new SKRect(contentBox.Left, barY, fillRight, barY + contentBox.Height);
+            _displayList.Add(fillOp);
+        }
+    }
+
+    private void DrawMeterElement(Element element, LayoutBox box, ComputedStyle style)
+    {
+        var contentBox = box.ContentBox;
+        float radius = contentBox.Height / 2;
+        float barY = contentBox.Top + TotalOffsetY;
+
+        var bgPath = CreateRoundedRectPath(new SKRect(contentBox.Left, barY, contentBox.Right, barY + contentBox.Height), radius);
+        var bgOp = PaintOpPool.GetDrawPathOp();
+        bgOp.Path = bgPath;
+        bgOp.FillPaint = new SKPaint { Color = new SKColor(220, 220, 220), Style = SKPaintStyle.Fill, IsAntialias = true };
+        bgOp.Bounds = new SKRect(contentBox.Left, barY, contentBox.Right, barY + contentBox.Height);
+        _displayList.Add(bgOp);
+
+        float min = 0, max = 1, low = float.NaN, high = float.NaN, optimum = float.NaN;
+        float.TryParse(element.GetAttribute("min") ?? "0", out min);
+        float.TryParse(element.GetAttribute("max") ?? "1", out max);
+        float val = 0;
+        float.TryParse(element.GetAttribute("value") ?? "0", out val);
+        float ratio = max > min ? Math.Clamp((val - min) / (max - min), 0, 1) : 0;
+        float fillRight = contentBox.Left + contentBox.Width * ratio;
+
+        SKColor fillColor = new SKColor(0x1A, 0x73, 0xE8);
+        if (!float.TryParse(element.GetAttribute("low") ?? "", out float lowVal)) lowVal = min;
+        if (!float.TryParse(element.GetAttribute("high") ?? "", out float highVal)) highVal = max;
+        if (!float.TryParse(element.GetAttribute("optimum") ?? "", out float optVal)) optVal = (min + max) / 2;
+
+        if (val < lowVal || val > highVal)
+            fillColor = new SKColor(220, 50, 50);
+        else if ((optVal >= lowVal && val >= optVal) || (optVal <= highVal && val <= optVal))
+            fillColor = new SKColor(0x0B, 0x80, 0x43);
+        else
+            fillColor = new SKColor(0xF4, 0xB4, 0x00);
+
+        if (ratio > 0)
+        {
+            var fillPath = CreateRoundedRectPath(new SKRect(contentBox.Left, barY, fillRight, barY + contentBox.Height), radius);
+            var fillOp = PaintOpPool.GetDrawPathOp();
+            fillOp.Path = fillPath;
+            fillOp.FillPaint = new SKPaint { Color = fillColor, Style = SKPaintStyle.Fill, IsAntialias = true };
+            fillOp.Bounds = new SKRect(contentBox.Left, barY, fillRight, barY + contentBox.Height);
+            _displayList.Add(fillOp);
+        }
     }
 
     private void DrawTextNode(TextNode textNode, LayoutBox box, ComputedStyle parentStyle)

@@ -263,19 +263,32 @@ public static class TableLayoutAlgorithm
         var style = cell.ComputedStyle;
         if (style == null) return null;
 
+        float borderTop = style.BorderTopWidth;
+        float borderBottom = style.BorderBottomWidth;
+        float borderLeft = style.BorderLeftWidth;
+        float borderRight = style.BorderRightWidth;
         float paddingTop = style.PaddingTop.ToPixels(style.FontSize, 16, 0, 0);
         float paddingBottom = style.PaddingBottom.ToPixels(style.FontSize, 16, 0, 0);
         float paddingLeft = style.PaddingLeft.ToPixels(style.FontSize, 16, 0, 0);
         float paddingRight = style.PaddingRight.ToPixels(style.FontSize, 16, 0, 0);
 
-        float contentWidth = Math.Max(0, width - paddingLeft - paddingRight);
+        float borderH = borderLeft + borderRight;
+        float borderV = borderTop + borderBottom;
+        float contentWidth = Math.Max(0, width - paddingLeft - paddingRight - borderH);
         float contentHeight = MeasureCellContentHeight(cell, contentWidth);
 
+        float totalHeight = borderTop + paddingTop + contentHeight + paddingBottom + borderBottom;
+        float totalWidth = width;
+
         var box = new LayoutBox();
-        box.ContentBox = new SKRect(x + paddingLeft, y + paddingTop, x + paddingLeft + contentWidth, y + paddingTop + contentHeight);
-        box.PaddingBox = new SKRect(x, y + paddingTop, x + width, y + paddingTop + contentHeight + paddingBottom);
-        box.BorderBox = new SKRect(x, y, x + width, y + paddingTop + contentHeight + paddingBottom);
-        box.MarginBox = new SKRect(x, y, x + width, y + paddingTop + contentHeight + paddingBottom);
+        box.ContentBox = new SKRect(x + borderLeft + paddingLeft, y + borderTop + paddingTop,
+                                    x + borderLeft + paddingLeft + contentWidth,
+                                    y + borderTop + paddingTop + contentHeight);
+        box.PaddingBox = new SKRect(x + borderLeft, y + borderTop,
+                                    x + borderLeft + paddingLeft + contentWidth + paddingRight,
+                                    y + borderTop + paddingTop + contentHeight + paddingBottom);
+        box.BorderBox = new SKRect(x, y, x + totalWidth, y + totalHeight);
+        box.MarginBox = new SKRect(x, y, x + totalWidth, y + totalHeight);
 
         cell.LayoutBox = box;
         return box;

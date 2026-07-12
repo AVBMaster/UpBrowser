@@ -245,7 +245,8 @@
         lines.push("  select:  selectedIndex=" + selIdx + " value=" + el.value + " options=" + el.options.length);
       }
       if (tag === "TEXTAREA") {
-        lines.push("  textarea: value=" + el.value.substring(0, 50));
+        var taVal = el.value || "";
+        lines.push("  textarea: value=" + taVal.substring(0, 50) + " rows=" + el.rows + " cols=" + el.cols);
       }
       if (tag === "BUTTON") {
         lines.push("  button:  type=" + el.type + " disabled=" + el.disabled + " text=" + el.textContent.substring(0, 30));

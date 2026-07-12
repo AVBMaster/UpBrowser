@@ -101,6 +101,7 @@ public static class BlockElements
             case "table":
                 style.Display = DisplayType.Table;
                 style.BorderCollapse = false;
+                style.BorderSpacing = 2;
                 style.MarginTop = new PixelLength(12);
                 style.MarginBottom = new PixelLength(12);
                 break;
@@ -129,6 +130,18 @@ public static class BlockElements
                 style.PaddingBottom = new PixelLength(1);
                 style.PaddingLeft = new PixelLength(5);
                 style.PaddingRight = new PixelLength(5);
+                style.BorderTopStyle = BorderStyle.Solid;
+                style.BorderTopWidth = 1;
+                style.BorderTopColor = SKColor.Parse("#767676");
+                style.BorderBottomStyle = BorderStyle.Solid;
+                style.BorderBottomWidth = 1;
+                style.BorderBottomColor = SKColor.Parse("#767676");
+                style.BorderLeftStyle = BorderStyle.Solid;
+                style.BorderLeftWidth = 1;
+                style.BorderLeftColor = SKColor.Parse("#767676");
+                style.BorderRightStyle = BorderStyle.Solid;
+                style.BorderRightWidth = 1;
+                style.BorderRightColor = SKColor.Parse("#767676");
                 break;
             case "td":
                 style.Display = DisplayType.TableCell;
@@ -137,6 +150,18 @@ public static class BlockElements
                 style.PaddingBottom = new PixelLength(1);
                 style.PaddingLeft = new PixelLength(5);
                 style.PaddingRight = new PixelLength(5);
+                style.BorderTopStyle = BorderStyle.Solid;
+                style.BorderTopWidth = 1;
+                style.BorderTopColor = SKColor.Parse("#767676");
+                style.BorderBottomStyle = BorderStyle.Solid;
+                style.BorderBottomWidth = 1;
+                style.BorderBottomColor = SKColor.Parse("#767676");
+                style.BorderLeftStyle = BorderStyle.Solid;
+                style.BorderLeftWidth = 1;
+                style.BorderLeftColor = SKColor.Parse("#767676");
+                style.BorderRightStyle = BorderStyle.Solid;
+                style.BorderRightWidth = 1;
+                style.BorderRightColor = SKColor.Parse("#767676");
                 break;
             case "caption":
                 style.Display = DisplayType.TableCaption;
@@ -290,17 +315,17 @@ public static class BlockElements
             // 分隔线
             case "hr":
                 style.Display = DisplayType.Block;
+                style.Height = new PixelLength(2);
                 style.BorderTopWidth = 1;
+                style.BorderTopStyle = BorderStyle.Solid;
+                style.BorderTopColor = SKColor.Parse("#CCCCCC");
                 style.BorderRightWidth = 0;
                 style.BorderBottomWidth = 0;
                 style.BorderLeftWidth = 0;
-                style.BorderTopColor = SKColor.Parse("#E0E0E0");
-                style.BorderTopStyle = BorderStyle.Solid;
                 style.MarginTop = new PixelLength(12);
                 style.MarginBottom = new PixelLength(12);
                 style.MarginLeft = new PixelLength(0);
                 style.MarginRight = new PixelLength(0);
-                style.Height = new PixelLength(0);
                 break;
 
             // 其他块级元素

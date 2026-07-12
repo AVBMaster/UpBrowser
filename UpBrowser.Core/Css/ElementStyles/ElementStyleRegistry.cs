@@ -92,10 +92,8 @@ public static class ElementStyleRegistry
         Register("dfn", InlineElements.Apply);
         Register("br", InlineElements.Apply);
         Register("wbr", InlineElements.Apply);
-        Register("label", InlineElements.Apply);
+        Register("label", FormElements.Apply);
         Register("output", InlineElements.Apply);
-        Register("progress", InlineElements.Apply);
-        Register("meter", InlineElements.Apply);
         Register("data", InlineElements.Apply);
 
         Register("input", FormElements.Apply);
@@ -107,6 +105,8 @@ public static class ElementStyleRegistry
         Register("datalist", FormElements.Apply);
         Register("optgroup", FormElements.Apply);
         Register("option", FormElements.Apply);
+        Register("progress", FormElements.Apply);
+        Register("meter", FormElements.Apply);
 
         Register("img", MediaElements.Apply);
         Register("picture", MediaElements.Apply);

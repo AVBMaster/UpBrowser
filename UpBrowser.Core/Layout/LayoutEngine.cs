@@ -673,6 +673,83 @@ public class LayoutEngine
         if (style.Width is PercentLength wp) return wp.Value * availableWidth;
         if (style.Width is EmLength em) return em.Value * style.FontSize;
         if (style.Width is RemLength rem) return rem.Value * _rootFontSize;
+
+        bool isInlineLike = style.Display == DisplayType.Inline || style.Display == DisplayType.InlineBlock ||
+                            style.Display == DisplayType.InlineFlex || style.Display == DisplayType.InlineGrid;
+        if (isInlineLike)
+        {
+            string tag = element.TagName.ToUpperInvariant();
+            if (tag == "INPUT")
+            {
+                string inputType = element.InputType?.ToLowerInvariant() ?? "text";
+                if (inputType == "text" || inputType == "password" || inputType == "email" ||
+                    inputType == "tel" || inputType == "url" || inputType == "search" ||
+                    inputType == "number")
+                {
+                    string sizeStr = element.GetAttribute("size") ?? "";
+                    int size = 20;
+                    if (!string.IsNullOrEmpty(sizeStr) && int.TryParse(sizeStr, out int parsed) && parsed > 0)
+                        size = parsed;
+                    float charWidth = MeasureTextWidth("M", style.FontSize, style.FontFamily);
+                    float textWidth = size * charWidth;
+                    float padLeft = style.PaddingLeft.ToPixels(style.FontSize, _rootFontSize, _viewportWidth, _viewportHeight);
+                    float padRight = style.PaddingRight.ToPixels(style.FontSize, _rootFontSize, _viewportWidth, _viewportHeight);
+                    float borderLeft = style.BorderLeftWidth;
+                    float borderRight = style.BorderRightWidth;
+                    float intrinsic = textWidth + padLeft + padRight + borderLeft + borderRight;
+                    return Math.Min(intrinsic, availableWidth);
+                }
+                if (inputType == "checkbox" || inputType == "radio" || inputType == "color" || inputType == "range" || inputType == "hidden")
+                    return style.Width is PixelLength pw ? pw.Value : (inputType == "range" ? 150 : 16);
+                if (inputType == "file")
+                    return Math.Min(300, availableWidth);
+                if (inputType == "image")
+                    return style.Width is PixelLength pw2 ? pw2.Value : availableWidth;
+                if (inputType == "date" || inputType == "time" || inputType == "datetime-local" || inputType == "month" || inputType == "week")
+                {
+                    float charWidth = MeasureTextWidth("M", style.FontSize, style.FontFamily);
+                    return Math.Min(154 + style.PaddingLeft.ToPixels(style.FontSize, _rootFontSize, _viewportWidth, _viewportHeight) + style.PaddingRight.ToPixels(style.FontSize, _rootFontSize, _viewportWidth, _viewportHeight), availableWidth);
+                }
+            }
+            if (tag == "TEXTAREA")
+            {
+                int cols = 20;
+                string colsStr = element.GetAttribute("cols");
+                if (!string.IsNullOrEmpty(colsStr) && int.TryParse(colsStr, out int c) && c > 0)
+                    cols = c;
+                float charWidth = MeasureTextWidth("M", style.FontSize, style.FontFamily);
+                float textWidth = cols * charWidth;
+                float padLeft = style.PaddingLeft.ToPixels(style.FontSize, _rootFontSize, _viewportWidth, _viewportHeight);
+                float padRight = style.PaddingRight.ToPixels(style.FontSize, _rootFontSize, _viewportWidth, _viewportHeight);
+                float borderLeft = style.BorderLeftWidth;
+                float borderRight = style.BorderRightWidth;
+                float intrinsic = textWidth + padLeft + padRight + borderLeft + borderRight;
+                return Math.Min(intrinsic, availableWidth);
+            }
+            if (tag == "SELECT")
+            {
+                float maxOptWidth = 0;
+                foreach (var child in element.Children)
+                {
+                    if (child is Element opt && opt.TagName == "OPTION")
+                    {
+                        float optW = MeasureTextWidth(opt.TextContent ?? "", style.FontSize, style.FontFamily);
+                        if (optW > maxOptWidth) maxOptWidth = optW;
+                    }
+                }
+                if (maxOptWidth > 0)
+                {
+                    float padLeft = style.PaddingLeft.ToPixels(style.FontSize, _rootFontSize, _viewportWidth, _viewportHeight);
+                    float padRight = style.PaddingRight.ToPixels(style.FontSize, _rootFontSize, _viewportWidth, _viewportHeight);
+                    float borderLeft = style.BorderLeftWidth;
+                    float borderRight = style.BorderRightWidth;
+                    float arrowWidth = 24;
+                    return Math.Min(maxOptWidth + padLeft + padRight + borderLeft + borderRight + arrowWidth, availableWidth);
+                }
+            }
+            return availableWidth;
+        }
+
         return availableWidth;
     }
 
@@ -687,6 +764,21 @@ public class LayoutEngine
         }
         if (style.Height is EmLength em) return em.Value * style.FontSize;
         if (style.Height is RemLength rem) return rem.Value * _rootFontSize;
+
+        if (element.TagName.ToUpperInvariant() == "TEXTAREA")
+        {
+            int rows = 2;
+            string rowsStr = element.GetAttribute("rows");
+            if (!string.IsNullOrEmpty(rowsStr) && int.TryParse(rowsStr, out int r) && r > 0)
+                rows = r;
+            float lineHeight = style.FontSize * (style.LineHeight > 0 ? style.LineHeight : 1.2f);
+            float borderTop = style.BorderTopWidth;
+            float borderBottom = style.BorderBottomWidth;
+            float paddingTop = style.PaddingTop.ToPixels(style.FontSize, _rootFontSize, _viewportWidth, _viewportHeight);
+            float paddingBottom = style.PaddingBottom.ToPixels(style.FontSize, _rootFontSize, _viewportWidth, _viewportHeight);
+            return rows * lineHeight + borderTop + borderBottom + paddingTop + paddingBottom;
+        }
+
         return float.NaN;
     }
 
