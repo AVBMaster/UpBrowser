@@ -4,7 +4,7 @@ namespace UpBrowser.Core.Css.ElementStyles;
 
 public static class ElementStyleRegistry
 {
-    private static readonly Dictionary<string, Action<ComputedStyle, string>> _elementStyles = new();
+    private static readonly Dictionary<string, Action<ComputedStyle, string, Element?>> _elementStyles = new();
 
     static ElementStyleRegistry()
     {
@@ -13,128 +13,128 @@ public static class ElementStyleRegistry
 
     private static void RegisterAllElements()
     {
-        Register("html", RootElements.Apply);
-        Register("body", RootElements.Apply);
-        Register("head", RootElements.Apply);
-        Register("title", RootElements.Apply);
-        Register("meta", RootElements.Apply);
-        Register("link", RootElements.Apply);
-        Register("style", RootElements.Apply);
-        Register("script", RootElements.Apply);
-        Register("base", RootElements.Apply);
-        Register("noscript", RootElements.Apply);
-        Register("template", RootElements.Apply);
+        Register("html", (s, t, _) => RootElements.Apply(s, t));
+        Register("body", (s, t, _) => RootElements.Apply(s, t));
+        Register("head", (s, t, _) => RootElements.Apply(s, t));
+        Register("title", (s, t, _) => RootElements.Apply(s, t));
+        Register("meta", (s, t, _) => RootElements.Apply(s, t));
+        Register("link", (s, t, _) => RootElements.Apply(s, t));
+        Register("style", (s, t, _) => RootElements.Apply(s, t));
+        Register("script", (s, t, _) => RootElements.Apply(s, t));
+        Register("base", (s, t, _) => RootElements.Apply(s, t));
+        Register("noscript", (s, t, _) => RootElements.Apply(s, t));
+        Register("template", (s, t, _) => RootElements.Apply(s, t));
 
-        Register("div", BlockElements.Apply);
-        Register("p", BlockElements.Apply);
-        Register("h1", BlockElements.Apply);
-        Register("h2", BlockElements.Apply);
-        Register("h3", BlockElements.Apply);
-        Register("h4", BlockElements.Apply);
-        Register("h5", BlockElements.Apply);
-        Register("h6", BlockElements.Apply);
-        Register("ul", BlockElements.Apply);
-        Register("ol", BlockElements.Apply);
-        Register("li", BlockElements.Apply);
-        Register("dl", BlockElements.Apply);
-        Register("dt", BlockElements.Apply);
-        Register("dd", BlockElements.Apply);
-        Register("table", BlockElements.Apply);
-        Register("thead", BlockElements.Apply);
-        Register("tbody", BlockElements.Apply);
-        Register("tfoot", BlockElements.Apply);
-        Register("tr", BlockElements.Apply);
-        Register("th", BlockElements.Apply);
-        Register("td", BlockElements.Apply);
-        Register("caption", BlockElements.Apply);
-        Register("pre", BlockElements.Apply);
-        Register("blockquote", BlockElements.Apply);
-        Register("address", BlockElements.Apply);
-        Register("article", BlockElements.Apply);
-        Register("aside", BlockElements.Apply);
-        Register("main", BlockElements.Apply);
-        Register("section", BlockElements.Apply);
-        Register("nav", BlockElements.Apply);
-        Register("header", BlockElements.Apply);
-        Register("footer", BlockElements.Apply);
-        Register("figure", BlockElements.Apply);
-        Register("figcaption", BlockElements.Apply);
-        Register("details", BlockElements.Apply);
-        Register("summary", BlockElements.Apply);
-        Register("dialog", BlockElements.Apply);
-        Register("hr", BlockElements.Apply);
-        Register("search", BlockElements.Apply);
-        Register("hgroup", BlockElements.Apply);
+        Register("div", (s, t, _) => BlockElements.Apply(s, t));
+        Register("p", (s, t, _) => BlockElements.Apply(s, t));
+        Register("h1", (s, t, _) => BlockElements.Apply(s, t));
+        Register("h2", (s, t, _) => BlockElements.Apply(s, t));
+        Register("h3", (s, t, _) => BlockElements.Apply(s, t));
+        Register("h4", (s, t, _) => BlockElements.Apply(s, t));
+        Register("h5", (s, t, _) => BlockElements.Apply(s, t));
+        Register("h6", (s, t, _) => BlockElements.Apply(s, t));
+        Register("ul", (s, t, _) => BlockElements.Apply(s, t));
+        Register("ol", (s, t, _) => BlockElements.Apply(s, t));
+        Register("li", (s, t, _) => BlockElements.Apply(s, t));
+        Register("dl", (s, t, _) => BlockElements.Apply(s, t));
+        Register("dt", (s, t, _) => BlockElements.Apply(s, t));
+        Register("dd", (s, t, _) => BlockElements.Apply(s, t));
+        Register("table", (s, t, _) => BlockElements.Apply(s, t));
+        Register("thead", (s, t, _) => BlockElements.Apply(s, t));
+        Register("tbody", (s, t, _) => BlockElements.Apply(s, t));
+        Register("tfoot", (s, t, _) => BlockElements.Apply(s, t));
+        Register("tr", (s, t, _) => BlockElements.Apply(s, t));
+        Register("th", (s, t, _) => BlockElements.Apply(s, t));
+        Register("td", (s, t, _) => BlockElements.Apply(s, t));
+        Register("caption", (s, t, _) => BlockElements.Apply(s, t));
+        Register("pre", (s, t, _) => BlockElements.Apply(s, t));
+        Register("blockquote", (s, t, _) => BlockElements.Apply(s, t));
+        Register("address", (s, t, _) => BlockElements.Apply(s, t));
+        Register("article", (s, t, _) => BlockElements.Apply(s, t));
+        Register("aside", (s, t, _) => BlockElements.Apply(s, t));
+        Register("main", (s, t, _) => BlockElements.Apply(s, t));
+        Register("section", (s, t, _) => BlockElements.Apply(s, t));
+        Register("nav", (s, t, _) => BlockElements.Apply(s, t));
+        Register("header", (s, t, _) => BlockElements.Apply(s, t));
+        Register("footer", (s, t, _) => BlockElements.Apply(s, t));
+        Register("figure", (s, t, _) => BlockElements.Apply(s, t));
+        Register("figcaption", (s, t, _) => BlockElements.Apply(s, t));
+        Register("details", (s, t, _) => BlockElements.Apply(s, t));
+        Register("summary", (s, t, _) => BlockElements.Apply(s, t));
+        Register("dialog", (s, t, _) => BlockElements.Apply(s, t));
+        Register("hr", (s, t, _) => BlockElements.Apply(s, t));
+        Register("search", (s, t, _) => BlockElements.Apply(s, t));
+        Register("hgroup", (s, t, _) => BlockElements.Apply(s, t));
 
-        Register("span", InlineElements.Apply);
-        Register("a", InlineElements.Apply);
-        Register("strong", InlineElements.Apply);
-        Register("b", InlineElements.Apply);
-        Register("em", InlineElements.Apply);
-        Register("i", InlineElements.Apply);
-        Register("u", InlineElements.Apply);
-        Register("s", InlineElements.Apply);
-        Register("del", InlineElements.Apply);
-        Register("ins", InlineElements.Apply);
-        Register("code", InlineElements.Apply);
-        Register("kbd", InlineElements.Apply);
-        Register("samp", InlineElements.Apply);
-        Register("var", InlineElements.Apply);
-        Register("small", InlineElements.Apply);
-        Register("sub", InlineElements.Apply);
-        Register("sup", InlineElements.Apply);
-        Register("mark", InlineElements.Apply);
-        Register("time", InlineElements.Apply);
-        Register("abbr", InlineElements.Apply);
-        Register("acronym", InlineElements.Apply);
-        Register("cite", InlineElements.Apply);
-        Register("q", InlineElements.Apply);
-        Register("dfn", InlineElements.Apply);
-        Register("br", InlineElements.Apply);
-        Register("wbr", InlineElements.Apply);
-        Register("label", FormElements.Apply);
-        Register("output", InlineElements.Apply);
-        Register("data", InlineElements.Apply);
+        Register("span", (s, t, _) => InlineElements.Apply(s, t));
+        Register("a", (s, t, _) => InlineElements.Apply(s, t));
+        Register("strong", (s, t, _) => InlineElements.Apply(s, t));
+        Register("b", (s, t, _) => InlineElements.Apply(s, t));
+        Register("em", (s, t, _) => InlineElements.Apply(s, t));
+        Register("i", (s, t, _) => InlineElements.Apply(s, t));
+        Register("u", (s, t, _) => InlineElements.Apply(s, t));
+        Register("s", (s, t, _) => InlineElements.Apply(s, t));
+        Register("del", (s, t, _) => InlineElements.Apply(s, t));
+        Register("ins", (s, t, _) => InlineElements.Apply(s, t));
+        Register("code", (s, t, _) => InlineElements.Apply(s, t));
+        Register("kbd", (s, t, _) => InlineElements.Apply(s, t));
+        Register("samp", (s, t, _) => InlineElements.Apply(s, t));
+        Register("var", (s, t, _) => InlineElements.Apply(s, t));
+        Register("small", (s, t, _) => InlineElements.Apply(s, t));
+        Register("sub", (s, t, _) => InlineElements.Apply(s, t));
+        Register("sup", (s, t, _) => InlineElements.Apply(s, t));
+        Register("mark", (s, t, _) => InlineElements.Apply(s, t));
+        Register("time", (s, t, _) => InlineElements.Apply(s, t));
+        Register("abbr", (s, t, _) => InlineElements.Apply(s, t));
+        Register("acronym", (s, t, _) => InlineElements.Apply(s, t));
+        Register("cite", (s, t, _) => InlineElements.Apply(s, t));
+        Register("q", (s, t, _) => InlineElements.Apply(s, t));
+        Register("dfn", (s, t, _) => InlineElements.Apply(s, t));
+        Register("br", (s, t, _) => InlineElements.Apply(s, t));
+        Register("wbr", (s, t, _) => InlineElements.Apply(s, t));
+        Register("label", (s, t, _) => FormElements.Apply(s, t));
+        Register("output", (s, t, _) => InlineElements.Apply(s, t));
+        Register("data", (s, t, _) => InlineElements.Apply(s, t));
 
-        Register("input", FormElements.Apply);
-        Register("textarea", FormElements.Apply);
-        Register("select", FormElements.Apply);
-        Register("button", FormElements.Apply);
-        Register("fieldset", FormElements.Apply);
-        Register("legend", FormElements.Apply);
-        Register("datalist", FormElements.Apply);
-        Register("optgroup", FormElements.Apply);
-        Register("option", FormElements.Apply);
-        Register("progress", FormElements.Apply);
-        Register("meter", FormElements.Apply);
+        Register("input", (s, t, e) => FormElements.Apply(s, t, e));
+        Register("textarea", (s, t, e) => FormElements.Apply(s, t, e));
+        Register("select", (s, t, e) => FormElements.Apply(s, t, e));
+        Register("button", (s, t, e) => FormElements.Apply(s, t, e));
+        Register("fieldset", (s, t, _) => FormElements.Apply(s, t));
+        Register("legend", (s, t, _) => FormElements.Apply(s, t));
+        Register("datalist", (s, t, _) => FormElements.Apply(s, t));
+        Register("optgroup", (s, t, _) => FormElements.Apply(s, t));
+        Register("option", (s, t, _) => FormElements.Apply(s, t));
+        Register("progress", (s, t, _) => FormElements.Apply(s, t));
+        Register("meter", (s, t, _) => FormElements.Apply(s, t));
 
-        Register("img", MediaElements.Apply);
-        Register("picture", MediaElements.Apply);
-        Register("canvas", MediaElements.Apply);
-        Register("svg", MediaElements.Apply);
-        Register("video", MediaElements.Apply);
-        Register("audio", MediaElements.Apply);
-        Register("source", MediaElements.Apply);
-        Register("track", MediaElements.Apply);
-        Register("iframe", MediaElements.Apply);
-        Register("embed", MediaElements.Apply);
-        Register("object", MediaElements.Apply);
-        Register("param", MediaElements.Apply);
-        Register("map", MediaElements.Apply);
-        Register("area", MediaElements.Apply);
+        Register("img", (s, t, _) => MediaElements.Apply(s, t));
+        Register("picture", (s, t, _) => MediaElements.Apply(s, t));
+        Register("canvas", (s, t, _) => MediaElements.Apply(s, t));
+        Register("svg", (s, t, _) => MediaElements.Apply(s, t));
+        Register("video", (s, t, _) => MediaElements.Apply(s, t));
+        Register("audio", (s, t, _) => MediaElements.Apply(s, t));
+        Register("source", (s, t, _) => MediaElements.Apply(s, t));
+        Register("track", (s, t, _) => MediaElements.Apply(s, t));
+        Register("iframe", (s, t, _) => MediaElements.Apply(s, t));
+        Register("embed", (s, t, _) => MediaElements.Apply(s, t));
+        Register("object", (s, t, _) => MediaElements.Apply(s, t));
+        Register("param", (s, t, _) => MediaElements.Apply(s, t));
+        Register("map", (s, t, _) => MediaElements.Apply(s, t));
+        Register("area", (s, t, _) => MediaElements.Apply(s, t));
     }
 
-    private static void Register(string tagName, Action<ComputedStyle, string> applyStyle)
+    private static void Register(string tagName, Action<ComputedStyle, string, Element?> applyStyle)
     {
         _elementStyles[tagName.ToLowerInvariant()] = applyStyle;
     }
 
-    public static void ApplyUserAgentStyle(ComputedStyle style, string tagName)
+    public static void ApplyUserAgentStyle(ComputedStyle style, string tagName, Element? element = null)
     {
         var key = tagName.ToLowerInvariant();
         if (_elementStyles.TryGetValue(key, out var applyStyle))
         {
-            applyStyle(style, key);
+            applyStyle(style, key, element);
         }
     }
 

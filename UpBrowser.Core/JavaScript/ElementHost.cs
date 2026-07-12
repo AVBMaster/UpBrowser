@@ -1259,6 +1259,19 @@ public class ElementHost
         _element.SelectionEnd = end;
     }
 
+    // ===== HTMLTextAreaElement specific =====
+    public int rows
+    {
+        get => int.TryParse(_element.GetAttribute("rows"), out var v) ? v : 2;
+        set => _element.SetAttribute("rows", value.ToString());
+    }
+
+    public int cols
+    {
+        get => int.TryParse(_element.GetAttribute("cols"), out var v) ? v : 20;
+        set => _element.SetAttribute("cols", value.ToString());
+    }
+
     // ===== HTMLSelectElement specific =====
     public int selectedIndex
     {

@@ -779,6 +779,16 @@ public class LayoutEngine
             return rows * lineHeight + borderTop + borderBottom + paddingTop + paddingBottom;
         }
 
+        if (element.TagName.ToUpperInvariant() == "SELECT")
+        {
+            float lineHeight = style.FontSize * (style.LineHeight > 0 ? style.LineHeight : 1.2f);
+            float borderTop = style.BorderTopWidth;
+            float borderBottom = style.BorderBottomWidth;
+            float paddingTop = style.PaddingTop.ToPixels(style.FontSize, _rootFontSize, _viewportWidth, _viewportHeight);
+            float paddingBottom = style.PaddingBottom.ToPixels(style.FontSize, _rootFontSize, _viewportWidth, _viewportHeight);
+            return lineHeight + borderTop + borderBottom + paddingTop + paddingBottom;
+        }
+
         return float.NaN;
     }
 
@@ -812,6 +822,11 @@ public class LayoutEngine
                 else
                     continue;
             }
+
+            // Skip OPTION/OPTGROUP inside SELECT - they don't contribute to SELECT layout
+            if (element.TagName == "SELECT" && child is Element optChild &&
+                (optChild.TagName == "OPTION" || optChild.TagName == "OPTGROUP"))
+                continue;
 
             if (child is Element childElement)
             {
@@ -860,6 +875,11 @@ public class LayoutEngine
                 else
                     continue;
             }
+
+            // Skip OPTION/OPTGROUP inside SELECT - they don't contribute to SELECT layout
+            if (element.TagName == "SELECT" && child is Element optChild2 &&
+                (optChild2.TagName == "OPTION" || optChild2.TagName == "OPTGROUP"))
+                continue;
 
             if (child is Element childElement)
             {

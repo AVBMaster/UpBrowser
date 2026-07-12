@@ -379,7 +379,7 @@ public class CascadeResolver
     private void AnalyzeUAStyles(Element element, int treeOrder)
     {
         var style = new ComputedStyle();
-        ElementStyleRegistry.ApplyUserAgentStyle(style, element.TagName);
+        ElementStyleRegistry.ApplyUserAgentStyle(style, element.TagName, element);
 
         var props = new Dictionary<string, string>();
         CollectNonDefaultProperties(style, props);
@@ -482,6 +482,61 @@ public class CascadeResolver
         if (style.Clear != def.Clear) props["clear"] = style.Clear.ToString().ToLowerInvariant();
         if (style.BoxSizing != def.BoxSizing) props["box-sizing"] = style.BoxSizing == BoxSizingType.BorderBox ? "border-box" : "content-box";
         if (style.Cursor != def.Cursor) props["cursor"] = style.Cursor ?? "auto";
+
+        AddLengthProp(props, style.Width, "width", def.Width);
+        AddLengthProp(props, style.Height, "height", def.Height);
+        if (style.MinWidth != def.MinWidth && style.MinWidth != null) AddLengthProp(props, style.MinWidth, "min-width", def.MinWidth!);
+        if (style.MinHeight != def.MinHeight && style.MinHeight != null) AddLengthProp(props, style.MinHeight, "min-height", def.MinHeight!);
+        if (style.MaxWidth != def.MaxWidth && style.MaxWidth != null) AddLengthProp(props, style.MaxWidth, "max-width", def.MaxWidth!);
+        if (style.MaxHeight != def.MaxHeight && style.MaxHeight != null) AddLengthProp(props, style.MaxHeight, "max-height", def.MaxHeight!);
+
+        if (style.BorderTopWidth != def.BorderTopWidth) props["border-top-width"] = $"{style.BorderTopWidth}px";
+        if (style.BorderRightWidth != def.BorderRightWidth) props["border-right-width"] = $"{style.BorderRightWidth}px";
+        if (style.BorderBottomWidth != def.BorderBottomWidth) props["border-bottom-width"] = $"{style.BorderBottomWidth}px";
+        if (style.BorderLeftWidth != def.BorderLeftWidth) props["border-left-width"] = $"{style.BorderLeftWidth}px";
+        if (style.BorderTopStyle != def.BorderTopStyle) props["border-top-style"] = style.BorderTopStyle.ToString().ToLowerInvariant();
+        if (style.BorderRightStyle != def.BorderRightStyle) props["border-right-style"] = style.BorderRightStyle.ToString().ToLowerInvariant();
+        if (style.BorderBottomStyle != def.BorderBottomStyle) props["border-bottom-style"] = style.BorderBottomStyle.ToString().ToLowerInvariant();
+        if (style.BorderLeftStyle != def.BorderLeftStyle) props["border-left-style"] = style.BorderLeftStyle.ToString().ToLowerInvariant();
+        if (style.BorderTopColor != def.BorderTopColor) props["border-top-color"] = $"#{style.BorderTopColor.Red:X2}{style.BorderTopColor.Green:X2}{style.BorderTopColor.Blue:X2}";
+        if (style.BorderRightColor != def.BorderRightColor) props["border-right-color"] = $"#{style.BorderRightColor.Red:X2}{style.BorderRightColor.Green:X2}{style.BorderRightColor.Blue:X2}";
+        if (style.BorderBottomColor != def.BorderBottomColor) props["border-bottom-color"] = $"#{style.BorderBottomColor.Red:X2}{style.BorderBottomColor.Green:X2}{style.BorderBottomColor.Blue:X2}";
+        if (style.BorderLeftColor != def.BorderLeftColor) props["border-left-color"] = $"#{style.BorderLeftColor.Red:X2}{style.BorderLeftColor.Green:X2}{style.BorderLeftColor.Blue:X2}";
+        if (style.BorderTopLeftRadius != def.BorderTopLeftRadius) props["border-top-left-radius"] = $"{style.BorderTopLeftRadius}px";
+        if (style.BorderTopRightRadius != def.BorderTopRightRadius) props["border-top-right-radius"] = $"{style.BorderTopRightRadius}px";
+        if (style.BorderBottomLeftRadius != def.BorderBottomLeftRadius) props["border-bottom-left-radius"] = $"{style.BorderBottomLeftRadius}px";
+        if (style.BorderBottomRightRadius != def.BorderBottomRightRadius) props["border-bottom-right-radius"] = $"{style.BorderBottomRightRadius}px";
+
+        if (style.BorderSpacing != def.BorderSpacing) props["border-spacing"] = $"{style.BorderSpacing}px";
+
+        if (style.Visibility != def.Visibility) props["visibility"] = style.Visibility.ToString().ToLowerInvariant();
+        if (style.ZIndex != def.ZIndex) props["z-index"] = style.ZIndex?.ToString() ?? "auto";
+        if (style.Opacity != def.Opacity) props["opacity"] = style.Opacity.ToString("0.000");
+        if (style.TextIndent != def.TextIndent) props["text-indent"] = $"{style.TextIndent}px";
+        if (style.LetterSpacing != def.LetterSpacing) props["letter-spacing"] = $"{style.LetterSpacing}px";
+        if (style.WordSpacing != def.WordSpacing) props["word-spacing"] = $"{style.WordSpacing}px";
+        if (style.TextTransform != def.TextTransform) props["text-transform"] = style.TextTransform;
+        if (style.TextOverflow != def.TextOverflow) props["text-overflow"] = style.TextOverflow.ToString().ToLowerInvariant();
+        if (!string.IsNullOrEmpty(style.Transform)) props["transform"] = style.Transform;
+        if (style.ObjectFit != def.ObjectFit) props["object-fit"] = style.ObjectFit.ToString().ToLowerInvariant();
+
+        if (style.FlexDirection != def.FlexDirection) props["flex-direction"] = style.FlexDirection.ToString().ToLowerInvariant();
+        if (style.FlexWrap != def.FlexWrap) props["flex-wrap"] = style.FlexWrap.ToString().ToLowerInvariant();
+        if (style.FlexGrow != def.FlexGrow) props["flex-grow"] = style.FlexGrow.ToString("0");
+        if (style.FlexShrink != def.FlexShrink) props["flex-shrink"] = style.FlexShrink.ToString("0");
+        AddLengthProp(props, style.FlexBasis, "flex-basis", def.FlexBasis);
+        if (style.JustifyContent != def.JustifyContent) props["justify-content"] = style.JustifyContent.ToString().ToLowerInvariant();
+        if (style.AlignItems != def.AlignItems) props["align-items"] = style.AlignItems.ToString().ToLowerInvariant();
+        if (style.AlignSelf != def.AlignSelf) props["align-self"] = style.AlignSelf.ToString().ToLowerInvariant();
+        if (style.Order != def.Order) props["order"] = style.Order.ToString();
+
+        if (style.OutlineWidth != def.OutlineWidth) props["outline-width"] = $"{style.OutlineWidth}px";
+        if (style.OutlineStyle != def.OutlineStyle) props["outline-style"] = style.OutlineStyle.ToString().ToLowerInvariant();
+        if (style.OutlineColor != def.OutlineColor) props["outline-color"] = $"#{style.OutlineColor.Red:X2}{style.OutlineColor.Green:X2}{style.OutlineColor.Blue:X2}";
+        if (style.OutlineOffset != def.OutlineOffset) props["outline-offset"] = $"{style.OutlineOffset}px";
+
+        if (style.BoxShadow != null) props["box-shadow"] = style.BoxShadow.ToString() ?? "none";
+        if (!string.IsNullOrEmpty(style.Filter)) props["filter"] = style.Filter!;
     }
 
     private static void AddLengthProp(Dictionary<string, string> props, Length length, string name, Length defaultLength)

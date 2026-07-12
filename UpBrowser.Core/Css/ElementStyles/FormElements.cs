@@ -5,8 +5,12 @@ namespace UpBrowser.Core.Css.ElementStyles;
 
 public static class FormElements
 {
-    public static void Apply(ComputedStyle style, string tagName)
+    public static void Apply(ComputedStyle style, string tagName, Element? element = null)
     {
+        string inputType = "";
+        if (tagName == "input" && element != null)
+            inputType = (element.GetAttribute("type") ?? "text").ToLowerInvariant();
+
         switch (tagName.ToLowerInvariant())
         {
             case "input":
@@ -31,6 +35,25 @@ public static class FormElements
                 style.FontSize = 14;
                 style.Cursor = "text";
                 style.VerticalAlign = VerticalAlignType.Baseline;
+
+                switch (inputType)
+                {
+                    case "checkbox":
+                    case "radio":
+                        style.Width = new PixelLength(16);
+                        style.Height = new PixelLength(16);
+                        style.Cursor = "pointer";
+                        break;
+                    case "file":
+                        style.Cursor = "pointer";
+                        break;
+                    case "image":
+                        style.Cursor = "pointer";
+                        break;
+                    case "hidden":
+                        style.Display = DisplayType.None;
+                        break;
+                }
                 break;
 
             case "textarea":
@@ -211,27 +234,6 @@ public static class FormElements
                 style.BorderLeftColor = SKColor.Parse("#DADCE0");
                 break;
 
-            case "input[type=checkbox]":
-            case "input[type=radio]":
-                style.Display = DisplayType.InlineBlock;
-                style.Width = new PixelLength(16);
-                style.Height = new PixelLength(16);
-                style.Cursor = "pointer";
-                break;
-
-            case "input[type=file]":
-                style.Display = DisplayType.InlineBlock;
-                style.Cursor = "pointer";
-                break;
-
-            case "input[type=image]":
-                style.Display = DisplayType.InlineBlock;
-                style.Cursor = "pointer";
-                break;
-
-            case "input[type=hidden]":
-                style.Display = DisplayType.None;
-                break;
         }
     }
 }
