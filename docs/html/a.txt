@@ -1,0 +1,24 @@
+HTML DOM Anchor 对象
+Anchor 对象
+Anchor 对象表示 HTML 超链接。
+
+在 HTML 文档中 <a> 标签每出现一次，就会创建 Anchor 对象。
+
+锚可用于创建指向另一个文档的链接（通过 href 属性），或者创建文档内的书签（通过 name 属性）。
+
+您可以通过搜索 Document 对象中的 anchors[] 数组来访问锚，或者使用 document.getElementById()。
+
+Anchor 对象属性
+W3C： W3C 标准。
+
+属性	描述	W3C
+charset	设置或返回被链接资源的字符集。	Yes
+href	设置或返回被链接资源的 URL。	Yes
+hreflang	设置或返回被链接资源的语言代码。	Yes
+name	设置或返回一个链接的名称。	Yes
+rel	设置或返回当前文档与目标 URL 之间的关系。	Yes
+rev	设置或返回目标 URL 与之间当前文档的关系。	Yes
+target	设置或返回在何处打开链接。	Yes
+type	设置或返回被链接资源的 MIME 类型。	Yes
+标准属性和事件
+Anchor 对象同样支持标准属性 和 事件。

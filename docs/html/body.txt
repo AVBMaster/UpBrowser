@@ -1,0 +1,23 @@
+HTML DOM Body 对象
+Body 对象
+Body 对象代表了 HTML body 元素。
+
+Body 对象代表文档的主体 (HTML body) 。
+
+body 元素包含了所有的 HTML 文档，如文本，超级链接，图片，表格，列表，等等。
+
+Body 对象属性
+W3C: W3C 标准。
+
+属性	描述	W3C
+aLink	设置或者返回主体元素的 alink 属性。	Yes
+background	设置或者返回body元素的 background 属性。	Yes
+bgColor	设置或者返回body元素的 bgColor 属性。	Yes
+link	设置或者返回主体元素的 link 属性。	Yes
+text	设置或者返回主体元素的 text 属性。	Yes
+vLink	设置或者返回主体元素的 vLink 属性。	Yes
+Body 对象事件
+事件	描述	W3C
+onload	脚本在页面完全载入后会被立即执行。	Yes
+标准属性和事件
+Body 对象同样支持标准的 属性 和 事件。

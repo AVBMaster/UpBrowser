@@ -1,0 +1,40 @@
+Location 对象
+Location 对象
+Location 对象包含有关当前 URL 的信息。
+
+Location 对象是 window 对象的一部分，可通过 window.location.xxx 格式的相关属性对其进行访问。
+
+Note注意： 没有应用于Location对象的公开标准，不过所有浏览器都支持该对象。
+
+Location 对象属性
+属性	描述
+hash	返回一个URL的锚部分
+host	返回一个URL的主机名和端口
+hostname	返回URL的主机名
+href	返回完整的URL
+pathname	返回的URL路径名。
+port	返回一个URL服务器使用的端口号
+protocol	返回一个URL协议
+search	返回一个URL的查询部分
+实例
+// 创建 a 标签并设置 href 属性
+var url = document.createElement('a');
+url.href = 'https://www.runoob.com/?s=python#test';
+console.log(url.href);      // https://www.runoob.com/?s=python
+console.log(url.protocol);  // https:
+console.log(url.host);      // www.runoob.com
+console.log(url.hostname);  // www.runoob.com
+console.log(url.port);      // (输出为空 - https 默认端口为 443)
+console.log(url.pathname);  // /
+console.log(url.search);    // en-US/search
+console.log(url.hash);      // #test
+console.log(url.origin);    // https://www.runoob.com
+测试结果如下：
+
+
+
+Location 对象方法
+方法	说明
+assign()	载入一个新的文档
+reload()	重新载入当前文档
+replace()	用新的文档替换当前文档

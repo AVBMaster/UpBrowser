@@ -1,0 +1,16 @@
+HTML DOM 对象
+Base 对象
+Base 对象代表 HTML 的 base 元素。
+
+base 元素适用页面中于指定的默认地址或者所有链接的目标地址。
+
+在 HTML 文档中 <base> 每出现一次，Base 对象就会被创建。
+
+Base 对象属性
+W3C： W3C 标准。
+
+属性	描述	W3C
+href	设置或返回针对页面中所有链接的基准 URL。	Yes
+target	设置或返回针对页面中所有链接的默认目标框架。	Yes
+标准属性和事件
+Base 对象同样支持标准的 属性 和 事件。

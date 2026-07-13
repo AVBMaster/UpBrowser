@@ -1,0 +1,20 @@
+HTML DOM Blockquote 对象
+Blockquote 对象
+Blockquote 对象代表着一个 HTML 引用(blockquote)块元素。
+
+<blockquote> 标签定义摘自另一个源的块引用。
+
+一个 <blockquote> 元素的内容通常展现为一个左、右两边进行缩进的段落。
+
+在 HTML 文档中的每一个 <blockquote> 标签创建时，都会创建一个 Blockquote 对象。
+
+Blockquote 对象属性
+属性	描述
+cite	设置或返回一个引用的cite属性值
+标准属性和事件
+Blockquote 对象支持标准 属性 和事件。
+
+相关文章
+HTML 参考手册: HTML <blockquote> 标签
+
+JavaScript reference: HTML DOM Quote 对象

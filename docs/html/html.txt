@@ -1,0 +1,5311 @@
+HTML Elements Complete Reference for Browser Engine Development
+Based on the HTML Living Standard document you provided, here is a comprehensive summary of all HTML elements with their specifications, organized for AI reference when developing a browser rendering engine.
+
+1. Document Structure Elements
+html
+Categories: None
+
+Context: Document root element
+
+Content model: head element followed by body element
+
+Tag omission: Start tag can be omitted if first inside is not a comment; end tag can be omitted if not immediately followed by comment
+
+Interface: HTMLHtmlElement extends HTMLElement
+
+Special behavior: Root of HTML document; encouraged to specify lang attribute
+
+head
+Categories: None
+
+Context: First element in html
+
+Content model: Metadata content elements (zero or more); exactly one title unless title from higher-level protocol
+
+Tag omission: Start tag can be omitted if empty or first child is element; end tag can be omitted if not followed by whitespace/comment
+
+Interface: HTMLHeadElement extends HTMLElement
+
+title
+Categories: Metadata content
+
+Context: In head with no other title elements
+
+Content model: Text (not inter-element whitespace)
+
+Tag omission: Neither tag omissible
+
+Interface: HTMLTitleElement extends HTLElement
+
+Properties: text IDL attribute
+
+base
+Categories: Metadata content
+
+Context: In head with no other base elements
+
+Content model: Nothing (void)
+
+Tag omission: No end tag
+
+Attributes: href (document base URL), target (default navigable)
+
+Interface: HTMLBaseElement extends HTMLElement
+
+Special: First base with href sets frozen base URL; only first with target matters
+
+link
+Categories: Metadata content, flow content, phrasing content (if allowed in body)
+
+Context: Where metadata expected; in noscript child of head; where phrasing expected (if allowed in body)
+
+Content model: Nothing (void)
+
+Tag omission: No end tag
+
+Attributes: href, crossorigin, rel, media, integrity, hreflang, type, referrerpolicy, sizes, imagesrcset, imagesizes, as, blocking, color, disabled, fetchpriority
+
+Interface: HTMLLinkElement extends HTMLElement (includes LinkStyle)
+
+Special: External resource links and hyperlinks; processing model based on rel keywords
+
+meta
+Categories: Metadata content, flow content (if itemprop present), phrasing content (if itemprop present)
+
+Context: In head with charset or http-equiv; where metadata expected
+
+Content model: Nothing (void)
+
+Tag omission: No end tag
+
+Attributes: name, http-equiv, content, charset, media
+
+Interface: HTMLMetaElement extends HTMLElement
+
+Standard names: application-name, author, description, generator, keywords, referrer, theme-color, color-scheme
+
+style
+Categories: Metadata content
+
+Context: Where metadata expected; in noscript child of head
+
+Content model: Text (conformant style sheet)
+
+Tag omission: Neither tag omissible
+
+Attributes: media, blocking, title
+
+Interface: HTMLStyleElement extends HTMLElement (includes LinkStyle)
+
+Properties: disabled IDL attribute
+
+2. Sectioning Elements
+body
+Categories: None
+
+Context: Second element in html
+
+Content model: Flow content
+
+Tag omission: Start tag can be omitted if empty or first not whitespace/comment (except meta/noscript/link/script/style/template); end tag can be omitted if not followed by comment
+
+Event handlers: onafterprint, onbeforeprint, onbeforeunload, onhashchange, onlanguagechange, onmessage, onmessageerror, onoffline, ononline, onpageswap, onpagehide, onpagereveal, onpageshow, onpopstate, onrejectionhandled, onstorage, onunhandledrejection, onunload
+
+Interface: HTMLBodyElement extends HTMLElement (includes WindowEventHandlers)
+
+article
+Categories: Flow content, sectioning content, palpable content
+
+Context: Where sectioning content expected
+
+Content model: Flow content
+
+Tag omission: Neither tag omissible
+
+Interface: HTMLElement
+
+Semantics: Self-contained composition (forum post, article, blog entry, comment)
+
+section
+Categories: Flow content, sectioning content, palpable content
+
+Context: Where sectioning content expected
+
+Content model: Flow content
+
+Tag omission: Neither tag omissible
+
+Interface: HTMLElement
+
+Semantics: Generic section, thematic grouping with heading
+
+nav
+Categories: Flow content, sectioning content, palpable content
+
+Context: Where sectioning content expected
+
+Content model: Flow content
+
+Tag omission: Neither tag omissible
+
+Interface: HTMLElement
+
+Semantics: Section with navigation links
+
+aside
+Categories: Flow content, sectioning content, palpable content
+
+Context: Where sectioning content expected
+
+Content model: Flow content
+
+Tag omission: Neither tag omissible
+
+Interface: HTMLElement
+
+Semantics: Tangentially related content (sidebars, pull quotes)
+
+h1-h6
+Categories: Flow content, heading content, palpable content
+
+Context: As child of hgroup; where heading content expected
+
+Content model: Phrasing content
+
+Tag omission: Neither tag omissible
+
+Interface: HTMLHeadingElement extends HTMLElement
+
+Semantics: Headings with level (1-6)
+
+hgroup
+Categories: Flow content, heading content, palpable content
+
+Context: Where heading content expected
+
+Content model: Zero or more p elements, then one heading (h1-h6), then zero or more p elements
+
+Tag omission: Neither tag omissible
+
+Interface: HTMLElement
+
+Semantics: Heading with subheading/tagline
+
+header
+Categories: Flow content, palpable content
+
+Context: Where flow content expected
+
+Content model: Flow content (no header/footer descendants)
+
+Tag omission: Neither tag omissible
+
+Interface: HTMLElement
+
+Semantics: Introductory or navigational aids
+
+footer
+Categories: Flow content, palpable content
+
+Context: Where flow content expected
+
+Content model: Flow content (no header/footer descendants)
+
+Tag omission: Neither tag omissible
+
+Interface: HTMLElement
+
+Semantics: Footer for nearest sectioning content or body
+
+address
+Categories: Flow content, palpable content
+
+Context: Where flow content expected
+
+Content model: Flow content (no heading/sectioning/header/footer/address descendants)
+
+Tag omission: Neither tag omissible
+
+Interface: HTMLElement
+
+Semantics: Contact information for nearest article or body
+
+3. Grouping Content Elements
+p
+Categories: Flow content, palpable content
+
+Context: Where flow content expected
+
+Content model: Phrasing content
+
+Tag omission: End tag can be omitted if followed by address/article/aside/blockquote/details/div/dl/fieldset/figure/footer/form/heading/header/hr/main/menu/nav/ol/pre/section/table/ul, or if no more content and parent not a/audio/del/ins/map/noscript/video/custom
+
+Interface: HTMLParagraphElement extends HTMLElement
+
+Semantics: Paragraph
+
+hr
+Categories: Flow content, select element inner content
+
+Context: Where flow content expected; as child of select
+
+Content model: Nothing (void)
+
+Tag omission: No end tag
+
+Interface: HTMLHRElement extends HTMLElement
+
+Semantics: Thematic break (scene change, topic transition) or separator in select
+
+pre
+Categories: Flow content, palpable content
+
+Context: Where flow content expected
+
+Content model: Phrasing content
+
+Tag omission: Neither tag omissible
+
+Interface: HTMLPreElement extends HTMLElement
+
+Semantics: Preformatted text (structure by typographic conventions)
+
+Special: Leading newline after start tag is stripped
+
+blockquote
+Categories: Flow content, palpable content
+
+Context: Where flow content expected
+
+Content model: Flow content
+
+Tag omission: Neither tag omissible
+
+Attributes: cite
+
+Interface: HTMLQuoteElement extends HTMLElement
+
+Semantics: Section quoted from another source
+
+ol
+Categories: Flow content, palpable content (if has li children)
+
+Context: Where flow content expected
+
+Content model: Zero or more li and script-supporting elements
+
+Tag omission: Neither tag omissible
+
+Attributes: reversed, start, type
+
+Interface: HTMLOListElement extends HTMLElement
+
+ul
+Categories: Flow content, palpable content (if has li children)
+
+Context: Where flow content expected
+
+Content model: Zero or more li and script-supporting elements
+
+Tag omission: Neither tag omissible
+
+Interface: HTMLUListElement extends HTMLElement
+
+menu
+Categories: Flow content, palpable content (if has li children)
+
+Context: Where flow content expected
+
+Content model: Zero or more li and script-supporting elements
+
+Tag omission: Neither tag omissible
+
+Interface: HTMLMenuElement extends HTMLElement
+
+Semantics: Toolbar of commands (unordered list)
+
+li
+Categories: None
+
+Context: Inside ol, ul, menu
+
+Content model: Flow content
+
+Tag omission: End tag can be omitted if followed by another li or no more content
+
+Attributes: value
+
+Interface: HTMLLIElement extends HTMLElement
+
+dl
+Categories: Flow content, palpable content (if has name-value group)
+
+Context: Where flow content expected
+
+Content model: Zero or more groups of dt+dd; or one or more div elements
+
+Tag omission: Neither tag omissible
+
+Interface: HTMLDListElement extends HTMLElement
+
+Semantics: Description list (name-value groups)
+
+dt
+Categories: None
+
+Context: Before dd/dt inside dl or div children of dl
+
+Content model: Flow content (no header/footer/sectioning/heading descendants)
+
+Tag omission: End tag can be omitted if followed by dt or dd
+
+Interface: HTMLElement
+
+dd
+Categories: None
+
+Context: After dt/dd inside dl or div children of dl
+
+Content model: Flow content
+
+Tag omission: End tag can be omitted if followed by dd or dt or no more content
+
+Interface: HTMLElement
+
+figure
+Categories: Flow content, palpable content
+
+Context: Where flow content expected
+
+Content model: Either figcaption followed by flow, or flow followed by figcaption, or just flow
+
+Tag omission: Neither tag omissible
+
+Interface: HTMLElement
+
+Semantics: Self-contained content with optional caption
+
+figcaption
+Categories: None
+
+Context: First or last child of figure
+
+Content model: Flow content
+
+Tag omission: Neither tag omissible
+
+Interface: HTMLElement
+
+main
+Categories: Flow content, palpable content
+
+Context: Where flow content expected (must be hierarchically correct)
+
+Content model: Flow content
+
+Tag omission: Neither tag omissible
+
+Interface: HTMLElement
+
+Semantics: Dominant contents of document
+
+Constraint: Only one main without hidden attribute; ancestors limited to html, body, div, form without accessible name, autonomous custom elements
+
+search
+Categories: Flow content, palpable content
+
+Context: Where flow content expected
+
+Content model: Flow content
+
+Tag omission: Neither tag omissible
+
+Interface: HTMLElement
+
+Semantics: Part of document with search/filter functionality
+
+div
+Categories: Flow content, palpable content, select/optgroup/option inner content
+
+Context: Where flow content expected; as child of dl; as descendant of option/optgroup/select
+
+Content model: Depends on context (flow or specific content)
+
+Tag omission: Neither tag omissible
+
+Interface: HTMLDivElement extends HTMLElement
+
+Semantics: Generic container
+
+4. Text-Level Semantics Elements
+a
+Categories: Flow content, phrasing content, interactive content (if href), palpable content
+
+Context: Where phrasing content expected
+
+Content model: Transparent (no interactive descendant, no a descendant, no tabindex descendant)
+
+Tag omission: Neither tag omissible
+
+Attributes: href, target, download, ping, rel, hreflang, type, referrerpolicy
+
+Interface: HTMLAnchorElement extends HTMLElement (includes HTMLHyperlinkElementUtils)
+
+em
+Categories: Flow content, phrasing content, palpable content
+
+Context: Where phrasing content expected
+
+Content model: Phrasing content
+
+Tag omission: Neither tag omissible
+
+Interface: HTMLElement
+
+Semantics: Stress emphasis
+
+strong
+Categories: Flow content, phrasing content, palpable content
+
+Context: Where phrasing content expected
+
+Content model: Phrasing content
+
+Tag omission: Neither tag omissible
+
+Interface: HTMLElement
+
+Semantics: Strong importance, seriousness, urgency
+
+small
+Categories: Flow content, phrasing content, palpable content
+
+Context: Where phrasing content expected
+
+Content model: Phrasing content
+
+Tag omission: Neither tag omissible
+
+Interface: HTMLElement
+
+Semantics: Side comments (small print)
+
+s
+Categories: Flow content, phrasing content, palpable content
+
+Context: Where phrasing content expected
+
+Content model: Phrasing content
+
+Tag omission: Neither tag omissible
+
+Interface: HTMLElement
+
+Semantics: No longer accurate/relevant
+
+cite
+Categories: Flow content, phrasing content, palpable content
+
+Context: Where phrasing content expected
+
+Content model: Phrasing content
+
+Tag omission: Neither tag omissible
+
+Interface: HTMLElement
+
+Semantics: Title of a work
+
+q
+Categories: Flow content, phrasing content, palpable content
+
+Context: Where phrasing content expected
+
+Content model: Phrasing content
+
+Tag omission: Neither tag omissible
+
+Attributes: cite
+
+Interface: HTMLQuoteElement extends HTMLElement
+
+Semantics: Quotation from another source
+
+dfn
+Categories: Flow content, phrasing content, palpable content
+
+Context: Where phrasing content expected
+
+Content model: Phrasing content (no dfn descendants)
+
+Tag omission: Neither tag omissible
+
+Interface: HTMLElement
+
+Semantics: Defining instance of a term
+
+abbr
+Categories: Flow content, phrasing content, palpable content
+
+Context: Where phrasing content expected
+
+Content model: Phrasing content
+
+Tag omission: Neither tag omissible
+
+Interface: HTMLElement
+
+Semantics: Abbreviation or acronym
+
+ruby
+Categories: Flow content, phrasing content, palpable content
+
+Context: Where phrasing content expected
+
+Content model: Complex (phrasing content with rt/rp sequences)
+
+Tag omission: Neither tag omissible
+
+Interface: HTMLElement
+
+Semantics: Ruby annotations (East Asian typography)
+
+rt
+Categories: None
+
+Context: Child of ruby
+
+Content model: Phrasing content
+
+Tag omission: End tag can be omitted if followed by rt/rp or no more content
+
+Interface: HTMLElement
+
+rp
+Categories: None
+
+Context: Child of ruby (before/after rt)
+
+Content model: Text
+
+Tag omission: End tag can be omitted if followed by rt/rp or no more content
+
+Interface: HTMLElement
+
+data
+Categories: Flow content, phrasing content, palpable content
+
+Context: Where phrasing content expected
+
+Content model: Phrasing content
+
+Tag omission: Neither tag omissible
+
+Attributes: value
+
+Interface: HTMLDataElement extends HTMLElement
+
+Semantics: Machine-readable value
+
+time
+Categories: Flow content, phrasing content, palpable content
+
+Context: Where phrasing content expected
+
+Content model: Phrasing content (if datetime present); otherwise text matching date/time syntax
+
+Tag omission: Neither tag omissible
+
+Attributes: datetime
+
+Interface: HTMLTimeElement extends HTMLElement
+
+code
+Categories: Flow content, phrasing content, palpable content
+
+Context: Where phrasing content expected
+
+Content model: Phrasing content
+
+Tag omission: Neither tag omissible
+
+Interface: HTMLElement
+
+Semantics: Computer code fragment
+
+var
+Categories: Flow content, phrasing content, palpable content
+
+Context: Where phrasing content expected
+
+Content model: Phrasing content
+
+Tag omission: Neither tag omissible
+
+Interface: HTMLElement
+
+Semantics: Variable
+
+samp
+Categories: Flow content, phrasing content, palpable content
+
+Context: Where phrasing content expected
+
+Content model: Phrasing content
+
+Tag omission: Neither tag omissible
+
+Interface: HTMLElement
+
+Semantics: Sample/output from program
+
+kbd
+Categories: Flow content, phrasing content, palpable content
+
+Context: Where phrasing content expected
+
+Content model: Phrasing content
+
+Tag omission: Neither tag omissible
+
+Interface: HTMLElement
+
+Semantics: User input
+
+sub, sup
+Categories: Flow content, phrasing content, palpable content
+
+Context: Where phrasing content expected
+
+Content model: Phrasing content
+
+Tag omission: Neither tag omissible
+
+Interface: HTMLElement
+
+Semantics: Subscript/superscript
+
+i
+Categories: Flow content, phrasing content, palpable content
+
+Context: Where phrasing content expected
+
+Content model: Phrasing content
+
+Tag omission: Neither tag omissible
+
+Interface: HTMLElement
+
+Semantics: Alternate voice/mood
+
+b
+Categories: Flow content, phrasing content, palpable content
+
+Context: Where phrasing content expected
+
+Content model: Phrasing content
+
+Tag omission: Neither tag omissible
+
+Interface: HTMLElement
+
+Semantics: Attention-drawing (key words, product names)
+
+u
+Categories: Flow content, phrasing content, palpable content
+
+Context: Where phrasing content expected
+
+Content model: Phrasing content
+
+Tag omission: Neither tag omissible
+
+Interface: HTMLElement
+
+Semantics: Unarticulated annotation (proper names, misspellings)
+
+mark
+Categories: Flow content, phrasing content, palpable content
+
+Context: Where phrasing content expected
+
+Content model: Phrasing content
+
+Tag omission: Neither tag omissible
+
+Interface: HTMLElement
+
+Semantics: Highlighted/referenced text
+
+bdi
+Categories: Flow content, phrasing content, palpable content
+
+Context: Where phrasing content expected
+
+Content model: Phrasing content
+
+Tag omission: Neither tag omissible
+
+Interface: HTMLElement
+
+Special: dir defaults to auto; never inherits parent dir
+
+bdo
+Categories: Flow content, phrasing content, palpable content
+
+Context: Where phrasing content expected
+
+Content model: Phrasing content
+
+Tag omission: Neither tag omissible
+
+Interface: HTMLElement
+
+Special: Must have dir attribute (ltr or rtl)
+
+span
+Categories: Flow content, phrasing content, palpable content
+
+Context: Where phrasing content expected; as descendant of option (specific)
+
+Content model: Phrasing content (or option inner content in some contexts)
+
+Tag omission: Neither tag omissible
+
+Interface: HTMLSpanElement extends HTMLElement
+
+br
+Categories: Flow content, phrasing content
+
+Context: Where phrasing content expected
+
+Content model: Nothing (void)
+
+Tag omission: No end tag
+
+Interface: HTMLBRElement extends HTMLElement
+
+Semantics: Line break
+
+wbr
+Categories: Flow content, phrasing content
+
+Context: Where phrasing content expected
+
+Content model: Nothing (void)
+
+Tag omission: No end tag
+
+Interface: HTMLElement
+
+Semantics: Line break opportunity
+
+5. Edits Elements
+ins, del
+Categories: Flow content, phrasing content, palpable content
+
+Context: Where phrasing content expected
+
+Content model: Transparent
+
+Tag omission: Neither tag omissible
+
+Attributes: cite, datetime
+
+Interface: HTMLModElement extends HTMLElement
+
+Semantics: Addition (ins) or removal (del)
+
+6. Embedded Content Elements
+picture
+Categories: Flow content, phrasing content, embedded content, palpable content
+
+Context: Where embedded content expected
+
+Content model: Zero or more source, then one img, optionally intermixed with script-supporting
+
+Tag omission: Neither tag omissible
+
+Interface: HTMLPictureElement extends HTMLElement
+
+source
+Categories: None (as child of picture/media element)
+
+Context: Child of picture (before img); child of media element (before flow content)
+
+Content model: Nothing (void)
+
+Tag omission: No end tag
+
+Attributes: src, type, srcset, sizes, media, width, height
+
+Interface: HTMLSourceElement extends HTMLElement
+
+img
+Categories: Flow content, phrasing content, embedded content, form-associated, palpable content
+
+Context: Where embedded content expected; as child of picture
+
+Content model: Nothing (void)
+
+Tag omission: No end tag
+
+Attributes: alt, src, srcset, sizes, crossorigin, usemap, ismap, width, height, referrerpolicy, decoding, loading, fetchpriority
+
+Interface: HTMLImageElement extends HTMLElement
+
+Special: Legacy factory function Image(width, height)
+
+iframe
+Categories: Flow content, phrasing content, embedded content, interactive content, palpable content
+
+Context: Where embedded content expected
+
+Content model: Nothing (void)
+
+Tag omission: Neither tag omissible
+
+Attributes: src, srcdoc, name, sandbox, allow, allowfullscreen, width, height, referrerpolicy, loading
+
+Interface: HTMLIFrameElement extends HTMLElement
+
+Properties: contentDocument, contentWindow
+
+embed
+Categories: Flow content, phrasing content, embedded content, interactive content, palpable content
+
+Context: Where embedded content expected
+
+Content model: Nothing (void)
+
+Tag omission: No end tag
+
+Attributes: src, type, width, height
+
+Interface: HTMLEmbedElement extends HTMLElement
+
+object
+Categories: Flow content, phrasing content, embedded content, listed form-associated, palpable content
+
+Context: Where embedded content expected
+
+Content model: Transparent
+
+Tag omission: Neither tag omissible
+
+Attributes: data, type, name, form, width, height
+
+Interface: HTMLObjectElement extends HTMLElement
+
+Properties: contentDocument, contentWindow
+
+video
+Categories: Flow content, phrasing content, embedded content, interactive content (if controls), palpable content
+
+Context: Where embedded content expected
+
+Content model: Depends on src attribute presence
+
+Tag omission: Neither tag omissible
+
+Attributes: src, crossorigin, poster, preload, autoplay, playsinline, loop, muted, controls, width, height
+
+Interface: HTMLVideoElement extends HTMLMediaElement
+
+Properties: videoWidth, videoHeight
+
+audio
+Categories: Flow content, phrasing content, embedded content, interactive/palpable content (if controls)
+
+Context: Where embedded content expected
+
+Content model: Depends on src presence
+
+Tag omission: Neither tag omissible
+
+Attributes: src, crossorigin, preload, autoplay, loop, muted, controls
+
+Interface: HTMLAudioElement extends HTMLMediaElement
+
+Special: Legacy factory function Audio(src)
+
+track
+Categories: None
+
+Context: Child of media element, before flow content
+
+Content model: Nothing (void)
+
+Tag omission: No end tag
+
+Attributes: kind, src, srclang, label, default
+
+Interface: HTMLTrackElement extends HTMLElement
+
+Properties: readyState, track
+
+map
+Categories: Flow content, phrasing content, palpable content
+
+Context: Where phrasing content expected
+
+Content model: Transparent
+
+Tag omission: Neither tag omissible
+
+Attributes: name
+
+Interface: HTMLMapElement extends HTMLElement
+
+area
+Categories: Flow content, phrasing content
+
+Context: Where phrasing content expected (must have map ancestor)
+
+Content model: Nothing (void)
+
+Tag omission: No end tag
+
+Attributes: alt, coords, shape, href, target, download, ping, rel, referrerpolicy
+
+Interface: HTMLAreaElement extends HTMLElement (includes HTMLHyperlinkElementUtils)
+
+7. Tabular Data Elements
+table
+Categories: Flow content, palpable content
+
+Context: Where flow content expected
+
+Content model: Optional caption, then zero or more colgroup, then optional thead, then zero or more tbody or one or more tr, then optional tfoot
+
+Tag omission: Neither tag omissible
+
+Interface: HTMLTableElement extends HTMLElement
+
+caption
+Categories: None
+
+Context: First child of table
+
+Content model: Flow content (no table descendants)
+
+Tag omission: End tag can be omitted if not followed by whitespace/comment
+
+Interface: HTMLTableCaptionElement extends HTMLElement
+
+colgroup
+Categories: None
+
+Context: Child of table, after caption, before thead/tbody/tfoot/tr
+
+Content model: If span present: Nothing; otherwise: zero or more col and template
+
+Tag omission: Start/end tags may be omitted in certain cases
+
+Attributes: span
+
+Interface: HTMLTableColElement extends HTMLElement
+
+col
+Categories: None
+
+Context: Child of colgroup without span attribute
+
+Content model: Nothing (void)
+
+Tag omission: No end tag
+
+Attributes: span
+
+Interface: HTMLTableColElement extends HTMLElement
+
+tbody
+Categories: None
+
+Context: Child of table, after caption/colgroup/thead, only if no tr children directly
+
+Content model: Zero or more tr and script-supporting
+
+Tag omission: Start/end tags may be omitted in certain cases
+
+Interface: HTMLTableSectionElement extends HTMLElement
+
+thead
+Categories: None
+
+Context: Child of table, after caption/colgroup, before tbody/tfoot/tr
+
+Content model: Zero or more tr and script-supporting
+
+Tag omission: End tag can be omitted if followed by tbody/tfoot
+
+Interface: HTMLTableSectionElement extends HTMLElement
+
+tfoot
+Categories: None
+
+Context: Child of table, after caption/colgroup/thead/tbody/tr
+
+Content model: Zero or more tr and script-supporting
+
+Tag omission: End tag can be omitted if no more content
+
+Interface: HTMLTableSectionElement extends HTMLElement
+
+tr
+Categories: None
+
+Context: Child of thead/tbody/tfoot/table (after caption/colgroup/thead)
+
+Content model: Zero or more td, th, and script-supporting
+
+Tag omission: End tag can be omitted if followed by another tr or no more content
+
+Interface: HTMLTableRowElement extends HTMLElement
+
+Properties: rowIndex, sectionRowIndex, cells
+
+td, th
+Categories: None
+
+Context: Child of tr
+
+Content model: Flow content (th no header/footer/sectioning/heading)
+
+Tag omission: End tag can be omitted if followed by td/th or no more content
+
+Attributes: colspan, rowspan, headers (both); scope, abbr (th only)
+
+Interface: HTMLTableCellElement extends HTMLElement
+
+Properties: cellIndex
+
+8. Forms Elements
+form
+Categories: Flow content, palpable content
+
+Context: Where flow content expected
+
+Content model: Flow content (no form descendants)
+
+Tag omission: Neither tag omissible
+
+Attributes: accept-charset, action, autocomplete, enctype, method, name, novalidate, target, rel
+
+Interface: HTMLFormElement extends HTMLElement
+
+Properties: elements, length
+
+label
+Categories: Flow content, phrasing content, interactive content, palpable content
+
+Context: Where phrasing content expected
+
+Content model: Phrasing content (no descendant labelable elements unless it's the labeled control)
+
+Tag omission: Neither tag omissible
+
+Attributes: for
+
+Interface: HTMLLabelElement extends HTMLElement
+
+Properties: control, form
+
+input
+Categories: Flow content, phrasing content, interactive content (if not hidden), form-associated, palpable content (if not hidden)
+
+Context: Where phrasing content expected
+
+Content model: Nothing (void)
+
+Tag omission: No end tag
+
+Attributes: accept, alpha, alt, autocomplete, checked, colorspace, dirname, disabled, form, formaction, formenctype, formmethod, formnovalidate, formtarget, height, list, max, maxlength, min, minlength, multiple, name, pattern, placeholder, popovertarget, popovertargetaction, readonly, required, size, src, step, type, width
+
+Type states: hidden, text, search, tel, url, email, password, date, month, week, time, datetime-local, number, range, color, checkbox, radio, file, submit, image, reset, button
+
+Interface: HTMLInputElement extends HTMLElement (includes PopoverTargetAttributes)
+
+button
+Categories: Flow content, phrasing content, interactive content, listed/labelable/submittable form-associated, palpable content
+
+Context: Where phrasing content expected; as first child of select
+
+Content model: Phrasing content (no interactive content, no tabindex descendants)
+
+Tag omission: Neither tag omissible
+
+Attributes: command, commandfor, disabled, form, formaction, formenctype, formmethod, formnovalidate, formtarget, name, popovertarget, popovertargetaction, type, value
+
+Type states: submit, reset, button
+
+Interface: HTMLButtonElement extends HTMLElement (includes PopoverTargetAttributes)
+
+select
+Categories: Flow content, phrasing content, interactive content, listed/labelable/submittable/resettable form-associated, palpable content
+
+Context: Where phrasing content expected
+
+Content model: Zero or one button, then zero or more select inner content elements
+
+Tag omission: Neither tag omissible
+
+Attributes: autocomplete, disabled, form, multiple, name, required, size
+
+Interface: HTMLSelectElement extends HTMLElement
+
+Properties: options, selectedOptions, selectedIndex, value
+
+datalist
+Categories: Flow content, phrasing content
+
+Context: Where phrasing content expected
+
+Content model: Phrasing content; or zero or more option and script-supporting
+
+Tag omission: Neither tag omissible
+
+Interface: HTMLDataListElement extends HTMLElement
+
+Properties: options
+
+optgroup
+Categories: Select element inner content
+
+Context: Descendant of select
+
+Content model: Zero or one legend, then zero or more optgroup inner content elements
+
+Tag omission: End tag can be omitted if followed by optgroup/hr or no more content
+
+Attributes: disabled, label
+
+Interface: HTMLOptGroupElement extends HTMLElement
+
+option
+Categories: Select/optgroup/datalist inner content
+
+Context: Descendant of select/datalist/optgroup
+
+Content model: Nothing (if label and value); Text (if label only); option inner content elements (if no label)
+
+Tag omission: End tag can be omitted if followed by option/optgroup/hr or no more content
+
+Attributes: disabled, label, selected, value
+
+Interface: HTMLOptionElement extends HTMLElement
+
+Properties: index, selected, text
+
+Special: Legacy factory function Option(text, value, defaultSelected, selected)
+
+textarea
+Categories: Flow content, phrasing content, interactive content, listed/labelable/submittable/resettable form-associated, palpable content
+
+Context: Where phrasing content expected
+
+Content model: Text
+
+Tag omission: Neither tag omissible
+
+Attributes: autocomplete, cols, dirname, disabled, form, maxlength, minlength, name, placeholder, readonly, required, rows, wrap
+
+Interface: HTMLTextAreaElement extends HTMLElement
+
+output
+Categories: Flow content, phrasing content, listed/labelable/resettable form-associated, palpable content
+
+Context: Where phrasing content expected
+
+Content model: Phrasing content
+
+Tag omission: Neither tag omissible
+
+Attributes: for, form, name
+
+Interface: HTMLOutputElement extends HTMLElement
+
+Properties: defaultValue, value
+
+progress
+Categories: Flow content, phrasing content, labelable, palpable content
+
+Context: Where phrasing content expected
+
+Content model: Phrasing content (no progress descendants)
+
+Tag omission: Neither tag omissible
+
+Attributes: value, max
+
+Interface: HTMLProgressElement extends HTMLElement
+
+Properties: position
+
+meter
+Categories: Flow content, phrasing content, labelable, palpable content
+
+Context: Where phrasing content expected
+
+Content model: Phrasing content (no meter descendants)
+
+Tag omission: Neither tag omissible
+
+Attributes: value, min, max, low, high, optimum
+
+Interface: HTMLMeterElement extends HTMLElement
+
+fieldset
+Categories: Flow content, listed form-associated, palpable content
+
+Context: Where flow content expected
+
+Content model: Optional legend, then flow content
+
+Tag omission: Neither tag omissible
+
+Attributes: disabled, form, name
+
+Interface: HTMLFieldSetElement extends HTMLElement
+
+Properties: elements
+
+legend
+Categories: None
+
+Context: First child of fieldset; first child of optgroup
+
+Content model: Phrasing content (plus optional heading for fieldset)
+
+Tag omission: Neither tag omissible
+
+Interface: HTMLLegendElement extends HTMLElement
+
+Properties: form
+
+selectedcontent
+Categories: Phrasing content
+
+Context: Descendant of button that is child of select
+
+Content model: Nothing (void)
+
+Tag omission: Neither tag omissible
+
+Interface: HTMLSelectedContentElement extends HTMLElement
+
+9. Interactive Elements
+details
+Categories: Flow content, interactive content, palpable content
+
+Context: Where flow content expected
+
+Content model: One summary, then flow content
+
+Tag omission: Neither tag omissible
+
+Attributes: name, open
+
+Interface: HTMLDetailsElement extends HTMLElement
+
+summary
+Categories: None
+
+Context: First child of details
+
+Content model: Phrasing content (optionally intermixed with heading content)
+
+Tag omission: Neither tag omissible
+
+Interface: HTMLElement
+
+dialog
+Categories: Flow content
+
+Context: Where flow content expected
+
+Content model: Flow content
+
+Tag omission: Neither tag omissible
+
+Attributes: closedby, open
+
+Interface: HTMLDialogElement extends HTMLElement
+
+Properties: returnValue
+
+Methods: show(), showModal(), close(), requestClose()
+
+10. Scripting Elements
+script
+Categories: Metadata content, flow content, phrasing content, script-supporting
+
+Context: Where metadata/phrasing/script-supporting expected
+
+Content model: Depends on src and type
+
+Tag omission: Neither tag omissible
+
+Attributes: type, src, nomodule, async, defer, blocking, crossorigin, referrerpolicy, integrity, fetchpriority
+
+type values: empty/JS MIME → classic script; "module" → module script; "importmap" → import map; "speculationrules" → speculation rules; others → data block
+
+Interface: HTMLScriptElement extends HTMLElement
+
+Properties: text
+
+Static method: supports(type)
+
+noscript
+Categories: Metadata content, flow content, phrasing content, select/optgroup inner content
+
+Context: In head with no ancestor noscript; where phrasing expected in HTML
+
+Content model: Varies based on scripting enabled/disabled and location
+
+Tag omission: Neither tag omissible
+
+Interface: HTMLElement
+
+Note: Only effective in HTML syntax, not XML
+
+template
+Categories: Metadata content, flow content, phrasing content, script-supporting
+
+Context: Where metadata/phrasing/script-supporting expected; child of colgroup without span
+
+Content model: Nothing (void - content goes to template contents)
+
+Tag omission: Neither tag omissible
+
+Attributes: shadowrootmode, shadowrootdelegatesfocus, shadowrootclonable, shadowrootserializable, shadowrootcustomelementregistry
+
+Interface: HTMLTemplateElement extends HTMLElement
+
+Properties: content
+
+slot
+Categories: Flow content, phrasing content
+
+Context: Where phrasing content expected
+
+Content model: Transparent
+
+Tag omission: Neither tag omissible
+
+Attributes: name
+
+Interface: HTMLSlotElement extends HTMLElement
+
+Methods: assignedNodes(), assignedElements(), assign()
+
+canvas
+Categories: Flow content, phrasing content, embedded content, palpable content
+
+Context: Where embedded content expected
+
+Content model: Transparent (no interactive content except specific elements)
+
+Tag omission: Neither tag omissible
+
+Attributes: width, height
+
+Interface: HTMLCanvasElement extends HTMLElement
+
+Methods: getContext(), toDataURL(), toBlob(), transferControlToOffscreen()
+
+11. Media Elements (Base Class)
+HTMLMediaElement (abstract)
+Error states: MEDIA_ERR_ABORTED, MEDIA_ERR_NETWORK, MEDIA_ERR_DECODE, MEDIA_ERR_SRC_NOT_SUPPORTED
+
+Network states: NETWORK_EMPTY, NETWORK_IDLE, NETWORK_LOADING, NETWORK_NO_SOURCE
+
+Ready states: HAVE_NOTHING, HAVE_METADATA, HAVE_CURRENT_DATA, HAVE_FUTURE_DATA, HAVE_ENOUGH_DATA
+
+Properties: error, src, srcObject, currentSrc, crossOrigin, networkState, preload, buffered, readyState, seeking, currentTime, duration, paused, defaultPlaybackRate, playbackRate, preservesPitch, played, seekable, ended, autoplay, loop, controls, volume, muted, defaultMuted, audioTracks, videoTracks, textTracks
+
+Methods: load(), canPlayType(), play(), pause(), addTextTrack()
+
+12. Custom Elements
+Autonomous Custom Elements
+Categories: Flow content, phrasing content, palpable content (plus form-associated categories if applicable)
+
+Context: Where phrasing content expected
+
+Content model: Transparent
+
+Attributes: Global attributes (except is), plus form, disabled, readonly, name if form-associated
+
+Interface: Author-supplied (inherits from HTMLElement)
+
+Definition: customElements.define(name, constructor)
+
+Customized Built-in Elements
+Same as base element (e.g., button extended)
+
+Created using: <button is="custom-name">
+
+Definition: customElements.define(name, constructor, { extends: baseLocalName })
+
+Global Attributes (All HTML Elements)
+accesskey, autocapitalize, autocorrect, autofocus, contenteditable, dir, draggable, enterkeyhint, hidden, inert, inputmode, is, itemid, itemprop, itemref, itemscope, itemtype, lang, nonce, popover, spellcheck, style, tabindex, title, translate, writingsuggestions
+
+class, id, slot (per DOM spec)
+
+Event Handler Content Attributes (on HTML elements)
+onauxclick, onbeforeinput, onbeforematch, onbeforetoggle, onblur, oncancel, oncanplay, oncanplaythrough, onchange, onclick, onclose, oncommand, oncontextlost, oncontextmenu, oncontextrestored, oncopy, oncuechange, oncut, ondblclick, ondrag, ondragend, ondragenter, ondragleave, ondragover, ondragstart, ondrop, ondurationchange, onemptied, onended, onerror, onfocus, onformdata, oninput, oninvalid, onkeydown, onkeypress, onkeyup, onload, onloadeddata, onloadedmetadata, onloadstart, onmousedown, onmouseenter, onmouseleave, onmousemove, onmouseout, onmouseover, onmouseup, onpaste, onpause, onplay, onplaying, onprogress, onratechange, onreset, onresize, onscroll, onscrollend, onsecuritypolicyviolation, onseeked, onseeking, onselect, onslotchange, onstalled, onsubmit, onsuspend, ontimeupdate, ontoggle, onvolumechange, onwaiting, onwheel
+
+
+
+
+
+# HTML Elements Complete Reference - Part 1: Document Structure & Metadata
+
+## 1. The Document Element
+
+### html
+```yaml
+tag: html
+categories: []
+contexts:
+  - As document's document element
+  - Wherever subdocument fragment allowed in compound document
+content_model:
+  required: [head, body]
+  order: head first, then body
+tag_omission:
+  start: Can be omitted if first thing inside is not a comment
+  end: Can be omitted if not immediately followed by a comment
+attributes:
+  global: all
+special:
+  - Root of HTML document
+  - Should have lang attribute for document language
+interface: HTMLHtmlElement extends HTMLElement
+obsolete_members: yes
+```
+
+## 2. Document Metadata Elements
+
+### head
+```yaml
+tag: head
+categories: []
+contexts:
+  - As first element in html
+content_model:
+  # If iframe srcdoc or title from higher-level protocol
+  scenario_1:
+    condition: document is iframe srcdoc OR title from higher-level protocol
+    allowed: zero or more metadata content elements
+    constraints:
+      - at most one title
+      - at most one base
+  scenario_2:
+    condition: otherwise
+    allowed: one or more metadata content elements
+    constraints:
+      - exactly one title
+      - at most one base
+tag_omission:
+  start: Can be omitted if empty OR first thing inside is an element
+  end: Can be omitted if not immediately followed by whitespace or comment
+attributes:
+  global: all
+interface: HTMLHeadElement extends HTMLElement
+```
+
+### title
+```yaml
+tag: title
+categories: [metadata content]
+contexts:
+  - In head containing no other title elements
+content_model:
+  type: text
+  constraint: not inter-element whitespace
+tag_omission:
+  start: cannot be omitted
+  end: cannot be omitted
+attributes:
+  global: all
+interface: HTMLTitleElement extends HTMLElement
+properties:
+  text:
+    type: DOMString
+    getter: returns child text content
+    setter: replaces children with given value
+semantics: Document's title or name
+notes:
+  - Should identify document even out of context (history, bookmarks, search results)
+  - Often different from first heading
+  - Only one per document
+  - May be omitted if higher-level protocol provides title info
+```
+
+### base
+```yaml
+tag: base
+categories: [metadata content]
+contexts:
+  - In head containing no other base elements
+content_model: nothing (void)
+tag_omission: no end tag
+attributes:
+  global: all
+  href:
+    description: Document base URL
+    type: valid non-empty URL potentially surrounded by spaces
+  target:
+    description: Default navigable for hyperlink navigation and form submission
+    type: valid navigable target name or keyword
+interface: HTMLBaseElement extends HTMLElement
+properties:
+  href:
+    reflection: ReflectSetter
+    getter: returns resolved URL
+  target:
+    reflection: Reflect
+special:
+  - First base with href sets frozen base URL
+  - Only first base with href matters
+  - Only first base with target matters
+  - Must come before elements with URL-taking attributes
+constraints:
+  - Must have href or target attribute (or both)
+  - Only one per document
+```
+
+### link
+```yaml
+tag: link
+categories: [metadata content]
+contexts:
+  - Where metadata content expected
+  - In noscript child of head
+  - Where phrasing content expected (if allowed in body)
+content_model: nothing (void)
+tag_omission: no end tag
+attributes:
+  global: all
+  href: Address of the hyperlink
+  crossorigin: How element handles crossorigin requests
+  rel: Relationship between document and destination resource
+  media: Applicable media
+  integrity: Integrity metadata (SRI)
+  hreflang: Language of linked resource
+  type: Hint for type of referenced resource
+  referrerpolicy: Referrer policy for fetches
+  sizes: Sizes of icons (for rel="icon")
+  imagesrcset: Images for different situations (for rel="preload")
+  imagesizes: Image sizes for different layouts (for rel="preload")
+  as: Potential destination for preload request
+  blocking: Whether element is potentially render-blocking
+  color: Color for customizing site icon (for rel="mask-icon")
+  disabled: Whether link is disabled
+  fetchpriority: Priority for fetches
+  title: Title of link; CSS style sheet name
+interface: HTMLLinkElement extends HTMLElement
+includes: LinkStyle
+special:
+  - Can create external resource links OR hyperlinks
+  - rel attribute defines which
+  - One element can create multiple links
+supported_rel_tokens:
+  - alternate, dns-prefetch, expect, icon, manifest, modulepreload
+  - next, pingback, preconnect, prefetch, preload, search, stylesheet
+body_ok_rel_tokens:
+  - dns-prefetch, modulepreload, pingback, preconnect, prefetch, preload, stylesheet
+```
+
+### meta
+```yaml
+tag: meta
+categories:
+  - metadata content
+  - flow content (if itemprop present)
+  - phrasing content (if itemprop present)
+contexts:
+  - In head (if charset or http-equiv in Encoding declaration)
+  - In head (if http-equiv present but not Encoding declaration)
+  - In noscript child of head (if http-equiv not Encoding declaration)
+  - Where metadata content expected (if name attribute)
+  - Where metadata content/phrasing expected (if itemprop)
+content_model: nothing (void)
+tag_omission: no end tag
+attributes:
+  global: all
+  name: Metadata name
+  http-equiv: Pragma directive
+  content: Value of the element
+  charset: Character encoding declaration
+  media: Applicable media
+interface: HTMLMetaElement extends HTMLElement
+constraints:
+  - Exactly one of name, http-equiv, charset, itemprop must be specified
+  - If name/http-equiv/itemprop specified, content must also be specified
+  - charset value must be ASCII case-insensitive match for "utf-8"
+  - Only one charset meta per document
+
+standard_metadata_names:
+  application-name:
+    value: short free-form string
+    description: Name of web application
+    constraint: Not for non-web-applications
+    language_specific: Can have translations using lang attribute
+  author:
+    value: free-form string
+    description: Name of page author
+  description:
+    value: free-form string
+    description: Describes page for directories/search engines
+    constraint: Only one per document
+  generator:
+    value: free-form string
+    description: Identifies software used to generate document
+    constraint: Not for manually-written pages
+  keywords:
+    value: comma-separated tokens
+    description: Keywords relevant to page
+  referrer:
+    value: referrer policy
+    description: Default referrer policy for document
+    processing: Only most-recently-inserted/modified matters
+  theme-color:
+    value: CSS <color>
+    description: Suggested color for UI customization
+    processing: media attribute supported; re-evaluated on changes
+  color-scheme:
+    value: CSS 'color-scheme' property value
+    description: Page's supported color schemes
+    constraint: Only one per document
+
+pragma_directives:
+  content-language:
+    http-equiv: content-language
+    effect: Sets pragma-set default language
+    behavior: Non-conforming
+  content-type:
+    http-equiv: content-type
+    effect: Character encoding declaration (alternative form)
+    constraint: Must be "text/html; charset=utf-8"
+  default-style:
+    http-equiv: default-style
+    effect: Sets name of default CSS style sheet set
+  refresh:
+    http-equiv: refresh
+    effect: Timed redirect
+    syntax: integer (seconds) OR integer; URL=url
+    processing: Shared declarative refresh steps
+  set-cookie:
+    http-equiv: set-cookie
+    effect: Non-conforming, ignored
+  x-ua-compatible:
+    http-equiv: x-ua-compatible
+    effect: Encourages IE to follow specs
+    value: Must be "IE=edge"
+  content-security-policy:
+    http-equiv: content-security-policy
+    effect: Enforces CSP on document
+    constraints: No report-uri, frame-ancestors, or sandbox directives
+```
+
+### style
+```yaml
+tag: style
+categories: [metadata content]
+contexts:
+  - Where metadata content expected
+  - In noscript child of head
+content_model: text that gives a conformant style sheet
+tag_omission: neither tag omissible
+attributes:
+  global: all
+  media: Applicable media
+  blocking: Whether element is potentially render-blocking
+  title: CSS style sheet set name
+interface: HTMLStyleElement extends HTMLElement
+includes: LinkStyle
+properties:
+  disabled:
+    type: boolean
+    getter: returns associated CSS style sheet's disabled flag
+    setter: sets/unsets disabled flag
+special:
+  - Content must be conformant style sheet
+  - Implicitly potentially render-blocking if created by parser
+  - Update algorithm runs on element being popped off stack, connection changes, or children changes
+  - Can contribute as script-blocking style sheet
+```
+
+---
+
+Next, I will provide **Part 2: Sectioning & Grouping Content Elements** with the same level of detail.
+
+
+# HTML Elements Complete Reference - Part 2: Sectioning & Grouping Content Elements
+
+## 3. Sectioning Elements
+
+### body
+```yaml
+tag: body
+categories: []
+contexts:
+  - As second element in html element
+content_model: flow content
+tag_omission:
+  start: Can be omitted if element is empty, OR first thing inside is not whitespace/comment (except meta/noscript/link/script/style/template)
+  end: Can be omitted if not immediately followed by comment
+attributes:
+  global: all
+  onafterprint: Event handler
+  onbeforeprint: Event handler
+  onbeforeunload: Event handler
+  onhashchange: Event handler
+  onlanguagechange: Event handler
+  onmessage: Event handler
+  onmessageerror: Event handler
+  onoffline: Event handler
+  ononline: Event handler
+  onpageswap: Event handler
+  onpagehide: Event handler
+  onpagereveal: Event handler
+  onpageshow: Event handler
+  onpopstate: Event handler
+  onrejectionhandled: Event handler
+  onstorage: Event handler
+  onunhandledrejection: Event handler
+  onunload: Event handler
+interface: HTMLBodyElement extends HTMLElement
+includes: WindowEventHandlers
+semantics: Contents of the document
+notes: Only one body element in conforming documents
+```
+
+### article
+```yaml
+tag: article
+categories: [flow content, sectioning content, palpable content]
+contexts:
+  - Where sectioning content expected
+content_model: flow content
+tag_omission: neither tag omissible
+attributes:
+  global: all
+interface: HTMLElement
+semantics: Complete, self-contained composition (forum post, article, blog entry, comment, widget)
+nesting: Inner articles represent related articles
+author_info: Address element does NOT apply to nested articles
+example_uses:
+  - Forum post
+  - Magazine/newspaper article
+  - Blog entry
+  - User-submitted comment
+  - Interactive widget/gadget
+```
+
+### section
+```yaml
+tag: section
+categories: [flow content, sectioning content, palpable content]
+contexts:
+  - Where sectioning content expected
+content_model: flow content
+tag_omission: neither tag omissible
+attributes:
+  global: all
+interface: HTMLElement
+semantics: Generic section, thematic grouping of content, typically with a heading
+examples: Chapters, tabbed pages, numbered sections of thesis
+constraints: Not a generic container; use div for styling/scripting
+```
+
+### nav
+```yaml
+tag: nav
+categories: [flow content, sectioning content, palpable content]
+contexts:
+  - Where sectioning content expected
+content_model: flow content
+tag_omission: neither tag omissible
+attributes:
+  global: all
+interface: HTMLElement
+semantics: Section with major navigation links
+notes: Not all link groups need nav; footers often sufficient
+accessibility: Screen readers can use to skip navigation
+```
+
+### aside
+```yaml
+tag: aside
+categories: [flow content, sectioning content, palpable content]
+contexts:
+  - Where sectioning content expected
+content_model: flow content
+tag_omission: neither tag omissible
+attributes:
+  global: all
+interface: HTMLElement
+semantics: Tangentially related content (sidebars, pull quotes, advertising)
+examples:
+  - Pull quotes
+  - Sidebars
+  - Advertising
+  - Groups of nav elements
+```
+
+### h1, h2, h3, h4, h5, h6
+```yaml
+tag: [h1, h2, h3, h4, h5, h6]
+categories: [flow content, heading content, palpable content]
+contexts:
+  - As child of hgroup
+  - Where heading content expected
+content_model: phrasing content
+tag_omission: neither tag omissible
+attributes:
+  global: all
+interface: HTMLHeadingElement extends HTMLElement
+semantics: Headings for their sections
+heading_level:
+  h1: 1 (top-level)
+  h2: 2
+  h3: 3
+  h4: 4
+  h5: 5
+  h6: 6
+notes: Lower heading level = fewer ancestor sections
+```
+
+### hgroup
+```yaml
+tag: hgroup
+categories: [flow content, heading content, palpable content]
+contexts:
+  - Where heading content expected
+content_model:
+  - Zero or more p elements
+  - Then one heading (h1-h6)
+  - Then zero or more p elements
+  - Optionally intermixed with script-supporting elements
+tag_omission: neither tag omissible
+attributes:
+  global: all
+interface: HTMLElement
+semantics: Heading and related content (subheading, alternative title, tagline)
+```
+
+### header
+```yaml
+tag: header
+categories: [flow content, palpable content]
+contexts:
+  - Where flow content expected
+content_model: flow content
+constraints: No header or footer descendants
+tag_omission: neither tag omissible
+attributes:
+  global: all
+interface: HTMLElement
+semantics: Group of introductory or navigational aids
+notes: Usually contains heading (h1-h6 or hgroup), but not required
+examples: Table of contents, search form, logos
+```
+
+### footer
+```yaml
+tag: footer
+categories: [flow content, palpable content]
+contexts:
+  - Where flow content expected
+content_model: flow content
+constraints: No header or footer descendants
+tag_omission: neither tag omissible
+attributes:
+  global: all
+interface: HTMLElement
+semantics: Footer for nearest sectioning content or body
+content_examples: Author info, related documents, copyright data
+notes: Can contain entire sections (appendices, indices, colophons)
+```
+
+### address
+```yaml
+tag: address
+categories: [flow content, palpable content]
+contexts:
+  - Where flow content expected
+content_model: flow content
+constraints: No heading/sectioning/header/footer/address descendants
+tag_omission: neither tag omissible
+attributes:
+  global: all
+interface: HTMLElement
+semantics: Contact information for nearest article or body ancestor
+notes: Not for arbitrary postal addresses (use p)
+```
+
+---
+
+## 4. Grouping Content Elements
+
+### p
+```yaml
+tag: p
+categories: [flow content, palpable content]
+contexts:
+  - Where flow content expected
+content_model: phrasing content
+tag_omission:
+  end: Can be omitted if immediately followed by:
+    - address, article, aside, blockquote, details, dialog, div, dl
+    - fieldset, figcaption, figure, footer, form
+    - h1-h6, header, hgroup, hr, main, menu, nav, ol, p, pre
+    - search, section, table, ul
+    - OR if no more content in parent and parent not:
+      a, audio, del, ins, map, noscript, video, autonomous custom element
+attributes:
+  global: all
+interface: HTMLParagraphElement extends HTMLElement
+semantics: Paragraph
+obsolete_members: yes
+```
+
+### hr
+```yaml
+tag: hr
+categories: [flow content, select element inner content]
+contexts:
+  - Where flow content expected
+  - As child of select element
+content_model: nothing (void)
+tag_omission: no end tag
+attributes:
+  global: all
+interface: HTMLHRElement extends HTMLElement
+semantics:
+  normal: Paragraph-level thematic break (scene change, topic transition)
+  in_select: Separator between options
+obsolete_members: yes
+```
+
+### pre
+```yaml
+tag: pre
+categories: [flow content, palpable content]
+contexts:
+  - Where flow content expected
+content_model: phrasing content
+tag_omission: neither tag omissible
+attributes:
+  global: all
+interface: HTMLPreElement extends HTMLElement
+semantics: Block of preformatted text
+examples:
+  - Email with structural formatting
+  - Computer code fragments
+  - ASCII art
+special:
+  - Leading newline after start tag is stripped in HTML syntax
+  - Has bidirectional algorithm rendering requirements
+obsolete_members: yes
+```
+
+### blockquote
+```yaml
+tag: blockquote
+categories: [flow content, palpable content]
+contexts:
+  - Where flow content expected
+content_model: flow content
+tag_omission: neither tag omissible
+attributes:
+  global: all
+  cite: Link to source of quotation
+interface: HTMLQuoteElement extends HTMLElement
+semantics: Section quoted from another source
+notes: Attribution must be placed outside element
+```
+
+### ol
+```yaml
+tag: ol
+categories: [flow content]
+palpable: If children include at least one li
+contexts:
+  - Where flow content expected
+content_model: Zero or more li and script-supporting elements
+tag_omission: neither tag omissible
+attributes:
+  global: all
+  reversed: Boolean - number list backwards
+  start: Starting value of list (valid integer)
+  type: Kind of list marker
+interface: HTMLOListElement extends HTMLElement
+semantics: Ordered list (changing order changes meaning)
+type_values:
+  '1': decimal - Decimal numbers
+  'a': lower-alpha - Lowercase latin alphabet
+  'A': upper-alpha - Uppercase latin alphabet
+  'i': lower-roman - Lowercase roman numerals
+  'I': upper-roman - Uppercase roman numerals
+obsolete_members: yes
+```
+
+### ul
+```yaml
+tag: ul
+categories: [flow content]
+palpable: If children include at least one li
+contexts:
+  - Where flow content expected
+content_model: Zero or more li and script-supporting elements
+tag_omission: neither tag omissible
+attributes:
+  global: all
+interface: HTMLUListElement extends HTMLElement
+semantics: Unordered list (order does not matter)
+obsolete_members: yes
+```
+
+### menu
+```yaml
+tag: menu
+categories: [flow content]
+palpable: If children include at least one li
+contexts:
+  - Where flow content expected
+content_model: Zero or more li and script-supporting elements
+tag_omission: neither tag omissible
+attributes:
+  global: all
+interface: HTMLMenuElement extends HTMLElement
+semantics: Toolbar consisting of unordered list of commands
+notes: Semantic alternative to ul for commands
+obsolete_members: yes
+```
+
+### li
+```yaml
+tag: li
+categories: []
+contexts:
+  - Inside ol elements
+  - Inside ul elements
+  - Inside menu elements
+content_model: flow content
+tag_omission:
+  end: Can be omitted if immediately followed by another li, or if no more content in parent
+attributes:
+  global: all
+  value: Ordinal value of list item (valid integer)
+interface: HTMLLIElement extends HTMLElement
+semantics: List item
+notes: If parent is ol/ul/menu, item of parent's list
+obsolete_members: yes
+```
+
+### dl
+```yaml
+tag: dl
+categories: [flow content]
+palpable: If children include at least one name-value group
+contexts:
+  - Where flow content expected
+content_model:
+  option_1: Zero or more groups of one or more dt followed by one or more dd, optionally intermixed with script-supporting
+  option_2: One or more div elements, optionally intermixed with script-supporting
+tag_omission: neither tag omissible
+attributes:
+  global: all
+interface: HTMLDListElement extends HTMLElement
+semantics: Association list (description list) of name-value groups
+notes: Each group consists of dt(s) (names) followed by dd(s) (values)
+obsolete_members: yes
+```
+
+### dt
+```yaml
+tag: dt
+categories: []
+contexts:
+  - Before dd or dt inside dl
+  - Before dd or dt inside div children of dl
+content_model: flow content
+constraints: No header, footer, sectioning content, or heading content descendants
+tag_omission:
+  end: Can be omitted if immediately followed by another dt or dd
+attributes:
+  global: all
+interface: HTMLElement
+semantics: Term or name part of term-description group
+```
+
+### dd
+```yaml
+tag: dd
+categories: []
+contexts:
+  - After dt or dd inside dl
+  - After dt or dd inside div children of dl
+content_model: flow content
+tag_omission:
+  end: Can be omitted if immediately followed by another dd or dt, or if no more content in parent
+attributes:
+  global: all
+interface: HTMLElement
+semantics: Description, definition, or value part of term-description group
+```
+
+### figure
+```yaml
+tag: figure
+categories: [flow content, palpable content]
+contexts:
+  - Where flow content expected
+content_model:
+  option_1: figcaption followed by flow content
+  option_2: flow content followed by figcaption
+  option_3: flow content (no caption)
+tag_omission: neither tag omissible
+attributes:
+  global: all
+interface: HTMLElement
+semantics: Self-contained flow content with optional caption
+examples: Illustrations, diagrams, photos, code listings
+```
+
+### figcaption
+```yaml
+tag: figcaption
+categories: []
+contexts:
+  - As first or last child of figure
+content_model: flow content
+tag_omission: neither tag omissible
+attributes:
+  global: all
+interface: HTMLElement
+semantics: Caption or legend for parent figure's contents
+```
+
+### main
+```yaml
+tag: main
+categories: [flow content, palpable content]
+contexts:
+  - Where flow content expected, but only if hierarchically correct
+content_model: flow content
+tag_omission: neither tag omissible
+attributes:
+  global: all
+interface: HTMLElement
+semantics: Dominant contents of document
+constraints:
+  - Only one main without hidden attribute
+  - Must be hierarchically correct:
+    ancestors limited to html, body, div, form without accessible name, autonomous custom elements
+```
+
+### search
+```yaml
+tag: search
+categories: [flow content, palpable content]
+contexts:
+  - Where flow content expected
+content_model: flow content
+tag_omission: neither tag omissible
+attributes:
+  global: all
+interface: HTMLElement
+semantics: Part containing search or filtering operation
+notes: Not for presenting search results (those are main content)
+```
+
+### div
+```yaml
+tag: div
+categories:
+  - flow content
+  - palpable content
+  - select element inner content
+  - optgroup element inner content
+  - option element inner content
+contexts:
+  - Where flow content expected
+  - As child of dl element
+  - As descendant of option/optgroup/select (specific rules)
+content_model:
+  in_dl: One or more dt followed by one or more dd, optionally intermixed with script-supporting
+  in_option: Zero or more option element inner content elements
+  in_optgroup: Zero or more optgroup element inner content elements
+  in_select: Zero or more select element inner content elements
+  otherwise: flow content
+tag_omission: neither tag omissible
+attributes:
+  global: all
+interface: HTMLDivElement extends HTMLElement
+semantics: Generic container with no special meaning
+notes: Element of last resort; use more appropriate elements when possible
+obsolete_members: yes
+```
+
+---
+
+**Next:** Part 3 will cover **Text-Level Semantics Elements** (a, em, strong, small, s, cite, q, dfn, abbr, ruby, rt, rp, data, time, code, var, samp, kbd, sub, sup, i, b, u, mark, bdi, bdo, span, br, wbr) with complete specifications.
+
+
+
+# HTML Elements Complete Reference - Part 3: Text-Level Semantics Elements
+
+## 5. Text-Level Semantics Elements
+
+### a
+```yaml
+tag: a
+categories: [flow content, phrasing content, interactive content (if href), palpable content]
+contexts:
+  - Where phrasing content expected
+content_model: transparent
+constraints:
+  - No interactive content descendant
+  - No a element descendant
+  - No descendant with tabindex attribute
+tag_omission: neither tag omissible
+attributes:
+  global: all
+  href: Address of the hyperlink
+  target: Navigable for hyperlink navigation
+  download: Whether to download instead of navigate (and filename)
+  ping: URLs to ping (space-separated tokens, HTTP(S) schemes)
+  rel: Relationship between location and destination resource
+  hreflang: Language of linked resource
+  type: Hint for type of referenced resource
+  referrerpolicy: Referrer policy for fetches
+interface: HTMLAnchorElement extends HTMLElement
+includes: HTMLHyperlinkElementUtils
+properties:
+  text:
+    getter: returns descendant text content
+    setter: replaces children with given value
+  referrerPolicy: reflects referrerpolicy attribute (limited to known values)
+semantics:
+  with_href: Hyperlink (hypertext anchor) labeled by its contents
+  without_href: Placeholder for where link might have been placed
+constraints:
+  - target, download, ping, rel, hreflang, type, referrerpolicy omitted if no href
+  - If itemprop specified, href must also be specified
+obsolete_members: yes
+```
+
+### em
+```yaml
+tag: em
+categories: [flow content, phrasing content, palpable content]
+contexts:
+  - Where phrasing content expected
+content_model: phrasing content
+tag_omission: neither tag omissible
+attributes:
+  global: all
+interface: HTMLElement
+semantics: Stress emphasis
+nesting: Level of stress = number of ancestor em elements
+notes: Not generic "italics"; use i for alternate voice/mood
+```
+
+### strong
+```yaml
+tag: strong
+categories: [flow content, phrasing content, palpable content]
+contexts:
+  - Where phrasing content expected
+content_model: phrasing content
+tag_omission: neither tag omissible
+attributes:
+  global: all
+interface: HTMLElement
+semantics: Strong importance, seriousness, or urgency
+uses:
+  importance: Headings, captions to distinguish important part
+  seriousness: Warnings, caution notices
+  urgency: Content user needs to see sooner
+nesting: Level of importance = number of ancestor strong elements
+```
+
+### small
+```yaml
+tag: small
+categories: [flow content, phrasing content, palpable content]
+contexts:
+  - Where phrasing content expected
+content_model: phrasing content
+tag_omission: neither tag omissible
+attributes:
+  global: all
+interface: HTMLElement
+semantics: Side comments (small print)
+examples: Disclaimers, caveats, legal restrictions, copyrights, attribution
+constraints: Not for subheadings (use hgroup); not for extended spans
+notes: Does not de-emphasize text marked with em or strong
+```
+
+### s
+```yaml
+tag: s
+categories: [flow content, phrasing content, palpable content]
+contexts:
+  - Where phrasing content expected
+content_model: phrasing content
+tag_omission: neither tag omissible
+attributes:
+  global: all
+interface: HTMLElement
+semantics: Contents no longer accurate or relevant
+notes: Not for document edits (use del)
+```
+
+### cite
+```yaml
+tag: cite
+categories: [flow content, phrasing content, palpable content]
+contexts:
+  - Where phrasing content expected
+content_model: phrasing content
+tag_omission: neither tag omissible
+attributes:
+  global: all
+interface: HTMLElement
+semantics: Title of a work
+examples:
+  - Books, papers, essays, poems, scores, songs
+  - Scripts, films, TV shows, games, sculptures, paintings
+  - Theatre productions, plays, operas, musicals, exhibitions
+  - Legal case reports, computer programs
+constraints: Not for people's names
+```
+
+### q
+```yaml
+tag: q
+categories: [flow content, phrasing content, palpable content]
+contexts:
+  - Where phrasing content expected
+content_model: phrasing content
+tag_omission: neither tag omissible
+attributes:
+  global: all
+  cite: Link to source of quotation
+interface: HTMLQuoteElement extends HTMLElement
+semantics: Phrasing content quoted from another source
+special: Quotation punctuation inserted by user agent
+constraints: Not for sarcastic statements; not for marking up quotation punctuation
+notes: Using explicit quotation punctuation without q is equally correct
+```
+
+### dfn
+```yaml
+tag: dfn
+categories: [flow content, phrasing content, palpable content]
+contexts:
+  - Where phrasing content expected
+content_model: phrasing content
+constraints: No dfn element descendants
+tag_omission: neither tag omissible
+attributes:
+  global: all
+  title: Full term or expansion of abbreviation (special semantics)
+interface: HTMLElement
+semantics: Defining instance of a term
+term_determination:
+  - If title attribute present: exact value is term being defined
+  - If contains exactly one abbr with title: that title value is term
+  - Otherwise: descendant text content is term
+constraints: Paragraph/description list group/section containing dfn must also contain definition(s)
+```
+
+### abbr
+```yaml
+tag: abbr
+categories: [flow content, phrasing content, palpable content]
+contexts:
+  - Where phrasing content expected
+content_model: phrasing content
+tag_omission: neither tag omissible
+attributes:
+  global: all
+  title: Full term or expansion of abbreviation (special semantics)
+interface: HTMLElement
+semantics: Abbreviation or acronym, optionally with expansion
+use_cases:
+  - Author wants to give expansion (title attribute)
+  - Abbreviations unfamiliar to readers
+  - Need semantic annotation for styling
+constraints: If pluralized, expansion's grammatical number must match contents
+```
+
+### ruby
+```yaml
+tag: ruby
+categories: [flow content, phrasing content, palpable content]
+contexts:
+  - Where phrasing content expected
+content_model: Complex - one or more sequences of:
+  sequence_1: Phrasing content (no ruby descendants) OR single ruby (no ruby descendants)
+  sequence_2: One or more rt elements OR rp + rt + rp
+tag_omission: neither tag omissible
+attributes:
+  global: all
+interface: HTMLElement
+semantics: Ruby annotations (primarily East Asian typography)
+rendering_styles:
+  - Mono-ruby: per base character
+  - Jukugo-ruby: compound words
+  - Group ruby: describing meanings
+  - Double-sided ruby: phonetic + semantic annotations
+```
+
+### rt
+```yaml
+tag: rt
+categories: []
+contexts:
+  - As child of ruby element
+content_model: phrasing content
+tag_omission:
+  end: Can be omitted if immediately followed by rt or rp, or if no more content
+attributes:
+  global: all
+interface: HTMLElement
+semantics: Ruby text component of ruby annotation
+notes: When not child of ruby, represents same thing as its children
+```
+
+### rp
+```yaml
+tag: rp
+categories: []
+contexts:
+  - As child of ruby, immediately before or after rt element
+content_model: text
+tag_omission:
+  end: Can be omitted if immediately followed by rt or rp, or if no more content
+attributes:
+  global: all
+interface: HTMLElement
+semantics: Provides parentheses for legacy user agents that don't support ruby
+notes: When not child of ruby, represents its children
+```
+
+### data
+```yaml
+tag: data
+categories: [flow content, phrasing content, palpable content]
+contexts:
+  - Where phrasing content expected
+content_model: phrasing content
+tag_omission: neither tag omissible
+attributes:
+  global: all
+  value: Machine-readable value (required)
+interface: HTMLDataElement extends HTMLElement
+semantics: Contents with machine-readable form in value attribute
+uses:
+  - Combined with microformats/microdata
+  - Scripts storing literal values alongside human-readable text
+```
+
+### time
+```yaml
+tag: time
+categories: [flow content, phrasing content, palpable content]
+contexts:
+  - Where phrasing content expected
+content_model:
+  with_datetime: phrasing content
+  without_datetime: text matching date/time syntax
+tag_omission: neither tag omissible
+attributes:
+  global: all
+  datetime: Machine-readable value
+interface: HTMLTimeElement extends HTMLElement
+semantics: Contents with machine-readable date/time form in datetime attribute
+valid_datetime_formats:
+  - month: YYYY-MM
+  - date: YYYY-MM-DD
+  - yearless_date: MM-DD
+  - time: HH:MM, HH:MM:SS, HH:MM:SS.sss
+  - local_date_time: YYYY-MM-DDTHH:MM, etc.
+  - time_zone_offset: Z, +HHMM, +HH:MM, -HHMM, -HH:MM
+  - global_date_time: YYYY-MM-DDTHH:MMZ, etc.
+  - week: YYYY-Www
+  - year: four+ digits
+  - duration: P... (ISO 8601 duration)
+```
+
+### code
+```yaml
+tag: code
+categories: [flow content, phrasing content, palpable content]
+contexts:
+  - Where phrasing content expected
+content_model: phrasing content
+tag_omission: neither tag omissible
+attributes:
+  global: all
+interface: HTMLElement
+semantics: Fragment of computer code
+examples: XML element name, filename, computer program, string
+notes: Use class attribute to indicate language (e.g., "language-pascal")
+```
+
+### var
+```yaml
+tag: var
+categories: [flow content, phrasing content, palpable content]
+contexts:
+  - Where phrasing content expected
+content_model: phrasing content
+tag_omission: neither tag omissible
+attributes:
+  global: all
+interface: HTMLElement
+semantics: Variable
+examples:
+  - Actual variable in mathematical expression or programming context
+  - Identifier representing constant
+  - Symbol identifying physical quantity
+  - Function parameter
+  - Placeholder in prose
+```
+
+### samp
+```yaml
+tag: samp
+categories: [flow content, phrasing content, palpable content]
+contexts:
+  - Where phrasing content expected
+content_model: phrasing content
+tag_omission: neither tag omissible
+attributes:
+  global: all
+interface: HTMLElement
+semantics: Sample or quoted output from program or computing system
+notes: Contrast with output element (immediate output in web application)
+```
+
+### kbd
+```yaml
+tag: kbd
+categories: [flow content, phrasing content, palpable content]
+contexts:
+  - Where phrasing content expected
+content_model: phrasing content
+tag_omission: neither tag omissible
+attributes:
+  global: all
+interface: HTMLElement
+semantics: User input (typically keyboard, but also voice commands)
+nesting_semantics:
+  - kbd inside samp: input echoed by system
+  - kbd contains samp: input based on system output
+  - kbd nested in kbd: actual key or single unit of input
+```
+
+### sub, sup
+```yaml
+tag: [sub, sup]
+categories: [flow content, phrasing content, palpable content]
+contexts:
+  - Where phrasing content expected
+content_model: phrasing content
+tag_omission: neither tag omissible
+attributes:
+  global: all
+interface: HTMLElement
+semantics:
+  sub: Subscript
+  sup: Superscript
+constraints: Only for typographical conventions with specific meanings, not presentation
+uses:
+  - Subscripts in var elements for variables
+  - Mathematical expressions (though MathML preferred)
+  - Language abbreviations (M<sup>lle</sup>)
+```
+
+### i
+```yaml
+tag: i
+categories: [flow content, phrasing content, palpable content]
+contexts:
+  - Where phrasing content expected
+content_model: phrasing content
+tag_omission: neither tag omissible
+attributes:
+  global: all
+interface: HTMLElement
+semantics: Alternate voice or mood, offset from normal prose
+examples:
+  - Taxonomic designation
+  - Technical term
+  - Idiomatic phrase from another language
+  - Transliteration
+  - Thought
+  - Ship name in Western texts
+notes: Use class attribute to identify why element is being used
+```
+
+### b
+```yaml
+tag: b
+categories: [flow content, phrasing content, palpable content]
+contexts:
+  - Where phrasing content expected
+content_model: phrasing content
+tag_omission: neither tag omissible
+attributes:
+  global: all
+interface: HTMLElement
+semantics: Attention drawn for utilitarian purposes (no extra importance, no alternate voice)
+examples:
+  - Key words in document abstract
+  - Product names in review
+  - Actionable words in interactive text-driven software
+  - Article lede
+constraints: Last resort; use headings/em/strong/mark when appropriate
+```
+
+### u
+```yaml
+tag: u
+categories: [flow content, phrasing content, palpable content]
+contexts:
+  - Where phrasing content expected
+content_model: phrasing content
+tag_omission: neither tag omissible
+attributes:
+  global: all
+interface: HTMLElement
+semantics: Unarticulated, explicitly rendered non-textual annotation
+examples:
+  - Proper name mark in Chinese text
+  - Misspelled text labeling
+warning: Default rendering (underline) clashes with hyperlinks; avoid where confusion possible
+```
+
+### mark
+```yaml
+tag: mark
+categories: [flow content, phrasing content, palpable content]
+contexts:
+  - Where phrasing content expected
+content_model: phrasing content
+tag_omission: neither tag omissible
+attributes:
+  global: all
+interface: HTMLElement
+semantics: Highlighted or marked for reference purposes
+use_cases:
+  - In quotations: highlight not originally present, added to draw attention
+  - In main prose: part highlighted due to relevance to user's current activity
+  - Search result matching
+```
+
+### bdi
+```yaml
+tag: bdi
+categories: [flow content, phrasing content, palpable content]
+contexts:
+  - Where phrasing content expected
+content_model: phrasing content
+tag_omission: neither tag omissible
+attributes:
+  global: all
+  dir: special semantics (defaults to auto, never inherits)
+interface: HTMLElement
+semantics: Isolate text from surroundings for bidirectional text formatting
+special: dir attribute defaults to auto on this element
+use_case: Embedding user-generated content with unknown directionality
+```
+
+### bdo
+```yaml
+tag: bdo
+categories: [flow content, phrasing content, palpable content]
+contexts:
+  - Where phrasing content expected
+content_model: phrasing content
+tag_omission: neither tag omissible
+attributes:
+  global: all
+  dir: special semantics (required, must be ltr or rtl, not auto)
+interface: HTMLElement
+semantics: Explicit text directionality formatting control
+constraints: Must specify dir attribute (ltr or rtl, not auto)
+```
+
+### span
+```yaml
+tag: span
+categories: [flow content, phrasing content, palpable content]
+contexts:
+  - Where phrasing content expected
+  - As descendant of option (specific content model)
+content_model:
+  in_option: Zero or more option element inner content elements (except div)
+  otherwise: phrasing content
+tag_omission: neither tag omissible
+attributes:
+  global: all
+interface: HTMLSpanElement extends HTMLElement
+semantics: Generic container with no meaning on its own
+use_with: Global attributes (class, lang, dir)
+```
+
+### br
+```yaml
+tag: br
+categories: [flow content, phrasing content]
+contexts:
+  - Where phrasing content expected
+content_model: nothing (void)
+tag_omission: no end tag
+attributes:
+  global: all
+interface: HTMLBRElement extends HTMLElement
+semantics: Line break
+constraints: Only for line breaks that are part of content (poems, addresses)
+constraints: Not for separating thematic groups; not for presentation
+obsolete_members: yes
+```
+
+### wbr
+```yaml
+tag: wbr
+categories: [flow content, phrasing content]
+contexts:
+  - Where phrasing content expected
+content_model: nothing (void)
+tag_omission: no end tag
+attributes:
+  global: all
+interface: HTMLElement
+semantics: Line break opportunity
+notes: Content inside must not be considered part of surrounding text
+```
+
+---
+
+**Next:** Part 4 will cover **Edits, Embedded Content, and Tabular Data Elements** (ins, del, picture, source, img, iframe, embed, object, video, audio, track, map, area, table, caption, colgroup, col, tbody, thead, tfoot, tr, td, th).
+
+
+# HTML Elements Complete Reference - Part 4: Edits, Embedded Content & Tabular Data
+
+## 6. Edits Elements
+
+### ins, del
+```yaml
+tag: [ins, del]
+categories: [flow content, phrasing content, palpable content]
+contexts:
+  - Where phrasing content expected
+content_model: transparent
+tag_omission: neither tag omissible
+attributes:
+  global: all
+  cite: Link to source of quotation or more information about edit
+  datetime: Date and (optionally) time of change
+interface: HTMLModElement extends HTMLElement
+semantics:
+  ins: Addition to document
+  del: Removal from document
+constraints:
+  - Should not cross implied paragraph boundaries
+datetime_parsing: Parse using parse a date or time string algorithm
+```
+
+---
+
+## 7. Embedded Content Elements
+
+### picture
+```yaml
+tag: picture
+categories: [flow content, phrasing content, embedded content, palpable content]
+contexts:
+  - Where embedded content expected
+content_model:
+  - Zero or more source elements
+  - Then one img element
+  - Optionally intermixed with script-supporting elements
+tag_omission: neither tag omissible
+attributes:
+  global: all
+interface: HTMLPictureElement extends HTMLElement
+semantics: Container providing multiple sources to contained img element
+purpose: Declarative control over image resource selection (screen density, viewport size, image format)
+```
+
+### source
+```yaml
+tag: source
+categories: []
+contexts:
+  - As child of picture element (before img)
+  - As child of media element (before flow content)
+content_model: nothing (void)
+tag_omission: no end tag
+attributes:
+  global: all
+  # For picture parent
+  srcset: Images to use in different situations (width descriptors)
+  sizes: Image sizes for different page layouts
+  media: Applicable media
+  type: Type of embedded resource
+  width: Horizontal dimension (in picture)
+  height: Vertical dimension (in picture)
+  # For media parent
+  src: Address of the resource
+interface: HTMLSourceElement extends HTMLElement
+special:
+  - When parent is picture: srcset required, src forbidden
+  - When parent is media element: src required, srcset/sizes forbidden
+  - type attribute for image format selection
+  - media attribute for art direction
+```
+
+### img
+```yaml
+tag: img
+categories: 
+  - flow content
+  - phrasing content
+  - embedded content
+  - form-associated element
+  - interactive content (if usemap)
+  - palpable content
+contexts:
+  - Where embedded content expected
+  - As child of picture (after all source elements)
+content_model: nothing (void)
+tag_omission: no end tag
+attributes:
+  global: all
+  alt: Replacement text for when images not available
+  src: Address of the resource
+  srcset: Images for different situations (x or w descriptors)
+  sizes: Image sizes for different page layouts
+  crossorigin: How element handles crossorigin requests
+  usemap: Name of image map to use
+  ismap: Whether image is server-side image map
+  width: Horizontal dimension
+  height: Vertical dimension
+  referrerpolicy: Referrer policy for fetches
+  decoding: Decoding hint (sync, async, auto)
+  loading: Loading deferral policy (eager, lazy)
+  fetchpriority: Priority for fetches
+interface: HTMLImageElement extends HTMLElement
+properties:
+  complete: Whether image fully downloaded
+  currentSrc: Image's absolute URL
+  naturalWidth/naturalHeight: Natural dimensions in CSS pixels
+  width/height: Rendered dimensions (reflect attributes)
+  decode(): Returns promise, fulfills when decoding complete
+legacy_factory: Image(width, height)
+special:
+  - At least one of src/srcset must be present
+  - If loading="lazy": sizes may be "auto" for intrinsic sizing
+  - fetchpriority on img: Sets priority for fetches
+loading_behavior:
+  eager: Fetch immediately, delays load event
+  lazy: Fetch when near viewport, does not delay load event
+semantic_states:
+  - alt empty: Decorative/supplemental
+  - alt non-empty: Key part of content, textual equivalent
+  - alt missing: Key part, no textual equivalent (not conforming)
+```
+
+### iframe
+```yaml
+tag: iframe
+categories: 
+  - flow content
+  - phrasing content
+  - embedded content
+  - interactive content
+  - palpable content
+contexts:
+  - Where embedded content expected
+content_model: nothing (void)
+tag_omission: neither tag omissible
+attributes:
+  global: all
+  src: Address of the resource
+  srcdoc: Document to render in iframe
+  name: Name of content navigable
+  sandbox: Security rules for nested content
+  allow: Permissions policy to apply
+  allowfullscreen: Whether to allow requestFullscreen()
+  width: Horizontal dimension
+  height: Vertical dimension
+  referrerpolicy: Referrer policy for fetches
+  loading: Loading deferral policy (eager, lazy)
+interface: HTMLIFrameElement extends HTMLElement
+properties:
+  contentDocument: Document object of content navigable
+  contentWindow: WindowProxy of content navigable
+  getSVGDocument(): Returns Document if SVG
+special:
+  - When srcdoc present, takes priority over src
+  - sandbox values: allow-downloads, allow-forms, allow-modals, allow-orientation-lock, allow-pointer-lock, allow-popups, allow-popups-to-escape-sandbox, allow-presentation, allow-same-origin, allow-scripts, allow-top-navigation, allow-top-navigation-by-user-activation, allow-top-navigation-to-custom-protocols
+loading_behavior:
+  eager: Fetch immediately, delays load event
+  lazy: Fetch when near viewport, does not delay load event
+```
+
+### embed
+```yaml
+tag: embed
+categories: 
+  - flow content
+  - phrasing content
+  - embedded content
+  - interactive content
+  - palpable content
+contexts:
+  - Where embedded content expected
+content_model: nothing (void)
+tag_omission: no end tag
+attributes:
+  global: all
+  src: Address of the resource
+  type: Type of embedded resource
+  width: Horizontal dimension
+  height: Vertical dimension
+interface: HTMLEmbedElement extends HTMLElement
+special:
+  - If both src and type present, type must match Content-Type metadata
+  - Has no fallback content
+  - getSVGDocument() method
+```
+
+### object
+```yaml
+tag: object
+categories: 
+  - flow content
+  - phrasing content
+  - embedded content
+  - listed form-associated element
+  - palpable content
+contexts:
+  - Where embedded content expected
+content_model: transparent
+tag_omission: neither tag omissible
+attributes:
+  global: all
+  data: Address of the resource
+  type: Type of embedded resource
+  name: Name of content navigable
+  form: Associates with form element
+  width: Horizontal dimension
+  height: Vertical dimension
+interface: HTMLObjectElement extends HTMLElement
+properties:
+  contentDocument: Document of content navigable
+  contentWindow: WindowProxy of content navigable
+  willValidate, validity, validationMessage: Constraint validation
+  checkValidity(), reportValidity(), setCustomValidity()
+special:
+  - Can represent external resource as image or child navigable
+  - Contents are fallback content
+  - Has constraint validation API
+```
+
+### video
+```yaml
+tag: video
+categories: 
+  - flow content
+  - phrasing content
+  - embedded content
+  - interactive content (if controls)
+  - palpable content
+contexts:
+  - Where embedded content expected
+content_model:
+  with_src: zero or more track, then transparent (no media element descendants)
+  without_src: zero or more source, then zero or more track, then transparent
+tag_omission: neither tag omissible
+attributes:
+  global: all
+  src: Address of the resource
+  crossorigin: How element handles crossorigin requests
+  poster: Poster frame to show prior to video playback
+  preload: Hints how much buffering will likely need
+  autoplay: Can be started automatically when page loaded
+  playsinline: Display video within element's playback area
+  loop: Whether to loop the media resource
+  muted: Whether to mute by default
+  controls: Show user agent controls
+  width: Horizontal dimension
+  height: Vertical dimension
+interface: HTMLVideoElement extends HTMLMediaElement
+properties:
+  videoWidth/videoHeight: Natural dimensions in CSS pixels
+  poster: Reflects poster attribute
+  playsInline: Reflects playsinline attribute
+media_events: loadstart, progress, suspend, abort, error, emptied, stalled, loadedmetadata, loadeddata, canplay, canplaythrough, playing, waiting, seeking, seeked, ended, durationchange, timeupdate, play, pause, ratechange, resize, volumechange
+```
+
+### audio
+```yaml
+tag: audio
+categories: 
+  - flow content
+  - phrasing content
+  - embedded content
+  - interactive/palpable content (if controls)
+contexts:
+  - Where embedded content expected
+content_model: Same as video (source/track then transparent)
+tag_omission: neither tag omissible
+attributes:
+  global: all
+  src: Address of the resource
+  crossorigin: How element handles crossorigin requests
+  preload: Hints how much buffering will likely need
+  autoplay: Can be started automatically
+  loop: Whether to loop
+  muted: Whether to mute by default
+  controls: Show user agent controls
+interface: HTMLAudioElement extends HTMLMediaElement
+legacy_factory: Audio(src)
+```
+
+### track
+```yaml
+tag: track
+categories: []
+contexts:
+  - As child of media element, before any flow content
+content_model: nothing (void)
+tag_omission: no end tag
+attributes:
+  global: all
+  kind: Type of text track
+  src: Address of the resource
+  srclang: Language of text track
+  label: User-visible label
+  default: Enable track if no more suitable track
+interface: HTMLTrackElement extends HTMLElement
+properties:
+  readyState: NONE(0), LOADING(1), LOADED(2), ERROR(3)
+  track: TextTrack object
+kind_values:
+  subtitles: Transcription of dialogue (sound available but not understood)
+  captions: Transcription including sound effects (sound unavailable)
+  descriptions: Textual descriptions of video (audio synthesis)
+  chapters: Chapter titles for navigation
+  metadata: Script-usable tracks, not displayed
+```
+
+### map
+```yaml
+tag: map
+categories: [flow content, phrasing content, palpable content]
+contexts:
+  - Where phrasing content expected
+content_model: transparent
+tag_omission: neither tag omissible
+attributes:
+  global: all
+  name: Name of image map to reference (required, non-empty, no whitespace)
+interface: HTMLMapElement extends HTMLElement
+properties:
+  areas: HTMLCollection of area elements
+constraints: name must be unique in tree; if id specified, both must have same value
+```
+
+### area
+```yaml
+tag: area
+categories: [flow content, phrasing content]
+contexts:
+  - Where phrasing content expected (must have map ancestor)
+content_model: nothing (void)
+tag_omission: no end tag
+attributes:
+  global: all
+  alt: Replacement text (required if href present)
+  coords: Coordinates for shape
+  shape: Kind of shape (circle, default, poly, rect)
+  href: Address of hyperlink
+  target: Navigable for hyperlink navigation
+  download: Whether to download instead of navigate
+  ping: URLs to ping
+  rel: Relationship between location and destination
+  referrerpolicy: Referrer policy for fetches
+interface: HTMLAreaElement extends HTMLElement
+includes: HTMLHyperlinkElementUtils
+shape_coords:
+  circle: 3 integers (center x, center y, radius)
+  default: no coords (whole image)
+  poly: 6+ integers (even number, polygon vertices)
+  rect: 4 integers (left, top, right, bottom)
+semantics:
+  with_href: Hyperlink with text and area on image map
+  without_href: Dead area on image map
+constraints: alt omitted if no href; if href present, alt must be present
+```
+
+---
+
+## 8. Tabular Data Elements
+
+### table
+```yaml
+tag: table
+categories: [flow content, palpable content]
+contexts:
+  - Where flow content expected
+content_model:
+  order:
+    - optional caption
+    - zero or more colgroup
+    - optional thead
+    - either zero or more tbody OR one or more tr
+    - optional tfoot
+  optionally intermixed with script-supporting elements
+tag_omission: neither tag omissible
+attributes:
+  global: all
+interface: HTMLTableElement extends HTMLElement
+properties:
+  caption: Returns/updates caption element
+  tHead: Returns/updates thead element
+  tFoot: Returns/updates tfoot element
+  tBodies: HTMLCollection of tbody elements
+  rows: HTMLCollection of tr elements
+methods:
+  createCaption(): Returns caption (creates if none)
+  deleteCaption(): Removes caption
+  createTHead(): Returns thead (creates if none)
+  deleteTHead(): Removes thead
+  createTFoot(): Returns tfoot (creates if none)
+  deleteTFoot(): Removes tfoot
+  createTBody(): Creates tbody, inserts, returns it
+  insertRow(index): Creates tr at given position
+  deleteRow(index): Removes tr at given position
+obsolete_members: yes
+```
+
+### caption
+```yaml
+tag: caption
+categories: []
+contexts:
+  - As first element child of table
+content_model: flow content
+constraints: No descendant table elements
+tag_omission:
+  end: Can be omitted if not immediately followed by whitespace or comment
+attributes:
+  global: all
+interface: HTMLTableCaptionElement extends HTMLElement
+semantics: Title of parent table
+obsolete_members: yes
+```
+
+### colgroup
+```yaml
+tag: colgroup
+categories: []
+contexts:
+  - Child of table, after captions, before thead/tbody/tfoot/tr
+content_model:
+  with_span: Nothing
+  without_span: Zero or more col and template elements
+tag_omission:
+  start: Can be omitted if first inside is col and not preceded by another colgroup with omitted end
+  end: Can be omitted if not immediately followed by whitespace or comment
+attributes:
+  global: all
+  span: Number of columns spanned (1-1000)
+interface: HTMLTableColElement extends HTMLElement
+obsolete_members: yes
+```
+
+### col
+```yaml
+tag: col
+categories: []
+contexts:
+  - Child of colgroup without span attribute
+content_model: nothing (void)
+tag_omission: no end tag
+attributes:
+  global: all
+  span: Number of columns spanned (1-1000)
+interface: HTMLTableColElement extends HTMLElement
+semantics: One or more columns in column group
+obsolete_members: yes
+```
+
+### tbody
+```yaml
+tag: tbody
+categories: []
+contexts:
+  - Child of table, after caption/colgroup/thead, only if no tr children directly
+content_model: Zero or more tr and script-supporting elements
+tag_omission:
+  start: Can be omitted if first inside is tr and not preceded by tbody/thead/tfoot with omitted end
+  end: Can be omitted if followed by tbody/tfoot or no more content
+attributes:
+  global: all
+interface: HTMLTableSectionElement extends HTMLElement
+properties:
+  rows: HTMLCollection of tr elements
+methods:
+  insertRow(index): Creates tr, inserts at position, returns it
+  deleteRow(index): Removes tr at position
+```
+
+### thead
+```yaml
+tag: thead
+categories: []
+contexts:
+  - Child of table, after caption/colgroup, before tbody/tfoot/tr
+  - Only if no other thead children
+content_model: Zero or more tr and script-supporting elements
+tag_omission:
+  end: Can be omitted if followed by tbody/tfoot
+attributes:
+  global: all
+interface: HTMLTableSectionElement extends HTMLElement
+semantics: Block of rows that are column labels (headers)
+```
+
+### tfoot
+```yaml
+tag: tfoot
+categories: []
+contexts:
+  - Child of table, after caption/colgroup/thead/tbody/tr
+  - Only if no other tfoot children
+content_model: Zero or more tr and script-supporting elements
+tag_omission:
+  end: Can be omitted if no more content in parent
+attributes:
+  global: all
+interface: HTMLTableSectionElement extends HTMLElement
+semantics: Block of rows that are column summaries (footers)
+```
+
+### tr
+```yaml
+tag: tr
+categories: []
+contexts:
+  - Child of thead/tbody/tfoot
+  - Child of table (after caption/colgroup/thead, only if no tbody)
+content_model: Zero or more td, th, and script-supporting elements
+tag_omission:
+  end: Can be omitted if followed by another tr or no more content
+attributes:
+  global: all
+interface: HTMLTableRowElement extends HTMLElement
+properties:
+  rowIndex: Position in table's rows list
+  sectionRowIndex: Position in table section's rows list
+  cells: HTMLCollection of td/th elements
+methods:
+  insertCell(index): Creates td, inserts at position, returns it
+  deleteCell(index): Removes cell at position
+```
+
+### td, th
+```yaml
+tag: [td, th]
+categories: []
+contexts:
+  - Child of tr element
+content_model:
+  td: flow content
+  th: flow content (no header/footer/sectioning/heading descendants)
+tag_omission:
+  end: Can be omitted if followed by td/th or no more content
+attributes:
+  global: all
+  colspan: Number of columns to span (1-1000)
+  rowspan: Number of rows to span (0-65534, 0 = all remaining rows in row group)
+  headers: Space-separated IDs of header cells for this cell
+  # th only
+  scope: Which cells header applies to (row, col, rowgroup, colgroup)
+  abbr: Alternative label for header cell
+interface: HTMLTableCellElement extends HTMLElement
+properties:
+  cellIndex: Position in row's cells list
+  scope: Reflects scope attribute (limited to known values)
+semantics:
+  td: Data cell
+  th: Header cell
+scope_values:
+  row: Applies to subsequent cells in same row(s)
+  col: Applies to subsequent cells in same column(s)
+  rowgroup: Applies to all remaining cells in row group
+  colgroup: Applies to all remaining cells in column group
+  auto: Determined by context (missing/invalid default)
+```
+
+---
+
+**Next:** Part 5 will cover **Forms Elements** (form, label, input, button, select, datalist, optgroup, option, textarea, output, progress, meter, fieldset, legend, selectedcontent) with complete specifications including input type states.
+
+# HTML Elements Complete Reference - Part 5: Forms Elements
+
+## 9. Forms Elements
+
+### form
+```yaml
+tag: form
+categories: [flow content, palpable content]
+contexts:
+  - Where flow content expected
+content_model: flow content
+constraints: No form element descendants
+tag_omission: neither tag omissible
+attributes:
+  global: all
+  accept-charset: Character encodings to use for form submission (must be "UTF-8")
+  action: URL to use for form submission
+  autocomplete: Default setting for autofill feature (on/off)
+  enctype: Entry list encoding type (application/x-www-form-urlencoded, multipart/form-data, text/plain)
+  method: Variant for form submission (get, post, dialog)
+  name: Name of form in document.forms API (non-empty, unique)
+  novalidate: Bypass form control validation
+  target: Navigable for form submission
+  rel: Link types for the form hyperlink
+interface: HTMLFormElement extends HTMLElement
+properties:
+  elements: HTMLFormControlsCollection of listed elements (excluding image buttons)
+  length: Number of form controls (excluding image buttons)
+  acceptCharset: Reflects accept-charset
+  action: Reflects action
+  autocomplete: Reflects autocomplete (limited to known values)
+  enctype/encoding: Reflect enctype
+  method: Reflect method (limited to known values)
+  name: Reflect name
+  noValidate: Reflect novalidate
+  target: Reflect target
+  rel/relList: Reflect rel
+methods:
+  submit(): Submits form (bypasses validation, no submit event)
+  requestSubmit(submitter): Requests submission (includes validation and submit event)
+  reset(): Resets form
+  checkValidity(): Returns true if all controls valid
+  reportValidity(): Returns true if all valid, false + reports problems otherwise
+indexed_properties:
+  - By index: returns element from elements collection
+  - By name: returns RadioNodeList or Element
+special:
+  - Has past names map for persisting control names
+  - rel supported tokens: noreferrer, noopener, opener
+```
+
+### label
+```yaml
+tag: label
+categories: [flow content, phrasing content, interactive content, palpable content]
+contexts:
+  - Where phrasing content expected
+content_model: phrasing content
+constraints:
+  - No descendant labelable elements unless it's the labeled control
+  - No descendant label elements
+tag_omission: neither tag omissible
+attributes:
+  global: all
+  for: ID of labelable element to associate with
+interface: HTMLLabelElement extends HTMLElement
+properties:
+  control: Returns labeled control (or null)
+  form: Returns form owner of labeled control (or null)
+  htmlFor: Reflects for attribute
+semantics: Caption associated with a form control
+activation_behavior: For events targeted at interactive descendants: do nothing
+```
+
+### input
+```yaml
+tag: input
+categories:
+  - flow content
+  - phrasing content
+  - interactive content (if type not hidden)
+  - listed, labelable, submittable, resettable form-associated (if type not hidden)
+  - autocapitalize-and-autocorrect inheriting
+  - palpable content (if type not hidden)
+contexts:
+  - Where phrasing content expected
+content_model: nothing (void)
+tag_omission: no end tag
+attributes:
+  # Type selection
+  type: Control type (see state table below)
+  
+  # All types
+  name: Name for form submission and elements API
+  disabled: Whether control is disabled
+  form: Associates with form element
+  autocomplete: Hint for form autofill feature
+  popovertarget: Targets popover element to toggle/show/hide
+  popovertargetaction: Whether to toggle, show, or hide (toggle/show/hide)
+  
+  # Text/Password/URL/Email/Search/Tel
+  maxlength: Maximum length of value
+  minlength: Minimum length of value
+  pattern: Pattern to match
+  placeholder: User-visible label within control
+  readonly: Whether value can be edited
+  required: Whether control is required for submission
+  size: Size of control
+  dirname: Name for sending element's directionality in submission
+  
+  # Checkbox/Radio
+  checked: Whether control is checked
+  
+  # Date/Time/Number/Range
+  min: Minimum value
+  max: Maximum value
+  step: Granularity to match
+  
+  # File
+  accept: Hint for expected file types
+  multiple: Whether to allow multiple values
+  
+  # Color
+  alpha: Allow alpha component to be set
+  colorspace: Color space of serialized color (limited-srgb, display-p3)
+  
+  # Image
+  alt: Replacement text
+  src: Address of the resource
+  height: Vertical dimension
+  width: Horizontal dimension
+  
+  # Submit/Image
+  formaction: URL for form submission
+  formenctype: Encoding type for form submission
+  formmethod: Variant for form submission
+  formnovalidate: Bypass validation
+  formtarget: Navigable for form submission
+  
+  # All buttons
+  value: Value of the form control
+
+interface: HTMLInputElement extends HTMLElement
+includes: PopoverTargetAttributes
+
+# ========== INPUT TYPE STATES ==========
+
+type_states:
+  hidden:
+    description: Value not intended to be examined by user
+    constraints: Barred from constraint validation
+    special: If name="_charset_", value attribute must be omitted
+    attributes_applicable: [autocomplete, dirname]
+    idl_mode: default
+    events: none
+    
+  text:
+    description: One line plain text edit control
+    value_sanitization: Strip newlines
+    constraints: No LF/CR characters allowed
+    attributes_applicable: [autocomplete, dirname, list, maxlength, minlength, pattern, placeholder, readonly, required, size]
+    idl_mode: value
+    events: [input, change]
+    
+  search:
+    description: Search control (styling differs from text)
+    value_sanitization: Strip newlines
+    attributes_applicable: [autocomplete, dirname, list, maxlength, minlength, pattern, placeholder, readonly, required, size]
+    idl_mode: value
+    events: [input, change]
+    
+  tel:
+    description: Telephone number input
+    value_sanitization: Strip newlines
+    attributes_applicable: [autocomplete, dirname, list, maxlength, minlength, pattern, placeholder, readonly, required, size]
+    idl_mode: value
+    events: [input, change]
+    
+  url:
+    description: Absolute URL input
+    value_sanitization: Strip newlines, then strip leading/trailing whitespace
+    constraints: Suffers from type mismatch if not empty and not valid absolute URL
+    attributes_applicable: [autocomplete, dirname, list, maxlength, minlength, pattern, placeholder, readonly, required, size]
+    idl_mode: value
+    events: [input, change]
+    
+  email:
+    description: Email address(es) input
+    multiple_mode:
+      - Without multiple: single email address
+      - With multiple: comma-separated email address list
+    value_sanitization:
+      single: Strip newlines, strip leading/trailing whitespace
+      multiple: Split on commas, trim each, rejoin with commas
+    constraints: Type mismatch if not valid email address(es)
+    attributes_applicable: [autocomplete, dirname, list, maxlength, minlength, multiple, pattern, placeholder, readonly, required, size]
+    idl_mode: value
+    events: [input, change]
+    
+  password:
+    description: Password input (obscured)
+    value_sanitization: Strip newlines
+    attributes_applicable: [autocomplete, dirname, maxlength, minlength, pattern, placeholder, readonly, required, size]
+    idl_mode: value
+    events: [input, change]
+    
+  date:
+    description: Date picker (YYYY-MM-DD)
+    value_sanitization: If not valid date string, set to empty
+    step_scale: 86,400,000 (days to milliseconds)
+    default_step: 1 day
+    attributes_applicable: [autocomplete, list, max, min, readonly, required, step]
+    idl_mode: value (with valueAsDate, valueAsNumber)
+    events: [input, change]
+    conversion:
+      string_to_number: milliseconds from 1970-01-01 to parsed date
+      number_to_string: valid date string from milliseconds
+    
+  month:
+    description: Month picker (YYYY-MM)
+    value_sanitization: If not valid month string, set to empty
+    step_scale: 1
+    default_step: 1 month
+    attributes_applicable: [autocomplete, list, max, min, readonly, required, step]
+    idl_mode: value (with valueAsDate, valueAsNumber)
+    events: [input, change]
+    
+  week:
+    description: Week picker (YYYY-Www)
+    value_sanitization: If not valid week string, set to empty
+    step_scale: 604,800,000 (weeks to milliseconds)
+    default_step: 1 week
+    default_step_base: -259,200,000 (start of week 1970-W01)
+    attributes_applicable: [autocomplete, list, max, min, readonly, required, step]
+    idl_mode: value (with valueAsDate, valueAsNumber)
+    events: [input, change]
+    
+  time:
+    description: Time picker (HH:MM:SS.sss)
+    value_sanitization: If not valid time string, set to empty
+    periodic_domain: true (24-hour cycle)
+    step_scale: 1000 (seconds to milliseconds)
+    default_step: 60 seconds
+    attributes_applicable: [autocomplete, list, max, min, readonly, required, step]
+    idl_mode: value (with valueAsDate, valueAsNumber)
+    events: [input, change]
+    
+  datetime-local:
+    description: Local date and time picker (no timezone)
+    value_sanitization: Convert to normalized string
+    step_scale: 1000
+    default_step: 60 seconds
+    attributes_applicable: [autocomplete, list, max, min, readonly, required, step]
+    idl_mode: value (with valueAsNumber)
+    events: [input, change]
+    
+  number:
+    description: Numeric input (floating-point)
+    value_sanitization: If not valid floating-point, set to empty
+    step_scale: 1
+    default_step: 1
+    attributes_applicable: [autocomplete, list, max, min, placeholder, readonly, required, step]
+    idl_mode: value (with valueAsNumber)
+    events: [input, change]
+    
+  range:
+    description: Slider control (exact value not important)
+    value_sanitization: Clamp to min/max, apply step
+    default_min: 0
+    default_max: 100
+    default_step: 1
+    mutable: No empty string allowed
+    attributes_applicable: [autocomplete, list, max, min, step]
+    idl_mode: value (with valueAsNumber)
+    events: [input, change]
+    
+  color:
+    description: Color picker
+    value_sanitization: Parse, default to opaque black, serialize
+    attributes_applicable: [alpha, autocomplete, colorspace, list]
+    idl_mode: value
+    events: [input, change]
+    
+  checkbox:
+    description: Checkbox (two-state control)
+    value_mode: default/on ("on" if no value attribute)
+    attributes_applicable: [checked, required]
+    idl_properties: [checked, indeterminate, value]
+    events: [input, change]
+    constraint: Suffers from being missing if required and unchecked
+    
+  radio:
+    description: Radio button (group selection)
+    radio_button_group: All same-name controls with same form owner in same tree
+    value_mode: default/on
+    attributes_applicable: [checked, required]
+    idl_properties: [checked, value]
+    events: [input, change]
+    constraint: Group missing if required and none checked
+    
+  file:
+    description: File upload control
+    value_mode: filename
+    supports_picker: true
+    attributes_applicable: [accept, multiple, required]
+    idl_properties: [files, value]
+    events: [input, change]
+    accept_tokens: audio/*, video/*, image/*, valid MIME type, .extension
+    
+  submit:
+    description: Submit button
+    value_mode: default
+    attributes_applicable: [dirname, formaction, formenctype, formmethod, formnovalidate, formtarget, popovertarget, popovertargetaction]
+    idl_mode: default
+    activation: Submits form owner
+    
+  image:
+    description: Image button (coordinates submit)
+    value_mode: default
+    attributes_applicable: [alt, formaction, formenctype, formmethod, formnovalidate, formtarget, height, popovertarget, popovertargetaction, src, width]
+    idl_mode: default
+    selected_coordinate: (x, y) from click location relative to image
+    
+  reset:
+    description: Reset button
+    value_mode: default
+    attributes_applicable: [popovertarget, popovertargetaction]
+    idl_mode: default
+    activation: Resets form owner
+    
+  button:
+    description: Button with no default behavior
+    value_mode: default
+    attributes_applicable: [popovertarget, popovertargetaction]
+    idl_mode: default
+
+# ========== INPUT COMMON PROPERTIES ==========
+
+common_properties:
+  value:
+    modes:
+      value: Get/set actual value, sets dirty flag
+      default: Get/set value content attribute
+      default/on: Like default, default value "on"
+      filename: Returns "C:\fakepath\" + filename
+    getter: Returns current value according to mode
+    setter: Sets value according to mode
+  
+  checked:
+    getter: Returns checkedness
+    setter: Sets checkedness and dirty flag
+  
+  files:
+    getter: Returns FileList (null if not file control)
+    setter: Replaces selected files
+  
+  valueAsDate:
+    applies: [date, month, week, time]
+    getter: Returns Date from value
+    setter: Sets value from Date
+  
+  valueAsNumber:
+    applies: [date, month, week, time, datetime-local, number, range]
+    getter: Returns number from value (NaN on error)
+    setter: Sets value from number
+  
+  stepUp(n)/stepDown(n):
+    applies: [date, month, week, time, datetime-local, number, range]
+    effect: Increments/decrements value by step * n
+  
+  list:
+    getter: Returns datalist element referenced by list attribute
+  
+  showPicker():
+    effect: Shows picker UI if supported
+    throws: InvalidStateError if not mutable, NotAllowedError without user activation
+  
+  select():
+    applies: [text, search, tel, url, email, password, date, month, week, time, datetime-local, number]
+    effect: Selects all text
+  
+  selectionStart/selectionEnd/selectionDirection:
+    applies: [text, search, tel, url, password]
+    getter/setter: Text selection range
+  
+  setRangeText()/setSelectionRange():
+    applies: [text, search, tel, url, password]
+    effect: Manipulates text selection
+```
+
+### button
+```yaml
+tag: button
+categories:
+  - flow content
+  - phrasing content
+  - interactive content
+  - listed, labelable, submittable form-associated
+  - autocapitalize-and-autocorrect inheriting
+  - palpable content
+contexts:
+  - Where phrasing content expected
+  - As first child of select element
+content_model: phrasing content
+constraints:
+  - No interactive content descendant
+  - No descendant with tabindex attribute
+  - If first child of select: may have zero or one selectedcontent descendant
+tag_omission: neither tag omissible
+attributes:
+  global: all
+  command: Indicates action to take (toggle-popover, show-popover, hide-popover, close, request-close, show-modal, or custom --keyword)
+  commandfor: Targets another element to be invoked (ID reference)
+  disabled: Whether form control is disabled
+  form: Associates with form element
+  formaction: URL for form submission
+  formenctype: Encoding type for form submission
+  formmethod: Variant for form submission
+  formnovalidate: Bypass validation
+  formtarget: Navigable for form submission
+  name: Name for form submission and elements API
+  popovertarget: Targets popover element
+  popovertargetaction: Whether to toggle, show, or hide
+  type: Type of button (submit, reset, button)
+  value: Value for form submission
+interface: HTMLButtonElement extends HTMLElement
+includes: PopoverTargetAttributes
+type_states:
+  submit: Submits the form
+  reset: Resets the form
+  button: Does nothing (default when no type and not in select)
+command_states:
+  toggle-popover: Shows/hides targeted popover
+  show-popover: Shows targeted popover
+  hide-popover: Hides targeted popover
+  close: Closes targeted dialog
+  request-close: Requests to close targeted dialog
+  show-modal: Opens targeted dialog as modal
+  custom: Dispatches command event on targeted element
+special:
+  - If first child of select element: inert
+  - Submit button: If type="submit" or (type auto and parent not select)
+  - Reset button: type="reset"
+properties:
+  command: Gets/sets command attribute (returns keyword or custom value)
+  commandForElement: Reflects commandfor (returns Element or null)
+  willValidate, validity, validationMessage: Constraint validation
+  checkValidity(), reportValidity(), setCustomValidity()
+  labels: NodeList of associated label elements
+```
+
+### select
+```yaml
+tag: select
+categories:
+  - flow content
+  - phrasing content
+  - interactive content
+  - listed, labelable, submittable, resettable form-associated
+  - autocapitalize-and-autocorrect inheriting
+  - palpable content
+contexts:
+  - Where phrasing content expected
+content_model:
+  - Zero or one button element (if drop-down box)
+  - Zero or more select element inner content elements
+tag_omission: neither tag omissible
+attributes:
+  global: all
+  autocomplete: Hint for form autofill feature
+  disabled: Whether form control is disabled
+  form: Associates with form element
+  multiple: Whether to allow multiple values
+  name: Name for form submission and elements API
+  required: Whether control is required for submission
+  size: Number of options to show
+interface: HTMLSelectElement extends HTMLElement
+properties:
+  options: HTMLOptionsCollection of option elements
+  selectedOptions: HTMLCollection of selected options
+  selectedIndex: Index of first selected item (-1 if none)
+  value: Value of first selected option (empty if none)
+  type: Returns "select-multiple" or "select-one"
+  length: Number of options (can set to truncate/add)
+  willValidate, validity, validationMessage: Constraint validation
+  labels: NodeList of associated label elements
+methods:
+  add(element, before): Inserts option/optgroup
+  remove(index): Removes option at index
+  item(index): Returns option at index
+  namedItem(name): Returns option with ID/name
+  showPicker(): Shows picker UI (requires user activation)
+display_size:
+  with_multiple: 4 (default)
+  without_multiple: 1 (default)
+  size_attribute: overrides defaults
+placeholder_label_option:
+  condition: required, single selection, display size 1, first option value empty
+  semantics: Represents label, not actual option
+```
+
+### datalist
+```yaml
+tag: datalist
+categories: [flow content, phrasing content]
+contexts:
+  - Where phrasing content expected
+content_model:
+  option_1: phrasing content
+  option_2: Zero or more option and script-supporting elements
+tag_omission: neither tag omissible
+attributes:
+  global: all
+interface: HTMLDataListElement extends HTMLElement
+properties:
+  options: HTMLCollection of option elements
+semantics: Set of predefined options for other controls
+special: Renders as nothing (hidden with children)
+use_with: input element's list attribute
+constraint: Elements with datalist ancestor are barred from constraint validation
+```
+
+### optgroup
+```yaml
+tag: optgroup
+categories: [select element inner content]
+contexts:
+  - Descendant of select element
+content_model:
+  - Zero or one legend element
+  - Zero or more optgroup element inner content elements
+tag_omission:
+  end: Can be omitted if followed by optgroup/hr or no more content
+attributes:
+  global: all
+  disabled: Whether group of options is disabled
+  label: User-visible label (required if no child legend)
+interface: HTMLOptGroupElement extends HTMLElement
+semantics: Group of option elements with common label
+label_determination:
+  - If child legend: stripped/collapsed text content of legend
+  - Otherwise: value of label attribute
+```
+
+### option
+```yaml
+tag: option
+categories: [select/optgroup/datalist inner content]
+contexts:
+  - Descendant of select/datalist/optgroup
+content_model:
+  with_label_and_value: Nothing
+  with_label_only: Text
+  without_label_not_in_datalist: Zero or more option element inner content elements
+  without_label_in_datalist: Text
+tag_omission:
+  end: Can be omitted if followed by option/optgroup/hr or no more content
+attributes:
+  global: all
+  disabled: Whether option is disabled
+  label: User-visible label
+  selected: Whether option is selected by default
+  value: Value for form submission
+interface: HTMLOptionElement extends HTMLElement
+properties:
+  index: Position in select's options list
+  selected: Whether currently selected
+  text: Text content (collapsed, skipping scripts)
+  defaultSelected: Reflects selected attribute
+  form: Returns form owner of ancestor select
+label_determination:
+  - If label attribute present and not empty: value of label attribute
+  - Otherwise: value of text property
+value_determination:
+  - If value attribute present: value of value attribute
+  - Otherwise: result of collect option text
+legacy_factory: Option(text, value, defaultSelected, selected)
+```
+
+### textarea
+```yaml
+tag: textarea
+categories:
+  - flow content
+  - phrasing content
+  - interactive content
+  - listed, labelable, submittable, resettable form-associated
+  - autocapitalize-and-autocorrect inheriting
+  - palpable content
+contexts:
+  - Where phrasing content expected
+content_model: text
+tag_omission: neither tag omissible
+attributes:
+  global: all
+  autocomplete: Hint for form autofill feature
+  cols: Maximum number of characters per line (default 20)
+  dirname: Name for sending directionality in submission
+  disabled: Whether form control is disabled
+  form: Associates with form element
+  maxlength: Maximum length of value
+  minlength: Minimum length of value
+  name: Name for form submission and elements API
+  placeholder: User-visible label within control
+  readonly: Whether value can be edited
+  required: Whether control is required for submission
+  rows: Number of lines to show (default 2)
+  wrap: How value is wrapped for submission (soft/hard)
+interface: HTMLTextAreaElement extends HTMLElement
+properties:
+  defaultValue: Child text content (get/set)
+  value: API value (normalized, no CR characters)
+  textLength: Length of API value
+  type: Returns "textarea"
+  willValidate, validity, validationMessage: Constraint validation
+  labels: NodeList of associated label elements
+  selectionStart/selectionEnd/selectionDirection: Text selection
+  setRangeText(), setSelectionRange(): Selection manipulation
+wrap_states:
+  soft: Text not wrapped when submitted (can wrap in rendering)
+  hard: Newlines added by UA, cols must be specified
+value_normalization:
+  raw_value: Original value (from child text content)
+  api_value: LF normalized (CR removed)
+  submission_value: With wrapping transformation applied
+```
+
+### output
+```yaml
+tag: output
+categories:
+  - flow content
+  - phrasing content
+  - listed, labelable, resettable form-associated
+  - autocapitalize-and-autocorrect inheriting
+  - palpable content
+contexts:
+  - Where phrasing content expected
+content_model: phrasing content
+tag_omission: neither tag omissible
+attributes:
+  global: all
+  for: Specifies controls output was calculated from (space-separated IDs)
+  form: Associates with form element
+  name: Name for form.elements API
+interface: HTMLOutputElement extends HTMLElement
+properties:
+  defaultValue: Default value (reset value)
+  value: Current value
+  type: Returns "output"
+  willValidate, validity, validationMessage: Constraint validation
+  labels: NodeList of associated label elements
+  htmlFor: DOMTokenList for for attribute
+semantics: Result of calculation or user action
+special: Value not submitted with form
+```
+
+### progress
+```yaml
+tag: progress
+categories: [flow content, phrasing content, labelable, palpable content]
+contexts:
+  - Where phrasing content expected
+content_model: phrasing content
+constraints: No progress element descendants
+tag_omission: neither tag omissible
+attributes:
+  global: all
+  value: Current value (0.0 to max, or omitted for indeterminate)
+  max: Upper bound of range (must be > 0, default 1.0)
+interface: HTMLProgressElement extends HTMLElement
+properties:
+  value: Current value (0 if indeterminate)
+  max: Maximum value (reflects, limited to positive, default 1.0)
+  position: value/max (returns -1 if indeterminate)
+  labels: NodeList of associated label elements
+semantics: Completion progress of a task
+states:
+  indeterminate: value attribute omitted
+  determinate: value attribute present
+```
+
+### meter
+```yaml
+tag: meter
+categories: [flow content, phrasing content, labelable, palpable content]
+contexts:
+  - Where phrasing content expected
+content_model: phrasing content
+constraints: No meter element descendants
+tag_omission: neither tag omissible
+attributes:
+  global: all
+  value: Current value (required)
+  min: Lower bound of range (default 0)
+  max: Upper bound of range (default 1.0)
+  low: High limit of low range
+  high: Low limit of high range
+  optimum: Optimum value in gauge
+interface: HTMLMeterElement extends HTMLElement
+properties:
+  value, min, max, low, high, optimum: Reflect corresponding attributes
+  labels: NodeList of associated label elements
+semantics: Scalar measurement within known range (gauge)
+constraints:
+  - min ≤ value ≤ max
+  - min ≤ low ≤ max (if specified)
+  - min ≤ high ≤ max (if specified)
+  - min ≤ optimum ≤ max (if specified)
+  - low ≤ high (if both specified)
+```
+
+### fieldset
+```yaml
+tag: fieldset
+categories: [flow content, listed form-associated, autocapitalize-and-autocorrect inheriting, palpable content]
+contexts:
+  - Where flow content expected
+content_model:
+  - Optional legend element
+  - Then flow content
+tag_omission: neither tag omissible
+attributes:
+  global: all
+  disabled: Whether descendant form controls (except inside legend) are disabled
+  form: Associates with form element
+  name: Name for form.elements API
+interface: HTMLFieldSetElement extends HTMLElement
+properties:
+  type: Returns "fieldset"
+  elements: HTMLCollection of listed elements
+  willValidate, validity, validationMessage: Constraint validation
+  checkValidity(), reportValidity(), setCustomValidity()
+disabled_fieldset: If disabled attribute specified OR descendant of disabled fieldset (not in first legend)
+```
+
+### legend
+```yaml
+tag: legend
+categories: []
+contexts:
+  - As first child of fieldset
+  - As first child of optgroup
+content_model:
+  in_fieldset: Phrasing content, optionally intermixed with heading content
+  in_optgroup: Phrasing content (no interactive, no tabindex)
+tag_omission: neither tag omissible
+attributes:
+  global: all
+interface: HTMLLegendElement extends HTMLElement
+properties:
+  form: Returns form owner of parent fieldset (or null)
+semantics:
+  in_fieldset: Caption for rest of fieldset contents
+  in_optgroup: optgroup's label
+```
+
+### selectedcontent
+```yaml
+tag: selectedcontent
+categories: [phrasing content]
+contexts:
+  - Descendant of button which is child of select
+content_model: nothing (void)
+tag_omission: neither tag omissible
+attributes:
+  global: all
+interface: HTMLSelectedContentElement extends HTMLElement
+semantics: Reflects contents of select's currently selected option
+special: Can be used to show selected option contents within select's first child button
+```
+
+---
+
+**Next:** Part 6 will cover **Interactive Elements** (details, summary, dialog), **Scripting Elements** (script, noscript, template, slot, canvas), **Custom Elements**, and **Global Attributes/Event Handlers**.
+
+
+
+# HTML Elements Complete Reference - Part 6: Interactive, Scripting & Custom Elements
+
+## 10. Interactive Elements
+
+### details
+```yaml
+tag: details
+categories: [flow content, interactive content, palpable content]
+contexts:
+  - Where flow content expected
+content_model:
+  - One summary element
+  - Then flow content
+tag_omission: neither tag omissible
+attributes:
+  global: all
+  name: Name of group of mutually-exclusive details elements
+  open: Whether details are visible (boolean)
+interface: HTMLDetailsElement extends HTMLElement
+properties:
+  name: Reflects name attribute
+  open: Reflects open attribute
+semantics: Disclosure widget for additional information or controls
+special:
+  - First summary child represents summary/legend
+  - If no summary, UA provides own legend (e.g., "Details")
+  - name attribute creates exclusive accordion group (at most one open per group)
+  - When open attribute toggled, fires toggle event (using ToggleEvent)
+  - open attribute changes via user interaction
+details_name_group:
+  condition: Elements with same non-empty name attribute in same tree
+  exclusivity: Opening one closes others
+```
+
+### summary
+```yaml
+tag: summary
+categories: []
+contexts:
+  - As first child of details element
+content_model: phrasing content, optionally intermixed with heading content
+tag_omission: neither tag omissible
+attributes:
+  global: all
+interface: HTMLElement
+semantics: Summary, caption, or legend for parent details element
+activation_behavior:
+  condition: Is summary for parent details (first summary child)
+  action: Toggles parent's open attribute
+```
+
+### dialog
+```yaml
+tag: dialog
+categories: [flow content]
+contexts:
+  - Where flow content expected
+content_model: flow content
+tag_omission: neither tag omissible
+attributes:
+  global: all
+  closedby: Which user actions will close dialog (any, closerequest, none)
+  open: Whether dialog is showing (boolean)
+interface: HTMLDialogElement extends HTMLElement
+properties:
+  open: Reflects open attribute
+  returnValue: Return value for close (get/set)
+  closedBy: Reflects closedby attribute (returns keyword)
+methods:
+  show(): Displays dialog (non-modal)
+  showModal(): Displays dialog as top-most modal dialog
+  close(returnValue): Closes dialog
+  requestClose(returnValue): Acts as close request (fires cancel event first)
+semantics: Transitory dialog box for user interaction
+modal_behavior:
+  - Blocks document (makes inert)
+  - Added to top layer
+  - Backdrop pseudo-element
+  - Focuses appropriate element (autofocus or focus delegate)
+closedby_states:
+  any: Close requests or clicks outside close (modal dialogs only)
+  closerequest: Only close requests close
+  none: No automatic close actions
+special:
+  - When shown via showModal(): closedby defaults to closerequest
+  - When shown via show(): closedby defaults to none
+  - form with method="dialog" auto-closes dialog on submission
+  - Fires beforetoggle, toggle, cancel, close events
+```
+
+---
+
+## 11. Scripting Elements
+
+### script
+```yaml
+tag: script
+categories: [metadata content, flow content, phrasing content, script-supporting]
+contexts:
+  - Where metadata content expected
+  - Where phrasing content expected
+  - Where script-supporting elements expected
+content_model:
+  with_src: empty OR contains script documentation matching restrictions
+  without_src: depends on type attribute, must match script content restrictions
+tag_omission: neither tag omissible
+attributes:
+  global: all
+  type: Type of script (classic, module, importmap, speculationrules, or data block)
+  src: Address of the resource (classic/module only)
+  nomodule: Prevents execution in user agents that support modules
+  async: Execute script when available without blocking (boolean)
+  defer: Defer script execution
+  blocking: Whether element is potentially render-blocking
+  crossorigin: How element handles crossorigin requests
+  referrerpolicy: Referrer policy for fetches
+  integrity: Integrity metadata (SRI)
+  fetchpriority: Sets priority for fetches
+interface: HTMLScriptElement extends HTMLElement
+properties:
+  type: Reflects type attribute
+  src: Reflects src attribute (URL)
+  noModule: Reflects nomodule attribute
+  async: Returns force async or content attribute
+  defer: Reflects defer attribute
+  blocking: DOMTokenList for blocking attribute
+  crossOrigin: Reflects crossorigin (limited to known values)
+  referrerPolicy: Reflects referrerpolicy (limited to known values)
+  integrity: Reflects integrity attribute
+  fetchPriority: Reflects fetchpriority (limited to known values)
+  text: Child text content (get/set)
+static_methods:
+  supports(type): Returns true if type is supported ("classic", "module", "importmap", "speculationrules")
+type_states:
+  classic:
+    description: JavaScript classic script
+    attributes_applicable: [src, nomodule, async, defer, blocking, crossorigin, referrerpolicy, integrity, fetchpriority]
+    processing: Fetched/evaluated according to async/defer
+  module:
+    description: JavaScript module script
+    attributes_applicable: [src, async, blocking, crossorigin, referrerpolicy, integrity, fetchpriority]
+    processing: Fetched with dependencies, deferred by default
+  importmap:
+    description: JSON import map for module resolution
+    attributes_applicable: none
+    processing: Registers import map for module specifier resolution
+  speculationrules:
+    description: JSON speculation rules for speculative loading
+    attributes_applicable: none
+    processing: Registers rules for prefetching/prerendering
+  data_block:
+    description: Data block (not processed by UA)
+    type_value: valid MIME type not matching JS MIME
+    processing: Ignored by UA, usable by scripts
+execution_modes:
+  external_classic_async:
+    script: <script src="..." async>
+    behavior: Fetch in parallel, execute when available
+  external_classic_defer:
+    script: <script src="..." defer>
+    behavior: Fetch in parallel, execute after parsing
+  external_classic_blocking:
+    script: <script src="...">
+    behavior: Fetch and execute immediately, blocking parser
+  module_default:
+    script: <script type="module" src="...">
+    behavior: Fetch graph, execute after parsing
+  module_async:
+    script: <script type="module" src="..." async>
+    behavior: Fetch graph, execute when available
+  inline_classic:
+    script: <script>code</script>
+    behavior: Execute immediately (unless defer/async)
+  inline_module:
+    script: <script type="module">code</script>
+    behavior: Execute after parsing
+script_states:
+  parser_document: Set by HTML/XML parser, affects processing
+  force_async: Initially true, false by parser or async attribute
+  already_started: Prevents re-preparation
+  delaying_load_event: Delays load event while true
+  ready_to_be_parser_executed: For parser-inserted scripts
+result_types:
+  - script: Classic or module script
+  - import_map_parse_result: Import map data
+  - speculation_rules_parse_result: Speculation rules data
+  - null: Error
+```
+
+### noscript
+```yaml
+tag: noscript
+categories: [metadata content, flow content, phrasing content, select/optgroup inner content]
+contexts:
+  - In head of HTML document (if no ancestor noscript)
+  - Where phrasing content expected in HTML (if no ancestor noscript)
+content_model:
+  scripting_disabled_in_head:
+    content: link, style, meta elements (any order)
+  scripting_disabled_not_in_head:
+    content: transparent (no noscript descendants)
+  scripting_enabled:
+    content: text that when processed yields conforming document with no noscript/script
+tag_omission: neither tag omissible
+attributes:
+  global: all
+interface: HTMLElement
+semantics:
+  scripting_enabled: Represents nothing
+  scripting_disabled: Represents its children
+special: Only effective in HTML syntax, not XML
+```
+
+### template
+```yaml
+tag: template
+categories: [metadata content, flow content, phrasing content, script-supporting]
+contexts:
+  - Where metadata content expected
+  - Where phrasing content expected
+  - Where script-supporting elements expected
+  - As child of colgroup without span attribute
+content_model: nothing (content goes to template contents)
+tag_omission: neither tag omissible
+attributes:
+  global: all
+  shadowrootmode: Enables declarative shadow root (open/closed)
+  shadowrootdelegatesfocus: Sets delegates focus on declarative shadow root
+  shadowrootclonable: Sets clonable on declarative shadow root
+  shadowrootserializable: Sets serializable on declarative shadow root
+  shadowrootcustomelementregistry: Indicates custom element registry usage
+interface: HTMLTemplateElement extends HTMLElement
+properties:
+  content: DocumentFragment of template contents
+  shadowRootMode: Reflects shadowrootmode (limited to known values)
+  shadowRootDelegatesFocus: Reflects shadowrootdelegatesfocus
+  shadowRootClonable: Reflects shadowrootclonable
+  shadowRootSerializable: Reflects shadowrootserializable
+  shadowRootCustomElementRegistry: Reflects shadowrootcustomelementregistry
+semantics: Declares fragments of HTML that can be cloned and inserted by script
+special:
+  - Template contents are not children of element
+  - Template contents have no browsing context (inert)
+  - Conformance requirements don't apply to template contents
+```
+
+### slot
+```yaml
+tag: slot
+categories: [flow content, phrasing content]
+contexts:
+  - Where phrasing content expected
+content_model: transparent
+tag_omission: neither tag omissible
+attributes:
+  global: all
+  name: Name of shadow tree slot
+interface: HTMLSlotElement extends HTMLElement
+properties:
+  name: Reflects name attribute
+methods:
+  assignedNodes(options): Returns assigned nodes (flattened if options.flatten)
+  assignedElements(options): Returns assigned nodes filtered to elements
+  assign(...nodes): Sets manually assigned nodes
+semantics: Defines a slot in a shadow tree
+special:
+  - Represents assigned nodes (if any) or its contents otherwise
+  - name attribute creates named slot
+  - Element assigned if slot attribute matches name
+```
+
+### canvas
+```yaml
+tag: canvas
+categories: [flow content, phrasing content, embedded content, palpable content]
+contexts:
+  - Where embedded content expected
+content_model: transparent
+constraints: No interactive content descendants except a, img with usemap, button, checkbox/radio inputs, buttons, select with multiple or size>1
+tag_omission: neither tag omissible
+attributes:
+  global: all
+  width: Horizontal dimension (default 300)
+  height: Vertical dimension (default 150)
+interface: HTMLCanvasElement extends HTMLElement
+properties:
+  width: Reflects width attribute (unsigned long)
+  height: Reflects height attribute (unsigned long)
+methods:
+  getContext(contextId, options): Returns rendering context or null
+    contextId values:
+      - "2d": CanvasRenderingContext2D
+      - "bitmaprenderer": ImageBitmapRenderingContext
+      - "webgl": WebGLRenderingContext
+      - "webgl2": WebGL2RenderingContext
+      - "webgpu": GPUCanvasContext
+  toDataURL(type, quality): Returns data: URL for image
+  toBlob(callback, type, quality): Creates Blob, invokes callback
+  transferControlToOffscreen(): Returns OffscreenCanvas, sets context mode to placeholder
+semantics:
+  scripting_enabled_visual: Dynamically created image (element's bitmap)
+  non_interactive_visual: Current bitmap and size (if previously rendered)
+  non_visual_or_no_script: Fallback content
+context_modes:
+  none: No rendering context, bitmap transparent black
+  2d: CanvasRenderingContext2D bound
+  bitmaprenderer: ImageBitmapRenderingContext bound
+  webgl: WebGL context bound
+  webgl2: WebGL2 context bound
+  webgpu: WebGPU context bound
+  placeholder: Placeholder for OffscreenCanvas
+bitmap_origin_clean: True initially, set false when cross-origin images used
+```
+
+---
+
+## 12. Custom Elements
+
+### autonomous_custom_element
+```yaml
+definition:
+  categories: [flow content, phrasing content, palpable content]
+  form_associated_categories: [listed, labelable, submittable, resettable] (if formAssociated true)
+  contexts:
+    - Where phrasing content expected
+  content_model: transparent
+  attributes:
+    global: all (except is attribute)
+    form: For form-associated custom elements
+    disabled: For form-associated custom elements
+    readonly: For form-associated custom elements (bars constraint validation)
+    name: For form-associated custom elements
+    data-*: Any custom data attributes
+  interface: Author-supplied (inherits from HTMLElement)
+  registration: customElements.define(name, constructor)
+
+customized_built_in_element:
+  definition:
+    extends: Existing HTML element (e.g., "button")
+    attributes: Same as base element, plus is attribute
+    creation: <button is="custom-name"> or document.createElement("button", { is: "custom-name" })
+    registration: customElements.define(name, constructor, { extends: baseLocalName })
+
+custom_element_definition:
+  required:
+    - name: Valid custom element name (contains hyphen, starts with a-z, no uppercase)
+    - local_name: For autonomous: same as name; for customized: extends value
+    - constructor: Web IDL CustomElementConstructor
+  optional:
+    - observed_attributes: sequence<DOMString>
+    - lifecycle_callbacks: connectedCallback, disconnectedCallback, adoptedCallback, connectedMoveCallback, attributeChangedCallback
+    - form_associated: boolean (default false)
+      adds: formAssociatedCallback, formDisabledCallback, formResetCallback, formStateRestoreCallback
+    - disable_internals: boolean
+    - disable_shadow: boolean
+
+custom_element_reactions:
+  connectedCallback: When element becomes connected
+  disconnectedCallback: When element becomes disconnected
+  connectedMoveCallback: When element is moved (preserves state)
+  adoptedCallback(oldDocument, newDocument): When adopted into new document
+  attributeChangedCallback(name, oldValue, newValue, namespace): When attributes change
+  formAssociatedCallback(form): When form owner changes
+  formResetCallback(): When form is reset
+  formDisabledCallback(disabled): When disabled state changes
+  formStateRestoreCallback(state, reason): When state restored (autocomplete/restore)
+
+element_internals:
+  interface: ElementInternals
+  properties:
+    shadowRoot: Returns ShadowRoot (if available to internals)
+    form: Returns form owner
+    willValidate: Returns true if candidate for constraint validation
+    validity: Returns ValidityState
+    validationMessage: Returns validation message
+    labels: Returns NodeList of associated labels
+    states: Returns CustomStateSet for custom state pseudo-class
+  methods:
+    setFormValue(value, state): Sets submission value and state
+    setValidity(flags, message, anchor): Sets validity states
+    checkValidity(): Returns true if valid, fires invalid event
+    reportValidity(): Returns true if valid, reports problems to user
+  aria_included: ARIAMixin (role, aria-* attributes)
+
+custom_state_pseudo_class:
+  syntax: :state(identifier)
+  matching: Custom elements whose states set contains identifier
+  states_set: CustomStateSet (setlike<DOMString>)
+  methods: add(value), delete(value), has(value), clear(), forEach(), entries(), keys(), values(), size
+```
+
+---
+
+## 13. Global Attributes (Complete List)
+
+```yaml
+global_attributes:
+  - accesskey: Keyboard shortcut activation key
+  - autocapitalize: Autocapitalization behavior (none, sentences, words, characters)
+  - autocorrect: Autocorrection behavior (on/off)
+  - autofocus: Focus on page load/dialog/popover show
+  - class: Space-separated list of classes (CSS/scripting)
+  - contenteditable: Whether element is editable (true, false, plaintext-only)
+  - dir: Text directionality (ltr, rtl, auto)
+  - draggable: Whether element is draggable (true, false, auto)
+  - enterkeyhint: Action label for enter key on virtual keyboards
+  - hidden: Whether element is hidden (hidden, until-found)
+  - id: Unique identifier for element
+  - inert: Whether element and descendants are inert
+  - inputmode: Input modality hint (none, text, tel, url, email, numeric, decimal, search)
+  - is: Specifies custom element (customized built-in)
+  - itemid: Global identifier for microdata item
+  - itemprop: Property name for microdata
+  - itemref: IDs of elements to crawl for microdata properties
+  - itemscope: Creates microdata item
+  - itemtype: URL(s) for microdata vocabulary
+  - lang: Primary language (BCP 47 tag)
+  - nonce: Cryptographic nonce (CSP)
+  - popover: Popover behavior (auto, manual, hint)
+  - slot: Name of shadow tree slot
+  - spellcheck: Spelling/grammar checking (true, false)
+  - style: Inline CSS styles
+  - tabindex: Focus navigation order (integer)
+  - title: Advisory information (tooltip)
+  - translate: Whether to translate content (yes, no)
+  - writingsuggestions: Writing suggestions (true, false)
+
+data_attributes:
+  pattern: data-*
+  description: Custom data attributes for private page/application use
+  restrictions:
+    - Name must start with "data-"
+    - Must contain at least one character after hyphen
+    - No ASCII uppercase letters
+    - Valid attribute local name
+  api: element.dataset (DOMStringMap)
+  name_conversion: Hyphenated to camelCase (data-foo-bar → dataset.fooBar)
+```
+
+---
+
+## 14. Event Handler Content Attributes (Complete List)
+
+```yaml
+event_handlers_on_all_elements:
+  - onauxclick: Auxiliary button click
+  - onbeforeinput: Before input event
+  - onbeforematch: Before match (find-in-page reveal)
+  - onbeforetoggle: Before popover/dialog toggle
+  - onblur: Element loses focus
+  - oncancel: Cancel event
+  - oncanplay: Media can start playing
+  - oncanplaythrough: Media can play through without buffering
+  - onchange: Value changed and committed
+  - onclick: Element clicked
+  - onclose: Dialog/popover closed
+  - oncommand: Command event (from button command)
+  - oncontextlost: Canvas/WebGL context lost
+  - oncontextmenu: Context menu requested
+  - oncontextrestored: Canvas/WebGL context restored
+  - oncopy: Copy action
+  - oncuechange: Text track cue changed
+  - oncut: Cut action
+  - ondblclick: Double-click
+  - ondrag: Drag operation
+  - ondragend: Drag ended
+  - ondragenter: Drag enters element
+  - ondragleave: Drag leaves element
+  - ondragover: Drag over element
+  - ondragstart: Drag started
+  - ondrop: Drop performed
+  - ondurationchange: Media duration changed
+  - onemptied: Media emptied
+  - onended: Media ended
+  - onerror: Error occurred
+  - onfocus: Element gained focus
+  - onformdata: FormData constructed
+  - oninput: Value changed (immediate)
+  - oninvalid: Constraint validation failed
+  - onkeydown: Key pressed down
+  - onkeypress: Key pressed (deprecated)
+  - onkeyup: Key released
+  - onload: Resource loaded
+  - onloadeddata: Media data loaded at current position
+  - onloadedmetadata: Media metadata loaded
+  - onloadstart: Media load started
+  - onmousedown: Mouse button pressed
+  - onmouseenter: Mouse enters element (no bubble)
+  - onmouseleave: Mouse leaves element (no bubble)
+  - onmousemove: Mouse moved
+  - onmouseout: Mouse leaves element (bubbles)
+  - onmouseover: Mouse enters element (bubbles)
+  - onmouseup: Mouse button released
+  - onpaste: Paste action
+  - onpause: Media paused
+  - onplay: Media play requested
+  - onplaying: Media playing
+  - onprogress: Media download progress
+  - onratechange: Media playback rate changed
+  - onreset: Form reset
+  - onresize: Viewport/element resized
+  - onscroll: Element scrolled
+  - onscrollend: Scroll ended
+  - onsecuritypolicyviolation: CSP violation
+  - onseeked: Media seek completed
+  - onseeking: Media seek started
+  - onselect: Text selected
+  - onslotchange: Slot's assigned nodes changed
+  - onstalled: Media stalled
+  - onsubmit: Form submitted
+  - onsuspend: Media load suspended
+  - ontimeupdate: Media playback position updated
+  - ontoggle: Popover/details toggled
+  - onvolumechange: Media volume changed
+  - onwaiting: Media waiting for data
+  - onwheel: Mouse wheel rotated
+
+window_reflecting_body_event_handlers:
+  - onblur
+  - onerror
+  - onfocus
+  - onload
+  - onresize
+  - onscroll
+
+window_event_handlers:
+  - onafterprint
+  - onbeforeprint
+  - onbeforeunload
+  - onhashchange
+  - onlanguagechange
+  - onmessage
+  - onmessageerror
+  - onoffline
+  - ononline
+  - onpageswap
+  - onpagehide
+  - onpagereveal
+  - onpageshow
+  - onpopstate
+  - onrejectionhandled
+  - onstorage
+  - onunhandledrejection
+  - onunload
+
+document_event_handlers:
+  - onreadystatechange
+  - onvisibilitychange
+```
+
+---
+
+**Next:** Part 7 will cover **Media Elements Detailed API** (HTMLMediaElement base class), **Form-associated custom elements**, **ElementInternals**, and the **Canvas rendering contexts** (2D context, ImageBitmap, OffscreenCanvas).
+
+
+
+# HTML Elements Complete Reference - Part 7: Media Elements, Canvas, and Advanced APIs
+
+## 15. HTMLMediaElement (Base Class for audio/video)
+
+```yaml
+interface: HTMLMediaElement extends HTMLElement
+shared_by: [audio, video]
+
+# ========== ERROR STATES ==========
+error_codes:
+  MEDIA_ERR_ABORTED: 1
+    description: Fetching aborted by user agent at user's request
+  MEDIA_ERR_NETWORK: 2
+    description: Network error after resource established as usable
+  MEDIA_ERR_DECODE: 3
+    description: Decoding error after resource established as usable
+  MEDIA_ERR_SRC_NOT_SUPPORTED: 4
+    description: Media resource indicated by src or provider not suitable
+
+# ========== NETWORK STATES ==========
+network_states:
+  NETWORK_EMPTY: 0
+    description: Not yet initialized
+  NETWORK_IDLE: 1
+    description: Resource selected but not using network
+  NETWORK_LOADING: 2
+    description: Actively downloading data
+  NETWORK_NO_SOURCE: 3
+    description: No resource found
+
+# ========== READY STATES ==========
+ready_states:
+  HAVE_NOTHING: 0
+    description: No information about media resource
+  HAVE_METADATA: 1
+    description: Duration and dimensions available, no data at current position
+  HAVE_CURRENT_DATA: 2
+    description: Data at current playback position available
+  HAVE_FUTURE_DATA: 3
+    description: Current and next frame data available
+  HAVE_ENOUGH_DATA: 4
+    description: Data rate sufficient for uninterrupted playback
+
+# ========== PROPERTIES ==========
+properties:
+  # Error state
+  error: MediaError | null
+  
+  # Network state
+  src: USVString (reflects src attribute)
+  srcObject: MediaProvider? (MediaStream, MediaSource, or Blob)
+  currentSrc: USVString (readonly)
+  crossOrigin: DOMString? (reflects crossorigin)
+  networkState: unsigned short (readonly)
+  preload: DOMString (reflects preload)
+  buffered: TimeRanges (readonly)
+  
+  # Ready state
+  readyState: unsigned short (readonly)
+  seeking: boolean (readonly)
+  
+  # Playback state
+  currentTime: double (get/set, seconds)
+  duration: unrestricted double (readonly)
+  getStartDate(): object (Date)
+  paused: boolean (readonly)
+  defaultPlaybackRate: double (get/set)
+  playbackRate: double (get/set)
+  preservesPitch: boolean (get/set, default true)
+  played: TimeRanges (readonly)
+  seekable: TimeRanges (readonly)
+  ended: boolean (readonly)
+  
+  # Controls
+  autoplay: boolean (reflects autoplay)
+  loop: boolean (reflects loop)
+  controls: boolean (reflects controls)
+  volume: double (0.0 to 1.0)
+  muted: boolean
+  defaultMuted: boolean (reflects muted)
+  
+  # Tracks
+  audioTracks: AudioTrackList (readonly)
+  videoTracks: VideoTrackList (readonly)
+  textTracks: TextTrackList (readonly)
+
+# ========== METHODS ==========
+methods:
+  load(): void
+    description: Reset and start selecting/loading new media resource
+    side_effects: Aborts current fetch, resets states, fires emptied event
+  
+  canPlayType(type: DOMString): CanPlayTypeResult
+    returns: "" (no), "maybe", "probably"
+    description: Checks if user agent can play given MIME type
+  
+  play(): Promise<undefined>
+    description: Starts playback
+    behavior: If paused, unpauses; if ended, seeks to start
+    resolves: When playback has started
+    rejects: "NotAllowedError" (if not allowed to play), "NotSupportedError" (if src not supported)
+  
+  pause(): undefined
+    description: Pauses playback
+    behavior: Sets paused to true, fires pause event
+  
+  addTextTrack(kind: TextTrackKind, label?: string, language?: string): TextTrack
+    kind_values: "subtitles", "captions", "descriptions", "chapters", "metadata"
+
+# ========== EVENTS ==========
+events:
+  # Network events
+  loadstart: User agent begins looking for media data
+  progress: Fetching media data
+  suspend: Intentionally not fetching media data
+  abort: Fetch stopped before complete (not due to error)
+  error: Error occurred fetching or unsupported format
+  emptied: Switched to NETWORK_EMPTY state
+  stalled: Data unexpectedly not forthcoming
+  
+  # Metadata events
+  loadedmetadata: Duration and dimensions determined, text tracks ready
+  loadeddata: Can render data at current position for first time
+  durationchange: duration attribute updated
+  resize: videoWidth/videoHeight updated (video only)
+  
+  # Playback events
+  canplay: Can resume playback, might need buffering
+  canplaythrough: Estimated to play through without buffering
+  playing: Playback ready to start after being paused/delayed
+  waiting: Playback stopped because next frame not available
+  seeking: seeking IDL attribute changed to true
+  seeked: seeking IDL attribute changed to false
+  ended: Reached end of media resource
+  timeupdate: Current playback position changed
+  play: No longer paused (after play() returns or autoplay)
+  pause: Has been paused (after pause() returns)
+  ratechange: defaultPlaybackRate or playbackRate updated
+  volumechange: volume or muted changed
+
+# ========== AudioTrack/VideoTrack ==========
+AudioTrackList:
+  properties:
+    length: unsigned long
+  methods:
+    getTrackById(id: DOMString): AudioTrack | null
+  indexed_properties: By index
+  events: onchange, onaddtrack, onremovetrack
+
+AudioTrack:
+  attributes:
+    id: DOMString (readonly)
+    kind: DOMString (readonly) - "alternative", "captions", "descriptions", "main", "main-desc", "sign", "subtitles", "translation", "commentary", ""
+    label: DOMString (readonly)
+    language: DOMString (readonly)
+    enabled: boolean (get/set)
+
+VideoTrackList:
+  properties:
+    length: unsigned long
+    selectedIndex: long (readonly)
+  methods:
+    getTrackById(id: DOMString): VideoTrack | null
+  indexed_properties: By index
+  events: onchange, onaddtrack, onremovetrack
+
+VideoTrack:
+  attributes:
+    id: DOMString (readonly)
+    kind: DOMString (readonly)
+    label: DOMString (readonly)
+    language: DOMString (readonly)
+    selected: boolean (get/set) - at most one true per VideoTrackList
+
+# ========== TextTrack API ==========
+TextTrackKind:
+  values: "subtitles", "captions", "descriptions", "chapters", "metadata"
+
+TextTrackMode:
+  values: "disabled", "hidden", "showing"
+
+TextTrack:
+  attributes:
+    kind: TextTrackKind (readonly)
+    label: DOMString (readonly)
+    language: DOMString (readonly)
+    id: DOMString (readonly)
+    inBandMetadataTrackDispatchType: DOMString (readonly)
+    mode: TextTrackMode (get/set)
+    cues: TextTrackCueList? (readonly)
+    activeCues: TextTrackCueList? (readonly)
+  methods:
+    addCue(cue: TextTrackCue): undefined
+    removeCue(cue: TextTrackCue): undefined
+  events: oncuechange
+
+TextTrackCue:
+  attributes:
+    track: TextTrack? (readonly)
+    id: DOMString (get/set)
+    startTime: double (get/set)
+    endTime: unrestricted double (get/set)
+    pauseOnExit: boolean (get/set)
+  events: onenter, onexit
+
+TextTrackCueList:
+  properties:
+    length: unsigned long
+  methods:
+    getCueById(id: DOMString): TextTrackCue | null
+  indexed_properties: By index
+
+TextTrackList:
+  properties:
+    length: unsigned long
+  methods:
+    getTrackById(id: DOMString): TextTrack | null
+  indexed_properties: By index
+  events: onchange, onaddtrack, onremovetrack
+
+# ========== TimeRanges ==========
+TimeRanges:
+  properties:
+    length: unsigned long
+  methods:
+    start(index: unsigned long): double
+    end(index: unsigned long): double
+  behavior: Throws IndexSizeError if index out of range
+  normalization: Ordered, non-overlapping, non-touching ranges
+```
+
+---
+
+## 16. Canvas 2D Rendering Context
+
+```yaml
+context_id: "2d"
+creation: canvas.getContext("2d", options)
+interface: CanvasRenderingContext2D
+
+# ========== Creation Options ==========
+CanvasRenderingContext2DSettings:
+  alpha: boolean (default true)
+    effect: If false, alpha component fixed to 1.0 for all pixels
+  desynchronized: boolean (default false)
+    effect: May optimize rendering to reduce latency (may cause tearing)
+  colorSpace: PredefinedColorSpace (default "srgb")
+    values: "srgb", "display-p3"
+  colorType: CanvasColorType (default "unorm8")
+    values: "unorm8" (8-bit unsigned normalized), "float16" (16-bit floating point)
+  willReadFrequently: boolean (default false)
+    effect: Optimize canvas for readback operations (getImageData)
+
+# ========== Canvas Settings ==========
+getContextAttributes(): CanvasRenderingContext2DSettings
+
+# ========== State Management ==========
+save(): undefined
+  effect: Push copy of current drawing state onto stack
+restore(): undefined
+  effect: Pop top entry and restore drawing state
+reset(): undefined
+  effect: Reset to default state (clear bitmap, empty path, default styles)
+isContextLost(): boolean
+  effect: Returns true if context was lost (driver crash, out of memory)
+
+drawing_state_includes:
+  - Current transformation matrix
+  - Current clipping region
+  - Current letter spacing, word spacing
+  - fillStyle, strokeStyle, filter
+  - globalAlpha, globalCompositeOperation
+  - shadowColor, shadowOffsetX, shadowOffsetY, shadowBlur
+  - lineWidth, lineCap, lineJoin, miterLimit, lineDashOffset, dash list
+  - font, textAlign, textBaseline, direction, lang
+  - fontKerning, fontStretch, fontVariantCaps, textRendering
+  - imageSmoothingEnabled, imageSmoothingQuality
+
+# ========== Transformations ==========
+scale(x: double, y: double): undefined
+rotate(angle: double): undefined (radians, clockwise)
+translate(x: double, y: double): undefined
+transform(a: double, b: double, c: double, d: double, e: double, f: double): undefined
+  effect: Multiply current matrix by [[a, c, e], [b, d, f], [0, 0, 1]]
+getTransform(): DOMMatrix
+setTransform(a: double, b: double, c: double, d: double, e: double, f: double): undefined
+setTransform(transform?: DOMMatrix2DInit): undefined
+resetTransform(): undefined
+
+# ========== Compositing ==========
+globalAlpha: unrestricted double (range 0.0-1.0, default 1.0)
+globalCompositeOperation: DOMString (default "source-over")
+  valid_values: Values from <blend-mode> or <composite-mode>
+
+# ========== Image Smoothing ==========
+imageSmoothingEnabled: boolean (default true)
+imageSmoothingQuality: ImageSmoothingQuality (default "low")
+  values: "low", "medium", "high"
+
+# ========== Fill and Stroke Styles ==========
+fillStyle: (DOMString | CanvasGradient | CanvasPattern) (default "#000000")
+strokeStyle: (DOMString | CanvasGradient | CanvasPattern) (default "#000000")
+
+createLinearGradient(x0: double, y0: double, x1: double, y1: double): CanvasGradient
+createRadialGradient(x0: double, y0: double, r0: double, x1: double, y1: double, r1: double): CanvasGradient
+  throws: IndexSizeError if r0 or r1 negative
+createConicGradient(startAngle: double, x: double, y: double): CanvasGradient
+createPattern(image: CanvasImageSource, repetition: DOMString): CanvasPattern | null
+  repetition_values: "repeat", "repeat-x", "repeat-y", "no-repeat", ""
+
+CanvasGradient:
+  addColorStop(offset: double, color: DOMString): undefined
+    throws: IndexSizeError if offset outside [0,1], SyntaxError if color invalid
+
+CanvasPattern:
+  setTransform(transform?: DOMMatrix2DInit): undefined
+
+# ========== Shadows ==========
+shadowColor: DOMString (default transparent black)
+shadowOffsetX: unrestricted double (default 0)
+shadowOffsetY: unrestricted double (default 0)
+shadowBlur: unrestricted double (default 0) (≥0)
+
+# ========== Filters ==========
+filter: DOMString (default "none")
+  values: "none" or <filter-value-list> (SVG filters)
+
+# ========== Rectangles ==========
+clearRect(x: double, y: double, w: double, h: double): undefined
+  effect: Sets pixels to transparent black
+fillRect(x: double, y: double, w: double, h: double): undefined
+strokeRect(x: double, y: double, w: double, h: double): undefined
+
+# ========== Path Drawing ==========
+beginPath(): undefined
+fill(fillRule?: CanvasFillRule): undefined
+fill(path: Path2D, fillRule?: CanvasFillRule): undefined
+stroke(): undefined
+stroke(path: Path2D): undefined
+clip(fillRule?: CanvasFillRule): undefined
+clip(path: Path2D, fillRule?: CanvasFillRule): undefined
+isPointInPath(x: double, y: double, fillRule?: CanvasFillRule): boolean
+isPointInPath(path: Path2D, x: double, y: double, fillRule?: CanvasFillRule): boolean
+isPointInStroke(x: double, y: double): boolean
+isPointInStroke(path: Path2D, x: double, y: double): boolean
+
+CanvasFillRule: "nonzero" | "evenodd"
+
+# ========== User Interface ==========
+drawFocusIfNeeded(element: Element): undefined
+drawFocusIfNeeded(path: Path2D, element: Element): undefined
+
+# ========== Text ==========
+fillText(text: DOMString, x: double, y: double, maxWidth?: double): undefined
+strokeText(text: DOMString, x: double, y: double, maxWidth?: double): undefined
+measureText(text: DOMString): TextMetrics
+
+TextMetrics:
+  # x-direction
+  width: double (advance width)
+  actualBoundingBoxLeft: double
+  actualBoundingBoxRight: double
+  # y-direction
+  fontBoundingBoxAscent: double
+  fontBoundingBoxDescent: double
+  actualBoundingBoxAscent: double
+  actualBoundingBoxDescent: double
+  emHeightAscent: double
+  emHeightDescent: double
+  hangingBaseline: double
+  alphabeticBaseline: double
+  ideographicBaseline: double
+
+# ========== Text Drawing Styles ==========
+lang: DOMString (default "inherit")
+  valid: BCP 47 tag, empty string, or "inherit"
+font: DOMString (default "10px sans-serif")
+  syntax: CSS 'font' property (line-height forced to normal)
+textAlign: CanvasTextAlign (default "start")
+  values: "start", "end", "left", "right", "center"
+textBaseline: CanvasTextBaseline (default "alphabetic")
+  values: "top", "hanging", "middle", "alphabetic", "ideographic", "bottom"
+direction: CanvasDirection (default "inherit")
+  values: "ltr", "rtl", "inherit"
+letterSpacing: DOMString (default "0px")
+wordSpacing: DOMString (default "0px")
+fontKerning: CanvasFontKerning (default "auto")
+  values: "auto", "normal", "none"
+fontStretch: CanvasFontStretch (default "normal")
+  values: "ultra-condensed", "extra-condensed", "condensed", "semi-condensed", "normal", "semi-expanded", "expanded", "extra-expanded", "ultra-expanded"
+fontVariantCaps: CanvasFontVariantCaps (default "normal")
+  values: "normal", "small-caps", "all-small-caps", "petite-caps", "all-petite-caps", "unicase", "titling-caps"
+textRendering: CanvasTextRendering (default "auto")
+  values: "auto", "optimizeSpeed", "optimizeLegibility", "geometricPrecision"
+
+# ========== Drawing Images ==========
+drawImage(image: CanvasImageSource, dx: double, dy: double): undefined
+drawImage(image: CanvasImageSource, dx: double, dy: double, dw: double, dh: double): undefined
+drawImage(image: CanvasImageSource, sx: double, sy: double, sw: double, sh: double, dx: double, dy: double, dw: double, dh: double): undefined
+
+CanvasImageSource = HTMLOrSVGImageElement | HTMLVideoElement | HTMLCanvasElement | ImageBitmap | OffscreenCanvas | VideoFrame
+
+# ========== Pixel Manipulation ==========
+createImageData(sw: long, sh: long, settings?: ImageDataSettings): ImageData
+createImageData(imageData: ImageData): ImageData
+getImageData(sx: long, sy: long, sw: long, sh: long, settings?: ImageDataSettings): ImageData
+  throws: SecurityError if origin-clean false
+putImageData(imageData: ImageData, dx: long, dy: long): undefined
+putImageData(imageData: ImageData, dx: long, dy: long, dirtyX: long, dirtyY: long, dirtyWidth: long, dirtyHeight: long): undefined
+
+ImageDataSettings:
+  colorSpace: PredefinedColorSpace
+  pixelFormat: ImageDataPixelFormat (default "rgba-unorm8")
+
+ImageData:
+  width: unsigned long (readonly)
+  height: unsigned long (readonly)
+  data: Uint8ClampedArray | Float16Array (ImageDataArray)
+  pixelFormat: ImageDataPixelFormat (readonly)
+  colorSpace: PredefinedColorSpace (readonly)
+
+# ========== Path Construction ==========
+closePath(): undefined
+moveTo(x: double, y: double): undefined
+lineTo(x: double, y: double): undefined
+quadraticCurveTo(cpx: double, cpy: double, x: double, y: double): undefined
+bezierCurveTo(cp1x: double, cp1y: double, cp2x: double, cp2y: double, x: double, y: double): undefined
+arcTo(x1: double, y1: double, x2: double, y2: double, radius: double): undefined
+  throws: IndexSizeError if radius negative
+rect(x: double, y: double, w: double, h: double): undefined
+roundRect(x: double, y: double, w: double, h: double, radii?: unrestricted double | DOMPointInit | sequence<(unrestricted double | DOMPointInit)>): undefined
+  throws: RangeError if radii list size not 1-4, or negative values
+arc(x: double, y: double, radius: double, startAngle: double, endAngle: double, counterclockwise?: boolean): undefined
+ellipse(x: double, y: double, radiusX: double, radiusY: double, rotation: double, startAngle: double, endAngle: double, counterclockwise?: boolean): undefined
+
+# ========== Line Styles ==========
+lineWidth: unrestricted double (default 1.0, must be >0)
+lineCap: CanvasLineCap (default "butt")
+  values: "butt", "round", "square"
+lineJoin: CanvasLineJoin (default "miter")
+  values: "round", "bevel", "miter"
+miterLimit: unrestricted double (default 10.0, must be >0)
+setLineDash(segments: sequence<unrestricted double>): undefined
+  behavior: Even-length sequence, all values ≥0, finite
+getLineDash(): sequence<unrestricted double>
+lineDashOffset: unrestricted double (default 0)
+
+# ========== Path2D ==========
+Path2D:
+  constructor(path?: Path2D | DOMString)
+  addPath(path: Path2D, transform?: DOMMatrix2DInit): undefined
+  includes: CanvasPath (all path construction methods)
+```
+
+---
+
+## 17. OffscreenCanvas
+
+```yaml
+interface: OffscreenCanvas extends EventTarget
+transferable: yes
+
+constructor(width: unsigned long long, height: unsigned long long)
+
+properties:
+  width: unsigned long long (get/set)
+    effect: If context mode is 2d, resets and resizes bitmap
+  height: unsigned long long (get/set)
+
+methods:
+  getContext(contextId: OffscreenRenderingContextId, options?: any): OffscreenRenderingContext | null
+    contextId values: "2d", "bitmaprenderer", "webgl", "webgl2", "webgpu"
+  transferToImageBitmap(): ImageBitmap
+    effect: Transfers bitmap, replaces with new transparent bitmap
+  convertToBlob(options?: ImageEncodeOptions): Promise<Blob>
+
+events:
+  oncontextlost: EventHandler
+  oncontextrestored: EventHandler
+
+context_modes:
+  none: No rendering context
+  2d: OffscreenCanvasRenderingContext2D
+  bitmaprenderer: ImageBitmapRenderingContext
+  webgl: WebGL context
+  webgl2: WebGL2 context
+  webgpu: WebGPU context
+  detached: Transferred to another agent
+
+OffscreenCanvasRenderingContext2D:
+  includes: Same as CanvasRenderingContext2D (except canvas property returns OffscreenCanvas)
+  canvas: OffscreenCanvas (readonly)
+
+ImageBitmapRenderingContext:
+  canvas: (HTMLCanvasElement | OffscreenCanvas) (readonly)
+  transferFromImageBitmap(bitmap: ImageBitmap?): undefined
+    effect: Transfers bitmap data, detaches original ImageBitmap
+```
+
+---
+
+## 18. ImageBitmap
+
+```yaml
+interface: ImageBitmap extends EventTarget
+serializable: yes
+transferable: yes
+
+properties:
+  width: unsigned long (readonly)
+  height: unsigned long (readonly)
+
+methods:
+  close(): undefined
+    effect: Releases underlying bitmap data, sets [[Detached]] to true
+
+createImageBitmap():
+  signatures:
+    - (image: ImageBitmapSource, options?: ImageBitmapOptions): Promise<ImageBitmap>
+    - (image: ImageBitmapSource, sx: long, sy: long, sw: long, sh: long, options?: ImageBitmapOptions): Promise<ImageBitmap>
+
+ImageBitmapSource:
+  types: CanvasImageSource | Blob | ImageData
+
+ImageBitmapOptions:
+  imageOrientation: ImageOrientation (default "from-image")
+    values: "from-image", "flipY"
+  premultiplyAlpha: PremultiplyAlpha (default "default")
+    values: "none", "premultiply", "default"
+  colorSpaceConversion: ColorSpaceConversion (default "default")
+    values: "none", "default"
+  resizeWidth: unsigned long
+  resizeHeight: unsigned long
+  resizeQuality: ResizeQuality (default "low")
+    values: "pixelated", "low", "medium", "high"
+
+# ========== ImageData (reused from canvas section) ==========
+ImageData:
+  constructor signatures:
+    - (sw: unsigned long, sh: unsigned long, settings?: ImageDataSettings)
+    - (data: Uint8ClampedArray | Float16Array, sw: unsigned long, sh?: unsigned long, settings?: ImageDataSettings)
+  properties:
+    width: unsigned long (readonly)
+    height: unsigned long (readonly)
+    data: Uint8ClampedArray | Float16Array (ImageDataArray)
+    pixelFormat: ImageDataPixelFormat (readonly)
+    colorSpace: PredefinedColorSpace (readonly)
+```
+
+---
+
+## 19. Image Decoding Hint
+
+```yaml
+decoding_attribute_values:
+  sync: Decode synchronously for atomic presentation with other content
+  async: Decode asynchronously to avoid delaying other content
+  auto: No preference (default)
+
+loading_attribute_values:
+  eager: Fetch immediately, delays load event (default)
+  lazy: Fetch when near viewport, does not delay load event
+
+fetchpriority_attribute_values:
+  high: High-priority fetch relative to same-destination resources
+  low: Low-priority fetch
+  auto: Automatic determination (default)
+```
+
+---
+
+## 20. Media Provider Types
+
+```yaml
+MediaProvider = MediaStream | MediaSource | Blob
+
+MediaStream:
+  source: Media Capture and Streams API
+  behavior: Live stream (e.g., camera, microphone)
+
+MediaSource:
+  source: Media Source Extensions API
+  behavior: Programmatically generated media (e.g., adaptive streaming)
+
+Blob:
+  source: File API or fetch
+  behavior: Complete media file in memory
+```
+
+---
+
+This completes the HTML elements reference for browser rendering engine development. The document covers:
+
+1. **Part 1**: Document Structure & Metadata (html, head, title, base, link, meta, style)
+2. **Part 2**: Sectioning & Grouping (body, article, section, nav, aside, headings, hgroup, header, footer, address, p, hr, pre, blockquote, lists, dl, figure, main, search, div)
+3. **Part 3**: Text-Level Semantics (a, em, strong, small, s, cite, q, dfn, abbr, ruby, rt, rp, data, time, code, var, samp, kbd, sub, sup, i, b, u, mark, bdi, bdo, span, br, wbr)
+4. **Part 4**: Edits, Embedded & Tabular (ins, del, picture, source, img, iframe, embed, object, video, audio, track, map, area, all table elements)
+5. **Part 5**: Forms (form, label, input with all 22 type states, button, select, datalist, optgroup, option, textarea, output, progress, meter, fieldset, legend, selectedcontent)
+6. **Part 6**: Interactive, Scripting & Custom (details, summary, dialog, script, noscript, template, slot, canvas, custom elements, global attributes, event handlers)
+7. **Part 7**: Media Elements API, Canvas 2D Context, OffscreenCanvas, ImageBitmap, TextTrack API
+
+Key areas for rendering engine implementation:
+- **Content models** determine valid DOM structure
+- **Tag omission rules** affect HTML parsing
+- **Form control states** have complex value sanitization and constraint validation
+- **Media elements** have extensive network/ready state machines and events
+- **Canvas 2D context** has ~100 methods for drawing, transformations, and pixel manipulation
+- **Custom elements** have lifecycle callbacks and upgrade mechanism
+- **ARIA semantics** are defined in separate HTML Accessibility API Mappings spec

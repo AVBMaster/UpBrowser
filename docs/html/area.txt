@@ -1,0 +1,25 @@
+HTML DOM Area 对象
+Area 对象
+Area 对象代表图像映射的一个区域（图像映射指的是带有可点击区域的图像）
+
+在 HTML 文档中 <area> 标签每出现一次，就会创建一个 Area 对象。
+
+Area 对象属性
+W3C： W3C 标准：
+
+属性	描述	W3C
+alt	设置或返回当浏览器无法显示某个区域时的替换文字。	Yes
+coords	设置或返回图像映射中可点击区域的坐标。	Yes
+hash	设置或返回某个区域中 URL 的锚部分。	Yes
+host	设置或返回某个区域中 URL 的主机名和端口。	Yes
+hostname	设置或返回href属性值得主机部分。	Yes
+href	设置或返回某个区域中href属性值	Yes
+noHref	设置或者返回某个区域的 nohref 属性值。	Yes
+pathname	设置或者返回某个区域 href 属性值的路径名部分。	Yes
+port	设置或者返回某个区域 href 属性值的端口部分。	Yes
+protocol	设置或者返回某个区域 href 属性值的协议部分。	Yes
+search	设置或者返回某个区域 href 属性值的查询字符串部分。	Yes
+shape	设置或者返回某个区域 shape属性值。	Yes
+target	设置或者返回某个区域 target 属性值。	Yes
+标准属性和事件
+Area 对象同样支持标准的 属性 和 事件.
