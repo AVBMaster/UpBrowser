@@ -182,10 +182,19 @@ public class LayoutEngine
 
         if (!float.IsNaN(result))
         {
-            if (style.MinWidth is PixelLength minW) result = Math.Max(result, minW.Value);
-            if (style.MaxWidth is PixelLength maxW) result = Math.Min(result, maxW.Value);
+            float containingW = containingBlock?.ContentBox.Width ?? fontSize;
+            float minW = style.MinWidth != null ? ResolveLength(style.MinWidth, fontSize, containingW) : float.NaN;
+            float maxW = style.MaxWidth != null ? ResolveLength(style.MaxWidth, fontSize, containingW) : float.NaN;
+            if (!float.IsNaN(minW) && minW > 0) result = Math.Max(result, minW);
+            if (!float.IsNaN(maxW) && maxW > 0) result = Math.Min(result, maxW);
         }
         return result;
+    }
+
+    private float ResolveLength(Length length, float fontSize, float containingBlockSize)
+    {
+        if (length is PercentLength pct) return pct.Value * containingBlockSize;
+        return length.ToPixels(fontSize, _rootFontSize, _viewportWidth, _viewportHeight);
     }
 
     private float GetAbsoluteHeight(ComputedStyle style, LayoutBox? containingBlock, float fontSize, float parentHeight)
@@ -208,8 +217,11 @@ public class LayoutEngine
 
         if (!float.IsNaN(result))
         {
-            if (style.MinHeight is PixelLength minH) result = Math.Max(result, minH.Value);
-            if (style.MaxHeight is PixelLength maxH) result = Math.Min(result, maxH.Value);
+            float containingH = containingBlock?.ContentBox.Height ?? parentHeight;
+            float minH = style.MinHeight != null ? ResolveLength(style.MinHeight, fontSize, containingH) : float.NaN;
+            float maxH = style.MaxHeight != null ? ResolveLength(style.MaxHeight, fontSize, containingH) : float.NaN;
+            if (!float.IsNaN(minH) && minH > 0) result = Math.Max(result, minH);
+            if (!float.IsNaN(maxH) && maxH > 0) result = Math.Min(result, maxH);
         }
         return result;
     }
@@ -275,11 +287,15 @@ public class LayoutEngine
                 contentHeight = Math.Max(0, elementHeight - borderTop - borderBottom - paddingTop - paddingBottom);
         }
 
-        // Apply min/max constraints
-        if (style.MinWidth is PixelLength minW) contentWidth = Math.Max(contentWidth, minW.Value);
-        if (style.MaxWidth is PixelLength maxW) contentWidth = Math.Min(contentWidth, maxW.Value);
-        if (style.MinHeight is PixelLength minH) contentHeight = Math.Max(contentHeight, minH.Value);
-        if (style.MaxHeight is PixelLength maxH) contentHeight = Math.Min(contentHeight, maxH.Value);
+        // Apply min/max constraints (percentage values resolve against containing block)
+        float resolvedMinW = style.MinWidth != null ? ResolveLength(style.MinWidth, style.FontSize, availableWidth) : float.NaN;
+        float resolvedMaxW = style.MaxWidth != null ? ResolveLength(style.MaxWidth, style.FontSize, availableWidth) : float.NaN;
+        float resolvedMinH = style.MinHeight != null ? ResolveLength(style.MinHeight, style.FontSize, parentHeight) : float.NaN;
+        float resolvedMaxH = style.MaxHeight != null ? ResolveLength(style.MaxHeight, style.FontSize, parentHeight) : float.NaN;
+        if (!float.IsNaN(resolvedMinW) && resolvedMinW > 0) contentWidth = Math.Max(contentWidth, resolvedMinW);
+        if (!float.IsNaN(resolvedMaxW) && resolvedMaxW > 0) contentWidth = Math.Min(contentWidth, resolvedMaxW);
+        if (!float.IsNaN(resolvedMinH) && resolvedMinH > 0) contentHeight = Math.Max(contentHeight, resolvedMinH);
+        if (!float.IsNaN(resolvedMaxH) && resolvedMaxH > 0) contentHeight = Math.Min(contentHeight, resolvedMaxH);
 
         bool isBlockLevel = style.Display != DisplayType.Inline && style.Display != DisplayType.InlineFlex &&
                             style.Display != DisplayType.InlineGrid && style.Display != DisplayType.InlineBlock && style.Position != PositionType.Absolute;
@@ -1975,8 +1991,10 @@ public class LayoutEngine
             float flexBasis = CalculateFlexBasis(child, childStyle, containerWidth);
             float flexGrow = childStyle.FlexGrow;
             float flexShrink = childStyle.FlexShrink;
-            float minWidth = childStyle.MinWidth is PixelLength minW ? minW.Value : 0;
-            float maxWidth = childStyle.MaxWidth is PixelLength maxW ? maxW.Value : float.MaxValue;
+            float resolvedMinW = childStyle.MinWidth != null ? ResolveLength(childStyle.MinWidth, childStyle.FontSize, containerWidth) : float.NaN;
+            float resolvedMaxW = childStyle.MaxWidth != null ? ResolveLength(childStyle.MaxWidth, childStyle.FontSize, containerWidth) : float.NaN;
+            float minWidth = !float.IsNaN(resolvedMinW) && resolvedMinW > 0 ? resolvedMinW : 0;
+            float maxWidth = !float.IsNaN(resolvedMaxW) && resolvedMaxW > 0 ? resolvedMaxW : float.MaxValue;
             flexItems.Add(new FlexItem
             {
                 Element = child,

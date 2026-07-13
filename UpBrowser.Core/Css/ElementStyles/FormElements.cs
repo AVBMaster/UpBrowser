@@ -19,10 +19,10 @@ public static class FormElements
                 style.BorderRightWidth = 1;
                 style.BorderBottomWidth = 1;
                 style.BorderLeftWidth = 1;
-                style.BorderTopStyle = BorderStyle.Solid;
-                style.BorderRightStyle = BorderStyle.Solid;
-                style.BorderBottomStyle = BorderStyle.Solid;
-                style.BorderLeftStyle = BorderStyle.Solid;
+                style.BorderTopStyle = BorderStyle.Inset;
+                style.BorderRightStyle = BorderStyle.Inset;
+                style.BorderBottomStyle = BorderStyle.Inset;
+                style.BorderLeftStyle = BorderStyle.Inset;
                 style.BorderTopColor = SKColor.Parse("#767676");
                 style.BorderRightColor = SKColor.Parse("#767676");
                 style.BorderBottomColor = SKColor.Parse("#767676");
@@ -62,10 +62,10 @@ public static class FormElements
                 style.BorderRightWidth = 1;
                 style.BorderBottomWidth = 1;
                 style.BorderLeftWidth = 1;
-                style.BorderTopStyle = BorderStyle.Solid;
-                style.BorderRightStyle = BorderStyle.Solid;
-                style.BorderBottomStyle = BorderStyle.Solid;
-                style.BorderLeftStyle = BorderStyle.Solid;
+                style.BorderTopStyle = BorderStyle.Inset;
+                style.BorderRightStyle = BorderStyle.Inset;
+                style.BorderBottomStyle = BorderStyle.Inset;
+                style.BorderLeftStyle = BorderStyle.Inset;
                 style.BorderTopColor = SKColor.Parse("#767676");
                 style.BorderRightColor = SKColor.Parse("#767676");
                 style.BorderBottomColor = SKColor.Parse("#767676");
@@ -87,10 +87,10 @@ public static class FormElements
                 style.BorderRightWidth = 1;
                 style.BorderBottomWidth = 1;
                 style.BorderLeftWidth = 1;
-                style.BorderTopStyle = BorderStyle.Solid;
-                style.BorderRightStyle = BorderStyle.Solid;
-                style.BorderBottomStyle = BorderStyle.Solid;
-                style.BorderLeftStyle = BorderStyle.Solid;
+                style.BorderTopStyle = BorderStyle.Inset;
+                style.BorderRightStyle = BorderStyle.Inset;
+                style.BorderBottomStyle = BorderStyle.Inset;
+                style.BorderLeftStyle = BorderStyle.Inset;
                 style.BorderTopColor = SKColor.Parse("#767676");
                 style.BorderRightColor = SKColor.Parse("#767676");
                 style.BorderBottomColor = SKColor.Parse("#767676");
@@ -111,14 +111,14 @@ public static class FormElements
                 style.BorderRightWidth = 1;
                 style.BorderBottomWidth = 1;
                 style.BorderLeftWidth = 1;
-                style.BorderTopStyle = BorderStyle.Solid;
-                style.BorderRightStyle = BorderStyle.Solid;
-                style.BorderBottomStyle = BorderStyle.Solid;
-                style.BorderLeftStyle = BorderStyle.Solid;
-                style.BorderTopColor = SKColor.Parse("#CCCCCC");
-                style.BorderRightColor = SKColor.Parse("#CCCCCC");
-                style.BorderBottomColor = SKColor.Parse("#CCCCCC");
-                style.BorderLeftColor = SKColor.Parse("#CCCCCC");
+                style.BorderTopStyle = BorderStyle.Outset;
+                style.BorderRightStyle = BorderStyle.Outset;
+                style.BorderBottomStyle = BorderStyle.Outset;
+                style.BorderLeftStyle = BorderStyle.Outset;
+                style.BorderTopColor = SKColors.Black;
+                style.BorderRightColor = SKColors.Black;
+                style.BorderBottomColor = SKColors.Black;
+                style.BorderLeftColor = SKColors.Black;
                 style.PaddingTop = new PixelLength(1);
                 style.PaddingBottom = new PixelLength(1);
                 style.PaddingLeft = new PixelLength(6);
@@ -142,7 +142,7 @@ public static class FormElements
                 break;
 
             case "label":
-                style.Display = DisplayType.InlineBlock;
+                style.Display = DisplayType.Inline;
                 style.Cursor = "pointer";
                 break;
 

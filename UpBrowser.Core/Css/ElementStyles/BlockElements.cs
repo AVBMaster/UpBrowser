@@ -104,6 +104,18 @@ public static class BlockElements
                 style.BorderSpacing = 2;
                 style.MarginTop = new PixelLength(12);
                 style.MarginBottom = new PixelLength(12);
+                style.BorderTopWidth = 1;
+                style.BorderRightWidth = 1;
+                style.BorderBottomWidth = 1;
+                style.BorderLeftWidth = 1;
+                style.BorderTopStyle = BorderStyle.Outset;
+                style.BorderRightStyle = BorderStyle.Outset;
+                style.BorderBottomStyle = BorderStyle.Outset;
+                style.BorderLeftStyle = BorderStyle.Outset;
+                style.BorderTopColor = SKColor.Parse("#BABABA");
+                style.BorderRightColor = SKColor.Parse("#BABABA");
+                style.BorderBottomColor = SKColor.Parse("#BABABA");
+                style.BorderLeftColor = SKColor.Parse("#BABABA");
                 break;
             case "thead":
                 style.Display = DisplayType.TableHeaderGroup;
@@ -128,40 +140,40 @@ public static class BlockElements
                 style.VerticalAlign = VerticalAlignType.Middle;
                 style.PaddingTop = new PixelLength(1);
                 style.PaddingBottom = new PixelLength(1);
-                style.PaddingLeft = new PixelLength(5);
-                style.PaddingRight = new PixelLength(5);
-                style.BorderTopStyle = BorderStyle.Solid;
+                style.PaddingLeft = new PixelLength(6);
+                style.PaddingRight = new PixelLength(6);
+                style.BorderTopStyle = BorderStyle.Inset;
                 style.BorderTopWidth = 1;
-                style.BorderTopColor = SKColor.Parse("#767676");
-                style.BorderBottomStyle = BorderStyle.Solid;
+                style.BorderTopColor = SKColor.Parse("#BABABA");
+                style.BorderBottomStyle = BorderStyle.Inset;
                 style.BorderBottomWidth = 1;
-                style.BorderBottomColor = SKColor.Parse("#767676");
-                style.BorderLeftStyle = BorderStyle.Solid;
+                style.BorderBottomColor = SKColor.Parse("#BABABA");
+                style.BorderLeftStyle = BorderStyle.Inset;
                 style.BorderLeftWidth = 1;
-                style.BorderLeftColor = SKColor.Parse("#767676");
-                style.BorderRightStyle = BorderStyle.Solid;
+                style.BorderLeftColor = SKColor.Parse("#BABABA");
+                style.BorderRightStyle = BorderStyle.Inset;
                 style.BorderRightWidth = 1;
-                style.BorderRightColor = SKColor.Parse("#767676");
+                style.BorderRightColor = SKColor.Parse("#BABABA");
                 break;
             case "td":
                 style.Display = DisplayType.TableCell;
                 style.VerticalAlign = VerticalAlignType.Middle;
                 style.PaddingTop = new PixelLength(1);
                 style.PaddingBottom = new PixelLength(1);
-                style.PaddingLeft = new PixelLength(5);
-                style.PaddingRight = new PixelLength(5);
-                style.BorderTopStyle = BorderStyle.Solid;
+                style.PaddingLeft = new PixelLength(6);
+                style.PaddingRight = new PixelLength(6);
+                style.BorderTopStyle = BorderStyle.Inset;
                 style.BorderTopWidth = 1;
-                style.BorderTopColor = SKColor.Parse("#767676");
-                style.BorderBottomStyle = BorderStyle.Solid;
+                style.BorderTopColor = SKColor.Parse("#BABABA");
+                style.BorderBottomStyle = BorderStyle.Inset;
                 style.BorderBottomWidth = 1;
-                style.BorderBottomColor = SKColor.Parse("#767676");
-                style.BorderLeftStyle = BorderStyle.Solid;
+                style.BorderBottomColor = SKColor.Parse("#BABABA");
+                style.BorderLeftStyle = BorderStyle.Inset;
                 style.BorderLeftWidth = 1;
-                style.BorderLeftColor = SKColor.Parse("#767676");
-                style.BorderRightStyle = BorderStyle.Solid;
+                style.BorderLeftColor = SKColor.Parse("#BABABA");
+                style.BorderRightStyle = BorderStyle.Inset;
                 style.BorderRightWidth = 1;
-                style.BorderRightColor = SKColor.Parse("#767676");
+                style.BorderRightColor = SKColor.Parse("#BABABA");
                 break;
             case "caption":
                 style.Display = DisplayType.TableCaption;
@@ -315,17 +327,20 @@ public static class BlockElements
             // 分隔线
             case "hr":
                 style.Display = DisplayType.Block;
-                style.Height = new PixelLength(2);
+                style.Height = new PixelLength(0);
                 style.BorderTopWidth = 1;
-                style.BorderTopStyle = BorderStyle.Solid;
-                style.BorderTopColor = SKColor.Parse("#CCCCCC");
+                style.BorderTopStyle = BorderStyle.Inset;
+                style.BorderTopColor = SKColor.Parse("#808080");
                 style.BorderRightWidth = 0;
-                style.BorderBottomWidth = 0;
+                style.BorderBottomWidth = 1;
+                style.BorderBottomStyle = BorderStyle.Inset;
+                style.BorderBottomColor = SKColor.Parse("#808080");
                 style.BorderLeftWidth = 0;
-                style.MarginTop = new PixelLength(12);
-                style.MarginBottom = new PixelLength(12);
+                style.MarginTop = new PixelLength(8);
+                style.MarginBottom = new PixelLength(8);
                 style.MarginLeft = new PixelLength(0);
                 style.MarginRight = new PixelLength(0);
+                style.Overflow = OverflowType.Hidden;
                 break;
 
             // 其他块级元素
@@ -343,6 +358,7 @@ public static class BlockElements
                 style.Display = DisplayType.Block;
                 style.MarginTop = new PixelLength(0);
                 style.MarginBottom = new PixelLength(8);
+                style.MarginRight = new PixelLength(2);
                 style.PaddingTop = new PixelLength(6);
                 style.PaddingBottom = new PixelLength(10);
                 style.PaddingLeft = new PixelLength(12);
@@ -351,14 +367,14 @@ public static class BlockElements
                 style.BorderBottomWidth = 1;
                 style.BorderLeftWidth = 1;
                 style.BorderRightWidth = 1;
-                style.BorderTopStyle = BorderStyle.Solid;
-                style.BorderRightStyle = BorderStyle.Solid;
-                style.BorderBottomStyle = BorderStyle.Solid;
-                style.BorderLeftStyle = BorderStyle.Solid;
-                style.BorderTopColor = SKColor.Parse("#DADCE0");
-                style.BorderBottomColor = SKColor.Parse("#DADCE0");
-                style.BorderLeftColor = SKColor.Parse("#DADCE0");
-                style.BorderRightColor = SKColor.Parse("#DADCE0");
+                style.BorderTopStyle = BorderStyle.Groove;
+                style.BorderRightStyle = BorderStyle.Groove;
+                style.BorderBottomStyle = BorderStyle.Groove;
+                style.BorderLeftStyle = BorderStyle.Groove;
+                style.BorderTopColor = SKColor.Parse("#BABABA");
+                style.BorderBottomColor = SKColor.Parse("#BABABA");
+                style.BorderLeftColor = SKColor.Parse("#BABABA");
+                style.BorderRightColor = SKColor.Parse("#BABABA");
                 break;
             case "legend":
                 style.Display = DisplayType.Block;

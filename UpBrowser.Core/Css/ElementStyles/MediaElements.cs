@@ -13,7 +13,7 @@ public static class MediaElements
             case "img":
                 style.Display = DisplayType.InlineBlock;
                 style.VerticalAlign = VerticalAlignType.Bottom;
-                style.MaxWidth = new PixelLength(100);
+                style.MaxWidth = new PercentLength(1.0f);
                 style.Height = new PixelLength(0);
                 break;
 
@@ -35,7 +35,7 @@ public static class MediaElements
             // 视频和音频
             case "video":
                 style.Display = DisplayType.InlineBlock;
-                style.MaxWidth = new PixelLength(100);
+                style.MaxWidth = new PercentLength(1.0f);
                 style.BorderTopWidth = 0;
                 style.BorderRightWidth = 0;
                 style.BorderBottomWidth = 0;

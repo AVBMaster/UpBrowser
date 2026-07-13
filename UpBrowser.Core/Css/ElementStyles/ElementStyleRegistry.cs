@@ -100,7 +100,7 @@ public static class ElementStyleRegistry
         Register("textarea", (s, t, e) => FormElements.Apply(s, t, e));
         Register("select", (s, t, e) => FormElements.Apply(s, t, e));
         Register("button", (s, t, e) => FormElements.Apply(s, t, e));
-        Register("fieldset", (s, t, _) => FormElements.Apply(s, t));
+        Register("fieldset", (s, t, _) => BlockElements.Apply(s, t));
         Register("legend", (s, t, _) => FormElements.Apply(s, t));
         Register("datalist", (s, t, _) => FormElements.Apply(s, t));
         Register("optgroup", (s, t, _) => FormElements.Apply(s, t));
