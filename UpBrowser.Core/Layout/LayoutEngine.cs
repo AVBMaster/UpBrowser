@@ -706,7 +706,7 @@ public class LayoutEngine
                     int size = 20;
                     if (!string.IsNullOrEmpty(sizeStr) && int.TryParse(sizeStr, out int parsed) && parsed > 0)
                         size = parsed;
-                    float charWidth = MeasureTextWidth("M", style.FontSize, style.FontFamily);
+                    float charWidth = MeasureTextWidth("M", style.FontSize, style.FontFamily, style.FontWeight);
                     float textWidth = size * charWidth;
                     float padLeft = style.PaddingLeft.ToPixels(style.FontSize, _rootFontSize, _viewportWidth, _viewportHeight);
                     float padRight = style.PaddingRight.ToPixels(style.FontSize, _rootFontSize, _viewportWidth, _viewportHeight);
@@ -723,7 +723,7 @@ public class LayoutEngine
                     return style.Width is PixelLength pw2 ? pw2.Value : availableWidth;
                 if (inputType == "date" || inputType == "time" || inputType == "datetime-local" || inputType == "month" || inputType == "week")
                 {
-                    float charWidth = MeasureTextWidth("M", style.FontSize, style.FontFamily);
+                    float charWidth = MeasureTextWidth("M", style.FontSize, style.FontFamily, style.FontWeight);
                     return Math.Min(154 + style.PaddingLeft.ToPixels(style.FontSize, _rootFontSize, _viewportWidth, _viewportHeight) + style.PaddingRight.ToPixels(style.FontSize, _rootFontSize, _viewportWidth, _viewportHeight), availableWidth);
                 }
             }
@@ -733,7 +733,7 @@ public class LayoutEngine
                 string colsStr = element.GetAttribute("cols");
                 if (!string.IsNullOrEmpty(colsStr) && int.TryParse(colsStr, out int c) && c > 0)
                     cols = c;
-                float charWidth = MeasureTextWidth("M", style.FontSize, style.FontFamily);
+                float charWidth = MeasureTextWidth("M", style.FontSize, style.FontFamily, style.FontWeight);
                 float textWidth = cols * charWidth;
                 float padLeft = style.PaddingLeft.ToPixels(style.FontSize, _rootFontSize, _viewportWidth, _viewportHeight);
                 float padRight = style.PaddingRight.ToPixels(style.FontSize, _rootFontSize, _viewportWidth, _viewportHeight);
@@ -749,7 +749,7 @@ public class LayoutEngine
                 {
                     if (child is Element opt && opt.TagName == "OPTION")
                     {
-                        float optW = MeasureTextWidth(opt.TextContent ?? "", style.FontSize, style.FontFamily);
+                        float optW = MeasureTextWidth(opt.TextContent ?? "", style.FontSize, style.FontFamily, style.FontWeight);
                         if (optW > maxOptWidth) maxOptWidth = optW;
                     }
                 }
@@ -870,6 +870,7 @@ public class LayoutEngine
         LineBox? inlineCurrentLine = null;
         float inlineCurrentX = 0;
         float inlineMaxHeightInLine = 0;
+        bool isFirstInFlowChild = true;
 
         var (preserveSpaces, preserveNewlines, allowWrapping) = GetWhiteSpaceBehavior(style?.WhiteSpace ?? WhiteSpaceMode.Normal);
 
@@ -973,6 +974,18 @@ public class LayoutEngine
                 float marginTop = childStyle.MarginTop.ToPixels(childStyle.FontSize, _rootFontSize, _viewportWidth, _viewportHeight);
                 float marginBottom = childStyle.MarginBottom.ToPixels(childStyle.FontSize, _rootFontSize, _viewportWidth, _viewportHeight);
                 float actualMarginTop = Math.Max(marginTop, collapsedMarginBottom);
+
+                if (isFirstInFlowChild && childStyle.Display != DisplayType.None && style != null)
+                {
+                    float parentBorderTop = style.BorderTopWidth;
+                    float parentPaddingTop = style.PaddingTop.ToPixels(style.FontSize, _rootFontSize, _viewportWidth, _viewportHeight);
+                    if (parentBorderTop <= 0 && parentPaddingTop <= 0)
+                    {
+                        float parentMarginTop = style.MarginTop.ToPixels(style.FontSize, _rootFontSize, _viewportWidth, _viewportHeight);
+                        actualMarginTop = Math.Max(marginTop, parentMarginTop) - parentMarginTop;
+                    }
+                    isFirstInFlowChild = false;
+                }
                 currentY += actualMarginTop;
                 collapsedMarginBottom = 0;
 
@@ -1017,7 +1030,7 @@ public class LayoutEngine
                         {
                             string btnText = text;
                             if (string.IsNullOrEmpty(btnText)) btnText = "Button";
-                            float textW = MeasureTextWidth(btnText, inlineFontSize, childStyle.FontFamily);
+                            float textW = MeasureTextWidth(btnText, inlineFontSize, childStyle.FontFamily, childStyle.FontWeight);
                             elemWidth = textW + padLeft + padRight + borderLeft + borderRight;
                             elemHeight = inlineLineHeight + padTop + padBottom + borderTop + borderBottom;
                         }
@@ -1026,7 +1039,7 @@ public class LayoutEngine
                             float minWidth = 80;
                             float arrowWidth = 20;
                             if (!string.IsNullOrEmpty(text))
-                                elemWidth = MeasureTextWidth(text, inlineFontSize, childStyle.FontFamily) + padLeft + padRight + borderLeft + borderRight + arrowWidth;
+                                elemWidth = MeasureTextWidth(text, inlineFontSize, childStyle.FontFamily, childStyle.FontWeight) + padLeft + padRight + borderLeft + borderRight + arrowWidth;
                             else
                                 elemWidth = minWidth + padLeft + padRight + borderLeft + borderRight;
                             elemHeight = inlineLineHeight + padTop + padBottom + borderTop + borderBottom;
@@ -1044,7 +1057,7 @@ public class LayoutEngine
                     }
                     else
                     {
-                        float textWidth = !string.IsNullOrEmpty(text) ? MeasureTextWidth(text, inlineFontSize, childStyle.FontFamily ?? style?.FontFamily) : 0;
+                        float textWidth = !string.IsNullOrEmpty(text) ? MeasureTextWidth(text, inlineFontSize, childStyle.FontFamily ?? style?.FontFamily, childStyle.FontWeight) : 0;
                         float padLeft = childStyle.PaddingLeft.ToPixels(inlineFontSize, _rootFontSize, _viewportWidth, _viewportHeight);
                         float padRight = childStyle.PaddingRight.ToPixels(inlineFontSize, _rootFontSize, _viewportWidth, _viewportHeight);
                         float padTop = childStyle.PaddingTop.ToPixels(inlineFontSize, _rootFontSize, _viewportWidth, _viewportHeight);
@@ -1126,7 +1139,7 @@ public class LayoutEngine
                     }
                     else if (!string.IsNullOrEmpty(text) && firstTextNode != null)
                     {
-                        float textWidth = MeasureTextWidth(text, inlineFontSize, childStyle.FontFamily ?? style?.FontFamily);
+                        float textWidth = MeasureTextWidth(text, inlineFontSize, childStyle.FontFamily ?? style?.FontFamily, childStyle.FontWeight);
                         var run = new InlineRun
                         {
                             Text = text,
@@ -1208,13 +1221,14 @@ public class LayoutEngine
             else if (item is TextNode textNode)
             {
                 if (style == null) continue;
+                isFirstInFlowChild = false;
 
                 if (textNode.IsWhitespaceOnly)
                 {
                     // Whitespace-only text node between inline elements → add a space to preserve inter-element spacing
                     if (inlineCurrentLine != null && inlineCurrentLine.Runs.Count > 0)
                     {
-                        float spaceWidth = MeasureTextWidth(" ", fontSize, style.FontFamily);
+                        float spaceWidth = MeasureTextWidth(" ", fontSize, style.FontFamily, style.FontWeight);
                         if (allowWrapping && inlineCurrentX + spaceWidth > x + availableWidth - 0.01f && inlineCurrentX > x)
                         {
                             inlineCurrentLine.Height = inlineMaxHeightInLine > 0 ? inlineMaxHeightInLine : lineHeight;
@@ -1234,7 +1248,8 @@ public class LayoutEngine
                             Node = textNode,
                             Color = style.Color,
                             FontSize = fontSize,
-                            FontFamily = style.FontFamily
+                            FontFamily = style.FontFamily,
+                            FontWeight = style.FontWeight
                         });
                         inlineCurrentX += spaceWidth;
                     }
@@ -1258,7 +1273,7 @@ public class LayoutEngine
                     if (preserveSpaces)
                     {
                         // pre/pre-wrap: preserve original spacing, don't split by spaces
-                        float textWidth = MeasureTextWidth(text, fontSize, style.FontFamily);
+                        float textWidth = MeasureTextWidth(text, fontSize, style.FontFamily, style.FontWeight);
                         if (allowWrapping && inlineCurrentX + textWidth > x + availableWidth - 0.01f && inlineCurrentX > x)
                         {
                             inlineCurrentLine.Height = inlineMaxHeightInLine > 0 ? inlineMaxHeightInLine : lineHeightPx;
@@ -1277,7 +1292,8 @@ public class LayoutEngine
                             Node = textNode,
                             Color = style.Color,
                             FontSize = fontSize,
-                            FontFamily = style.FontFamily
+                            FontFamily = style.FontFamily,
+                            FontWeight = style.FontWeight
                         });
                         inlineCurrentX += textWidth;
                         if (lineHeightPx > inlineMaxHeightInLine) inlineMaxHeightInLine = lineHeightPx;
@@ -1309,7 +1325,7 @@ public class LayoutEngine
                                 {
                                     token = token + " ";
                                 }
-                                float tokenWidth = MeasureTextWidth(token, fontSize, style.FontFamily);
+                                float tokenWidth = MeasureTextWidth(token, fontSize, style.FontFamily, style.FontWeight);
                                 if (allowWrapping && inlineCurrentX + tokenWidth > x + availableWidth - 0.01f && inlineCurrentX > x)
                                 {
                                     inlineCurrentLine.Height = inlineMaxHeightInLine > 0 ? inlineMaxHeightInLine : lineHeightPx;
@@ -1328,7 +1344,8 @@ public class LayoutEngine
                                     Node = textNode,
                                     Color = style.Color,
                                     FontSize = fontSize,
-                                    FontFamily = style.FontFamily
+                                    FontFamily = style.FontFamily,
+                                    FontWeight = style.FontWeight
                                 });
                                 inlineCurrentX += tokenWidth;
                                 if (lineHeightPx > inlineMaxHeightInLine) inlineMaxHeightInLine = lineHeightPx;
@@ -1340,7 +1357,7 @@ public class LayoutEngine
                             foreach (char c in normalized)
                             {
                                 string chStr = c.ToString();
-                                float charWidth = MeasureTextWidth(chStr, fontSize, style.FontFamily);
+                                float charWidth = MeasureTextWidth(chStr, fontSize, style.FontFamily, style.FontWeight);
                                 if (allowWrapping && inlineCurrentLine.Runs.Count > 0 && inlineCurrentX + charWidth > x + availableWidth - 0.01f)
                                 {
                                     inlineCurrentLine.Height = inlineMaxHeightInLine > 0 ? inlineMaxHeightInLine : lineHeightPx;
@@ -1359,7 +1376,8 @@ public class LayoutEngine
                                     Node = textNode,
                                     Color = style.Color,
                                     FontSize = fontSize,
-                                    FontFamily = style.FontFamily
+                                    FontFamily = style.FontFamily,
+                                    FontWeight = style.FontWeight
                                 });
                                 inlineCurrentX += charWidth;
                                 if (lineHeightPx > inlineMaxHeightInLine) inlineMaxHeightInLine = lineHeightPx;
@@ -1416,7 +1434,7 @@ public class LayoutEngine
                     float btnFontSize = childStyle.FontSize > 0 ? childStyle.FontSize : 13.3333f;
                     float btnLineHeightValue = childStyle.LineHeight > 0 ? childStyle.LineHeight : 1.5f;
 
-                    float textWidth = MeasureTextWidth(btnText, btnFontSize, childStyle.FontFamily);
+                    float textWidth = MeasureTextWidth(btnText, btnFontSize, childStyle.FontFamily, childStyle.FontWeight);
                     float padLeft = childStyle.PaddingLeft.ToPixels(btnFontSize, _rootFontSize, _viewportWidth, _viewportHeight);
                     float padRight = childStyle.PaddingRight.ToPixels(btnFontSize, _rootFontSize, _viewportWidth, _viewportHeight);
                     float padTop = childStyle.PaddingTop.ToPixels(btnFontSize, _rootFontSize, _viewportWidth, _viewportHeight);
@@ -1532,7 +1550,7 @@ public class LayoutEngine
                     if (!string.IsNullOrEmpty(text) && firstTextNode != null)
                     {
                         float inlineFontSize = childStyle.FontSize > 0 ? childStyle.FontSize : style.FontSize;
-                        float textWidth = MeasureTextWidth(text, inlineFontSize, childStyle.FontFamily ?? style.FontFamily);
+                        float textWidth = MeasureTextWidth(text, inlineFontSize, childStyle.FontFamily ?? style.FontFamily, childStyle.FontWeight);
                         float textHeight = inlineFontSize;
                         float baselineOffset = 0;
                         if (childStyle.VerticalAlign == VerticalAlignType.Sub)
@@ -1736,7 +1754,7 @@ public class LayoutEngine
                             {
                                 token = token + " ";
                             }
-                            float tokenWidth = MeasureTextWidth(token, style.FontSize, style.FontFamily);
+                            float tokenWidth = MeasureTextWidth(token, style.FontSize, style.FontFamily, style.FontWeight);
                             if (currentX + tokenWidth > x + availableWidth - 0.01f && currentX > x && allowWrapping)
                             {
                                 currentLine.Height = maxHeightInLine;
@@ -1835,7 +1853,7 @@ public class LayoutEngine
     {
         if (string.IsNullOrEmpty(text)) return;
         float fontSize = style.FontSize;
-        float textWidth = MeasureTextWidth(text, fontSize, style.FontFamily);
+        float textWidth = MeasureTextWidth(text, fontSize, style.FontFamily, style.FontWeight);
         float textHeight = fontSize;
 
         // 换行判断：如果当前行已有内容且加上当前 run 会超出宽度，则换行
@@ -1861,7 +1879,8 @@ public class LayoutEngine
             Node = textNode,
             Color = style.Color,
             FontSize = fontSize,
-            FontFamily = style.FontFamily
+            FontFamily = style.FontFamily,
+            FontWeight = style.FontWeight
         });
         currentX += textWidth;
         if (textHeight > maxHeightInLine) maxHeightInLine = textHeight;
@@ -1903,7 +1922,7 @@ public class LayoutEngine
         foreach (char c in chars)
         {
             string chStr = c.ToString();
-            float charWidth = MeasureTextWidth(chStr, style.FontSize, style.FontFamily);
+            float charWidth = MeasureTextWidth(chStr, style.FontSize, style.FontFamily, style.FontWeight);
 
             bool shouldBreak = false;
             if (!noWrap && currentLineChars.Count > 0)
@@ -1941,11 +1960,11 @@ public class LayoutEngine
         }
     }
 
-    private float MeasureTextWidth(string text, float fontSize, string? fontFamily)
+    private float MeasureTextWidth(string text, float fontSize, string? fontFamily, FontWeight weight = FontWeight.Normal)
     {
         if (string.IsNullOrEmpty(text)) return 0;
         if (TextMeasurer.Instance != null)
-            return TextMeasurer.Instance.MeasureText(text, fontFamily ?? "Arial", fontSize);
+            return TextMeasurer.Instance.MeasureText(text, fontFamily ?? "Arial", fontSize, weight);
         // 后备估算
         float avgCharWidth = fontSize * 0.45f;
         int asciiCount = text.Count(c => c < 128);
@@ -2215,7 +2234,7 @@ public class LayoutEngine
         float totalTextWidth = 0;
         CollectTextWidth(element, style, ref totalTextWidth);
         if (totalTextWidth <= 0)
-            totalTextWidth = MeasureTextWidth(element.TextContent ?? "", style.FontSize, style.FontFamily);
+            totalTextWidth = MeasureTextWidth(element.TextContent ?? "", style.FontSize, style.FontFamily, style.FontWeight);
 
         if (totalTextWidth <= 0)
         {
@@ -2250,7 +2269,7 @@ public class LayoutEngine
                 string text = tn.TextContent ?? "";
                 if (!string.IsNullOrEmpty(text))
                 {
-                    float w = MeasureTextWidth(text, parentStyle.FontSize, parentStyle.FontFamily);
+                    float w = MeasureTextWidth(text, parentStyle.FontSize, parentStyle.FontFamily, parentStyle.FontWeight);
                     if (w > maxWidth) maxWidth = w;
                 }
             }
@@ -2659,7 +2678,7 @@ public class LayoutEngine
             if (lineWidth > availableWidth)
             {
                 string ellipsis = "\u2026";
-                float ellipsisWidth = MeasureTextWidth(ellipsis, style.FontSize, style.FontFamily);
+                float ellipsisWidth = MeasureTextWidth(ellipsis, style.FontSize, style.FontFamily, style.FontWeight);
                 float currentWidth = 0;
 
                 for (int j = 0; j < line.Runs.Count; j++)
@@ -2671,7 +2690,7 @@ public class LayoutEngine
                         if (remainingSpace > 0)
                         {
                             run.Width = remainingSpace;
-                            run.Text = TruncateText(run.Text, remainingSpace, run.FontSize ?? style.FontSize, run.FontFamily ?? style.FontFamily);
+                            run.Text = TruncateText(run.Text, remainingSpace, run.FontSize ?? style.FontSize, run.FontFamily ?? style.FontFamily, run.FontWeight);
                         }
 
                         var ellipsisRun = new InlineRun
@@ -2683,7 +2702,8 @@ public class LayoutEngine
                             Node = run.Node,
                             Color = run.Color,
                             FontSize = run.FontSize,
-                            FontFamily = run.FontFamily
+                            FontFamily = run.FontFamily,
+                            FontWeight = run.FontWeight
                         };
 
                         line.Runs.RemoveRange(j + 1, line.Runs.Count - j - 1);
@@ -2697,14 +2717,14 @@ public class LayoutEngine
         }
     }
 
-    private string TruncateText(string text, float maxWidth, float fontSize, string? fontFamily)
+    private string TruncateText(string text, float maxWidth, float fontSize, string? fontFamily, FontWeight weight = FontWeight.Normal)
     {
         if (string.IsNullOrEmpty(text)) return text;
 
         for (int i = text.Length; i > 0; i--)
         {
             string truncated = text[..i];
-            float width = MeasureTextWidth(truncated, fontSize, fontFamily);
+            float width = MeasureTextWidth(truncated, fontSize, fontFamily, weight);
             if (width <= maxWidth) return truncated;
         }
         return "";
