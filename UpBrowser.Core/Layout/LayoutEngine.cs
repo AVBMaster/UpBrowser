@@ -1209,7 +1209,7 @@ public class LayoutEngine
                     inlineMaxHeightInLine = 0;
                 }
 
-                var childBox = CreateLayoutBox(childElement, x, currentY, availableWidth, box);
+                var childBox = CreateLayoutBox(childElement, x, currentY - marginTop, availableWidth, box);
                 if (childBox != null)
                 {
                     box.Children.Add(childBox);
