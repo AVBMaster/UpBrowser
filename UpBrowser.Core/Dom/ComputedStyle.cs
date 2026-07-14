@@ -1009,6 +1009,7 @@ public class InlineRun
     public SKColor? Color { get; set; }
     public float? FontSize { get; set; }
     public string? FontFamily { get; set; }
+    public FontWeight FontWeight { get; set; } = FontWeight.Normal;
 }
 
 public class LineBox

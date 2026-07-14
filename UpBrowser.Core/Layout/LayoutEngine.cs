@@ -976,8 +976,13 @@ public class LayoutEngine
                 currentY += actualMarginTop;
                 collapsedMarginBottom = 0;
 
-                if (childStyle.Display == DisplayType.Inline)
+                if (childStyle.Display == DisplayType.Inline || childStyle.Display == DisplayType.InlineBlock)
                 {
+                    bool isFormElement = childElement.TagName.Equals("INPUT", StringComparison.OrdinalIgnoreCase) ||
+                                         childElement.TagName.Equals("BUTTON", StringComparison.OrdinalIgnoreCase) ||
+                                         childElement.TagName.Equals("SELECT", StringComparison.OrdinalIgnoreCase) ||
+                                         childElement.TagName.Equals("TEXTAREA", StringComparison.OrdinalIgnoreCase);
+
                     var textSb = new StringBuilder();
                     TextNode? firstTextNode = null;
                     foreach (var c in childElement.Children)
@@ -990,138 +995,176 @@ public class LayoutEngine
                     }
                     string text = textSb.ToString();
                     if (!preserveSpaces) text = text.Trim();
-                    if (!string.IsNullOrEmpty(text) && firstTextNode != null)
+
+                    float inlineFontSize = childStyle.FontSize > 0 ? childStyle.FontSize : fontSize;
+                    float inlineLineHeight = (childStyle.LineHeight > 0 ? childStyle.LineHeight : 1.5f) * inlineFontSize;
+
+                    float elemWidth = 0;
+                    float elemHeight = 0;
+
+                    if (isFormElement)
                     {
-                        float inlineFontSize = childStyle.FontSize > 0 ? childStyle.FontSize : fontSize;
-                        float inlineLineHeight = (childStyle.LineHeight > 0 ? childStyle.LineHeight : 1.5f) * inlineFontSize;
+                        float padLeft = childStyle.PaddingLeft.ToPixels(inlineFontSize, _rootFontSize, _viewportWidth, _viewportHeight);
+                        float padRight = childStyle.PaddingRight.ToPixels(inlineFontSize, _rootFontSize, _viewportWidth, _viewportHeight);
+                        float padTop = childStyle.PaddingTop.ToPixels(inlineFontSize, _rootFontSize, _viewportWidth, _viewportHeight);
+                        float padBottom = childStyle.PaddingBottom.ToPixels(inlineFontSize, _rootFontSize, _viewportWidth, _viewportHeight);
+                        float borderLeft = childStyle.BorderLeftWidth;
+                        float borderRight = childStyle.BorderRightWidth;
+                        float borderTop = childStyle.BorderTopWidth;
+                        float borderBottom = childStyle.BorderBottomWidth;
 
-                        float inlineStartX = inlineCurrentX;
-                        float inlineStartY = inlineCurrentLine?.Y ?? currentY;
-
-                        if (inlineCurrentLine == null)
+                        if (childElement.TagName.Equals("BUTTON", StringComparison.OrdinalIgnoreCase))
                         {
-                            inlineCurrentLine = new LineBox { Y = currentY, Baseline = currentY + inlineLineHeight * 0.85f, Height = inlineLineHeight };
-                            box.Lines ??= new List<LineBox>();
-                            box.Lines.Add(inlineCurrentLine);
-                            inlineCurrentX = x;
-                            inlineMaxHeightInLine = 0;
+                            string btnText = text;
+                            if (string.IsNullOrEmpty(btnText)) btnText = "Button";
+                            float textW = MeasureTextWidth(btnText, inlineFontSize, childStyle.FontFamily);
+                            elemWidth = textW + padLeft + padRight + borderLeft + borderRight;
+                            elemHeight = inlineLineHeight + padTop + padBottom + borderTop + borderBottom;
                         }
-
-                        if (preserveSpaces)
+                        else if (childElement.TagName.Equals("SELECT", StringComparison.OrdinalIgnoreCase))
                         {
-                            // pre/pre-wrap: preserve original spacing, don't split by spaces
-                            float textWidth = MeasureTextWidth(text, inlineFontSize, childStyle.FontFamily ?? style?.FontFamily);
-                            if (allowWrapping && inlineCurrentX + textWidth > x + availableWidth - 0.01f && inlineCurrentX > x)
-                            {
-                                inlineCurrentLine.Height = inlineMaxHeightInLine > 0 ? inlineMaxHeightInLine : inlineLineHeight;
-                                currentY += inlineCurrentLine.Height;
-                                inlineCurrentLine = new LineBox { Y = currentY, Baseline = currentY + inlineLineHeight * 0.85f, Height = inlineLineHeight };
-                                box.Lines.Add(inlineCurrentLine);
-                                inlineCurrentX = x;
-                                inlineMaxHeightInLine = 0;
-                            }
-                            inlineCurrentLine.Runs.Add(new InlineRun
-                            {
-                                Text = text,
-                                Width = textWidth,
-                                Height = inlineLineHeight,
-                                IsText = true,
-                                Node = firstTextNode,
-                                Color = childStyle.Color.Alpha > 0 ? childStyle.Color : style?.Color ?? SKColors.Black,
-                                FontSize = inlineFontSize,
-                                FontFamily = childStyle.FontFamily ?? style?.FontFamily
-                            });
-                            inlineCurrentX += textWidth;
-                            if (inlineLineHeight > inlineMaxHeightInLine) inlineMaxHeightInLine = inlineLineHeight;
+                            float minWidth = 80;
+                            float arrowWidth = 20;
+                            if (!string.IsNullOrEmpty(text))
+                                elemWidth = MeasureTextWidth(text, inlineFontSize, childStyle.FontFamily) + padLeft + padRight + borderLeft + borderRight + arrowWidth;
+                            else
+                                elemWidth = minWidth + padLeft + padRight + borderLeft + borderRight;
+                            elemHeight = inlineLineHeight + padTop + padBottom + borderTop + borderBottom;
                         }
                         else
                         {
-                            bool hasSpacesInline = text.Contains(' ');
-                            if (hasSpacesInline)
-                            {
-                                var words = text.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-                                // Don't wrap if available width is too small for any word
-                                float effectiveAvailW = availableWidth < 10f ? 999999f : availableWidth;
-                                for (int wi = 0; wi < words.Length; wi++)
-                                {
-                                    bool isLastWord = (wi == words.Length - 1);
-                                    string token = isLastWord ? words[wi] : words[wi] + " ";
-                                    float tokenWidth = MeasureTextWidth(token, inlineFontSize, childStyle.FontFamily ?? style?.FontFamily);
-                                    if (allowWrapping && inlineCurrentX + tokenWidth > x + effectiveAvailW - 0.01f && inlineCurrentX > x)
-                                    {
-                                        inlineCurrentLine.Height = inlineMaxHeightInLine > 0 ? inlineMaxHeightInLine : inlineLineHeight;
-                                        currentY += inlineCurrentLine.Height;
-                                        inlineCurrentLine = new LineBox { Y = currentY, Baseline = currentY + inlineLineHeight * 0.85f, Height = inlineLineHeight };
-                                        box.Lines.Add(inlineCurrentLine);
-                                        inlineCurrentX = x;
-                                        inlineMaxHeightInLine = 0;
-                                    }
-                                    inlineCurrentLine.Runs.Add(new InlineRun
-                                    {
-                                        Text = token,
-                                        Width = tokenWidth,
-                                        Height = inlineLineHeight,
-                                        IsText = true,
-                                        Node = firstTextNode,
-                                        Color = childStyle.Color.Alpha > 0 ? childStyle.Color : style?.Color ?? SKColors.Black,
-                                        FontSize = inlineFontSize,
-                                        FontFamily = childStyle.FontFamily ?? style?.FontFamily
-                                    });
-                                    inlineCurrentX += tokenWidth;
-                                    if (inlineLineHeight > inlineMaxHeightInLine) inlineMaxHeightInLine = inlineLineHeight;
-                                }
-                            }
-                            else
-                            {
-                                // CJK character-by-character wrapping
-                                foreach (char c in text)
-                                {
-                                    string chStr = c.ToString();
-                                    float charWidth = MeasureTextWidth(chStr, inlineFontSize, childStyle.FontFamily ?? style?.FontFamily);
-                                    if (allowWrapping && inlineCurrentLine.Runs.Count > 0 && inlineCurrentX + charWidth > x + availableWidth - 0.01f)
-                                    {
-                                        inlineCurrentLine.Height = inlineMaxHeightInLine > 0 ? inlineMaxHeightInLine : inlineLineHeight;
-                                        currentY += inlineCurrentLine.Height;
-                                        inlineCurrentLine = new LineBox { Y = currentY, Baseline = currentY + inlineLineHeight * 0.85f, Height = inlineLineHeight };
-                                        box.Lines.Add(inlineCurrentLine);
-                                        inlineCurrentX = x;
-                                        inlineMaxHeightInLine = 0;
-                                    }
-                                    inlineCurrentLine.Runs.Add(new InlineRun
-                                    {
-                                        Text = chStr,
-                                        Width = charWidth,
-                                        Height = inlineLineHeight,
-                                        IsText = true,
-                                        Node = firstTextNode,
-                                        Color = childStyle.Color.Alpha > 0 ? childStyle.Color : style?.Color ?? SKColors.Black,
-                                        FontSize = inlineFontSize,
-                                        FontFamily = childStyle.FontFamily ?? style?.FontFamily
-                                    });
-                                    inlineCurrentX += charWidth;
-                                    if (inlineLineHeight > inlineMaxHeightInLine) inlineMaxHeightInLine = inlineLineHeight;
-                                }
-                            }
+                            elemWidth = 150 + padLeft + padRight + borderLeft + borderRight;
+                            elemHeight = inlineLineHeight + padTop + padBottom + borderTop + borderBottom;
+                            if (childStyle.Width is PixelLength pw) elemWidth = pw.Value;
+                            if (childStyle.Height is PixelLength ph) elemHeight = ph.Value;
                         }
 
-                        // Create LayoutBox for this inline element so HitTest can find it
-                        if (inlineCurrentLine != null)
+                        if (childStyle.Width is PixelLength explicitW) elemWidth = explicitW.Value;
+                        if (childStyle.Height is PixelLength explicitH) elemHeight = explicitH.Value;
+                    }
+                    else
+                    {
+                        float textWidth = !string.IsNullOrEmpty(text) ? MeasureTextWidth(text, inlineFontSize, childStyle.FontFamily ?? style?.FontFamily) : 0;
+                        float padLeft = childStyle.PaddingLeft.ToPixels(inlineFontSize, _rootFontSize, _viewportWidth, _viewportHeight);
+                        float padRight = childStyle.PaddingRight.ToPixels(inlineFontSize, _rootFontSize, _viewportWidth, _viewportHeight);
+                        float padTop = childStyle.PaddingTop.ToPixels(inlineFontSize, _rootFontSize, _viewportWidth, _viewportHeight);
+                        float padBottom = childStyle.PaddingBottom.ToPixels(inlineFontSize, _rootFontSize, _viewportWidth, _viewportHeight);
+                        float bLeft = childStyle.BorderLeftWidth;
+                        float bRight = childStyle.BorderRightWidth;
+                        float bTop = childStyle.BorderTopWidth;
+                        float bBottom = childStyle.BorderBottomWidth;
+                        bool hasBoxDecoration = (padLeft + padRight + padTop + padBottom + bLeft + bRight + bTop + bBottom) > 0 ||
+                                                (childStyle.BackgroundColor.HasValue && childStyle.BackgroundColor.Value.Alpha > 0);
+                        if (hasBoxDecoration)
                         {
-                            float topY = inlineStartY;
-                            float bottomY = inlineCurrentLine.Y + inlineCurrentLine.Height;
-                            float leftX = Math.Min(inlineStartX, inlineCurrentX);
-                            float rightX = Math.Max(inlineStartX, inlineCurrentX);
-                            var inlineBox = new LayoutBox
-                            {
-                                MarginBox = new SKRect(leftX, topY, rightX, bottomY),
-                                ContentBox = new SKRect(leftX, topY, rightX, bottomY),
-                                PaddingBox = new SKRect(leftX, topY, rightX, bottomY),
-                                BorderBox = new SKRect(leftX, topY, rightX, bottomY)
-                            };
-                            childElement.LayoutBox = inlineBox;
-                            box.Children.Add(inlineBox);
-                            inlineBox.Parent = box;
+                            elemWidth = textWidth + padLeft + padRight + bLeft + bRight;
+                            elemHeight = inlineLineHeight + padTop + padBottom + bTop + bBottom;
                         }
+                        else
+                        {
+                            elemWidth = textWidth;
+                            elemHeight = inlineLineHeight;
+                        }
+                    }
+
+                    float baselineOffset = 0;
+                    if (childStyle.VerticalAlign == VerticalAlignType.Sub)
+                        baselineOffset = inlineFontSize * 0.3f;
+                    else if (childStyle.VerticalAlign == VerticalAlignType.Super)
+                        baselineOffset = -inlineFontSize * 0.5f;
+                    float lineBaseline = inlineCurrentLine?.Baseline ?? currentY + inlineLineHeight * 0.85f;
+                    float runBaseline = lineBaseline + baselineOffset;
+
+                    if (inlineCurrentLine == null)
+                    {
+                        inlineCurrentLine = new LineBox { Y = currentY, Baseline = currentY + inlineLineHeight * 0.85f, Height = inlineLineHeight };
+                        box.Lines ??= new List<LineBox>();
+                        box.Lines.Add(inlineCurrentLine);
+                        inlineCurrentX = x;
+                        inlineMaxHeightInLine = 0;
+                    }
+
+                    if (allowWrapping && inlineCurrentX + elemWidth > x + availableWidth - 0.01f && inlineCurrentX > x)
+                    {
+                        inlineCurrentLine.Height = inlineMaxHeightInLine > 0 ? inlineMaxHeightInLine : inlineLineHeight;
+                        currentY += inlineCurrentLine.Height;
+                        inlineCurrentLine = new LineBox { Y = currentY, Baseline = currentY + inlineLineHeight * 0.85f, Height = inlineLineHeight };
+                        box.Lines.Add(inlineCurrentLine);
+                        inlineCurrentX = x;
+                        inlineMaxHeightInLine = 0;
+                    }
+
+                    float inlineStartX = inlineCurrentX;
+                    float inlineStartY = inlineCurrentLine?.Y ?? currentY;
+
+                    if (isFormElement)
+                    {
+                        var formBox = new LayoutBox();
+                        float btnTop = (inlineCurrentLine?.Baseline ?? lineBaseline) - elemHeight;
+                        float btnBottom = inlineCurrentLine?.Baseline ?? lineBaseline;
+
+                        formBox.MarginBox = new SKRect(inlineCurrentX, btnTop, inlineCurrentX + elemWidth, btnBottom);
+                        formBox.BorderBox = new SKRect(inlineCurrentX, btnTop, inlineCurrentX + elemWidth, btnBottom);
+                        formBox.PaddingBox = new SKRect(
+                            inlineCurrentX + childStyle.BorderLeftWidth,
+                            btnTop + childStyle.BorderTopWidth,
+                            inlineCurrentX + elemWidth - childStyle.BorderRightWidth,
+                            btnBottom - childStyle.BorderBottomWidth);
+                        formBox.ContentBox = new SKRect(
+                            inlineCurrentX + childStyle.BorderLeftWidth + childStyle.PaddingLeft.ToPixels(inlineFontSize, _rootFontSize, _viewportWidth, _viewportHeight),
+                            btnTop + childStyle.BorderTopWidth + childStyle.PaddingTop.ToPixels(inlineFontSize, _rootFontSize, _viewportWidth, _viewportHeight),
+                            inlineCurrentX + elemWidth - childStyle.BorderRightWidth - childStyle.PaddingRight.ToPixels(inlineFontSize, _rootFontSize, _viewportWidth, _viewportHeight),
+                            btnBottom - childStyle.BorderBottomWidth - childStyle.PaddingBottom.ToPixels(inlineFontSize, _rootFontSize, _viewportWidth, _viewportHeight));
+                        formBox.LineHeight = inlineLineHeight;
+                        childElement.LayoutBox = formBox;
+                        box.Children.Add(formBox);
+                        formBox.Parent = box;
+
+                        inlineCurrentX += elemWidth;
+                        if (elemHeight > inlineMaxHeightInLine)
+                            inlineMaxHeightInLine = elemHeight;
+                    }
+                    else if (!string.IsNullOrEmpty(text) && firstTextNode != null)
+                    {
+                        float textWidth = MeasureTextWidth(text, inlineFontSize, childStyle.FontFamily ?? style?.FontFamily);
+                        var run = new InlineRun
+                        {
+                            Text = text,
+                            Width = textWidth,
+                            Height = elemHeight,
+                            Baseline = runBaseline,
+                            IsText = true,
+                            Node = firstTextNode,
+                            Color = childStyle.Color.Alpha > 0 ? childStyle.Color : style?.Color ?? SKColors.Black,
+                            FontSize = inlineFontSize,
+                            FontFamily = childStyle.FontFamily ?? style?.FontFamily,
+                            FontWeight = childStyle.FontWeight
+                        };
+                        inlineCurrentLine.Runs.Add(run);
+                        inlineCurrentX += elemWidth;
+
+                        if (elemHeight > inlineMaxHeightInLine)
+                            inlineMaxHeightInLine = elemHeight;
+
+                        float bLeft = childStyle.BorderLeftWidth;
+                        float bRight = childStyle.BorderRightWidth;
+                        float bTop = childStyle.BorderTopWidth;
+                        float bBottom = childStyle.BorderBottomWidth;
+                        float padL = childStyle.PaddingLeft.ToPixels(inlineFontSize, _rootFontSize, _viewportWidth, _viewportHeight);
+                        float padR = childStyle.PaddingRight.ToPixels(inlineFontSize, _rootFontSize, _viewportWidth, _viewportHeight);
+                        float padT = childStyle.PaddingTop.ToPixels(inlineFontSize, _rootFontSize, _viewportWidth, _viewportHeight);
+                        float padB = childStyle.PaddingBottom.ToPixels(inlineFontSize, _rootFontSize, _viewportWidth, _viewportHeight);
+
+                        var inlineBox = new LayoutBox
+                        {
+                            BorderBox = new SKRect(inlineStartX, runBaseline - elemHeight, inlineStartX + elemWidth, runBaseline),
+                            PaddingBox = new SKRect(inlineStartX + bLeft, runBaseline - elemHeight + bTop, inlineStartX + elemWidth - bRight, runBaseline - bBottom),
+                            ContentBox = new SKRect(inlineStartX + bLeft + padL, runBaseline - elemHeight + bTop + padT, inlineStartX + elemWidth - bRight - padR, runBaseline - bBottom - padB),
+                            MarginBox = new SKRect(inlineStartX, runBaseline - elemHeight, inlineStartX + elemWidth, runBaseline)
+                        };
+                        childElement.LayoutBox = inlineBox;
+                        box.Children.Add(inlineBox);
+                        inlineBox.Parent = box;
                     }
                     continue;
                 }
@@ -1491,6 +1534,13 @@ public class LayoutEngine
                         float inlineFontSize = childStyle.FontSize > 0 ? childStyle.FontSize : style.FontSize;
                         float textWidth = MeasureTextWidth(text, inlineFontSize, childStyle.FontFamily ?? style.FontFamily);
                         float textHeight = inlineFontSize;
+                        float baselineOffset = 0;
+                        if (childStyle.VerticalAlign == VerticalAlignType.Sub)
+                            baselineOffset = inlineFontSize * 0.3f;
+                        else if (childStyle.VerticalAlign == VerticalAlignType.Super)
+                            baselineOffset = -inlineFontSize * 0.5f;
+                    float lineBase = currentLine?.Baseline ?? baseline;
+                    float runBaseline = lineBase + baselineOffset;
                         // 换行判断
                         if (allowWrapping && currentX + textWidth > x + availableWidth - 0.01f && currentX > x)
                         {
@@ -1509,12 +1559,13 @@ public class LayoutEngine
                             Text = text,
                             Width = textWidth,
                             Height = textHeight,
-                            Baseline = baseline,
+                            Baseline = runBaseline,
                             IsText = true,
                             Node = firstTextNode,
                             Color = childStyle.Color,
                             FontSize = inlineFontSize,
-                            FontFamily = childStyle.FontFamily ?? style.FontFamily
+                            FontFamily = childStyle.FontFamily ?? style.FontFamily,
+                            FontWeight = childStyle.FontWeight
                         };
                         currentLine.Runs.Add(run);
                         currentX += textWidth;
@@ -1525,10 +1576,10 @@ public class LayoutEngine
                         // 为内联元素创建 LayoutBox
                         var inlineBox = new LayoutBox
                         {
-                            MarginBox = new SKRect(oldX, baseline - textHeight, oldX + textWidth, baseline),
-                            ContentBox = new SKRect(oldX, baseline - textHeight, oldX + textWidth, baseline),
-                            BorderBox = new SKRect(oldX, baseline - textHeight, oldX + textWidth, baseline),
-                            PaddingBox = new SKRect(oldX, baseline - textHeight, oldX + textWidth, baseline)
+                            MarginBox = new SKRect(oldX, runBaseline - textHeight, oldX + textWidth, runBaseline),
+                            ContentBox = new SKRect(oldX, runBaseline - textHeight, oldX + textWidth, runBaseline),
+                            BorderBox = new SKRect(oldX, runBaseline - textHeight, oldX + textWidth, runBaseline),
+                            PaddingBox = new SKRect(oldX, runBaseline - textHeight, oldX + textWidth, runBaseline)
                         };
                         childElement.LayoutBox = inlineBox;
                         box.Children.Add(inlineBox);

@@ -19,6 +19,7 @@ public static class InlineElements
                 style.Display = DisplayType.Inline;
                 style.Color = SKColor.Parse("#0000EE");
                 style.TextDecoration = TextDecorationType.Underline;
+                style.TextDecorationColor = SKColor.Parse("#0000EE");
                 style.Cursor = "pointer";
                 break;
 

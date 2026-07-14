@@ -492,19 +492,22 @@ public class DrawTextOp : PaintOp
 
     private SKFont CreateFont(SKTypeface typeface)
     {
-        var fontStyle = Italic ? SKFontStyle.BoldItalic : SKFontStyle.Normal;
         var actualTypeface = typeface;
-        if (Italic && typeface != null)
+        if (typeface != null && (Italic || FontWeight == FontWeight.Bold))
         {
-            var italicStyle = new SKFontStyle(SKFontStyleWeight.Normal, SKFontStyleWidth.Normal, SKFontStyleSlant.Italic);
             var families = GetFontFamilies();
             var familyName = typeface.FamilyName;
             var index = Array.IndexOf(families, familyName);
             if (index >= 0)
             {
                 var styles = SKFontManager.Default.GetFontStyles(index);
-                var italicTf = styles.CreateTypeface(italicStyle);
-                if (italicTf != null) actualTypeface = italicTf;
+                SKFontStyleSlant slant = Italic ? SKFontStyleSlant.Italic : SKFontStyleSlant.Upright;
+                SKFontStyleWeight weight = FontWeight == FontWeight.Bold
+                    ? SKFontStyleWeight.Bold
+                    : SKFontStyleWeight.Normal;
+                var targetStyle = new SKFontStyle(weight, SKFontStyleWidth.Normal, slant);
+                var tf = styles.CreateTypeface(targetStyle);
+                if (tf != null) actualTypeface = tf;
             }
         }
         return new SKFont(actualTypeface, FontSize)
@@ -536,8 +539,10 @@ public class DrawTextOp : PaintOp
             var index = Array.IndexOf(families, fontName);
             if (index >= 0)
             {
-                var style = SKFontManager.Default.GetFontStyles(index);
-                var tf = style.CreateTypeface(0);
+                var styles = SKFontManager.Default.GetFontStyles(index);
+                int styleIdx = FontWeight == FontWeight.Bold ? 1 : 0;
+                if (styleIdx >= styles.Count) styleIdx = 0;
+                var tf = styles.CreateTypeface(styleIdx);
                 if (tf != null && tf.ContainsGlyph(codePoint))
                     return tf;
             }

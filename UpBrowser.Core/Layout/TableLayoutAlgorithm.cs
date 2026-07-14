@@ -13,6 +13,51 @@ public static class TableLayoutAlgorithm
         var rows = CollectRows(tableElement);
         if (rows.Count == 0) return;
 
+        Element? captionElement = null;
+        foreach (var child in tableElement.Children)
+        {
+            if (child is Element el && el.TagName == "CAPTION")
+            {
+                captionElement = el;
+                break;
+            }
+        }
+
+        float captionHeight = 0;
+        if (captionElement != null)
+        {
+            var captionStyle = captionElement.ComputedStyle;
+            if (captionStyle != null)
+            {
+                var captionBox = new LayoutBox
+                {
+                    ContentBox = new SKRect(box.ContentBox.Left, box.ContentBox.Top, box.ContentBox.Left + availableWidth, box.ContentBox.Top),
+                    BorderBox = new SKRect(box.ContentBox.Left, box.ContentBox.Top, box.ContentBox.Left + availableWidth, box.ContentBox.Top),
+                    PaddingBox = new SKRect(box.ContentBox.Left, box.ContentBox.Top, box.ContentBox.Left + availableWidth, box.ContentBox.Top),
+                    MarginBox = new SKRect(box.ContentBox.Left, box.ContentBox.Top, box.ContentBox.Left + availableWidth, box.ContentBox.Top)
+                };
+                box.Children.Add(captionBox);
+                captionBox.Parent = box;
+                captionElement.LayoutBox = captionBox;
+
+                float captionPadTop = captionStyle.PaddingTop.ToPixels(captionStyle.FontSize, 16, 0, 0);
+                float captionPadBottom = captionStyle.PaddingBottom.ToPixels(captionStyle.FontSize, 16, 0, 0);
+                float captionMarginTop = captionStyle.MarginTop.ToPixels(captionStyle.FontSize, 16, 0, 0);
+                float captionMarginBottom = captionStyle.MarginBottom.ToPixels(captionStyle.FontSize, 16, 0, 0);
+                float captionLineHeight = (captionStyle.LineHeight > 0 ? captionStyle.LineHeight : 1.2f) * captionStyle.FontSize;
+
+                captionHeight = captionMarginTop + captionPadTop + captionLineHeight + captionPadBottom + captionMarginBottom;
+
+                captionBox.MarginBox = new SKRect(box.ContentBox.Left, box.ContentBox.Top + captionMarginTop, box.ContentBox.Left + availableWidth, box.ContentBox.Top + captionHeight - captionMarginBottom);
+                captionBox.BorderBox = new SKRect(box.ContentBox.Left, captionBox.MarginBox.Top + captionMarginTop, box.ContentBox.Left + availableWidth, captionBox.MarginBox.Bottom - captionMarginBottom);
+                captionBox.PaddingBox = new SKRect(captionBox.BorderBox.Left + (captionStyle.BorderLeftWidth), captionBox.BorderBox.Top + (captionStyle.BorderTopWidth),
+                    captionBox.BorderBox.Right - (captionStyle.BorderRightWidth), captionBox.BorderBox.Bottom - (captionStyle.BorderBottomWidth));
+                captionBox.ContentBox = new SKRect(captionBox.PaddingBox.Left + captionPadTop, captionBox.PaddingBox.Top + captionPadTop,
+                    captionBox.PaddingBox.Right - captionPadBottom, captionBox.PaddingBox.Bottom - captionPadBottom);
+                captionBox.LineHeight = captionLineHeight;
+            }
+        }
+
         int colCount = 0;
         foreach (var row in rows)
         {
@@ -36,7 +81,7 @@ public static class TableLayoutAlgorithm
         else
             colWidths = CalculateAutoColumnWidths(rows, availableWidth, colCount);
 
-        float currentY = box.ContentBox.Top;
+        float currentY = box.ContentBox.Top + captionHeight;
 
         bool collapse = style?.BorderCollapse == true;
         float borderSpacing = collapse ? 0 : (style?.BorderSpacing ?? 0);

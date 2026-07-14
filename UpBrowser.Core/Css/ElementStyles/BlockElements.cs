@@ -24,43 +24,43 @@ public static class BlockElements
                 style.Display = DisplayType.Block;
                 style.FontSize = 32;
                 style.FontWeight = FontWeight.Bold;
-                style.MarginTop = new PixelLength(24);
-                style.MarginBottom = new PixelLength(16);
+                style.MarginTop = new PixelLength(21);
+                style.MarginBottom = new PixelLength(0);
                 break;
             case "h2":
                 style.Display = DisplayType.Block;
                 style.FontSize = 24;
                 style.FontWeight = FontWeight.Bold;
                 style.MarginTop = new PixelLength(20);
-                style.MarginBottom = new PixelLength(12);
+                style.MarginBottom = new PixelLength(0);
                 break;
             case "h3":
                 style.Display = DisplayType.Block;
                 style.FontSize = 20;
                 style.FontWeight = FontWeight.Bold;
-                style.MarginTop = new PixelLength(18);
-                style.MarginBottom = new PixelLength(10);
+                style.MarginTop = new PixelLength(20);
+                style.MarginBottom = new PixelLength(0);
                 break;
             case "h4":
                 style.Display = DisplayType.Block;
                 style.FontSize = 18;
                 style.FontWeight = FontWeight.Bold;
-                style.MarginTop = new PixelLength(16);
-                style.MarginBottom = new PixelLength(8);
+                style.MarginTop = new PixelLength(24);
+                style.MarginBottom = new PixelLength(0);
                 break;
             case "h5":
                 style.Display = DisplayType.Block;
                 style.FontSize = 16;
                 style.FontWeight = FontWeight.Bold;
-                style.MarginTop = new PixelLength(14);
-                style.MarginBottom = new PixelLength(6);
+                style.MarginTop = new PixelLength(27);
+                style.MarginBottom = new PixelLength(0);
                 break;
             case "h6":
                 style.Display = DisplayType.Block;
                 style.FontSize = 14;
                 style.FontWeight = FontWeight.Bold;
-                style.MarginTop = new PixelLength(12);
-                style.MarginBottom = new PixelLength(4);
+                style.MarginTop = new PixelLength(33);
+                style.MarginBottom = new PixelLength(0);
                 break;
 
             // 列表元素
@@ -75,6 +75,7 @@ public static class BlockElements
                 style.MarginTop = new PixelLength(16);
                 style.MarginBottom = new PixelLength(16);
                 style.PaddingLeft = new PixelLength(40);
+                style.ListStyleType = ListStyleType.Decimal;
                 break;
             case "li":
                 style.Display = DisplayType.ListItem;

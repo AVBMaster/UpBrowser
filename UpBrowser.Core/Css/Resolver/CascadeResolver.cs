@@ -446,6 +446,17 @@ public class CascadeResolver
                 {
                     _cascadeMap.Insert("padding", $"{cp}px", phPriority);
                 }
+                string? border = tableParent.GetAttribute("border");
+                if (int.TryParse(border, out int b) && b > 0)
+                {
+                    for (int i = 0; i < 4; i++)
+                    {
+                        string side = i switch { 0 => "top", 1 => "right", 2 => "bottom", 3 => "left" };
+                        _cascadeMap.Insert($"border-{side}-width", $"{b}px", phPriority);
+                        _cascadeMap.Insert($"border-{side}-style", "solid", phPriority);
+                        _cascadeMap.Insert($"border-{side}-color", "#000000", phPriority);
+                    }
+                }
             }
         }
     }
