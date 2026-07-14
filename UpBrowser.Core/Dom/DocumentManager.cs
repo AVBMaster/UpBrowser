@@ -241,8 +241,7 @@ public class DocumentManager
                 else if (child.NodeType == AngleSharp.Dom.NodeType.Text)
                 {
                     var text = NormalizeTextContent(child.TextContent ?? "");
-                    if (!string.IsNullOrWhiteSpace(text))
-                        htmlElement.AppendChild(new TextNode(text));
+                    htmlElement.AppendChild(new TextNode(text));
                 }
             }
             catch (Exception ex)
@@ -279,8 +278,7 @@ public class DocumentManager
                 else if (child.NodeType == AngleSharp.Dom.NodeType.Text)
                 {
                     var text = NormalizeTextContent(child.TextContent ?? "");
-                    if (!string.IsNullOrWhiteSpace(text))
-                        target.AppendChild(new TextNode(text));
+                    target.AppendChild(new TextNode(text));
                 }
             }
             catch (Exception ex)

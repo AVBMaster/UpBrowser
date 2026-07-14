@@ -1681,7 +1681,37 @@ public class LayoutEngine
             else if (child is TextNode textNode)
             {
                 var text = textNode.TextContent ?? "";
-                if (string.IsNullOrWhiteSpace(text)) continue;
+                if (string.IsNullOrWhiteSpace(text))
+                {
+                    if (currentLine != null && currentLine.Runs.Count > 0)
+                    {
+                        float spaceWidth = MeasureTextWidth(" ", style.FontSize, style.FontFamily, style.FontWeight);
+                        if (allowWrapping && currentX + spaceWidth > x + availableWidth - 0.01f && currentX > x)
+                        {
+                            currentLine.Height = maxHeightInLine;
+                            currentY += maxHeightInLine;
+                            baseline = currentY + lineHeight * 0.85f;
+                            currentX = x;
+                            maxHeightInLine = lineHeight;
+                            currentLine = new LineBox { Y = currentY, Baseline = baseline, Height = lineHeight };
+                            box.Lines.Add(currentLine);
+                        }
+                        currentLine.Runs.Add(new InlineRun
+                        {
+                            Text = " ",
+                            Width = spaceWidth,
+                            Height = lineHeight,
+                            IsText = true,
+                            Node = textNode,
+                            Color = style.Color,
+                            FontSize = style.FontSize,
+                            FontFamily = style.FontFamily,
+                            FontWeight = style.FontWeight
+                        });
+                        currentX += spaceWidth;
+                    }
+                    continue;
+                }
 
                 // 白空间处理：根据 white-space 模式处理文本
                 List<string> textSegments;

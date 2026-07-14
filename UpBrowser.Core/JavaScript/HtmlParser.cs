@@ -34,8 +34,7 @@ public static class HtmlParser
         if (node is AngleSharp.Dom.IText textNode)
         {
             var text = textNode.TextContent ?? "";
-            if (!string.IsNullOrWhiteSpace(text))
-                result.Add(new TextNode(text));
+            result.Add(new TextNode(text));
         }
         else if (node is AngleSharp.Dom.IElement element)
         {
