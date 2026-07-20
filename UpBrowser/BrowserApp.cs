@@ -2477,14 +2477,23 @@ public class BrowserApp : IDisposable
         return result;
     }
 
+    private const float HitToleranceY = 8f;      // hit area tolerance above/below line
+    private const float HitToleranceX = 4f;      // hit area tolerance left/right of run
+
     private void HitTestTextPositionRecursive(Core.Dom.Element? element, float dlX, float dlY, ref SelPoint result)
     {
         if (element == null) return;
         var box = element.LayoutBox;
         if (box != null)
         {
-            // Check Lines-based layout
-            if (box.Lines != null && box.Lines.Count > 0)
+            // Viewport culling: skip element if its content box is far from hit point
+            float boxTop = box.ContentBox.Top + _contentOffset;
+            float boxBottom = boxTop + box.ContentBox.Height;
+
+            // Only check Lines/LineRuns if hit point is within element's Y range (with large tolerance)
+            bool boxInRange = dlY >= boxTop - HitToleranceY * 4 && dlY < boxBottom + HitToleranceY * 4;
+
+            if (boxInRange && box.Lines != null && box.Lines.Count > 0)
             {
                 float boxLeft = box.ContentBox.Left;
                 Core.Dom.TextNode? lastTextNode = null;
@@ -2493,7 +2502,8 @@ public class BrowserApp : IDisposable
                 {
                     float lineTop = line.Y + _contentOffset;
                     float lineBottom = lineTop + line.Height;
-                    bool lineMatches = dlY >= lineTop && dlY < lineBottom;
+                    bool lineMatches = dlY >= lineTop - HitToleranceY && dlY < lineBottom + HitToleranceY;
+                    if (!lineMatches) continue;
                     float runX = boxLeft + line.TextAlignOffsetX;
                     foreach (var run in line.Runs)
                     {
@@ -2511,9 +2521,10 @@ public class BrowserApp : IDisposable
                             lastTextNode = tn;
                         }
 
-                        if (lineMatches && (dlX < runX + run.Width || run == line.Runs[^1]))
+                        if (dlX < runX + run.Width + HitToleranceX || run == line.Runs[^1])
                         {
-                            int localOffset = GetCharOffsetAtX(run, run.Text ?? "", dlX - runX);
+                            float localX = Math.Max(0, dlX - runX);
+                            int localOffset = GetCharOffsetAtX(run, run.Text ?? "", localX);
                             result = new SelPoint { Node = tn, Offset = runCharOffset + localOffset };
                             return;
                         }
@@ -2521,17 +2532,18 @@ public class BrowserApp : IDisposable
                         runCharOffset += (run.Text ?? "").Length;
                         runX += run.Width;
                     }
+                    // Not found in this line's runs, continue to next line
                 }
             }
-            // Check LineRuns-based layout
-            if (box.LineRuns != null && box.LineRuns.Count > 0)
+
+            if (boxInRange && box.LineRuns != null && box.LineRuns.Count > 0)
             {
                 float boxTopLR = box.ContentBox.Top + _contentOffset;
                 float x = box.ContentBox.Left;
                 float lineHeight = 0;
                 foreach (var run in box.LineRuns) lineHeight = Math.Max(lineHeight, run.Height);
                 if (lineHeight <= 0) lineHeight = box.ContentBox.Height;
-                if (dlY >= boxTopLR && dlY < boxTopLR + lineHeight)
+                if (dlY >= boxTopLR - HitToleranceY && dlY < boxTopLR + lineHeight + HitToleranceY)
                 {
                     Core.Dom.TextNode? lastTextNode = null;
                     int runCharOffset = 0;
@@ -2551,9 +2563,10 @@ public class BrowserApp : IDisposable
                             lastTextNode = tn;
                         }
 
-                        if (dlX < x + run.Width || run == box.LineRuns[^1])
+                        if (dlX < x + run.Width + HitToleranceX || run == box.LineRuns[^1])
                         {
-                            int localOffset = GetCharOffsetAtX(run, run.Text ?? "", dlX - x);
+                            float localX = Math.Max(0, dlX - x);
+                            int localOffset = GetCharOffsetAtX(run, run.Text ?? "", localX);
                             result = new SelPoint { Node = tn, Offset = runCharOffset + localOffset };
                             return;
                         }
@@ -2564,6 +2577,9 @@ public class BrowserApp : IDisposable
                 }
             }
         }
+
+        // Only recurse into children if the hit point could be within this element's area
+        // (avoid walking entire DOM tree for every mouse move)
         foreach (var child in element.Children.OfType<Core.Dom.Element>())
         {
             HitTestTextPositionRecursive(child, dlX, dlY, ref result);
@@ -2580,18 +2596,29 @@ public class BrowserApp : IDisposable
         string fontFamily = run.FontFamily ?? "Arial";
         var weight = run.FontWeight;
 
-        // Binary search for the character at localX within this run's text
-        int lo = 0, hi = runText.Length;
+        // Precompute per-character cumulative widths in one pass,
+        // then binary search on the cached array.
+        // This avoids O(log n) expensive MeasureText calls and substring allocations.
+        int len = runText.Length;
+        float[] cumWidths = new float[len];
+        float acc = 0;
+        for (int i = 0; i < len; i++)
+        {
+            string chStr = runText[i].ToString();
+            float cw;
+            if (TextMeasurer.Instance != null)
+                cw = TextMeasurer.Instance.MeasureText(chStr, fontFamily, fontSize, weight);
+            else
+                cw = fontSize * 0.45f;
+            acc += cw;
+            cumWidths[i] = acc;
+        }
+
+        int lo = 0, hi = len;
         while (lo < hi)
         {
             int mid = (lo + hi + 1) / 2;
-            string sub = runText[..mid];
-            float w;
-            if (TextMeasurer.Instance != null)
-                w = TextMeasurer.Instance.MeasureText(sub, fontFamily, fontSize, weight);
-            else
-                w = mid * fontSize * 0.45f;
-            if (w <= localX) lo = mid;
+            if (cumWidths[mid - 1] <= localX) lo = mid;
             else hi = mid - 1;
         }
         return lo;
