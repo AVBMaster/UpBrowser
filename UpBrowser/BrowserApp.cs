@@ -2487,26 +2487,39 @@ public class BrowserApp : IDisposable
             if (box.Lines != null && box.Lines.Count > 0)
             {
                 float boxLeft = box.ContentBox.Left;
+                Core.Dom.TextNode? lastTextNode = null;
+                int runCharOffset = 0;
                 foreach (var line in box.Lines)
                 {
                     float lineTop = line.Y + _contentOffset;
                     float lineBottom = lineTop + line.Height;
-                    if (dlY >= lineTop && dlY < lineBottom)
+                    bool lineMatches = dlY >= lineTop && dlY < lineBottom;
+                    float runX = boxLeft + line.TextAlignOffsetX;
+                    foreach (var run in line.Runs)
                     {
-                        float runX = boxLeft + line.TextAlignOffsetX;
-                        foreach (var run in line.Runs)
+                        if (!run.IsText || run.Node is not Core.Dom.TextNode tn)
                         {
-                            if (!run.IsText || run.Node is not Core.Dom.TextNode tn) { runX += run.Width; continue; }
-                            float runRight = runX + run.Width;
-                            if (dlX < runRight || run == line.Runs[^1])
-                            {
-                                // Found the run. Calculate character offset.
-                                int offset = GetCharOffsetAtX(run, tn.TextContent ?? "", dlX - runX);
-                                result = new SelPoint { Node = tn, Offset = offset };
-                                return;
-                            }
+                            lastTextNode = null;
+                            runCharOffset = 0;
                             runX += run.Width;
+                            continue;
                         }
+
+                        if (tn != lastTextNode)
+                        {
+                            runCharOffset = 0;
+                            lastTextNode = tn;
+                        }
+
+                        if (lineMatches && (dlX < runX + run.Width || run == line.Runs[^1]))
+                        {
+                            int localOffset = GetCharOffsetAtX(run, run.Text ?? "", dlX - runX);
+                            result = new SelPoint { Node = tn, Offset = runCharOffset + localOffset };
+                            return;
+                        }
+
+                        runCharOffset += (run.Text ?? "").Length;
+                        runX += run.Width;
                     }
                 }
             }
@@ -2520,16 +2533,32 @@ public class BrowserApp : IDisposable
                 if (lineHeight <= 0) lineHeight = box.ContentBox.Height;
                 if (dlY >= boxTopLR && dlY < boxTopLR + lineHeight)
                 {
+                    Core.Dom.TextNode? lastTextNode = null;
+                    int runCharOffset = 0;
                     foreach (var run in box.LineRuns)
                     {
-                        if (!run.IsText || run.Node is not Core.Dom.TextNode tn) { x += run.Width; continue; }
-                        float runRight = x + run.Width;
-                        if (dlX < runRight || run == box.LineRuns[^1])
+                        if (!run.IsText || run.Node is not Core.Dom.TextNode tn)
                         {
-                            int offset = GetCharOffsetAtX(run, tn.TextContent ?? "", dlX - x);
-                            result = new SelPoint { Node = tn, Offset = offset };
+                            lastTextNode = null;
+                            runCharOffset = 0;
+                            x += run.Width;
+                            continue;
+                        }
+
+                        if (tn != lastTextNode)
+                        {
+                            runCharOffset = 0;
+                            lastTextNode = tn;
+                        }
+
+                        if (dlX < x + run.Width || run == box.LineRuns[^1])
+                        {
+                            int localOffset = GetCharOffsetAtX(run, run.Text ?? "", dlX - x);
+                            result = new SelPoint { Node = tn, Offset = runCharOffset + localOffset };
                             return;
                         }
+
+                        runCharOffset += (run.Text ?? "").Length;
                         x += run.Width;
                     }
                 }
@@ -2542,21 +2571,21 @@ public class BrowserApp : IDisposable
         }
     }
 
-    private static int GetCharOffsetAtX(Core.Dom.InlineRun run, string text, float localX)
+    private static int GetCharOffsetAtX(Core.Dom.InlineRun run, string runText, float localX)
     {
-        if (string.IsNullOrEmpty(text) || localX <= 0) return 0;
-        if (localX >= run.Width) return text.Length;
+        if (string.IsNullOrEmpty(runText) || localX <= 0) return 0;
+        if (localX >= run.Width) return runText.Length;
 
         float fontSize = run.FontSize ?? 16;
         string fontFamily = run.FontFamily ?? "Arial";
         var weight = run.FontWeight;
 
-        // Binary search for the character at localX
-        int lo = 0, hi = text.Length;
+        // Binary search for the character at localX within this run's text
+        int lo = 0, hi = runText.Length;
         while (lo < hi)
         {
             int mid = (lo + hi + 1) / 2;
-            string sub = text[..mid];
+            string sub = runText[..mid];
             float w;
             if (TextMeasurer.Instance != null)
                 w = TextMeasurer.Instance.MeasureText(sub, fontFamily, fontSize, weight);
