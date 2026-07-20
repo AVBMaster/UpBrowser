@@ -292,9 +292,13 @@ public class PaintVisitor
                 }
             }
 
-            DrawElementBackground(element, layoutBox, style, offsetBorderBox);
-            DrawElementBorder(element, layoutBox, style, offsetBorderBox);
-            DrawElementOutline(element, layoutBox, style, offsetBorderBox);
+            bool isInline = style.Display == DisplayType.Inline;
+            if (!isInline && !isVisibilityHidden)
+            {
+                DrawElementBackground(element, layoutBox, style, offsetBorderBox);
+                DrawElementBorder(element, layoutBox, style, offsetBorderBox);
+                DrawElementOutline(element, layoutBox, style, offsetBorderBox);
+            }
 
             if (element.TagName.Equals("HR", StringComparison.OrdinalIgnoreCase))
             {
@@ -396,6 +400,9 @@ public class PaintVisitor
                 stickyOp.Bounds = offsetBorderBox;
                 _displayList.Add(stickyOp);
             }
+
+            if (!isInline)
+                DrawInlineChildrenDecorations(element);
 
             DrawElementContent(element, layoutBox, style);
 
@@ -937,6 +944,32 @@ public class PaintVisitor
             op.BorderLeftColor = style.OutlineColor;
             op.Bounds = outlineRect;
             _displayList.Add(op);
+        }
+    }
+
+    private void DrawInlineChildrenDecorations(Element element)
+    {
+        foreach (var child in element.Children)
+        {
+            if (child is Element childElement && childElement.LayoutBox != null &&
+                childElement.ComputedStyle?.Display == DisplayType.Inline)
+            {
+                var childBox = childElement.LayoutBox;
+                var childStyle = childElement.ComputedStyle;
+                var childBorderRect = new SKRect(
+                    childBox.BorderBox.Left,
+                    childBox.BorderBox.Top + TotalOffsetY,
+                    childBox.BorderBox.Right,
+                    childBox.BorderBox.Bottom + TotalOffsetY);
+
+                bool childVisHidden = childStyle.Visibility == VisibilityType.Hidden;
+                if (!childVisHidden)
+                {
+                    DrawElementBackground(childElement, childBox, childStyle, childBorderRect);
+                    DrawElementBorder(childElement, childBox, childStyle, childBorderRect);
+                    DrawElementOutline(childElement, childBox, childStyle, childBorderRect);
+                }
+            }
         }
     }
 

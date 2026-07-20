@@ -49,6 +49,7 @@ public static class InlineElements
             case "del":
                 style.Display = DisplayType.Inline;
                 style.TextDecoration = TextDecorationType.LineThrough;
+                style.TextDecorationLine = TextDecorationLineType.LineThrough;
                 break;
 
             // 代码相关
@@ -56,22 +57,12 @@ public static class InlineElements
                 style.Display = DisplayType.Inline;
                 style.FontFamily = "monospace";
                 style.FontSize = 14;
-                style.BackgroundColor = SKColor.Parse("#F5F5F5");
-                style.PaddingTop = new PixelLength(2);
-                style.PaddingBottom = new PixelLength(2);
-                style.PaddingLeft = new PixelLength(4);
-                style.PaddingRight = new PixelLength(4);
-                style.BorderTopLeftRadius = 3;
-                style.BorderTopRightRadius = 3;
-                style.BorderBottomLeftRadius = 3;
-                style.BorderBottomRightRadius = 3;
                 break;
 
             case "kbd":
                 style.Display = DisplayType.Inline;
                 style.FontFamily = "monospace";
                 style.FontSize = 14;
-                style.BackgroundColor = SKColor.Parse("#F5F5F5");
                 style.BorderTopWidth = 1;
                 style.BorderBottomWidth = 1;
                 style.BorderLeftWidth = 1;

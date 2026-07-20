@@ -485,7 +485,13 @@ public class CascadeResolver
         if (style.BorderCollapse != def.BorderCollapse) props["border-collapse"] = style.BorderCollapse ? "collapse" : "separate";
         if (!string.IsNullOrEmpty(style.BackgroundImage)) props["background-image"] = style.BackgroundImage;
         if (style.TextAlign != def.TextAlign) props["text-align"] = style.TextAlign.ToString().ToLowerInvariant();
-        if (style.TextDecoration != def.TextDecoration) props["text-decoration"] = style.TextDecoration.ToString().ToLowerInvariant();
+        if (style.TextDecoration != def.TextDecoration) props["text-decoration"] = style.TextDecoration switch
+            {
+                TextDecorationType.LineThrough => "line-through",
+                TextDecorationType.Underline => "underline",
+                TextDecorationType.Overline => "overline",
+                _ => "none"
+            };
         if (style.VerticalAlign != def.VerticalAlign) props["vertical-align"] = style.VerticalAlign.ToString().ToLowerInvariant();
         if (style.Overflow != def.Overflow) props["overflow"] = style.Overflow.ToString().ToLowerInvariant();
         if (style.Position != def.Position) props["position"] = style.Position.ToString().ToLowerInvariant();
