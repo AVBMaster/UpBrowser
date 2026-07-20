@@ -89,11 +89,16 @@ public class BrowserApp : IDisposable
     private readonly PageInputImeHost _pageInputImeHost;
     private const float ScrollbarDragThreshold = 5;
 
-    // Text selection support
+    // Text selection support (node+offset based for character-level precision)
+    private struct SelPoint
+    {
+        public Core.Dom.TextNode? Node;
+        public int Offset;
+    }
     private bool _isSelecting;
-    private SKPoint _selectionStart;
-    private SKPoint _selectionEnd;
     private bool _hasSelection;
+    private SelPoint _selAnchor;
+    private SelPoint _selFocus;
 
     public BrowserApp(int logicalWidth, int logicalHeight)
     {
@@ -402,6 +407,12 @@ public class BrowserApp : IDisposable
         _eventLoop.Start();
 
         _input.WireEvents();
+
+        // Clear selection state when window loses focus
+        _window.OnKillFocus = () =>
+        {
+            _isSelecting = false;
+        };
     }
 
     private string? ShowDialog(string message, string? type)
@@ -1184,9 +1195,9 @@ public class BrowserApp : IDisposable
 
         _cachedPaintVisitor = new PaintVisitor(_contentOffset, _sharedTypefaceCache, _sharedImageCache, _fontFamilies, _currentBaseUrl);
         _cachedPaintVisitor.SetFocusedElement(_focusedElement);
-        if (_hasSelection)
+        if (_hasSelection && _selAnchor.Node != null && _selFocus.Node != null)
         {
-            _cachedPaintVisitor.SetSelectionRange(_selectionStart, _selectionEnd);
+            _cachedPaintVisitor.SetSelectionRange(_selAnchor.Node, _selAnchor.Offset, _selFocus.Node, _selFocus.Offset);
         }
         _cachedPaintVisitor.VisitDocument(_currentLoad.Document);
         _displayList = _cachedPaintVisitor.GetDisplayList();
@@ -1691,6 +1702,7 @@ public class BrowserApp : IDisposable
             // Dispatch focus/blur when focused element changes
             if (element.IsFormElement)
             {
+                _isSelecting = false;
                 if (_focusedElement != element)
                 {
                     if (_focusedElement != null)
@@ -1703,6 +1715,7 @@ public class BrowserApp : IDisposable
             }
             else
             {
+                _isSelecting = false;
                 if (_focusedElement != null)
                 {
                     _jsEngine.DispatchEvent(_focusedElement, "blur");
@@ -1713,11 +1726,13 @@ public class BrowserApp : IDisposable
                 if (shouldProceed && !IsInteractiveElement(element))
                 {
                     _isSelecting = true;
-                    // Selection coordinates in display-list space (window coords at scroll=0):
-                    // DL_X = x + scrollX, DL_Y = y + scrollY
-                    _selectionStart = new SKPoint(x + _scroll.ScrollX, y + _scroll.ScrollY);
-                    _selectionEnd = _selectionStart;
                     _hasSelection = false;
+                    // Hit-test the exact text node and character offset at click position
+                    float dlX = x + _scroll.ScrollX;
+                    float dlY = y + _scroll.ScrollY;
+                    var pt = HitTestTextPosition(_currentLoad.Document, dlX, dlY);
+                    _selAnchor = pt;
+                    _selFocus = pt;
                 }
                 else
                 {
@@ -1957,9 +1972,19 @@ public class BrowserApp : IDisposable
         // Update text selection during drag
         if (_isSelecting)
         {
-            _selectionEnd = new SKPoint(x + _scroll.ScrollX, y + _scroll.ScrollY);
-            _hasSelection = true;
-            _input.NeedsRedraw = true;
+            float dlX = x + _scroll.ScrollX;
+            float dlY = y + _scroll.ScrollY;
+            var pt = HitTestTextPosition(_currentLoad.Document, dlX, dlY);
+            if (pt.Node != null)
+            {
+                // Only redraw if selection actually changed
+                if (pt.Node != _selFocus.Node || pt.Offset != _selFocus.Offset)
+                {
+                    _selFocus = pt;
+                    _hasSelection = true;
+                    _input.NeedsRedraw = true;
+                }
+            }
         }
 
         // Track hovered element for mouseover/mouseout
@@ -2041,44 +2066,147 @@ public class BrowserApp : IDisposable
     public string GetSelectedText()
     {
         if (!_hasSelection || _currentLoad == null) return "";
-
-        float minX = Math.Min(_selectionStart.X, _selectionEnd.X);
-        float minY = Math.Min(_selectionStart.Y, _selectionEnd.Y);
-        float maxX = Math.Max(_selectionStart.X, _selectionEnd.X);
-        float maxY = Math.Max(_selectionStart.Y, _selectionEnd.Y);
-        var selRect = new SKRect(minX, minY, maxX, maxY);
+        if (_selAnchor.Node == null || _selFocus.Node == null) return "";
 
         var sb = new System.Text.StringBuilder();
-        CollectSelectedText(_currentLoad.Document.DocumentElement, selRect, sb);
+        CollectSelectedTextRange(_selAnchor.Node, _selAnchor.Offset, _selFocus.Node, _selFocus.Offset, sb);
         return sb.ToString();
     }
 
-    private static void CollectSelectedText(Core.Dom.Element? element, SKRect selRect, System.Text.StringBuilder sb)
+    private static void CollectSelectedTextRange(Core.Dom.TextNode startNode, int startOff,
+        Core.Dom.TextNode endNode, int endOff, System.Text.StringBuilder sb)
     {
-        if (element == null) return;
-        var box = element.LayoutBox;
-        if (box != null)
+        // Normalize: ensure start is before end in DOM order
+        int cmp = CompareDomPosition(startNode, endNode);
+        if (cmp > 0)
         {
-            var contentRect = new SKRect(box.ContentBox.Left, box.ContentBox.Top,
-                                          box.ContentBox.Right, box.ContentBox.Bottom);
-            if (contentRect.IntersectsWith(selRect))
+            (startNode, endNode) = (endNode, startNode);
+            (startOff, endOff) = (endOff, startOff);
+        }
+        else if (cmp == 0)
+        {
+            // Same node
+            int lo = Math.Min(startOff, endOff);
+            int hi = Math.Max(startOff, endOff);
+            var text = startNode.TextContent ?? "";
+            if (lo < 0) lo = 0;
+            if (hi > text.Length) hi = text.Length;
+            if (lo < hi)
+                sb.Append(text.AsSpan(lo, hi - lo));
+            return;
+        }
+
+        // Different nodes: collect from start node to its end,
+        // then all text nodes between them in DOM order, then from beginning of end node
+        var startText = startNode.TextContent ?? "";
+        if (startOff < startText.Length)
+            sb.Append(startText.AsSpan(startOff));
+
+        CollectTextBetween(startNode, endNode, sb);
+
+        var endText = endNode.TextContent ?? "";
+        if (endOff > 0 && endOff <= endText.Length)
+            sb.Append(endText.AsSpan(0, endOff));
+    }
+
+    private static void CollectTextBetween(Core.Dom.Node startNode, Core.Dom.Node endNode, System.Text.StringBuilder sb)
+    {
+        // Find common ancestor by building ancestor paths
+        var startPath = new List<Core.Dom.Node>();
+        var n = startNode;
+        while (n != null) { startPath.Add(n); n = n.ParentNode; }
+
+        var endPath = new List<Core.Dom.Node>();
+        n = endNode;
+        while (n != null) { endPath.Add(n); n = n.ParentNode; }
+
+        startPath.Reverse();
+        endPath.Reverse();
+
+        int depth = Math.Min(startPath.Count, endPath.Count);
+        Core.Dom.Node? commonAncestor = null;
+        for (int i = 0; i < depth; i++)
+        {
+            if (startPath[i] == endPath[i])
+                commonAncestor = startPath[i];
+            else
+                break;
+        }
+
+        if (commonAncestor == null) return;
+
+        // DFS from common ancestor, collecting text between startNode and endNode
+        bool collecting = false;
+        CollectTextBetweenRecursive(commonAncestor, startNode, endNode, ref collecting, sb);
+    }
+
+    private static bool CollectTextBetweenRecursive(Core.Dom.Node current, Core.Dom.Node startNode, Core.Dom.Node endNode,
+        ref bool collecting, System.Text.StringBuilder sb)
+    {
+        foreach (var child in current.Children)
+        {
+            if (child == endNode)
+                return true;
+
+            if (!collecting)
             {
-                // Collect text from child text nodes
-                foreach (var child in element.Children)
+                if (child == startNode)
                 {
-                    if (child is Core.Dom.TextNode textNode && textNode.TextContent != null)
-                    {
-                        if (sb.Length > 0 && !char.IsWhiteSpace(sb[^1]))
-                            sb.Append(' ');
-                        sb.Append(textNode.TextContent);
-                    }
+                    collecting = true;
+                    continue;
                 }
+                if (child is Core.Dom.Element el)
+                {
+                    if (CollectTextBetweenRecursive(el, startNode, endNode, ref collecting, sb))
+                        return true;
+                }
+                continue;
+            }
+
+            if (child is Core.Dom.TextNode tn)
+            {
+                var text = tn.TextContent;
+                if (!string.IsNullOrEmpty(text))
+                    sb.Append(text);
+            }
+            else if (child is Core.Dom.Element el)
+            {
+                if (CollectTextBetweenRecursive(el, startNode, endNode, ref collecting, sb))
+                    return true;
             }
         }
-        foreach (var child in element.Children.OfType<Core.Dom.Element>())
+        return false;
+    }
+
+    private static int CompareDomPosition(Core.Dom.Node a, Core.Dom.Node b)
+    {
+        if (a == b) return 0;
+        // Walk ancestors to find common ancestor and compare position
+        var aPath = new List<Core.Dom.Node>();
+        var bPath = new List<Core.Dom.Node>();
+        var cur = a;
+        while (cur != null) { aPath.Add(cur); cur = cur.ParentNode; }
+        cur = b;
+        while (cur != null) { bPath.Add(cur); cur = cur.ParentNode; }
+        aPath.Reverse();
+        bPath.Reverse();
+        int depth = Math.Min(aPath.Count, bPath.Count);
+        for (int i = 0; i < depth; i++)
         {
-            CollectSelectedText(child, selRect, sb);
+            if (aPath[i] != bPath[i])
+            {
+                // Find sibling index
+                var parent = aPath[i].ParentNode;
+                if (parent != null)
+                {
+                    int ai = parent.Children.IndexOf((Core.Dom.Node)aPath[i]);
+                    int bi = parent.Children.IndexOf((Core.Dom.Node)bPath[i]);
+                    return ai.CompareTo(bi);
+                }
+                return 0;
+            }
         }
+        return aPath.Count.CompareTo(bPath.Count);
     }
 
     private static string KeyToJsKey(char charCode, Key key)
@@ -2240,9 +2368,40 @@ public class BrowserApp : IDisposable
     private void PerformSelectAll()
     {
         if (_chrome.IsUrlBarFocused())
+        {
             _chrome.SelectAllInUrlBar();
+        }
         else if (_devTools.Visible)
+        {
             _devTools.SelectAllInActiveTab();
+        }
+        else if (_currentLoad?.Document != null)
+        {
+            // Select all text on the page: find first and last text nodes
+            Core.Dom.TextNode? firstText = null;
+            Core.Dom.TextNode? lastText = null;
+            FindFirstLastTextNodes(_currentLoad.Document.DocumentElement ?? _currentLoad.Document.Body, ref firstText, ref lastText);
+            if (firstText != null && lastText != null)
+            {
+                _selAnchor = new SelPoint { Node = firstText, Offset = 0 };
+                _selFocus = new SelPoint { Node = lastText, Offset = (lastText.TextContent ?? "").Length };
+                _hasSelection = true;
+                _isSelecting = false;
+                _input.NeedsRedraw = true;
+            }
+        }
+    }
+
+    private static void FindFirstLastTextNodes(Core.Dom.Node? node, ref Core.Dom.TextNode? first, ref Core.Dom.TextNode? last)
+    {
+        if (node == null) return;
+        if (node is Core.Dom.TextNode tn)
+        {
+            first ??= tn;
+            last = tn;
+        }
+        foreach (var child in node.Children)
+            FindFirstLastTextNodes(child, ref first, ref last);
     }
 
     public void InjectImeChar(char c)
@@ -2307,6 +2466,106 @@ public class BrowserApp : IDisposable
 
         foreach (var child in element.Children.OfType<UpBrowser.Core.Dom.Element>())
             HitTestElement(child, x, y, ref result, ref lastZ);
+    }
+
+    private SelPoint HitTestTextPosition(Core.Dom.Document doc, float dlX, float dlY)
+    {
+        var result = new SelPoint { Node = null, Offset = 0 };
+        HitTestTextPositionRecursive(doc.DocumentElement ?? doc.Body, dlX, dlY, ref result);
+        if (result.Node == null)
+            HitTestTextPositionRecursive(doc.Body, dlX, dlY, ref result);
+        return result;
+    }
+
+    private void HitTestTextPositionRecursive(Core.Dom.Element? element, float dlX, float dlY, ref SelPoint result)
+    {
+        if (element == null) return;
+        var box = element.LayoutBox;
+        if (box != null)
+        {
+            // Check Lines-based layout
+            if (box.Lines != null && box.Lines.Count > 0)
+            {
+                float boxLeft = box.ContentBox.Left;
+                foreach (var line in box.Lines)
+                {
+                    float lineTop = line.Y + _contentOffset;
+                    float lineBottom = lineTop + line.Height;
+                    if (dlY >= lineTop && dlY < lineBottom)
+                    {
+                        float runX = boxLeft + line.TextAlignOffsetX;
+                        foreach (var run in line.Runs)
+                        {
+                            if (!run.IsText || run.Node is not Core.Dom.TextNode tn) { runX += run.Width; continue; }
+                            float runRight = runX + run.Width;
+                            if (dlX < runRight || run == line.Runs[^1])
+                            {
+                                // Found the run. Calculate character offset.
+                                int offset = GetCharOffsetAtX(run, tn.TextContent ?? "", dlX - runX);
+                                result = new SelPoint { Node = tn, Offset = offset };
+                                return;
+                            }
+                            runX += run.Width;
+                        }
+                    }
+                }
+            }
+            // Check LineRuns-based layout
+            if (box.LineRuns != null && box.LineRuns.Count > 0)
+            {
+                float boxTopLR = box.ContentBox.Top + _contentOffset;
+                float x = box.ContentBox.Left;
+                float lineHeight = 0;
+                foreach (var run in box.LineRuns) lineHeight = Math.Max(lineHeight, run.Height);
+                if (lineHeight <= 0) lineHeight = box.ContentBox.Height;
+                if (dlY >= boxTopLR && dlY < boxTopLR + lineHeight)
+                {
+                    foreach (var run in box.LineRuns)
+                    {
+                        if (!run.IsText || run.Node is not Core.Dom.TextNode tn) { x += run.Width; continue; }
+                        float runRight = x + run.Width;
+                        if (dlX < runRight || run == box.LineRuns[^1])
+                        {
+                            int offset = GetCharOffsetAtX(run, tn.TextContent ?? "", dlX - x);
+                            result = new SelPoint { Node = tn, Offset = offset };
+                            return;
+                        }
+                        x += run.Width;
+                    }
+                }
+            }
+        }
+        foreach (var child in element.Children.OfType<Core.Dom.Element>())
+        {
+            HitTestTextPositionRecursive(child, dlX, dlY, ref result);
+            if (result.Node != null) return;
+        }
+    }
+
+    private static int GetCharOffsetAtX(Core.Dom.InlineRun run, string text, float localX)
+    {
+        if (string.IsNullOrEmpty(text) || localX <= 0) return 0;
+        if (localX >= run.Width) return text.Length;
+
+        float fontSize = run.FontSize ?? 16;
+        string fontFamily = run.FontFamily ?? "Arial";
+        var weight = run.FontWeight;
+
+        // Binary search for the character at localX
+        int lo = 0, hi = text.Length;
+        while (lo < hi)
+        {
+            int mid = (lo + hi + 1) / 2;
+            string sub = text[..mid];
+            float w;
+            if (TextMeasurer.Instance != null)
+                w = TextMeasurer.Instance.MeasureText(sub, fontFamily, fontSize, weight);
+            else
+                w = mid * fontSize * 0.45f;
+            if (w <= localX) lo = mid;
+            else hi = mid - 1;
+        }
+        return lo;
     }
 
     public void Dispose()

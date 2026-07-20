@@ -18,8 +18,12 @@ public class PaintVisitor
     private string[]? _fontFamilies;
     private string? _baseUrl;
     private Core.Dom.Element? _focusedElement;
-    private SKPoint? _selAnchor;
-    private SKPoint? _selFocus;
+    private Core.Dom.TextNode? _selAnchorNode;
+    private int _selAnchorOffset;
+    private Core.Dom.TextNode? _selFocusNode;
+    private int _selFocusOffset;
+    private bool _hasSelection;
+    private bool _selStartIsAnchor;
 
     public PaintVisitor(float contentOffsetY = 0,
         Dictionary<string, SKTypeface>? sharedTypefaceCache = null,
@@ -36,49 +40,144 @@ public class PaintVisitor
     }
 
     public void SetFocusedElement(Core.Dom.Element? element) => _focusedElement = element;
-    public void SetSelectionRange(SKPoint anchor, SKPoint focus) { _selAnchor = anchor; _selFocus = focus; }
-
-    private SKRect? GetSelHighlight(SKRect textBounds)
+    public void SetSelectionRange(Core.Dom.TextNode? anchorNode, int anchorOffset, Core.Dom.TextNode? focusNode, int focusOffset)
     {
-        if (_selAnchor == null || _selFocus == null) return null;
-        var a = _selAnchor.Value;
-        var f = _selFocus.Value;
-
-        // Normalize to Range: start = earlier point (smaller Y, or same Y + smaller X)
-        bool startIsAnchor = a.Y < f.Y || (a.Y == f.Y && a.X < f.X);
-        var start = startIsAnchor ? a : f;
-        var end = startIsAnchor ? f : a;
-
-        float minY = start.Y;
-        float maxY = end.Y;
-
-        if (textBounds.Bottom <= minY || textBounds.Top >= maxY) return null;
-
-        bool onStartLine = textBounds.Top <= start.Y && start.Y < textBounds.Bottom;
-        bool onEndLine = textBounds.Top <= end.Y && end.Y < textBounds.Bottom;
-
-        // Single-line: same normalized rect regardless of direction
-        if (onStartLine && onEndLine)
+        _selAnchorNode = anchorNode;
+        _selAnchorOffset = anchorOffset;
+        _selFocusNode = focusNode;
+        _selFocusOffset = focusOffset;
+        _hasSelection = anchorNode != null && focusNode != null;
+        if (_hasSelection)
         {
-            var intersect = SKRect.Intersect(textBounds, new SKRect(start.X, minY, end.X, maxY));
-            return intersect.Width > 0 && intersect.Height > 0 ? intersect : null;
+            int cmp = CompareDomPosition(anchorNode!, focusNode!);
+            _selStartIsAnchor = cmp <= 0;
+        }
+    }
+
+    private SKRect? GetSelHighlight(Core.Dom.TextNode? runNode, string runText, SKRect runBounds,
+        float fontSize, string fontFamily, Core.Dom.FontWeight fontWeight, int runStartOffset = 0)
+    {
+        if (!_hasSelection || runNode == null) return null;
+
+        int startOff, endOff;
+
+        if (_selAnchorNode == _selFocusNode)
+        {
+            if (runNode != _selAnchorNode) return null;
+            startOff = Math.Min(_selAnchorOffset, _selFocusOffset);
+            endOff = Math.Max(_selAnchorOffset, _selFocusOffset);
+        }
+        else
+        {
+            Core.Dom.TextNode? startNode, endNode;
+            if (_selStartIsAnchor)
+            {
+                startNode = _selAnchorNode;
+                startOff = _selAnchorOffset;
+                endNode = _selFocusNode;
+                endOff = _selFocusOffset;
+            }
+            else
+            {
+                startNode = _selFocusNode;
+                startOff = _selFocusOffset;
+                endNode = _selAnchorNode;
+                endOff = _selAnchorOffset;
+            }
+
+            if (runNode == startNode)
+            {
+                int localStart = Math.Max(0, startOff - runStartOffset);
+                if (localStart >= runText.Length) return null;
+                return GetSubRunBounds(runText, runBounds, localStart, runText.Length, fontSize, fontFamily, fontWeight);
+            }
+            if (runNode == endNode)
+            {
+                int localEnd = Math.Max(0, Math.Min(runText.Length, endOff - runStartOffset));
+                if (localEnd <= 0) return null;
+                return GetSubRunBounds(runText, runBounds, 0, localEnd, fontSize, fontFamily, fontWeight);
+            }
+            if (IsNodeBetween(runNode, startNode, endNode))
+                return runBounds;
+            return null;
         }
 
-        // Multi-line Range:
-        //   Start line: start.X → right edge
-        //   Middle:     full line
-        //   End line:   left edge → end.X
-        if (onStartLine)
+        // Single-node: convert global offsets to local offsets for this run
+        int snLocalStart = Math.Max(0, startOff - runStartOffset);
+        int snLocalEnd = Math.Max(0, Math.Min(runText.Length, endOff - runStartOffset));
+        if (snLocalStart >= snLocalEnd) return null;
+        return GetSubRunBounds(runText, runBounds, snLocalStart, snLocalEnd, fontSize, fontFamily, fontWeight);
+    }
+
+    private SKRect? GetSubRunBounds(string text, SKRect runBounds, int startOff, int endOff,
+        float fontSize, string fontFamily, Core.Dom.FontWeight fontWeight)
+    {
+        if (startOff >= endOff || string.IsNullOrEmpty(text)) return null;
+        int clampedStart = Math.Clamp(startOff, 0, text.Length);
+        int clampedEnd = Math.Clamp(endOff, clampedStart, text.Length);
+        if (clampedStart >= clampedEnd) return null;
+
+        float left = runBounds.Left;
+        if (clampedStart > 0)
         {
-            var r = new SKRect(Math.Max(textBounds.Left, start.X), textBounds.Top, textBounds.Right, textBounds.Bottom);
-            return r.Width > 0 && r.Height > 0 ? r : null;
+            string before = text[..clampedStart];
+            left += MeasureTextWidth(before, fontSize, fontFamily, fontWeight);
         }
-        if (onEndLine)
+        float right = runBounds.Left;
+        if (clampedEnd <= text.Length)
         {
-            var r = new SKRect(textBounds.Left, textBounds.Top, Math.Min(textBounds.Right, end.X), textBounds.Bottom);
-            return r.Width > 0 && r.Height > 0 ? r : null;
+            string upToEnd = text[..clampedEnd];
+            right += MeasureTextWidth(upToEnd, fontSize, fontFamily, fontWeight);
         }
-        return textBounds;
+        else
+        {
+            right = runBounds.Right;
+        }
+
+        return new SKRect(left, runBounds.Top, right, runBounds.Bottom);
+    }
+
+    private static float MeasureTextWidth(string text, float fontSize, string fontFamily, Core.Dom.FontWeight weight)
+    {
+        if (string.IsNullOrEmpty(text)) return 0;
+        if (Core.Layout.TextMeasurer.Instance != null)
+            return Core.Layout.TextMeasurer.Instance.MeasureText(text, fontFamily, fontSize, weight);
+        return text.Length * fontSize * 0.45f;
+    }
+
+    private static bool IsNodeBetween(Core.Dom.Node? target, Core.Dom.Node? a, Core.Dom.Node? b)
+    {
+        return CompareDomPosition(target, a) > 0 && CompareDomPosition(target, b) < 0;
+    }
+
+    private static int CompareDomPosition(Core.Dom.Node? a, Core.Dom.Node? b)
+    {
+        if (a == null || b == null) return a == b ? 0 : (a == null ? -1 : 1);
+        if (a == b) return 0;
+        var aPath = new List<Core.Dom.Node>();
+        var bPath = new List<Core.Dom.Node>();
+        var cur = a;
+        while (cur != null) { aPath.Add(cur); cur = cur.ParentNode; }
+        cur = b;
+        while (cur != null) { bPath.Add(cur); cur = cur.ParentNode; }
+        aPath.Reverse();
+        bPath.Reverse();
+        int depth = Math.Min(aPath.Count, bPath.Count);
+        for (int i = 0; i < depth; i++)
+        {
+            if (aPath[i] != bPath[i])
+            {
+                var parent = aPath[i].ParentNode;
+                if (parent != null)
+                {
+                    int ai = parent.Children.IndexOf(aPath[i]);
+                    int bi = parent.Children.IndexOf(bPath[i]);
+                    return ai.CompareTo(bi);
+                }
+                return 0;
+            }
+        }
+        return aPath.Count.CompareTo(bPath.Count);
     }
     private float TotalOffsetY => _contentOffsetY;
     private float TotalOffsetX => 0;
@@ -1646,10 +1745,14 @@ public class PaintVisitor
         op.Italic = parentStyle?.FontStyle == FontStyleType.Italic || parentStyle?.FontStyle == FontStyleType.Oblique;
         if (parentStyle?.TextShadow != null && parentStyle.TextShadow.Count > 0)
             op.TextShadows = parentStyle.TextShadow;
-        op.Bounds = new SKRect(contentBox.Left, contentBox.Top + TotalOffsetY, contentBox.Right, contentBox.Bottom + TotalOffsetY);
+        float textWidth = MeasureTextWidth(text, op.FontSize, op.FontFamily, op.FontWeight);
+        float boundTop = y - (parentStyle?.FontSize ?? 16);
+        float boundBottom = y;
+        op.Bounds = new SKRect(contentBox.Left, boundTop, contentBox.Left + textWidth, boundBottom);
 
         // Add selection highlight clipped to the overlapping region
-        var selHighlight = GetSelHighlight(op.Bounds);
+        var selHighlight = GetSelHighlight(textNode, text, op.Bounds,
+            op.FontSize, op.FontFamily, op.FontWeight);
         if (selHighlight.HasValue)
         {
             var highlightOp = PaintOpPool.GetDrawRectOp();
@@ -1759,6 +1862,8 @@ public class PaintVisitor
         float boxTop = box.ContentBox.Top + TotalOffsetY;
         if (box.Lines != null)
         {
+            TextNode? lastTextNode = null;
+            int runStartOffset = 0;
             float currentX = box.ContentBox.Left;
             foreach (var line in box.Lines)
             {
@@ -1769,6 +1874,12 @@ public class PaintVisitor
                 {
                     if (run.IsText && run.Node is TextNode textNode)
                     {
+                        if (textNode != lastTextNode)
+                        {
+                            runStartOffset = 0;
+                            lastTextNode = textNode;
+                        }
+
                         var parentStyle = textNode.ParentElement?.ComputedStyle;
                         var actualFontSize = run.FontSize ?? parentStyle?.FontSize ?? 16;
                         var runText = ApplyTextTransform(run.Text, parentStyle?.TextTransform);
@@ -1793,7 +1904,8 @@ public class PaintVisitor
                         op.Bounds = new SKRect(currentX + lineOffsetX, lineY, currentX + run.Width + lineOffsetX, lineY + line.Height);
 
                         // Add selection highlight clipped to the overlapping region
-                        var selHighlight = GetSelHighlight(op.Bounds);
+                        var selHighlight = GetSelHighlight(textNode, runText, op.Bounds,
+                            op.FontSize, op.FontFamily, op.FontWeight, runStartOffset);
                         if (selHighlight.HasValue)
                         {
                             var highlightOp = PaintOpPool.GetDrawRectOp();
@@ -1808,6 +1920,12 @@ public class PaintVisitor
                         }
 
                         _displayList.Add(op);
+                        runStartOffset += runText.Length;
+                    }
+                    else
+                    {
+                        lastTextNode = null;
+                        runStartOffset = 0;
                     }
                     currentX += run.Width;
                 }
@@ -1817,6 +1935,8 @@ public class PaintVisitor
 
         else if (box.LineRuns != null)
         {
+            TextNode? lastTextNode = null;
+            int runStartOffset = 0;
             float x = box.ContentBox.Left;
             float fontSize = box.LineRuns.FirstOrDefault()?.FontSize ?? 16;
             float baseline = boxTop + fontSize * 0.85f;
@@ -1824,6 +1944,12 @@ public class PaintVisitor
             {
                 if (run.IsText && run.Node is TextNode textNode)
                 {
+                    if (textNode != lastTextNode)
+                    {
+                        runStartOffset = 0;
+                        lastTextNode = textNode;
+                    }
+
                     var parentStyle = textNode.ParentElement?.ComputedStyle;
                     var actualFontSize = run.FontSize ?? parentStyle?.FontSize ?? 16;
                     var runText = ApplyTextTransform(run.Text, parentStyle?.TextTransform);
@@ -1848,7 +1974,8 @@ public class PaintVisitor
                     op.Bounds = new SKRect(x, boxTop, x + run.Width, boxTop + run.Height);
 
                     // Add selection highlight clipped to the overlapping region
-                    var selHighlight = GetSelHighlight(op.Bounds);
+                    var selHighlight = GetSelHighlight(textNode, runText, op.Bounds,
+                        op.FontSize, op.FontFamily, op.FontWeight, runStartOffset);
                     if (selHighlight.HasValue)
                     {
                         var highlightOp = PaintOpPool.GetDrawRectOp();
@@ -1863,6 +1990,12 @@ public class PaintVisitor
                     }
 
                     _displayList.Add(op);
+                    runStartOffset += runText.Length;
+                }
+                else
+                {
+                    lastTextNode = null;
+                    runStartOffset = 0;
                 }
                 x += run.Width;
             }
