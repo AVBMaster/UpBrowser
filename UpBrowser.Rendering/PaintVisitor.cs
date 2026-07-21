@@ -460,7 +460,8 @@ public class PaintVisitor
         float markerWidth = style.ListStyleType switch
         {
             ListStyleType.Disc or ListStyleType.Circle or ListStyleType.Square => 12f,
-            ListStyleType.Decimal or ListStyleType.DecimalLeadingZero => ((itemIndex + 1).ToString().PadLeft(2, '0') + ".").Length * style.FontSize * 0.6f,
+            ListStyleType.Decimal => ((itemIndex + 1).ToString() + ".").Length * style.FontSize * 0.6f,
+            ListStyleType.DecimalLeadingZero => ((itemIndex + 1).ToString().PadLeft(2, '0') + ".").Length * style.FontSize * 0.6f,
             ListStyleType.LowerRoman or ListStyleType.UpperRoman => (ToRoman(itemIndex + 1) + ".").Length * style.FontSize * 0.6f,
             ListStyleType.LowerAlpha or ListStyleType.UpperAlpha => 2 * style.FontSize * 0.6f,
             _ => 12f
@@ -469,7 +470,11 @@ public class PaintVisitor
         float markerGap = 8f;
         float markerX = parent.LayoutBox.ContentBox.Left - markerWidth - markerGap;
         
-        float markerY = box.ContentBox.Top + style.FontSize * 0.85f;
+        float markerY;
+        if (box.Lines != null && box.Lines.Count > 0 && box.Lines[0].Baseline > 0)
+            markerY = box.Lines[0].Baseline;
+        else
+            markerY = box.ContentBox.Top + style.FontSize * 0.85f;
         
         string markerText = style.ListStyleType switch
         {

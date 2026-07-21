@@ -1000,6 +1000,8 @@ public class CascadeResolver
         child.CaretColor = parent.CaretColor;
         child.ColorScheme = parent.ColorScheme;
         child.ForcedColorAdjust = parent.ForcedColorAdjust;
+        child.ListStyleType = parent.ListStyleType;
+        child.ListStylePosition = parent.ListStylePosition;
     }
 
     private ComputedStyle CreateUserAgentStyle(string tagName)
