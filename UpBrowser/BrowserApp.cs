@@ -2576,6 +2576,74 @@ public class BrowserApp : IDisposable
                     }
                 }
             }
+            // Fallback for elements with text but no Lines/LineRuns (e.g. table cells)
+            if (boxInRange && (box.Lines == null || box.Lines.Count == 0) && (box.LineRuns == null || box.LineRuns.Count == 0))
+            {
+                var style = element.ComputedStyle;
+                if (style != null)
+                {
+                    float fontSize = style.FontSize;
+                    string fontFamily = style.FontFamily ?? "Arial";
+                    var fontWeight = style.FontWeight;
+                    var textAlign = style.TextAlign;
+                    float boxLeft = box.ContentBox.Left;
+                    float boxRight = box.ContentBox.Right;
+                    float boxWidth = box.ContentBox.Width;
+                    float boxTop2 = box.ContentBox.Top;
+
+                    // Tight Y bounds: text occupies [boxTop2, boxTop2 + fontSize]
+                    float textTop2 = boxTop2 - HitToleranceY;
+                    float textBottom2 = boxTop2 + fontSize + HitToleranceY;
+                    if (dlY >= textTop2 && dlY <= textBottom2)
+                    {
+                        // Quick X rejection before any text measurement
+                        if (dlX >= boxLeft - HitToleranceX && dlX <= boxRight + HitToleranceX)
+                        {
+                            foreach (var child in element.Children)
+                            {
+                                if (child is TextNode tn)
+                                {
+                                    string text = tn.TextContent ?? "";
+                                    if (string.IsNullOrEmpty(text)) continue;
+
+                                    // Lightweight width approximation for fast rejection
+                                    float approxWidth = text.Length * fontSize * 0.45f;
+                                    float startX = boxLeft;
+                                    if (textAlign == TextAlignType.Center)
+                                        startX = boxLeft + (boxWidth - approxWidth) / 2;
+                                    else if (textAlign == TextAlignType.Right || textAlign == TextAlignType.End)
+                                        startX = boxLeft + boxWidth - approxWidth;
+
+                                    if (dlX >= startX - HitToleranceX && dlX <= startX + approxWidth + HitToleranceX)
+                                    {
+                                        // Accurate measurement
+                                        float textWidth;
+                                        if (TextMeasurer.Instance != null)
+                                            textWidth = TextMeasurer.Instance.MeasureText(text, fontFamily, fontSize, fontWeight);
+                                        else
+                                            textWidth = approxWidth;
+
+                                        if (textAlign == TextAlignType.Center)
+                                            startX = boxLeft + (boxWidth - textWidth) / 2;
+                                        else if (textAlign == TextAlignType.Right || textAlign == TextAlignType.End)
+                                            startX = boxLeft + boxWidth - textWidth;
+                                        else
+                                            startX = boxLeft;
+
+                                        if (dlX >= startX - HitToleranceX && dlX < startX + textWidth + HitToleranceX)
+                                        {
+                                            float localX = Math.Max(0, dlX - startX);
+                                            int offset = GetCharOffsetAtX(text, fontSize, fontFamily, fontWeight, textWidth, localX);
+                                            result = new SelPoint { Node = tn, Offset = offset };
+                                            return;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         // Only recurse into children if the hit point could be within this element's area
@@ -2587,24 +2655,17 @@ public class BrowserApp : IDisposable
         }
     }
 
-    private static int GetCharOffsetAtX(Core.Dom.InlineRun run, string runText, float localX)
+    private static int GetCharOffsetAtX(string text, float fontSize, string fontFamily, Core.Dom.FontWeight weight, float textWidth, float localX)
     {
-        if (string.IsNullOrEmpty(runText) || localX <= 0) return 0;
-        if (localX >= run.Width) return runText.Length;
+        if (string.IsNullOrEmpty(text) || localX <= 0) return 0;
+        if (localX >= textWidth) return text.Length;
 
-        float fontSize = run.FontSize ?? 16;
-        string fontFamily = run.FontFamily ?? "Arial";
-        var weight = run.FontWeight;
-
-        // Precompute per-character cumulative widths in one pass,
-        // then binary search on the cached array.
-        // This avoids O(log n) expensive MeasureText calls and substring allocations.
-        int len = runText.Length;
+        int len = text.Length;
         float[] cumWidths = new float[len];
         float acc = 0;
         for (int i = 0; i < len; i++)
         {
-            string chStr = runText[i].ToString();
+            string chStr = text[i].ToString();
             float cw;
             if (TextMeasurer.Instance != null)
                 cw = TextMeasurer.Instance.MeasureText(chStr, fontFamily, fontSize, weight);
@@ -2622,6 +2683,14 @@ public class BrowserApp : IDisposable
             else hi = mid - 1;
         }
         return lo;
+    }
+
+    private static int GetCharOffsetAtX(Core.Dom.InlineRun run, string runText, float localX)
+    {
+        float fontSize = run.FontSize ?? 16;
+        string fontFamily = run.FontFamily ?? "Arial";
+        var weight = run.FontWeight;
+        return GetCharOffsetAtX(runText, fontSize, fontFamily, weight, run.Width, localX);
     }
 
     public void Dispose()

@@ -91,13 +91,26 @@ public static class TableLayoutAlgorithm
         if (captionElement?.LayoutBox is { } capBox)
         {
             float left = capBox.BorderBox.Left;
-            capBox.MarginBox = new SKRect(left, capBox.MarginBox.Top, left + tableWidth, capBox.MarginBox.Bottom);
-            capBox.BorderBox = new SKRect(left, capBox.BorderBox.Top, left + tableWidth, capBox.BorderBox.Bottom);
-            capBox.PaddingBox = new SKRect(left, capBox.PaddingBox.Top, left + tableWidth, capBox.PaddingBox.Bottom);
-            capBox.ContentBox = new SKRect(left, capBox.ContentBox.Top, left + tableWidth, capBox.ContentBox.Bottom);
+            // Place caption outside (above) the table's border box, per CSS spec
+            float capMarginTop = captionElement.ComputedStyle?.MarginTop.ToPixels(captionElement.ComputedStyle.FontSize, 16, 0, 0) ?? 0;
+            float capMarginBottom = captionElement.ComputedStyle?.MarginBottom.ToPixels(captionElement.ComputedStyle.FontSize, 16, 0, 0) ?? 0;
+            float capBorderTop = captionElement.ComputedStyle?.BorderTopWidth ?? 0;
+            float capBorderBottom = captionElement.ComputedStyle?.BorderBottomWidth ?? 0;
+            float capPadTop = captionElement.ComputedStyle?.PaddingTop.ToPixels(captionElement.ComputedStyle.FontSize, 16, 0, 0) ?? 0;
+            float capPadBottom = captionElement.ComputedStyle?.PaddingBottom.ToPixels(captionElement.ComputedStyle.FontSize, 16, 0, 0) ?? 0;
+            float capLineHeight = (captionElement.ComputedStyle?.LineHeight > 0 ? captionElement.ComputedStyle.LineHeight : 1.2f) * (captionElement.ComputedStyle?.FontSize ?? 16);
+
+            float capOuterHeight = capMarginTop + capBorderTop + capPadTop + capLineHeight + capPadBottom + capBorderBottom + capMarginBottom;
+            float capMarginBoxTop = box.BorderBox.Top - capOuterHeight;
+            float capMarginBoxBottom = box.BorderBox.Top;
+
+            capBox.MarginBox = new SKRect(left, capMarginBoxTop, left + tableWidth, capMarginBoxBottom);
+            capBox.BorderBox = new SKRect(left, capMarginBoxTop + capMarginTop, left + tableWidth, capMarginBoxBottom - capMarginBottom);
+            capBox.PaddingBox = new SKRect(left, capBox.BorderBox.Top + capBorderTop, left + tableWidth, capBox.BorderBox.Bottom - capBorderBottom);
+            capBox.ContentBox = new SKRect(left, capBox.PaddingBox.Top + capPadTop, left + tableWidth, capBox.PaddingBox.Bottom - capPadBottom);
         }
 
-        float currentY = box.ContentBox.Top + captionHeight;
+        float currentY = box.ContentBox.Top;
 
         foreach (var row in rows)
         {
