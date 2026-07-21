@@ -89,6 +89,16 @@ public class BrowserApp : IDisposable
     private readonly PageInputImeHost _pageInputImeHost;
     private const float ScrollbarDragThreshold = 5;
 
+    // Form input editing state
+    private int _inputCursorPos;
+    private int _inputSelStart = -1;
+    private bool _inputShowCursor = true;
+    private long _inputLastCursorBlinkTick = Environment.TickCount64;
+    // Form input IME state
+    private bool _inputImeComposing;
+    private string _inputImeCompositionStr = "";
+    private int _inputImeCursorPos;
+
     // Text selection support (node+offset based for character-level precision)
     private struct SelPoint
     {
@@ -212,6 +222,7 @@ public class BrowserApp : IDisposable
             UpdateImeTarget();
             _input.NeedsRedraw = true;
         };
+        _input.OnFormInputKey = (c, key, shift) => HandleFormInputKey(c, key, shift);
         _input.OnDevToolsInput = (c, key, shift) => DevToolsHandleInput(c, key, shift);
         _input.OnDevToolsClick = (x, y, isDown) => HandleDevToolsClick(x, y, isDown);
         _input.OnTaskManagerKey = () =>
@@ -1195,6 +1206,11 @@ public class BrowserApp : IDisposable
 
         _cachedPaintVisitor = new PaintVisitor(_contentOffset, _sharedTypefaceCache, _sharedImageCache, _fontFamilies, _currentBaseUrl);
         _cachedPaintVisitor.SetFocusedElement(_focusedElement);
+        if (_focusedElement != null && _focusedElement.IsFormElement)
+        {
+            _cachedPaintVisitor.SetInputState(_inputCursorPos, _inputSelStart, _inputShowCursor,
+                _inputImeComposing, _inputImeCompositionStr, _inputImeCursorPos);
+        }
         if (_hasSelection && _selAnchor.Node != null && _selFocus.Node != null)
         {
             _cachedPaintVisitor.SetSelectionRange(_selAnchor.Node, _selAnchor.Offset, _selFocus.Node, _selFocus.Offset);
@@ -1261,8 +1277,9 @@ public class BrowserApp : IDisposable
         }
 
         bool cursorChanged = _chrome.UpdateCursorBlink();
+        bool formInputCursorChanged = UpdateFormInputCursorBlink();
         bool devToolsCursorChanged = _devTools.Visible && _devTools.TickCursorBlink();
-        bool cursorNeedsRedraw = (cursorChanged && _chrome.IsUrlBarFocused()) || devToolsCursorChanged;
+        bool cursorNeedsRedraw = (cursorChanged && _chrome.IsUrlBarFocused()) || formInputCursorChanged || devToolsCursorChanged;
 
         var (pw, ph) = _window.GetClientSize();
         int windowWidth = (int)(pw / _dpiScale);
@@ -1711,7 +1728,31 @@ public class BrowserApp : IDisposable
                     _jsEngine.DispatchEvent(element, "focus");
                     _window.UpdateImeCompositionWindow();
                     _hasSelection = false;
+                    _inputImeComposing = false;
+                    _inputImeCompositionStr = "";
+                    _inputImeCursorPos = 0;
                 }
+                // Update cursor position on every click (even re-click on same input)
+                string val = element.Value ?? "";
+                string? inputType = element.InputType?.ToLowerInvariant();
+                bool isTextInput = inputType == null || inputType == "text" || inputType == "password" ||
+                                   inputType == "email" || inputType == "search" || inputType == "tel" ||
+                                   inputType == "url" || inputType == "number";
+                if (isTextInput && !string.IsNullOrEmpty(val) && element.ComputedStyle != null && element.LayoutBox != null)
+                {
+                    float cbLeft = element.LayoutBox.ContentBox.Left;
+                    float clickX = docX - cbLeft - 2;
+                    float fontSize = element.ComputedStyle.FontSize > 0 ? element.ComputedStyle.FontSize : 14;
+                    string fontFamily = element.ComputedStyle.FontFamily ?? "Arial";
+                    _inputCursorPos = GetFormInputCharIndex(val, clickX, fontSize, fontFamily);
+                }
+                else
+                {
+                    _inputCursorPos = val.Length;
+                }
+                _inputSelStart = -1;
+                _inputShowCursor = true;
+                _inputLastCursorBlinkTick = Environment.TickCount64;
             }
             else
             {
@@ -1721,6 +1762,11 @@ public class BrowserApp : IDisposable
                     _jsEngine.DispatchEvent(_focusedElement, "blur");
                     _focusedElement = null;
                 }
+                _inputSelStart = -1;
+                _inputCursorPos = 0;
+                _inputImeComposing = false;
+                _inputImeCompositionStr = "";
+                _inputImeCursorPos = 0;
 
                 // Start text selection on non-interactive elements
                 if (shouldProceed && !IsInteractiveElement(element))
@@ -1750,6 +1796,11 @@ public class BrowserApp : IDisposable
                 _jsEngine.DispatchEvent(_focusedElement, "blur");
                 _focusedElement = null;
             }
+            _inputSelStart = -1;
+            _inputCursorPos = 0;
+            _inputImeComposing = false;
+            _inputImeCompositionStr = "";
+            _inputImeCursorPos = 0;
             _hasSelection = false;
         }
         UpdateImeTarget();
@@ -1910,6 +1961,250 @@ public class BrowserApp : IDisposable
             cancelable = true
         };
         _jsEngine.DispatchEvent(target, evt);
+    }
+
+    private bool HandleFormInputKey(char charCode, Key key, bool shift)
+    {
+        if (_focusedElement == null || !_focusedElement.IsFormElement)
+            return false;
+
+        string? inputType = _focusedElement.InputType?.ToLowerInvariant();
+        bool isTextInput = inputType == null || inputType == "text" || inputType == "password" ||
+                           inputType == "email" || inputType == "search" || inputType == "tel" ||
+                           inputType == "url" || inputType == "number";
+        if (!isTextInput)
+            return false;
+
+        bool isReadOnly = _focusedElement.HasAttribute("readonly");
+        bool isDisabled = _focusedElement.HasAttribute("disabled");
+
+        string value = _focusedElement.Value ?? "";
+        int cursorPos = _inputCursorPos;
+        int selStart = _inputSelStart;
+
+        // Ctrl+A: select all
+        if (IsCtrlPressed() && charCode == 1)
+        {
+            _inputSelStart = 0;
+            _inputCursorPos = value.Length;
+            _inputShowCursor = true;
+            _inputLastCursorBlinkTick = Environment.TickCount64;
+            _input.NeedsRedraw = true;
+            return true;
+        }
+
+        if (key == Key.Left)
+        {
+            if (cursorPos <= 0) return true;
+            if (shift)
+            {
+                if (selStart < 0) _inputSelStart = cursorPos;
+                _inputCursorPos--;
+            }
+            else
+            {
+                if (selStart >= 0)
+                    _inputCursorPos = Math.Min(selStart, cursorPos);
+                else
+                    _inputCursorPos--;
+                _inputSelStart = -1;
+            }
+            _inputShowCursor = true;
+            _inputLastCursorBlinkTick = Environment.TickCount64;
+            _input.NeedsRedraw = true;
+            return true;
+        }
+
+        if (key == Key.Right)
+        {
+            if (cursorPos >= value.Length) return true;
+            if (shift)
+            {
+                if (selStart < 0) _inputSelStart = cursorPos;
+                _inputCursorPos++;
+            }
+            else
+            {
+                if (selStart >= 0)
+                    _inputCursorPos = Math.Max(selStart, cursorPos);
+                else
+                    _inputCursorPos++;
+                _inputSelStart = -1;
+            }
+            _inputShowCursor = true;
+            _inputLastCursorBlinkTick = Environment.TickCount64;
+            _input.NeedsRedraw = true;
+            return true;
+        }
+
+        if (key == Key.Home)
+        {
+            if (shift)
+            {
+                if (selStart < 0) _inputSelStart = cursorPos;
+                _inputCursorPos = 0;
+            }
+            else
+            {
+                _inputCursorPos = 0;
+                _inputSelStart = -1;
+            }
+            _inputShowCursor = true;
+            _inputLastCursorBlinkTick = Environment.TickCount64;
+            _input.NeedsRedraw = true;
+            return true;
+        }
+
+        if (key == Key.End)
+        {
+            if (shift)
+            {
+                if (selStart < 0) _inputSelStart = cursorPos;
+                _inputCursorPos = value.Length;
+            }
+            else
+            {
+                _inputCursorPos = value.Length;
+                _inputSelStart = -1;
+            }
+            _inputShowCursor = true;
+            _inputLastCursorBlinkTick = Environment.TickCount64;
+            _input.NeedsRedraw = true;
+            return true;
+        }
+
+        if (key == Key.Escape)
+        {
+            BlurFocusedElement();
+            _input.NeedsRedraw = true;
+            return true;
+        }
+
+        if (key == Key.Enter)
+        {
+            if (_focusedElement.TagName == "TEXTAREA")
+            {
+                // Insert newline in textarea
+                string val = _focusedElement.Value ?? "";
+                int curPos = _inputCursorPos;
+                if (_inputSelStart >= 0 && _inputSelStart != curPos)
+                {
+                    int a = Math.Min(_inputSelStart, curPos);
+                    int b = Math.Max(_inputSelStart, curPos);
+                    val = val[..a] + '\n' + val[b..];
+                    _inputCursorPos = a + 1;
+                    _inputSelStart = -1;
+                }
+                else
+                {
+                    val = val[..curPos] + '\n' + val[curPos..];
+                    _inputCursorPos = curPos + 1;
+                }
+                _focusedElement.Value = val;
+                _inputShowCursor = true;
+                _inputLastCursorBlinkTick = Environment.TickCount64;
+                _input.NeedsRedraw = true;
+                return true;
+            }
+            BlurFocusedElement();
+            _input.NeedsRedraw = true;
+            return true;
+        }
+
+        if (key == Key.Tab)
+        {
+            BlurFocusedElement();
+            _input.NeedsRedraw = true;
+            return true;
+        }
+
+        if (isReadOnly || isDisabled)
+            return true;
+
+        if (key == Key.Backspace)
+        {
+            if (selStart >= 0 && selStart != cursorPos)
+            {
+                int a = Math.Min(selStart, cursorPos);
+                int b = Math.Max(selStart, cursorPos);
+                value = value[..a] + value[b..];
+                _inputCursorPos = a;
+                _inputSelStart = -1;
+            }
+            else if (cursorPos > 0)
+            {
+                value = value[..(cursorPos - 1)] + value[cursorPos..];
+                _inputCursorPos--;
+            }
+            _focusedElement.Value = value;
+            _inputShowCursor = true;
+            _inputLastCursorBlinkTick = Environment.TickCount64;
+            _input.NeedsRedraw = true;
+            return true;
+        }
+
+        if (key == Key.Delete)
+        {
+            if (selStart >= 0 && selStart != cursorPos)
+            {
+                int a = Math.Min(selStart, cursorPos);
+                int b = Math.Max(selStart, cursorPos);
+                value = value[..a] + value[b..];
+                _inputCursorPos = a;
+                _inputSelStart = -1;
+            }
+            else if (cursorPos < value.Length)
+            {
+                value = value[..cursorPos] + value[(cursorPos + 1)..];
+            }
+            _focusedElement.Value = value;
+            _inputShowCursor = true;
+            _inputLastCursorBlinkTick = Environment.TickCount64;
+            _input.NeedsRedraw = true;
+            return true;
+        }
+
+        // Printable character (OnDomChar already dispatched this to JS)
+        if (key == Key.Unknown && charCode >= 32)
+        {
+            if (selStart >= 0 && selStart != cursorPos)
+            {
+                int a = Math.Min(selStart, cursorPos);
+                int b = Math.Max(selStart, cursorPos);
+                value = value[..a] + charCode + value[b..];
+                _inputCursorPos = a + 1;
+                _inputSelStart = -1;
+            }
+            else
+            {
+                value = value[..cursorPos] + charCode + value[cursorPos..];
+                _inputCursorPos++;
+            }
+            _focusedElement.Value = value;
+            _inputShowCursor = true;
+            _inputLastCursorBlinkTick = Environment.TickCount64;
+            _input.NeedsRedraw = true;
+            _jsEngine.DispatchEvent(_focusedElement, "input");
+            return true;
+        }
+
+        return false;
+    }
+
+    private void BlurFocusedElement()
+    {
+        if (_focusedElement != null)
+        {
+            _jsEngine.DispatchEvent(_focusedElement, "blur");
+            _focusedElement = null;
+        }
+        _inputSelStart = -1;
+        _inputCursorPos = 0;
+        _inputImeComposing = false;
+        _inputImeCompositionStr = "";
+        _inputImeCursorPos = 0;
+        UpdateImeTarget();
+        _input.NeedsRedraw = true;
     }
 
     private bool HandleScrollContainerWheel(double deltaX, double deltaY, float mouseX, float mouseY)
@@ -2266,6 +2561,40 @@ public class BrowserApp : IDisposable
     private bool IsShiftPressed() => _input.IsShiftDown;
     private bool IsAltPressed() => _input.IsAltDown;
 
+    private int GetFormInputCharIndex(string text, float clickX, float fontSize, string fontFamily)
+    {
+        if (string.IsNullOrEmpty(text) || clickX <= 0) return 0;
+        float accumulated = 0;
+        for (int i = 0; i < text.Length; i++)
+        {
+            float chWidth = MeasureSingleCharWidth(text[i], fontSize, fontFamily);
+            float midPoint = accumulated + chWidth / 2f;
+            if (clickX < midPoint) return i;
+            accumulated += chWidth;
+        }
+        return text.Length;
+    }
+
+    private static float MeasureSingleCharWidth(char c, float fontSize, string fontFamily)
+    {
+        float avgWidth = fontSize * 0.55f;
+        return avgWidth;
+    }
+
+    private bool UpdateFormInputCursorBlink()
+    {
+        if (_focusedElement == null || !_focusedElement.IsFormElement)
+            return false;
+        long now = Environment.TickCount64;
+        if (now - _inputLastCursorBlinkTick >= 500)
+        {
+            _inputLastCursorBlinkTick = now;
+            _inputShowCursor = !_inputShowCursor;
+            return true;
+        }
+        return false;
+    }
+
     private bool DevToolsHandleInput(char c, Key key, bool shift)
     {
         if (key == Key.Unknown && c == 1) return false;
@@ -2292,6 +2621,15 @@ public class BrowserApp : IDisposable
 
         if (_focusedElement != null && _focusedElement.IsFormElement)
         {
+            // Insert IME character into the form input value
+            string value = _focusedElement.Value ?? "";
+            int cursorPos = _inputCursorPos;
+            value = value[..Math.Min(cursorPos, value.Length)] + charCode +
+                    value[Math.Min(cursorPos, value.Length)..];
+            _focusedElement.Value = value;
+            _inputCursorPos = cursorPos + 1;
+            _inputShowCursor = true;
+            _inputLastCursorBlinkTick = Environment.TickCount64;
             _jsEngine.DispatchEvent(_focusedElement, "input");
             _input.NeedsRedraw = true;
         }
@@ -2323,6 +2661,20 @@ public class BrowserApp : IDisposable
                     Clipboard.SetText(url);
             }
         }
+        else if (_focusedElement != null && _focusedElement.IsFormElement)
+        {
+            string value = _focusedElement.Value ?? "";
+            if (_inputSelStart >= 0 && _inputSelStart != _inputCursorPos)
+            {
+                int a = Math.Min(_inputSelStart, _inputCursorPos);
+                int b = Math.Max(_inputSelStart, _inputCursorPos);
+                a = Math.Min(a, value.Length);
+                b = Math.Min(b, value.Length);
+                string sel = value[a..b];
+                if (!string.IsNullOrEmpty(sel))
+                    Clipboard.SetText(sel);
+            }
+        }
         else
         {
             string sel = GetSelectedText();
@@ -2338,11 +2690,33 @@ public class BrowserApp : IDisposable
 
         if (_chrome.IsUrlBarFocused())
         {
-            // Delete selection first if any
             if (_chrome.UrlBarSelectedText != null)
                 _chrome.HandleKeyPress('\0', SKKey.Backspace);
             foreach (char c in text)
                 HandleImeChar(c);
+        }
+        else if (_focusedElement != null && _focusedElement.IsFormElement)
+        {
+            string value = _focusedElement.Value ?? "";
+            int cursorPos = _inputCursorPos;
+            if (_inputSelStart >= 0 && _inputSelStart != cursorPos)
+            {
+                int a = Math.Min(_inputSelStart, cursorPos);
+                int b = Math.Max(_inputSelStart, cursorPos);
+                value = value[..a] + text + value[b..];
+                _inputCursorPos = a + text.Length;
+                _inputSelStart = -1;
+            }
+            else
+            {
+                value = value[..cursorPos] + text + value[cursorPos..];
+                _inputCursorPos = cursorPos + text.Length;
+            }
+            _focusedElement.Value = value;
+            _inputShowCursor = true;
+            _inputLastCursorBlinkTick = Environment.TickCount64;
+            _jsEngine.DispatchEvent(_focusedElement, "input");
+            _input.NeedsRedraw = true;
         }
         else
         {
@@ -2363,6 +2737,19 @@ public class BrowserApp : IDisposable
         }
         else if (_chrome.IsUrlBarFocused() && _chrome.UrlBarSelectedText != null)
             _chrome.HandleKeyPress('\0', SKKey.Backspace);
+        else if (_focusedElement != null && _focusedElement.IsFormElement &&
+                 _inputSelStart >= 0 && _inputSelStart != _inputCursorPos)
+        {
+            string value = _focusedElement.Value ?? "";
+            int a = Math.Min(_inputSelStart, _inputCursorPos);
+            int b = Math.Max(_inputSelStart, _inputCursorPos);
+            value = value[..a] + value[b..];
+            _focusedElement.Value = value;
+            _inputCursorPos = a;
+            _inputSelStart = -1;
+            _jsEngine.DispatchEvent(_focusedElement, "input");
+            _input.NeedsRedraw = true;
+        }
     }
 
     private void PerformSelectAll()
@@ -2374,6 +2761,15 @@ public class BrowserApp : IDisposable
         else if (_devTools.Visible)
         {
             _devTools.SelectAllInActiveTab();
+        }
+        else if (_focusedElement != null && _focusedElement.IsFormElement)
+        {
+            string value = _focusedElement.Value ?? "";
+            _inputSelStart = 0;
+            _inputCursorPos = value.Length;
+            _inputShowCursor = true;
+            _inputLastCursorBlinkTick = Environment.TickCount64;
+            _input.NeedsRedraw = true;
         }
         else if (_currentLoad?.Document != null)
         {
@@ -2421,20 +2817,51 @@ public class BrowserApp : IDisposable
             if (el?.LayoutBox == null)
                 return new Point(0, _app._contentOffset);
 
-            float caretScreenX = el.LayoutBox.BorderBox.Left + 40;
-            float caretScreenY = el.LayoutBox.BorderBox.Top - _app._scroll.ScrollY + _app._contentOffset;
-            return new Point(caretScreenX, caretScreenY);
+            float fontSize = el.ComputedStyle?.FontSize > 0 ? el.ComputedStyle.FontSize : 14;
+            string fontFamily = el.ComputedStyle?.FontFamily ?? "Arial";
+            string value = el.Value ?? "";
+            int cursorPos = _app._inputCursorPos;
+            float textBeforeWidth = Core.Layout.TextMeasurer.Instance?.MeasureText(
+                value[..Math.Min(cursorPos, value.Length)], fontFamily, fontSize) ?? cursorPos * fontSize * 0.55f;
+            float caretX = el.LayoutBox.ContentBox.Left + 2 + textBeforeWidth;
+            float caretY = el.LayoutBox.BorderBox.Top - _app._scroll.ScrollY + _app._contentOffset;
+            return new Point(caretX, (int)caretY);
         }
 
-        public void OnImeCompositionStart() { }
-        public void OnImeCompositionUpdate(string compositionString, int cursorPosition) { }
+        public void OnImeCompositionStart()
+        {
+            _app._inputImeComposing = true;
+            _app._inputImeCompositionStr = "";
+            _app._inputImeCursorPos = 0;
+        }
+
+        public void OnImeCompositionUpdate(string compositionString, int cursorPosition)
+        {
+            _app._inputImeCompositionStr = compositionString;
+            _app._inputImeCursorPos = cursorPosition;
+            _app._input.NeedsRedraw = true;
+        }
 
         public void OnImeCompositionEnd(string? resultString)
         {
-            if (resultString != null && _app._focusedElement != null && _app._focusedElement.IsFormElement)
-            {
-                _app._jsEngine.DispatchEvent(_app._focusedElement, "input");
-            }
+            _app._inputImeComposing = false;
+            _app._inputImeCompositionStr = "";
+            _app._inputImeCursorPos = 0;
+
+            if (string.IsNullOrEmpty(resultString) || _app._focusedElement == null || !_app._focusedElement.IsFormElement)
+                return;
+
+            string value = _app._focusedElement.Value ?? "";
+            int cursorPos = _app._inputCursorPos;
+            value = value[..Math.Min(cursorPos, value.Length)] + resultString +
+                    value[Math.Min(cursorPos, value.Length)..];
+            _app._focusedElement.Value = value;
+            _app._inputCursorPos = cursorPos + resultString.Length;
+            _app._inputSelStart = -1;
+            _app._inputShowCursor = true;
+            _app._inputLastCursorBlinkTick = Environment.TickCount64;
+            _app._jsEngine.DispatchEvent(_app._focusedElement, "input");
+            _app._input.NeedsRedraw = true;
         }
     }
 

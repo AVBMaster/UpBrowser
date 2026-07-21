@@ -18,6 +18,12 @@ public class PaintVisitor
     private string[]? _fontFamilies;
     private string? _baseUrl;
     private Core.Dom.Element? _focusedElement;
+    private int _inputCursorPos;
+    private int _inputSelStart = -1;
+    private bool _inputShowCursor = true;
+    private bool _inputImeComposing;
+    private string _inputImeComposition = "";
+    private int _inputImeCursor;
     private Core.Dom.TextNode? _selAnchorNode;
     private int _selAnchorOffset;
     private Core.Dom.TextNode? _selFocusNode;
@@ -40,6 +46,18 @@ public class PaintVisitor
     }
 
     public void SetFocusedElement(Core.Dom.Element? element) => _focusedElement = element;
+
+    public void SetInputState(int cursorPos, int selStart, bool showCursor,
+        bool isImeComposing, string imeComposition, int imeCursor)
+    {
+        _inputCursorPos = cursorPos;
+        _inputSelStart = selStart;
+        _inputShowCursor = showCursor;
+        _inputImeComposing = isImeComposing;
+        _inputImeComposition = imeComposition;
+        _inputImeCursor = imeCursor;
+    }
+
     public void SetSelectionRange(Core.Dom.TextNode? anchorNode, int anchorOffset, Core.Dom.TextNode? focusNode, int focusOffset)
     {
         _selAnchorNode = anchorNode;
@@ -1461,29 +1479,99 @@ public class PaintVisitor
             return;
 
         float fontSize = style.FontSize > 0 ? style.FontSize : 14;
-        float textWidth = MeasureTextWidth(displayText, fontSize, style.FontFamily);
         var contentBox = box.ContentBox;
-        float textX = contentBox.Left + 2;
         float textY = contentBox.Top + fontSize * 0.85f;
         SKColor textColor = showPlaceholder ? new SKColor(160, 160, 160) : (style.Color.Alpha > 0 ? style.Color : SKColors.Black);
-        if (textWidth > contentBox.Width - 4)
-            textWidth = contentBox.Width - 4;
+        float textX = contentBox.Left + 2;
+        float usableWidth = contentBox.Width - 4;
+        bool isFocused = _focusedElement == element;
 
-        var op = PaintOpPool.GetDrawTextOp();
-        op.Text = displayText;
-        op.X = textX;
-        op.Y = textY + TotalOffsetY;
-        op.Color = textColor;
-        op.FontSize = fontSize;
-        op.FontFamily = style.FontFamily ?? "Arial";
-        op.FontWeight = style.FontWeight;
-        op.Italic = style.FontStyle == FontStyleType.Italic || style.FontStyle == FontStyleType.Oblique;
-        op.Bounds = new SKRect(textX, contentBox.Top + TotalOffsetY, textX + textWidth, contentBox.Bottom + TotalOffsetY);
-        _displayList.Add(op);
+        // Determine the effective text to display and cursor/selection positions
+        string effectText = isFocused && _inputImeComposing
+            ? displayText[..Math.Min(_inputCursorPos, displayText.Length)] + _inputImeComposition +
+              displayText[Math.Min(_inputCursorPos, displayText.Length)..]
+            : displayText;
 
-        if (_focusedElement == element)
+        int cursorPos = isFocused && _inputImeComposing
+            ? Math.Min(_inputCursorPos, displayText.Length) + Math.Min(_inputImeCursor, _inputImeComposition.Length)
+            : isFocused ? _inputCursorPos : 0;
+
+        int selStart = isFocused ? _inputSelStart : -1;
+
+        // Measure widths
+        float fullTextWidth = MeasureTextWidth(effectText, fontSize, style.FontFamily);
+
+        // Horizontal scroll offset: keep cursor visible (stateless, cursor at ~33% from left)
+        float scrollOffset = 0;
+        if (isFocused && fullTextWidth > usableWidth)
         {
-            float cursorX = textX + Math.Min(textWidth, contentBox.Width - 4);
+            float cursorWidth = MeasureTextWidth(effectText[..Math.Min(cursorPos, effectText.Length)], fontSize, style.FontFamily);
+            float desiredOffset = cursorWidth - usableWidth * 0.33f;
+            scrollOffset = Math.Clamp(desiredOffset, 0, Math.Max(0, fullTextWidth - usableWidth));
+        }
+
+        // Draw selection background
+        if (isFocused && selStart >= 0 && selStart != cursorPos)
+        {
+            int a = Math.Min(selStart, cursorPos);
+            int b = Math.Max(selStart, cursorPos);
+            a = Math.Min(a, effectText.Length);
+            b = Math.Min(b, effectText.Length);
+            string beforeSel = effectText[..a];
+            string selStr = effectText[a..b];
+            float selX = textX + MeasureTextWidth(beforeSel, fontSize, style.FontFamily) - scrollOffset;
+            float selW = MeasureTextWidth(selStr, fontSize, style.FontFamily);
+            float clampLeft = Math.Max(textX, selX);
+            float clampRight = Math.Min(textX + usableWidth, selX + selW);
+            if (clampRight > clampLeft)
+            {
+                var selOp = PaintOpPool.GetDrawRectOp();
+                selOp.Rect = new SKRect(clampLeft, contentBox.Top + TotalOffsetY + 1,
+                    clampRight, contentBox.Bottom + TotalOffsetY - 1);
+                selOp.FillColor = new SKColor(0x1A, 0x73, 0xE8);
+                selOp.Bounds = selOp.Rect;
+                _displayList.Add(selOp);
+            }
+        }
+
+        // Draw text (clipped to content area)
+        float drawTextX = textX - scrollOffset;
+        var textOp = PaintOpPool.GetDrawTextOp();
+        textOp.Text = effectText;
+        textOp.X = drawTextX;
+        textOp.Y = textY + TotalOffsetY;
+        textOp.Color = textColor;
+        textOp.FontSize = fontSize;
+        textOp.FontFamily = style.FontFamily ?? "Arial";
+        textOp.FontWeight = style.FontWeight;
+        textOp.Italic = style.FontStyle == FontStyleType.Italic || style.FontStyle == FontStyleType.Oblique;
+        textOp.Bounds = new SKRect(contentBox.Left, contentBox.Top + TotalOffsetY,
+            contentBox.Right, contentBox.Bottom + TotalOffsetY);
+        _displayList.Add(textOp);
+
+        // IME composition underline
+        if (isFocused && _inputImeComposing && _inputImeComposition.Length > 0)
+        {
+            float compStartX = textX + MeasureTextWidth(effectText[..Math.Min(_inputCursorPos, displayText.Length)], fontSize, style.FontFamily) - scrollOffset;
+            float compWidth = MeasureTextWidth(_inputImeComposition, fontSize, style.FontFamily);
+            float compY = contentBox.Bottom + TotalOffsetY - 2;
+            var lineOp = PaintOpPool.GetDrawLineOp();
+            lineOp.X1 = Math.Max(contentBox.Left, compStartX);
+            lineOp.Y1 = compY;
+            lineOp.X2 = Math.Min(contentBox.Right, compStartX + compWidth);
+            lineOp.Y2 = compY;
+            lineOp.Color = new SKColor(0, 0, 0);
+            lineOp.StrokeWidth = 1;
+            lineOp.Bounds = new SKRect(lineOp.X1, compY - 1, lineOp.X2, compY + 1);
+            _displayList.Add(lineOp);
+        }
+
+        // Draw cursor
+        if (isFocused && _inputShowCursor && !_inputImeComposing)
+        {
+            float cursorWidth = MeasureTextWidth(effectText[..Math.Min(cursorPos, effectText.Length)], fontSize, style.FontFamily);
+            float cursorX = textX + cursorWidth - scrollOffset;
+            cursorX = Math.Clamp(cursorX, textX, textX + usableWidth);
             float cursorTop = contentBox.Top + TotalOffsetY + 2;
             float cursorBottom = contentBox.Bottom + TotalOffsetY - 2;
             var caretColor = style.CaretColor ?? new SKColor(0, 0, 0);
@@ -1495,6 +1583,25 @@ public class PaintVisitor
             cursorOp.Color = caretColor;
             cursorOp.StrokeWidth = 1.5f;
             cursorOp.Bounds = new SKRect(cursorX - 1, cursorTop, cursorX + 1, cursorBottom);
+            _displayList.Add(cursorOp);
+        }
+
+        // IME composition cursor
+        if (isFocused && _inputImeComposing)
+        {
+            float imeCursorX = textX + MeasureTextWidth(effectText[..Math.Min(cursorPos, effectText.Length)], fontSize, style.FontFamily) - scrollOffset;
+            imeCursorX = Math.Clamp(imeCursorX, textX, textX + usableWidth);
+            float cursorTop = contentBox.Top + TotalOffsetY + 2;
+            float cursorBottom = contentBox.Bottom + TotalOffsetY - 2;
+            var caretColor = style.CaretColor ?? new SKColor(0, 0, 0);
+            var cursorOp = PaintOpPool.GetDrawLineOp();
+            cursorOp.X1 = imeCursorX;
+            cursorOp.Y1 = cursorTop;
+            cursorOp.X2 = imeCursorX;
+            cursorOp.Y2 = cursorBottom;
+            cursorOp.Color = caretColor;
+            cursorOp.StrokeWidth = 1.5f;
+            cursorOp.Bounds = new SKRect(imeCursorX - 1, cursorTop, imeCursorX + 1, cursorBottom);
             _displayList.Add(cursorOp);
         }
     }

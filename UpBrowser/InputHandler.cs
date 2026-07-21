@@ -44,6 +44,7 @@ public class InputHandler
     public Func<float, float, bool>? OnTaskManagerPageMove { get; set; }
     public Func<float, bool>? OnTaskManagerPageWheel { get; set; }
     public Func<double, double, float, float, bool>? OnScrollContainerWheel { get; set; }
+    public Func<char, Key, bool, bool>? OnFormInputKey { get; set; }
     public Action<char>? OnImeChar { get; set; }
     public Action? OnCopy { get; set; }
     public Action? OnPaste { get; set; }
@@ -283,7 +284,10 @@ public class InputHandler
             OnDomKeyDown?.Invoke(charCode, key, false);
             OnDomChar?.Invoke(charCode);
 
-            _chrome.HandleKeyPress(charCode, SKKey.None);
+            // Form input handling (e.g. text input on page)
+            if (OnFormInputKey == null || !OnFormInputKey(charCode, key, IsShiftDown))
+                _chrome.HandleKeyPress(charCode, SKKey.None);
+
             NeedsRedraw = true;
             return true;
         }
@@ -307,6 +311,15 @@ public class InputHandler
 
         // Dispatch keydown to DOM before Chrome handles it
         OnDomKeyDown?.Invoke(charCode, key, false);
+
+        // Form input handling (e.g. text input on page)
+        if (OnFormInputKey != null && OnFormInputKey(charCode, key, IsShiftDown))
+        {
+            OnImeTargetChanged?.Invoke();
+            OnDomKeyUp?.Invoke(charCode, key, false);
+            NeedsRedraw = true;
+            return true;
+        }
 
         bool handledByChrome = _chrome.HandleKeyPress(charCode, chromeKey, IsShiftDown);
         NeedsRedraw = true;
