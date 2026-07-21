@@ -1765,9 +1765,15 @@ public class PaintVisitor
         var textColor = parentStyle?.Color ?? SKColors.Black;
         if (parentStyle != null && parentStyle.Opacity < 1.0f)
             textColor = textColor.WithAlpha((byte)(textColor.Alpha * parentStyle.Opacity));
+        float textWidth = MeasureTextWidth(text, parentStyle?.FontSize ?? 16, parentStyle?.FontFamily ?? "Arial", parentStyle?.FontWeight ?? FontWeight.Normal);
+        float textX = contentBox.Left;
+        if (parentStyle?.TextAlign == TextAlignType.Center)
+            textX = contentBox.Left + contentBox.Width / 2;
+        else if (parentStyle?.TextAlign == TextAlignType.Right || parentStyle?.TextAlign == TextAlignType.End)
+            textX = contentBox.Right;
         var op = PaintOpPool.GetDrawTextOp();
         op.Text = text;
-        op.X = contentBox.Left;
+        op.X = textX;
         op.Y = y;
         op.Color = textColor;
         op.FontSize = parentStyle?.FontSize ?? 16;
@@ -1783,10 +1789,9 @@ public class PaintVisitor
         op.Italic = parentStyle?.FontStyle == FontStyleType.Italic || parentStyle?.FontStyle == FontStyleType.Oblique;
         if (parentStyle?.TextShadow != null && parentStyle.TextShadow.Count > 0)
             op.TextShadows = parentStyle.TextShadow;
-        float textWidth = MeasureTextWidth(text, op.FontSize, op.FontFamily, op.FontWeight);
         float boundTop = y - (parentStyle?.FontSize ?? 16);
         float boundBottom = y;
-        op.Bounds = new SKRect(contentBox.Left, boundTop, contentBox.Left + textWidth, boundBottom);
+        op.Bounds = new SKRect(textX, boundTop, textX + textWidth, boundBottom);
 
         // Add selection highlight clipped to the overlapping region
         var selHighlight = GetSelHighlight(textNode, text, op.Bounds,

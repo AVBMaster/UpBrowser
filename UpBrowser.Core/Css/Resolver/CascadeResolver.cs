@@ -759,6 +759,18 @@ public class CascadeResolver
             case "border-width": ParseBorderWidth(value, style); break;
             case "border-color": ParseBorderColor(value, style); break;
             case "border-style": ParseBorderStyle(value, style); break;
+            case "border-top-width": style.BorderTopWidth = ParseSize(value) ?? 0; break;
+            case "border-right-width": style.BorderRightWidth = ParseSize(value) ?? 0; break;
+            case "border-bottom-width": style.BorderBottomWidth = ParseSize(value) ?? 0; break;
+            case "border-left-width": style.BorderLeftWidth = ParseSize(value) ?? 0; break;
+            case "border-top-style": style.BorderTopStyle = ParseBorderStyleValue(value); break;
+            case "border-right-style": style.BorderRightStyle = ParseBorderStyleValue(value); break;
+            case "border-bottom-style": style.BorderBottomStyle = ParseBorderStyleValue(value); break;
+            case "border-left-style": style.BorderLeftStyle = ParseBorderStyleValue(value); break;
+            case "border-top-color": style.BorderTopColor = ColorParser.Parse(value); break;
+            case "border-right-color": style.BorderRightColor = ColorParser.Parse(value); break;
+            case "border-bottom-color": style.BorderBottomColor = ColorParser.Parse(value); break;
+            case "border-left-color": style.BorderLeftColor = ColorParser.Parse(value); break;
             case "border-radius": ParseBorderRadius(value, style); break;
             case "border-top-left-radius": style.BorderTopLeftRadius = ParseSize(value) ?? 0; break;
             case "border-top-right-radius": style.BorderTopRightRadius = ParseSize(value) ?? 0; break;
@@ -1260,6 +1272,9 @@ public class CascadeResolver
         "table-header-group" => DisplayType.TableHeaderGroup,
         "table-row-group" => DisplayType.TableRowGroup,
         "table-footer-group" => DisplayType.TableFooterGroup,
+        "table-caption" => DisplayType.TableCaption,
+        "table-column-group" => DisplayType.TableColumnGroup,
+        "table-column" => DisplayType.TableColumn,
         "none" => DisplayType.None,
         "contents" => DisplayType.Contents,
         _ => DisplayType.Block

@@ -63,26 +63,6 @@ public static class InlineElements
                 style.Display = DisplayType.Inline;
                 style.FontFamily = "monospace";
                 style.FontSize = 14;
-                style.BorderTopWidth = 1;
-                style.BorderBottomWidth = 1;
-                style.BorderLeftWidth = 1;
-                style.BorderRightWidth = 1;
-                style.BorderTopStyle = BorderStyle.Solid;
-                style.BorderRightStyle = BorderStyle.Solid;
-                style.BorderBottomStyle = BorderStyle.Solid;
-                style.BorderLeftStyle = BorderStyle.Solid;
-                style.BorderTopColor = SKColors.DarkGray;
-                style.BorderBottomColor = SKColors.DarkGray;
-                style.BorderLeftColor = SKColors.DarkGray;
-                style.BorderRightColor = SKColors.DarkGray;
-                style.BorderTopLeftRadius = 3;
-                style.BorderTopRightRadius = 3;
-                style.BorderBottomLeftRadius = 3;
-                style.BorderBottomRightRadius = 3;
-                style.PaddingTop = new PixelLength(2);
-                style.PaddingBottom = new PixelLength(2);
-                style.PaddingLeft = new PixelLength(6);
-                style.PaddingRight = new PixelLength(6);
                 break;
 
             case "samp":
@@ -150,8 +130,6 @@ public static class InlineElements
 
             case "acronym":
                 style.Display = DisplayType.Inline;
-                style.BorderBottomWidth = 1;
-                style.BorderBottomStyle = BorderStyle.Dotted;
                 style.Cursor = "help";
                 break;
 

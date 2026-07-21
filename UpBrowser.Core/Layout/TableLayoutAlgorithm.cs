@@ -75,16 +75,29 @@ public static class TableLayoutAlgorithm
         var style = tableElement.ComputedStyle;
         bool isFixed = style?.TableLayout == "fixed";
 
+        bool collapse = style?.BorderCollapse == true;
+        float borderSpacing = collapse ? 0 : (style?.BorderSpacing ?? 0);
+
         float[] colWidths;
         if (isFixed)
             colWidths = CalculateFixedColumnWidths(rows, availableWidth, colCount);
         else
-            colWidths = CalculateAutoColumnWidths(rows, availableWidth, colCount);
+            colWidths = CalculateAutoColumnWidths(rows, availableWidth, colCount, collapse);
+
+        float totalColWidth = colWidths.Sum() + (colCount > 1 ? borderSpacing * (colCount - 1) : 0);
+
+        float tableWidth = Math.Min(availableWidth, totalColWidth);
+
+        if (captionElement?.LayoutBox is { } capBox)
+        {
+            float left = capBox.BorderBox.Left;
+            capBox.MarginBox = new SKRect(left, capBox.MarginBox.Top, left + tableWidth, capBox.MarginBox.Bottom);
+            capBox.BorderBox = new SKRect(left, capBox.BorderBox.Top, left + tableWidth, capBox.BorderBox.Bottom);
+            capBox.PaddingBox = new SKRect(left, capBox.PaddingBox.Top, left + tableWidth, capBox.PaddingBox.Bottom);
+            capBox.ContentBox = new SKRect(left, capBox.ContentBox.Top, left + tableWidth, capBox.ContentBox.Bottom);
+        }
 
         float currentY = box.ContentBox.Top + captionHeight;
-
-        bool collapse = style?.BorderCollapse == true;
-        float borderSpacing = collapse ? 0 : (style?.BorderSpacing ?? 0);
 
         foreach (var row in rows)
         {
@@ -103,7 +116,7 @@ public static class TableLayoutAlgorithm
                     cellWidth += colWidths[colIdx + c];
                 cellWidth += borderSpacing * (colspan - 1);
 
-                var cellBox = CreateCellBox(cell, currentX, currentY, cellWidth);
+                var cellBox = CreateCellBox(cell, currentX, currentY, cellWidth, collapse);
                 if (cellBox != null)
                 {
                     box.Children.Add(cellBox);
@@ -119,16 +132,28 @@ public static class TableLayoutAlgorithm
             currentY += maxHeight + borderSpacing;
         }
 
-        box.ContentBox = new SKRect(box.ContentBox.Left, box.ContentBox.Top,
-            box.ContentBox.Left + availableWidth, currentY);
-        box.PaddingBox = new SKRect(box.PaddingBox.Left, box.PaddingBox.Top,
-            box.PaddingBox.Left + availableWidth, currentY + (style?.PaddingBottom.ToPixels(style.FontSize, 16, 0, 0) ?? 0));
-        box.BorderBox = new SKRect(box.BorderBox.Left, box.BorderBox.Top,
-            box.BorderBox.Left + availableWidth,
-            currentY + (style?.PaddingBottom.ToPixels(style.FontSize, 16, 0, 0) ?? 0) + style?.BorderBottomWidth ?? 0);
-        box.MarginBox = new SKRect(box.MarginBox.Left, box.MarginBox.Top,
-            box.MarginBox.Left + availableWidth,
-            currentY + (style?.PaddingBottom.ToPixels(style.FontSize, 16, 0, 0) ?? 0) + (style?.BorderBottomWidth ?? 0) + (style?.MarginBottom.ToPixels(style.FontSize, 16, 0, 0) ?? 0));
+        float contentLeft = box.ContentBox.Left;
+        float padLeft = style?.PaddingLeft.ToPixels(style.FontSize, 16, 0, 0) ?? 0;
+        float padRight = style?.PaddingRight.ToPixels(style.FontSize, 16, 0, 0) ?? 0;
+        float padTop = style?.PaddingTop.ToPixels(style.FontSize, 16, 0, 0) ?? 0;
+        float padBottom = style?.PaddingBottom.ToPixels(style.FontSize, 16, 0, 0) ?? 0;
+        float borderLeft = collapse ? 0 : (style?.BorderLeftWidth ?? 0);
+        float borderRight = collapse ? 0 : (style?.BorderRightWidth ?? 0);
+        float borderTop = collapse ? 0 : (style?.BorderTopWidth ?? 0);
+        float borderBottom = collapse ? 0 : (style?.BorderBottomWidth ?? 0);
+        float marginLeft = style?.MarginLeft.ToPixels(style.FontSize, 16, 0, 0) ?? 0;
+        float marginRight = style?.MarginRight.ToPixels(style.FontSize, 16, 0, 0) ?? 0;
+        float marginTop = style?.MarginTop.ToPixels(style.FontSize, 16, 0, 0) ?? 0;
+        float marginBottom = style?.MarginBottom.ToPixels(style.FontSize, 16, 0, 0) ?? 0;
+
+        box.ContentBox = new SKRect(contentLeft, box.ContentBox.Top,
+            contentLeft + tableWidth, currentY);
+        box.PaddingBox = new SKRect(contentLeft - padLeft, box.ContentBox.Top - padTop,
+            contentLeft + tableWidth + padRight, currentY + padBottom);
+        box.BorderBox = new SKRect(box.PaddingBox.Left - borderLeft, box.PaddingBox.Top - borderTop,
+            box.PaddingBox.Right + borderRight, box.PaddingBox.Bottom + borderBottom);
+        box.MarginBox = new SKRect(box.BorderBox.Left - marginLeft, box.BorderBox.Top - marginTop,
+            box.BorderBox.Right + marginRight, box.BorderBox.Bottom + marginBottom);
     }
 
     private static List<List<Element>> CollectRows(Element table)
@@ -186,10 +211,11 @@ public static class TableLayoutAlgorithm
         return widths;
     }
 
-    private static float[] CalculateAutoColumnWidths(List<List<Element>> rows, float availableWidth, int colCount)
+    private static float[] CalculateAutoColumnWidths(List<List<Element>> rows, float availableWidth, int colCount, bool collapse)
     {
         var widths = new float[colCount];
         var maxContentWidths = new float[colCount];
+        var maxExtras = new float[colCount];
 
         foreach (var row in rows)
         {
@@ -202,8 +228,23 @@ public static class TableLayoutAlgorithm
                 float contentWidth = MeasureCellContent(cell);
                 float perColWidth = contentWidth / colspan;
 
+                var cellStyle = cell.ComputedStyle;
+                float cellExtra = 0;
+                if (cellStyle != null)
+                {
+                    float padL = cellStyle.PaddingLeft.ToPixels(cellStyle.FontSize, 16, 0, 0);
+                    float padR = cellStyle.PaddingRight.ToPixels(cellStyle.FontSize, 16, 0, 0);
+                    cellExtra = padL + padR;
+                    if (!collapse)
+                        cellExtra += cellStyle.BorderLeftWidth + cellStyle.BorderRightWidth;
+                }
+                float perColExtra = cellExtra / colspan;
+
                 for (int c = 0; c < colspan && (colIdx + c) < colCount; c++)
+                {
                     maxContentWidths[colIdx + c] = Math.Max(maxContentWidths[colIdx + c], perColWidth);
+                    maxExtras[colIdx + c] = Math.Max(maxExtras[colIdx + c], perColExtra);
+                }
 
                 colIdx += colspan;
             }
@@ -218,7 +259,7 @@ public static class TableLayoutAlgorithm
         else
         {
             for (int i = 0; i < colCount; i++)
-                widths[i] = maxContentWidths[i] / totalContent * availableWidth;
+                widths[i] = maxContentWidths[i] + maxExtras[i];
         }
 
         return widths;
@@ -303,15 +344,15 @@ public static class TableLayoutAlgorithm
         return totalHeight;
     }
 
-    private static LayoutBox? CreateCellBox(Element cell, float x, float y, float width)
+    private static LayoutBox? CreateCellBox(Element cell, float x, float y, float width, bool collapse)
     {
         var style = cell.ComputedStyle;
         if (style == null) return null;
 
-        float borderTop = style.BorderTopWidth;
-        float borderBottom = style.BorderBottomWidth;
-        float borderLeft = style.BorderLeftWidth;
-        float borderRight = style.BorderRightWidth;
+        float borderTop = collapse ? 0 : style.BorderTopWidth;
+        float borderBottom = collapse ? 0 : style.BorderBottomWidth;
+        float borderLeft = collapse ? 0 : style.BorderLeftWidth;
+        float borderRight = collapse ? 0 : style.BorderRightWidth;
         float paddingTop = style.PaddingTop.ToPixels(style.FontSize, 16, 0, 0);
         float paddingBottom = style.PaddingBottom.ToPixels(style.FontSize, 16, 0, 0);
         float paddingLeft = style.PaddingLeft.ToPixels(style.FontSize, 16, 0, 0);
