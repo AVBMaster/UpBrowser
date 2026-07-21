@@ -263,6 +263,14 @@ public class LayoutEngine
         float borderTop = style.BorderTopWidth;
         float borderBottom = style.BorderBottomWidth;
 
+        // Suppress table element borders in collapse mode so the box dimensions
+        // are stable regardless of whether ComputeStyles ran (which resets
+        // Border*Width to 1 from the UA stylesheet's `border: 1px solid`).
+        // Without this, the content-box shifts by the border width on alternate
+        // layout passes, causing a visible ~1px "move" on hover/click cycles.
+        if (style.Display == DisplayType.Table && style.BorderCollapse)
+            borderLeft = borderRight = borderTop = borderBottom = 0;
+
         float paddingLeft = style.PaddingLeft.ToPixels(style.FontSize, _rootFontSize, _viewportWidth, _viewportHeight);
         float paddingRight = style.PaddingRight.ToPixels(style.FontSize, _rootFontSize, _viewportWidth, _viewportHeight);
         float paddingTop = style.PaddingTop.ToPixels(style.FontSize, _rootFontSize, _viewportWidth, _viewportHeight);
