@@ -13,7 +13,7 @@
             ul { display: block; margin: 1em 0; padding-left: 40px; list-style-type: disc; }
             ol { display: block; margin: 1em 0; padding-left: 40px; list-style-type: decimal; }
             li { display: list-item; }
-            table { display: table; border-collapse: separate; border-spacing: 2px; }
+            table { display: table; border-collapse: collapse; border-spacing: 2px; }
             thead { display: table-header-group; vertical-align: middle; }
             tbody { display: table-row-group; vertical-align: middle; }
             tfoot { display: table-footer-group; vertical-align: middle; }

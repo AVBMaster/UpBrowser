@@ -78,6 +78,17 @@ public static class TableLayoutAlgorithm
         bool collapse = style?.BorderCollapse == true;
         float borderSpacing = collapse ? 0 : (style?.BorderSpacing ?? 0);
 
+        // In collapse mode, suppress the table's own border (cells' outer borders form the grid).
+        // This prevents double-border artifacts from DrawElementBorder drawing both the table's
+        // and cells' borders at nearly-identical positions after AlignRectToDevice.
+        if (collapse && style != null)
+        {
+            style.BorderTopWidth = 0;
+            style.BorderBottomWidth = 0;
+            style.BorderLeftWidth = 0;
+            style.BorderRightWidth = 0;
+        }
+
         float[] colWidths;
         if (isFixed)
             colWidths = CalculateFixedColumnWidths(rows, availableWidth, colCount);
