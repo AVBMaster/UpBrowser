@@ -217,9 +217,9 @@ public class DrawRectOp : PaintOp
                     topColor = light; bottomColor = dark; break;
             }
             using var p1 = new SKPaint { Color = topColor, Style = SKPaintStyle.Fill, IsAntialias = true };
-            canvas.DrawRect(left, y1 - halfW, right, y1, p1);
+            canvas.DrawRect(left, y1 - halfW, right - left, halfW, p1);
             using var p2 = new SKPaint { Color = bottomColor, Style = SKPaintStyle.Fill, IsAntialias = true };
-            canvas.DrawRect(left, y1, right, y1 + halfW, p2);
+            canvas.DrawRect(left, y1, right - left, halfW, p2);
         }
         else
         {
@@ -238,9 +238,9 @@ public class DrawRectOp : PaintOp
                     leftColor = light; rightColor = dark; break;
             }
             using var p1 = new SKPaint { Color = leftColor, Style = SKPaintStyle.Fill, IsAntialias = true };
-            canvas.DrawRect(x1 - halfW, top, x1, bottom, p1);
+            canvas.DrawRect(x1 - halfW, top, halfW, bottom - top, p1);
             using var p2 = new SKPaint { Color = rightColor, Style = SKPaintStyle.Fill, IsAntialias = true };
-            canvas.DrawRect(x1, top, x1 + halfW, bottom, p2);
+            canvas.DrawRect(x1, top, halfW, bottom - top, p2);
         }
     }
 
