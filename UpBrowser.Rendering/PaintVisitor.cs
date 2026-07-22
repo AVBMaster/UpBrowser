@@ -1527,6 +1527,29 @@ public class PaintVisitor
             var clipOp = PaintOpPool.GetPushClipOp();
             clipOp.ClipRect = clipRect;
             _displayList.Add(clipOp);
+            // When skipContent is active, the overlay list is rendered separately outside
+            // the main display list's clip stack. Add the same clip to the overlay list.
+            if (skipContent)
+            {
+                var overlayClip = PaintOpPool.GetPushClipOp();
+                overlayClip.ClipRect = clipRect;
+                _overlayList.Add(overlayClip);
+            }
+        }
+
+        // When overlay is active, clear the content area to cover any placeholder or old text
+        // from the cached _displayList picture. Use the input's background color if available.
+        if (skipContent)
+        {
+            var contentBox2 = box.ContentBox;
+            var clearRect = new SKRect(contentBox2.Left, contentBox2.Top + TotalOffsetY,
+                contentBox2.Right, contentBox2.Bottom + TotalOffsetY);
+            var bgColor = style.BackgroundColor ?? new SKColor(255, 255, 255);
+            var clearOp = PaintOpPool.GetDrawRectOp();
+            clearOp.Rect = clearRect;
+            clearOp.FillColor = bgColor;
+            clearOp.Bounds = clearRect;
+            _overlayList.Add(clearOp);
         }
 
         float fontSize = style.FontSize > 0 ? style.FontSize : 14;
@@ -1674,9 +1697,13 @@ public class PaintVisitor
             targetList.Add(cursorOp);
         }
 
-        // Pop clip
+        // Pop clip(s)
         if (clipRect.Width > 0 && clipRect.Height > 0)
+        {
             _displayList.Add(PaintOpPool.GetPopClipOp());
+            if (skipContent)
+                _overlayList.Add(PaintOpPool.GetPopClipOp());
+        }
 
         // Disabled overlay drawn outside clip so it covers the entire border area
         if (isDisabled)
