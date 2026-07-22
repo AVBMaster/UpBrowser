@@ -1,4 +1,3 @@
 <linker>
-  <!-- Root ClearScript native assembly -->
-  <assembly fullname="Microsoft.ClearScript.V8.Native.win-x64" />
+  <!-- V8 native DLL is downloaded on-demand; no static root needed -->
 </linker>

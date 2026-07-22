@@ -1,5 +1,4 @@
 using JavaScriptEngineSwitcher.Core;
-using JavaScriptEngineSwitcher.Jint;
 
 namespace UpBrowser.Core.JavaScript;
 

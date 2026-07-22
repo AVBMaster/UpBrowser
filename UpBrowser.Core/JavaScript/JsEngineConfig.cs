@@ -1,8 +1,6 @@
 using System.Diagnostics.CodeAnalysis;
-using System.Reflection;
 using JavaScriptEngineSwitcher.Core;
 using JavaScriptEngineSwitcher.Jint;
-using JavaScriptEngineSwitcher.Jurassic;
 
 namespace UpBrowser.Core.JavaScript;
 
@@ -17,7 +15,6 @@ public static class JsEngineConfig
 {
     private static bool _initialized;
     private static JsEngineType _defaultEngineType = JsEngineType.Jint;
-    private static bool _v8Available;
 
     public static JsEngineType DefaultEngineType
     {
@@ -33,13 +30,11 @@ public static class JsEngineConfig
         }
     }
 
-    public static bool IsV8Available => _v8Available;
-
     public static JsEngineType EffectiveEngineType
     {
         get
         {
-            if (_defaultEngineType == JsEngineType.V8 && !_v8Available)
+            if (_defaultEngineType != JsEngineType.Jint && !JsEngineDownloader.IsEngineDownloaded(_defaultEngineType))
                 return JsEngineType.Jint;
             return _defaultEngineType;
         }
@@ -52,11 +47,9 @@ public static class JsEngineConfig
 
         var switcher = JsEngineSwitcher.Current;
         switcher.EngineFactories.AddJint();
-        switcher.EngineFactories.AddJurassic();
 
-#pragma warning disable IL2026 // TryRegisterV8 uses Assembly.Load, but this is a best-effort registration on Windows
-        TryRegisterV8(switcher);
-#pragma warning restore IL2026
+        TryRegisterDownloadedEngine(switcher, JsEngineType.V8);
+        TryRegisterDownloadedEngine(switcher, JsEngineType.Jurassic);
 
         if (!IsEngineAvailable(_defaultEngineType))
         {
@@ -66,7 +59,7 @@ public static class JsEngineConfig
         }
 
         switcher.DefaultEngineName = GetEngineName(_defaultEngineType);
-        Console.WriteLine($"[JS] Using {_defaultEngineType} engine");
+        Console.WriteLine($"[JS] Using {_defaultEngineType} engine ({JsEngineDownloader.GetEngineStatus(_defaultEngineType)})");
     }
 
     public static IJsEngine CreateEngine()
@@ -92,6 +85,17 @@ public static class JsEngineConfig
         return factory.CreateEngine();
     }
 
+    public static JsEngineType? GetEngineTypeByName(string? name)
+    {
+        return name?.ToLowerInvariant() switch
+        {
+            "v8" => JsEngineType.V8,
+            "jint" => JsEngineType.Jint,
+            "jurassic" => JsEngineType.Jurassic,
+            _ => null
+        };
+    }
+
     public static bool IsEngineAvailable(JsEngineType type)
     {
         var name = GetEngineName(type);
@@ -99,48 +103,29 @@ public static class JsEngineConfig
             .Any(f => f.EngineName == name);
     }
 
-    [RequiresDynamicCode("V8 engine registration uses Assembly.Load and reflection")]
-    [RequiresUnreferencedCode("V8 engine registration uses Assembly.Load and reflection")]
-    private static void TryRegisterV8(IJsEngineSwitcher switcher)
+    [RequiresUnreferencedCode("Assembly.LoadFrom requires dynamic assembly loading")]
+    [RequiresDynamicCode("Assembly.LoadFrom requires dynamic assembly loading")]
+    public static bool TryRegisterDownloadedEngine(IJsEngineSwitcher switcher, JsEngineType type)
     {
+        if (!JsEngineDownloader.IsEngineDownloaded(type))
+            return false;
+
         try
         {
-            if (OperatingSystem.IsWindows())
-            {
-                // Use reflection to call AddV8 since the V8 package is conditionally included
-                var v8Assembly = Assembly.Load("JavaScriptEngineSwitcher.V8");
-                if (v8Assembly != null)
-                {
-                    var extType = v8Assembly.GetType(
-                        "JavaScriptEngineSwitcher.V8.JsEngineFactoryCollectionExtensions");
-                    if (extType != null)
-                    {
-                        // Get the EngineFactories type from the switcher's assembly
-                        var factoryType = switcher.EngineFactories.GetType();
-                        var addV8 = extType.GetMethod("AddV8", new[] { factoryType });
-                        if (addV8 != null)
-                        {
-                            addV8.Invoke(null, new object[] { switcher.EngineFactories });
-                            _v8Available = true;
-                            return;
-                        }
-                    }
-                }
-                Console.WriteLine("[JS] V8 assembly not loaded (Windows but package may not be restored)");
-            }
+            return JsEngineDownloader.TryLoadEngine(type, switcher);
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[JS] Cannot register V8: {ex.Message}");
+            Console.WriteLine($"[JS] Failed to register {type}: {ex.Message}");
+            return false;
         }
-        _v8Available = false;
     }
 
-    private static string GetEngineName(JsEngineType type) => type switch
+    public static string GetEngineName(JsEngineType type) => type switch
     {
         JsEngineType.V8 => "V8JsEngine",
         JsEngineType.Jint => JintJsEngine.EngineName,
-        JsEngineType.Jurassic => JurassicJsEngine.EngineName,
+        JsEngineType.Jurassic => "JurassicJsEngine",
         _ => JintJsEngine.EngineName
     };
 }

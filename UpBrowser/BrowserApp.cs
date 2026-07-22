@@ -22,7 +22,7 @@ using UpBrowser.Rendering.DevTools;
 
 namespace UpBrowser;
 
-public class BrowserApp : IDisposable
+    public class BrowserApp : IDisposable
 {
     private readonly IWindow _window;
     private readonly SkiaRenderer _skiaRenderer;
@@ -139,14 +139,32 @@ public class BrowserApp : IDisposable
         _chrome = new ChromeRenderer();
         _scroll = new ScrollManager();
         _skiaRenderer = new SkiaRenderer();
-        JsEngineConfig.DefaultEngineType = JsEngineType.Jint;
+        // Load persisted config first to get JS engine choice
+        RenderingSettingsConfig.Load(_renderingSettings);
+
+        // Resolve JS engine: use setting, download if needed, fall back to Jint
+        var engineType = JsEngineConfig.GetEngineTypeByName(_renderingSettings.JsEngine) ?? JsEngineType.Jint;
+        if (engineType != JsEngineType.Jint && !JsEngineDownloader.IsEngineDownloaded(engineType))
+        {
+            try
+            {
+                Console.WriteLine($"[Startup] Downloading {engineType} JS engine...");
+                JsEngineDownloader.DownloadEngineAsync(engineType).GetAwaiter().GetResult();
+                Console.WriteLine($"[Startup] {engineType} engine ready");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[Startup] Cannot get {engineType} engine: {ex.Message}, using Jint");
+                engineType = JsEngineType.Jint;
+                _renderingSettings.JsEngine = "Jint";
+            }
+        }
+        JsEngineConfig.DefaultEngineType = engineType;
         JsEngineConfig.Initialize();
         _jsEngine = new JavaScriptEngine();
         _eventLoop = new EventLoop();
         _devTools = new DevToolsPanel();
         _pageInputImeHost = new PageInputImeHost(this);
-        // Load persisted config, then apply default GPU
-        RenderingSettingsConfig.Load(_renderingSettings);
         if (!_skiaRenderer.TrySetGpu(_renderingSettings.GpuAcceleration))
             Console.WriteLine("[Startup] GPU init failed, using CPU");
 
@@ -194,6 +212,31 @@ public class BrowserApp : IDisposable
         {
             _input.NeedsRedraw = true;
             _skiaRenderer.InvalidatePageCache();
+        };
+
+        _renderingSettingsPage.OnBrowseEngine += engineName =>
+        {
+            string? folder = PickFolder("选择引擎目录");
+            if (folder == null) return;
+            var type = JsEngineConfig.GetEngineTypeByName(engineName);
+            if (type == null || type == JsEngineType.Jint) return;
+            var dest = JsEngineDownloader.EngineDir(type.Value);
+            try
+            {
+                Directory.CreateDirectory(dest);
+                foreach (var file in Directory.EnumerateFiles(folder))
+                {
+                    var name = Path.GetFileName(file);
+                    File.Copy(file, Path.Combine(dest, name), true);
+                    Console.WriteLine($"[Engine] Copied {name}");
+                }
+                Console.WriteLine($"[Engine] {engineName} installed from {folder}");
+                _input.NeedsRedraw = true;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[Engine] Failed to copy: {ex.Message}");
+            }
         };
 
         _renderingSettings.OnChanged += () =>
@@ -3784,6 +3827,111 @@ public class BrowserApp : IDisposable
     public string GetPerformanceSnapshot() => _perfHub?.Api.Snapshot() ?? "{}";
 
     #endregion
+
+#if WINDOWS
+    [System.Runtime.InteropServices.DllImport("shell32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+    private static extern nint SHBrowseForFolderW(ref BROWSEINFOW bi);
+
+    [System.Runtime.InteropServices.DllImport("shell32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+    [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)]
+    private static extern bool SHGetPathFromIDListW(nint pidl, System.Text.StringBuilder path);
+
+    [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential, CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+    private struct BROWSEINFOW
+    {
+        public nint hwndOwner;
+        public nint pidlRoot;
+        [System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPWStr)]
+        public string? pszDisplayName;
+        [System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPWStr)]
+        public string? lpszTitle;
+        public uint ulFlags;
+        public nint lpfn;
+        public nint lParam;
+        public int iImage;
+    }
+
+    private static string? PickFolder(string title)
+    {
+        var bi = new BROWSEINFOW
+        {
+            lpszTitle = title,
+            ulFlags = 0x0001 // BIF_RETURNONLYFSDIRS
+        };
+        nint pidl = SHBrowseForFolderW(ref bi);
+        if (pidl == 0) return null;
+        var sb = new System.Text.StringBuilder(260);
+        if (!SHGetPathFromIDListW(pidl, sb)) return null;
+        try { System.Runtime.InteropServices.Marshal.FreeCoTaskMem(pidl); } catch { }
+        var path = sb.ToString();
+        return string.IsNullOrWhiteSpace(path) ? null : path;
+    }
+#elif LINUX
+    private static string? PickFolder(string title)
+    {
+        // Linux: shell out to zenity if available (GNOME, KDE etc.)
+        try
+        {
+            if (OperatingSystem.IsLinux())
+            {
+                var psi = new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = "zenity",
+                    Arguments = $"--file-selection --directory --title=\"{title}\"",
+                    RedirectStandardOutput = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                };
+                using var p = System.Diagnostics.Process.Start(psi);
+                if (p != null)
+                {
+                    string output = p.StandardOutput.ReadToEnd().Trim();
+                    p.WaitForExit();
+                    if (p.ExitCode == 0 && !string.IsNullOrWhiteSpace(output))
+                        return output;
+                }
+            }
+        }
+        catch { /* zenity not available */ }
+        return null;
+    }
+#elif MACOS
+    private static string? PickFolder(string title)
+    {
+        // macOS: use AppleScript to open a native folder picker
+        try
+        {
+            if (OperatingSystem.IsMacOS())
+            {
+                var escaped = title.Replace("\"", "\\\"");
+                var script = $"set f to choose folder with prompt \"{escaped}\"\nreturn POSIX path of f";
+                var psi = new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = "osascript",
+                    Arguments = $"-e \"{script}\"",
+                    RedirectStandardOutput = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                };
+                using var p = System.Diagnostics.Process.Start(psi);
+                if (p != null)
+                {
+                    string output = p.StandardOutput.ReadToEnd().Trim();
+                    p.WaitForExit();
+                    if (p.ExitCode == 0 && !string.IsNullOrWhiteSpace(output))
+                        return output;
+                }
+            }
+        }
+        catch { }
+        return null;
+    }
+#else
+    private static string? PickFolder(string title)
+    {
+        return null;
+    }
+#endif
 }
 
 /// <summary>

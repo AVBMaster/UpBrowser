@@ -1,5 +1,9 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using UpBrowser.Core.JavaScript;
 using SkiaSharp;
 
 namespace UpBrowser.Rendering;
@@ -20,6 +24,12 @@ public class RenderingSettingsPage
     private int _draggingSliderIndex = -1;
     private bool _rebuilding;
 
+    // JS engine tracking
+    private static readonly ConcurrentDictionary<string, int> _downloadProgress = new();
+    private static string _downloadError = "";
+
+    public event Action<string>? OnBrowseEngine; // engineName → user picks folder
+
     private struct SettingItem
     {
         public string Label;
@@ -36,6 +46,10 @@ public class RenderingSettingsPage
         public string[]? Options;
         public int SelectedOption;
         public Action<int>? OnOptionChange;
+        public Func<string>? DynamicValue;
+        public bool IsRadio;
+        public bool IsEngineDetail;
+        public bool IsEngineAction;
     }
 
     private List<SettingItem> _items = new();
@@ -98,6 +112,9 @@ public class RenderingSettingsPage
         AddCategory("显示", ref idx);
         AddToggle("显示 FPS", _settings.ShowFps, () => _settings.ToggleFps(), ref idx);
         AddToggle("平滑滚动", _settings.SmoothScrolling, () => _settings.ToggleSmoothScrolling(), ref idx);
+
+        AddCategory("JavaScript 引擎", ref idx);
+        BuildJsEngineSection(ref idx);
 
         _rebuilding = false;
     }
@@ -172,6 +189,171 @@ public class RenderingSettingsPage
         });
     }
 
+    private void BuildJsEngineSection(ref int idx)
+    {
+        string[] engines = { "Jint", "V8", "Jurassic" };
+        string selected = _settings.JsEngine ?? "Jint";
+
+        foreach (var name in engines)
+        {
+            var type = JsEngineConfig.GetEngineTypeByName(name);
+            bool isSelected = name == selected;
+
+            string status = name == "Jint" ? "内置" : GetEngineStatusText(name);
+            AddRadio(name, status, isSelected, () =>
+            {
+                if (_settings.JsEngine != name)
+                {
+                    _settings.JsEngine = name;
+                    if (name != "Jint" && !JsEngineDownloader.IsEngineDownloaded(type!.Value))
+                        TriggerEngineDownload(name);
+                }
+            }, ref idx);
+
+            if (!isSelected) continue;
+
+            // ── Detail rows for the selected engine ──
+            if (name == "Jint")
+            {
+                AddEngineDetail("类型: 纯 C# 引擎（内建）", ref idx);
+                AddEngineDetail("平台: 跨平台通用", ref idx);
+                continue;
+            }
+
+            // Non-Jint engines: show status
+            bool downloaded = JsEngineDownloader.IsEngineDownloaded(type!.Value);
+            string statusIcon = downloaded ? "✅" : "⬇";
+            string statusText = downloaded ? "已就绪" : "未下载";
+            AddEngineDetail($"{statusIcon} 状态: {statusText}", ref idx);
+
+            if (downloaded)
+            {
+                string dir = JsEngineDownloader.EngineDir(type!.Value);
+                long size = GetDirectorySize(dir);
+                string sizeStr = size > 1024 * 1024 ? $"{size / (1024.0 * 1024.0):F1} MB" : $"{size / 1024.0:F1} KB";
+                AddEngineDetail($"大小: {sizeStr}", ref idx);
+                AddEngineDetail($"位置: {dir}", ref idx);
+            }
+
+            // Download progress
+            if (!downloaded && _downloadProgress.TryGetValue(name, out int pct) && pct >= 0)
+            {
+                AddEngineDetail($"下载中: {pct}%", ref idx);
+            }
+            if (!string.IsNullOrEmpty(_downloadError) && _downloadProgress.TryGetValue(name, out _))
+            {
+                AddEngineDetail($"❌ 失败: {_downloadError}", ref idx);
+            }
+
+            // Action buttons
+            if (downloaded)
+            {
+                AddEngineAction("重新下载", () => TriggerEngineDownload(name), ref idx);
+                AddEngineAction("从本地选择...", () => OnBrowseEngine?.Invoke(name), ref idx);
+            }
+            else
+            {
+                bool isDownloading = _downloadProgress.TryGetValue(name, out int p) && p >= 0 && p < 100;
+                if (!isDownloading)
+                {
+                    AddEngineAction("⬇ 下载", () => TriggerEngineDownload(name), ref idx);
+                }
+                AddEngineAction("📁 从本地选择...", () => OnBrowseEngine?.Invoke(name), ref idx);
+            }
+        }
+    }
+
+    private static long GetDirectorySize(string dir)
+    {
+        if (!Directory.Exists(dir)) return 0;
+        try { return Directory.EnumerateFiles(dir, "*", SearchOption.AllDirectories).Sum(f => new FileInfo(f).Length); }
+        catch { return 0; }
+    }
+
+    private static string GetEngineStatusText(string engineName)
+    {
+        var type = JsEngineConfig.GetEngineTypeByName(engineName);
+        if (type == null) return "";
+        if (type == JsEngineType.Jint) return "内置";
+        return JsEngineDownloader.IsEngineDownloaded(type.Value) ? "已就绪" : "未下载";
+    }
+
+    private void AddRadio(string label, string status, bool isSelected, Action onClick, ref int idx)
+    {
+        _items.Add(new SettingItem
+        {
+            Label = label,
+            Value = status,
+            Category = "",
+            IsRadio = true,
+            IsOn = () => _settings.JsEngine == label,
+            OnClick = onClick,
+            Index = idx++
+        });
+    }
+
+    private void AddEngineDetail(string text, ref int idx)
+    {
+        _items.Add(new SettingItem
+        {
+            Label = text,
+            Value = "",
+            Category = "",
+            IsEngineDetail = true,
+            Index = idx++
+        });
+    }
+
+    private void AddEngineAction(string btnText, Action onClick, ref int idx)
+    {
+        _items.Add(new SettingItem
+        {
+            Label = btnText,
+            Value = "",
+            Category = "",
+            IsEngineAction = true,
+            OnClick = onClick,
+            Index = idx++
+        });
+    }
+
+    private void TriggerEngineDownload(string engineName)
+    {
+        var type = JsEngineConfig.GetEngineTypeByName(engineName);
+        if (type is not { } t || t == JsEngineType.Jint) return;
+
+        if (JsEngineDownloader.IsEngineDownloaded(t))
+        {
+            try { Directory.Delete(JsEngineDownloader.EngineDir(t), true); } catch { }
+        }
+
+        _downloadProgress[engineName] = 0;
+        _downloadError = "";
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                var progress = new Progress<int>(p =>
+                {
+                    _downloadProgress[engineName] = p;
+                    OnChanged?.Invoke();
+                });
+                await JsEngineDownloader.DownloadEngineAsync(t, progress);
+                _downloadProgress[engineName] = 100;
+                Console.WriteLine($"[JS] {engineName} engine downloaded");
+                OnChanged?.Invoke();
+            }
+            catch (Exception ex)
+            {
+                _downloadError = ex.Message;
+                _downloadProgress.TryRemove(engineName, out _);
+                Console.WriteLine($"[JS] Failed to download {engineName}: {ex.Message}");
+                OnChanged?.Invoke();
+            }
+        });
+    }
+
     private void AddSlider(string label, float value, float min, float max, Action<float> onChange, ref int idx)
     {
         _items.Add(new SettingItem
@@ -242,6 +424,7 @@ public class RenderingSettingsPage
 
         using var labelFont = new SKFont(_typeface, 12);
         using var valueFont = new SKFont(_typeface, 12);
+        using var smallFont = new SKFont(_typeface, 10);
         using var valuePaint = new SKPaint { Color = new SKColor(26, 115, 232), IsAntialias = true };
         using var labelPaint = new SKPaint { Color = new SKColor(60, 64, 67), IsAntialias = true };
         using var catPaint = new SKPaint { Color = new SKColor(26, 115, 232), IsAntialias = true };
@@ -330,7 +513,7 @@ public class RenderingSettingsPage
             {
                 canvas.DrawText(item.Label, xPos + 8, itemY + 21, SKTextAlign.Left, labelFont, labelPaint);
 
-                string val = item.Value;
+                string val = item.DynamicValue != null ? item.DynamicValue() : item.Value;
                 float vw = valueFont.MeasureText(val);
                 canvas.DrawText(val, xPos + _panelWidth - 24 - vw - 8, itemY + 21, SKTextAlign.Left, valueFont, valuePaint);
 
@@ -342,20 +525,70 @@ public class RenderingSettingsPage
                 };
                 canvas.DrawText("›", arrowX - 4, itemY + 21, SKTextAlign.Left, valueFont, arrowPaint);
             }
+            else if (item.IsEngineDetail)
+            {
+                using var detailPaint = new SKPaint
+                {
+                    Color = new SKColor(95, 99, 104),
+                    IsAntialias = true
+                };
+                canvas.DrawText(item.Label, xPos + 20, itemY + 21, SKTextAlign.Left, smallFont, detailPaint);
+            }
+            else if (item.IsEngineAction)
+            {
+                using var btnBg = new SKPaint
+                {
+                    Color = isHovered ? new SKColor(232, 240, 254) : new SKColor(248, 249, 250),
+                    Style = SKPaintStyle.Fill,
+                    IsAntialias = true
+                };
+                float pad = 12;
+                float fw = smallFont.MeasureText(item.Label) + pad * 2;
+                float bx = xPos + 20;
+                float by = itemY + 2;
+                float bw = fw;
+                float bh = itemHeight - 4;
+                canvas.DrawRoundRect(bx, by, bw, bh, 6, 6, btnBg);
+                using var btnBorder = new SKPaint
+                {
+                    Color = new SKColor(218, 220, 224),
+                    Style = SKPaintStyle.Stroke,
+                    StrokeWidth = 1,
+                    IsAntialias = true
+                };
+                canvas.DrawRoundRect(bx, by, bw, bh, 6, 6, btnBorder);
+                using var btnText = new SKPaint
+                {
+                    Color = new SKColor(26, 115, 232),
+                    IsAntialias = true
+                };
+                float textX = bx + (bw - smallFont.MeasureText(item.Label)) / 2;
+                canvas.DrawText(item.Label, textX, by + 17, SKTextAlign.Left, smallFont, btnText);
+            }
             else
             {
-                canvas.DrawText(item.Label, xPos + 8, itemY + 21, SKTextAlign.Left, labelFont, labelPaint);
-
-                if (item.IsOn != null)
+                if (item.IsRadio)
                 {
-                    DrawToggle(canvas, xPos + _panelWidth - 52, itemY + 6, 36, 20, item.IsOn(), isHovered);
+                    canvas.DrawText(item.Label, xPos + 24, itemY + 21, SKTextAlign.Left, labelFont, labelPaint);
+                    using var statusPaint = new SKPaint { Color = new SKColor(128, 134, 139), IsAntialias = true };
+                    canvas.DrawText(item.Value, xPos + 24 + labelFont.MeasureText(item.Label) + 4, itemY + 21, SKTextAlign.Left, valueFont, statusPaint);
+                    DrawRadioButton(canvas, xPos + 8, itemY + 6, item.IsOn());
                 }
                 else
                 {
-                    string val = item.Value;
-                    float vw = valueFont.MeasureText(val);
-                    canvas.DrawText(val, xPos + _panelWidth - 24 - vw, itemY + 21, SKTextAlign.Left, valueFont, valuePaint);
-                    canvas.DrawText("›", xPos + _panelWidth - 20, itemY + 21, SKTextAlign.Left, valueFont, valuePaint);
+                    canvas.DrawText(item.Label, xPos + 8, itemY + 21, SKTextAlign.Left, labelFont, labelPaint);
+
+                    if (item.IsOn != null)
+                    {
+                        DrawToggle(canvas, xPos + _panelWidth - 52, itemY + 6, 36, 20, item.IsOn(), isHovered);
+                    }
+                    else
+                    {
+                        string val = item.Value;
+                        float vw = valueFont.MeasureText(val);
+                        canvas.DrawText(val, xPos + _panelWidth - 24 - vw, itemY + 21, SKTextAlign.Left, valueFont, valuePaint);
+                        canvas.DrawText("›", xPos + _panelWidth - 20, itemY + 21, SKTextAlign.Left, valueFont, valuePaint);
+                    }
                 }
             }
 
@@ -369,6 +602,33 @@ public class RenderingSettingsPage
     }
 
 
+
+    private void DrawRadioButton(SKCanvas canvas, float x, float y, bool isOn)
+    {
+        float r = 8;
+        float cx = x + r;
+        float cy = y + r;
+
+        using var outer = new SKPaint
+        {
+            Color = isOn ? new SKColor(26, 115, 232) : new SKColor(128, 134, 139),
+            Style = SKPaintStyle.Stroke,
+            StrokeWidth = 2,
+            IsAntialias = true
+        };
+        canvas.DrawCircle(cx, cy, r, outer);
+
+        if (isOn)
+        {
+            using var inner = new SKPaint
+            {
+                Color = new SKColor(26, 115, 232),
+                Style = SKPaintStyle.Fill,
+                IsAntialias = true
+            };
+            canvas.DrawCircle(cx, cy, r - 4, inner);
+        }
+    }
 
     private void DrawToggle(SKCanvas canvas, float x, float y, float w, float h, bool isOn, bool hovered)
     {

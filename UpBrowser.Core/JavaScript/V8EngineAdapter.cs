@@ -23,11 +23,7 @@ public class V8EngineAdapter : EngineAdapterBase
 
     private static IJsEngine CreateV8Engine()
     {
-        if (!JsEngineConfig.IsV8Available)
-        {
-            Console.WriteLine("[JS] V8 engine not available, falling back to Jint");
-            return JsEngineConfig.CreateEngine(JsEngineType.Jint);
-        }
+        // CreateEngine falls back to Jint if V8 is not registered
         return JsEngineConfig.CreateEngine(JsEngineType.V8);
     }
 

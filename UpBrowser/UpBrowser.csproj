@@ -21,7 +21,5 @@
     <ProjectReference Include="..\UpBrowser.Input\UpBrowser.Input.csproj" />
   </ItemGroup>
 
-  <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Windows'))">
-    <PackageReference Include="Microsoft.ClearScript.V8.Native.win-x64" Version="*" />
-  </ItemGroup>
+  <!-- V8 native DLL is downloaded on-demand via JsEngineDownloader -->
 </Project>

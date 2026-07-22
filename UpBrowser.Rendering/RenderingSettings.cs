@@ -1,4 +1,5 @@
 using System;
+using UpBrowser.Core.JavaScript;
 
 namespace UpBrowser.Rendering;
 
@@ -41,6 +42,21 @@ public class RenderingSettings
     private float _resolutionScale = 1.0f;
     private bool _showFps;
     private bool _showSettingsButton = true;
+    private string _jsEngine = "Jint";
+
+    public string JsEngine
+    {
+        get => _jsEngine;
+        set
+        {
+            if (_jsEngine != value)
+            {
+                _jsEngine = value;
+                _preset = PerformancePreset.Custom;
+                NotifyChanged();
+            }
+        }
+    }
 
     public PerformancePreset Preset
     {

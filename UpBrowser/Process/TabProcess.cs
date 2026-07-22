@@ -85,7 +85,7 @@ public class TabProcess : IDisposable
     {
         try
         {
-            JsEngineConfig.DefaultEngineType = JsEngineType.Jint;
+            // Use engine type already configured by BrowserApp from user settings
             JsEngineConfig.Initialize();
 
             _docManager = new DocumentManager();

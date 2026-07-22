@@ -1,0 +1,303 @@
+<?xml version="1.0"?>
+<doc>
+    <assembly>
+        <name>JavaScriptEngineSwitcher.Jurassic</name>
+    </assembly>
+    <members>
+        <member name="T:JavaScriptEngineSwitcher.Jurassic.FileScriptSource">
+            <summary>
+            Represents a JS file
+            </summary>
+        </member>
+        <member name="F:JavaScriptEngineSwitcher.Jurassic.FileScriptSource._documentName">
+            <summary>
+            The document name
+            </summary>
+        </member>
+        <member name="F:JavaScriptEngineSwitcher.Jurassic.FileScriptSource._path">
+            <summary>
+            The path to the JS file
+            </summary>
+        </member>
+        <member name="F:JavaScriptEngineSwitcher.Jurassic.FileScriptSource._encoding">
+            <summary>
+            The text encoding
+            </summary>
+        </member>
+        <member name="M:JavaScriptEngineSwitcher.Jurassic.FileScriptSource.#ctor(System.String,System.String,System.Text.Encoding)">
+            <summary>
+            Constructs an instance of <see cref="T:JavaScriptEngineSwitcher.Jurassic.FileScriptSource"/>
+            </summary>
+            <param name="documentName">The document name</param>
+            <param name="path">The path to the JS file</param>
+            <param name="encoding">The text encoding</param>
+        </member>
+        <member name="P:JavaScriptEngineSwitcher.Jurassic.FileScriptSource.Path">
+            <summary>
+            Gets a document name
+            </summary>
+        </member>
+        <member name="M:JavaScriptEngineSwitcher.Jurassic.FileScriptSource.GetReader">
+            <summary>
+            Gets a reader that can be used to read the source code from JS file
+            </summary>
+            <returns>A reader that can be used to read the source code from JS file,
+            positioned at the start of the source code</returns>
+        </member>
+        <member name="T:JavaScriptEngineSwitcher.Jurassic.JsEngineFactoryCollectionExtensions">
+            <summary>
+            JS engine factory collection extensions
+            </summary>
+        </member>
+        <member name="M:JavaScriptEngineSwitcher.Jurassic.JsEngineFactoryCollectionExtensions.AddJurassic(JavaScriptEngineSwitcher.Core.JsEngineFactoryCollection)">
+            <summary>
+            Adds a instance of <see cref="T:JavaScriptEngineSwitcher.Jurassic.JurassicJsEngineFactory"/> to
+            the specified <see cref="T:JavaScriptEngineSwitcher.Core.JsEngineFactoryCollection"/>
+            </summary>
+            <param name="source">Instance of <see cref="T:JavaScriptEngineSwitcher.Core.JsEngineFactoryCollection"/></param>
+            <returns>Instance of <see cref="T:JavaScriptEngineSwitcher.Core.JsEngineFactoryCollection"/></returns>
+        </member>
+        <member name="M:JavaScriptEngineSwitcher.Jurassic.JsEngineFactoryCollectionExtensions.AddJurassic(JavaScriptEngineSwitcher.Core.JsEngineFactoryCollection,System.Action{JavaScriptEngineSwitcher.Jurassic.JurassicSettings})">
+            <summary>
+            Adds a instance of <see cref="T:JavaScriptEngineSwitcher.Jurassic.JurassicJsEngineFactory"/> to
+            the specified <see cref="T:JavaScriptEngineSwitcher.Core.JsEngineFactoryCollection"/>
+            </summary>
+            <param name="source">Instance of <see cref="T:JavaScriptEngineSwitcher.Core.JsEngineFactoryCollection"/></param>
+            <param name="configure">The delegate to configure the provided <see cref="T:JavaScriptEngineSwitcher.Jurassic.JurassicSettings"/></param>
+            <returns>Instance of <see cref="T:JavaScriptEngineSwitcher.Core.JsEngineFactoryCollection"/></returns>
+        </member>
+        <member name="M:JavaScriptEngineSwitcher.Jurassic.JsEngineFactoryCollectionExtensions.AddJurassic(JavaScriptEngineSwitcher.Core.JsEngineFactoryCollection,JavaScriptEngineSwitcher.Jurassic.JurassicSettings)">
+            <summary>
+            Adds a instance of <see cref="T:JavaScriptEngineSwitcher.Jurassic.JurassicJsEngineFactory"/> to
+            the specified <see cref="T:JavaScriptEngineSwitcher.Core.JsEngineFactoryCollection"/>
+            </summary>
+            <param name="source">Instance of <see cref="T:JavaScriptEngineSwitcher.Core.JsEngineFactoryCollection"/></param>
+            <param name="settings">Settings of the Jurassic JS engine</param>
+            <returns>Instance of <see cref="T:JavaScriptEngineSwitcher.Core.JsEngineFactoryCollection"/></returns>
+        </member>
+        <member name="T:JavaScriptEngineSwitcher.Jurassic.JurassicJsEngine">
+            <summary>
+            Adapter for the Jurassic JS engine
+            </summary>
+        </member>
+        <member name="F:JavaScriptEngineSwitcher.Jurassic.JurassicJsEngine.EngineName">
+            <summary>
+            Name of JS engine
+            </summary>
+        </member>
+        <member name="F:JavaScriptEngineSwitcher.Jurassic.JurassicJsEngine.EngineVersion">
+            <summary>
+            Version of original JS engine
+            </summary>
+        </member>
+        <member name="F:JavaScriptEngineSwitcher.Jurassic.JurassicJsEngine._jsEngine">
+            <summary>
+            Jurassic JS engine
+            </summary>
+        </member>
+        <member name="F:JavaScriptEngineSwitcher.Jurassic.JurassicJsEngine._executionSynchronizer">
+            <summary>
+            Synchronizer of code execution
+            </summary>
+        </member>
+        <member name="F:JavaScriptEngineSwitcher.Jurassic.JurassicJsEngine._documentNameManager">
+            <summary>
+            Unique document name manager
+            </summary>
+        </member>
+        <member name="M:JavaScriptEngineSwitcher.Jurassic.JurassicJsEngine.#ctor">
+            <summary>
+            Constructs an instance of adapter for the Jurassic JS engine
+            </summary>
+        </member>
+        <member name="M:JavaScriptEngineSwitcher.Jurassic.JurassicJsEngine.#ctor(JavaScriptEngineSwitcher.Jurassic.JurassicSettings)">
+            <summary>
+            Constructs an instance of adapter for the Jurassic JS engine
+            </summary>
+            <param name="settings">Settings of the Jurassic JS engine</param>
+        </member>
+        <member name="M:JavaScriptEngineSwitcher.Jurassic.JurassicJsEngine.MapToScriptType(System.Object)">
+            <summary>
+            Makes a mapping of value from the host type to a script type
+            </summary>
+            <param name="value">The source value</param>
+            <returns>The mapped value</returns>
+        </member>
+        <member name="M:JavaScriptEngineSwitcher.Jurassic.JurassicJsEngine.MapToScriptType(System.Object[])">
+            <summary>
+            Makes a mapping of array items from the host type to a script type
+            </summary>
+            <param name="args">The source array</param>
+            <returns>The mapped array</returns>
+        </member>
+        <member name="M:JavaScriptEngineSwitcher.Jurassic.JurassicJsEngine.MapToHostType(System.Object)">
+            <summary>
+            Makes a mapping of value from the script type to a host type
+            </summary>
+            <param name="value">The source value</param>
+            <returns>The mapped value</returns>
+        </member>
+        <member name="M:JavaScriptEngineSwitcher.Jurassic.JurassicJsEngine.MapToHostType``1(Jurassic.ScriptEngine,System.Object)">
+            <summary>
+            Makes a mapping of value from the script type to a host type
+            </summary>
+            <typeparam name="T">The type to convert the value to</typeparam>
+            <param name="engine">Original JS engine</param>
+            <param name="value">The source value</param>
+            <returns>The mapped value</returns>
+        </member>
+        <member name="M:JavaScriptEngineSwitcher.Jurassic.JurassicJsEngine.FixCallStackItems(JavaScriptEngineSwitcher.Core.Helpers.ErrorLocationItem[])">
+            <summary>
+            Fixes a function name in call stack items
+            </summary>
+            <param name="callStackItems">An array of <see cref="T:JavaScriptEngineSwitcher.Core.Helpers.ErrorLocationItem"/> instances</param>
+        </member>
+        <member name="M:JavaScriptEngineSwitcher.Jurassic.JurassicJsEngine.InnerEvaluateWithoutResultConversion(Jurassic.ScriptEngine,System.String,System.String)">
+            <summary>
+            Evaluates an expression without converting its result to a host type
+            </summary>
+            <param name="engine">Original JS engine</param>
+            <param name="expression">JS expression</param>
+            <param name="uniqueDocumentName">Unique document name</param>
+            <returns>Result of the expression not converted to a host type</returns>
+        </member>
+        <member name="M:JavaScriptEngineSwitcher.Jurassic.JurassicJsEngine.InnerCallFunctionWithoutResultConversion(Jurassic.ScriptEngine,System.String,System.Object[])">
+            <summary>
+            Calls a function without converting its result to a host type
+            </summary>
+            <param name="engine">Original JS engine</param>
+            <param name="functionName">Function name</param>
+            <param name="args">Function arguments converted to a script type</param>
+            <returns>Result of the function execution not converted to a host type</returns>
+        </member>
+        <member name="M:JavaScriptEngineSwitcher.Jurassic.JurassicJsEngine.InnerGetVariableValueWithoutResultConversion(Jurassic.ScriptEngine,System.String)">
+            <summary>
+            Gets a value of variable without converting it to a host type
+            </summary>
+            <param name="engine">Original JS engine</param>
+            <param name="variableName">Variable name</param>
+            <returns>Value of variable not converted to a host type</returns>
+        </member>
+        <member name="T:JavaScriptEngineSwitcher.Jurassic.JurassicJsEngineFactory">
+            <summary>
+            Jurassic JS engine factory
+            </summary>
+        </member>
+        <member name="F:JavaScriptEngineSwitcher.Jurassic.JurassicJsEngineFactory._settings">
+            <summary>
+            Settings of the Jurassic JS engine
+            </summary>
+        </member>
+        <member name="M:JavaScriptEngineSwitcher.Jurassic.JurassicJsEngineFactory.#ctor">
+            <summary>
+            Constructs an instance of the Jurassic JS engine factory
+            </summary>
+        </member>
+        <member name="M:JavaScriptEngineSwitcher.Jurassic.JurassicJsEngineFactory.#ctor(JavaScriptEngineSwitcher.Jurassic.JurassicSettings)">
+            <summary>
+            Constructs an instance of the Jurassic JS engine factory
+            </summary>
+            <param name="settings">Settings of the Jurassic JS engine</param>
+        </member>
+        <member name="P:JavaScriptEngineSwitcher.Jurassic.JurassicJsEngineFactory.EngineName">
+            <inheritdoc/>
+        </member>
+        <member name="M:JavaScriptEngineSwitcher.Jurassic.JurassicJsEngineFactory.CreateEngine">
+            <summary>
+            Creates a instance of the Jurassic JS engine
+            </summary>
+            <returns>Instance of the Jurassic JS engine</returns>
+        </member>
+        <member name="T:JavaScriptEngineSwitcher.Jurassic.JurassicPrecompiledScript">
+            <summary>
+            Represents a pre-compiled script that can be executed by different instances of the Jurassic JS engine
+            </summary>
+        </member>
+        <member name="P:JavaScriptEngineSwitcher.Jurassic.JurassicPrecompiledScript.CompiledScript">
+            <summary>
+            Gets a compiled script
+            </summary>
+        </member>
+        <member name="M:JavaScriptEngineSwitcher.Jurassic.JurassicPrecompiledScript.#ctor(Jurassic.CompiledScript)">
+            <summary>
+            Constructs an instance of pre-compiled script
+            </summary>
+            <param name="compiledScript">The compiled script</param>
+        </member>
+        <member name="P:JavaScriptEngineSwitcher.Jurassic.JurassicPrecompiledScript.EngineName">
+            <inheritdoc/>
+        </member>
+        <member name="T:JavaScriptEngineSwitcher.Jurassic.JurassicSettings">
+            <summary>
+            Settings of the Jurassic JS engine
+            </summary>
+        </member>
+        <member name="P:JavaScriptEngineSwitcher.Jurassic.JurassicSettings.EnableHostCollectionsEmbeddingByValue">
+            <summary>
+            Gets or sets a flag for whether to enable conversion of host collections,
+            that are passed or returned to script code, to script arrays
+            </summary>
+            <remarks>
+            This property does not allow the embedding of host collections by
+            using a <see cref="M:JavaScriptEngineSwitcher.Core.IJsEngine.EmbedHostObject(System.String,System.Object)"/>
+            method, it only affects the internal mechanisms of the Jurassic library.
+            </remarks>
+        </member>
+        <member name="P:JavaScriptEngineSwitcher.Jurassic.JurassicSettings.EnableIlAnalysis">
+            <summary>
+            Gets or sets a flag for whether to disassemble any generated IL
+            and store it in the associated function
+            </summary>
+        </member>
+        <member name="P:JavaScriptEngineSwitcher.Jurassic.JurassicSettings.StrictMode">
+            <summary>
+            Gets or sets a flag for whether to allow run the script in strict mode
+            </summary>
+        </member>
+        <member name="M:JavaScriptEngineSwitcher.Jurassic.JurassicSettings.#ctor">
+            <summary>
+            Constructs an instance of the Jurassic settings
+            </summary>
+        </member>
+        <member name="T:JavaScriptEngineSwitcher.Jurassic.ResourceScriptSource">
+            <summary>
+            Represents a embedded JS resource
+            </summary>
+        </member>
+        <member name="F:JavaScriptEngineSwitcher.Jurassic.ResourceScriptSource._documentName">
+            <summary>
+            The document name
+            </summary>
+        </member>
+        <member name="F:JavaScriptEngineSwitcher.Jurassic.ResourceScriptSource._resourceName">
+            <summary>
+            The case-sensitive resource name
+            </summary>
+        </member>
+        <member name="F:JavaScriptEngineSwitcher.Jurassic.ResourceScriptSource._assembly">
+            <summary>
+            The assembly, which contains the embedded resource
+            </summary>
+        </member>
+        <member name="M:JavaScriptEngineSwitcher.Jurassic.ResourceScriptSource.#ctor(System.String,System.String,System.Reflection.Assembly)">
+            <summary>
+            Constructs an instance of <see cref="T:JavaScriptEngineSwitcher.Jurassic.ResourceScriptSource"/>
+            </summary>
+            <param name="documentName">The document name</param>
+            <param name="resourceName">The case-sensitive resource name</param>
+            <param name="assembly">The assembly, which contains the embedded resource</param>
+        </member>
+        <member name="P:JavaScriptEngineSwitcher.Jurassic.ResourceScriptSource.Path">
+            <summary>
+            Gets a document name
+            </summary>
+        </member>
+        <member name="M:JavaScriptEngineSwitcher.Jurassic.ResourceScriptSource.GetReader">
+            <summary>
+            Gets a reader that can be used to read the source code from the embedded JS resource
+            </summary>
+            <returns>The reader that can be used to read the source code from the embedded
+            JS resource, positioned at the start of the source code</returns>
+        </member>
+    </members>
+</doc>
