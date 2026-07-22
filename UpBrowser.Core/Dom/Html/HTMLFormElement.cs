@@ -61,6 +61,53 @@ public class HTMLFormElement : HtmlElement
     {
         var evt = new Event("reset", new EventInit { Bubbles = true, Cancelable = true });
         DispatchEvent(evt);
+        if (!evt.DefaultPrevented)
+        {
+            foreach (var el in Elements)
+            {
+                if (el is Element e)
+                {
+                    string? tag = e.TagName?.ToLowerInvariant();
+                    if (tag == "input")
+                    {
+                        string? type = e.GetAttribute("type")?.ToLowerInvariant();
+                        if (type == "checkbox" || type == "radio")
+                        {
+                            bool defChecked = e.GetAttribute("checked") != null;
+                            if (!defChecked && e.HasAttribute("checked"))
+                                e.RemoveAttribute("checked");
+                            else if (defChecked && !e.HasAttribute("checked"))
+                                e.SetAttribute("checked", "");
+                        }
+                        else
+                        {
+                            // text, password, email, etc. — restore default value
+                            string? defValue = e.GetAttribute("value");
+                            e.Value = defValue ?? "";
+                        }
+                    }
+                    else if (tag == "textarea")
+                    {
+                        e.Value = e.GetAttribute("value") ?? e.TextContent ?? "";
+                    }
+                    else if (tag == "select")
+                    {
+                        // Reset to first option or selected option
+                        foreach (var child in e.ChildNodes)
+                        {
+                            if (child is Element opt && opt.TagName == "OPTION")
+                            {
+                                bool isDef = opt.HasAttribute("selected");
+                                if (isDef)
+                                    opt.SetAttribute("selected", "");
+                                else
+                                    opt.RemoveAttribute("selected");
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     public bool CheckValidity() => true;

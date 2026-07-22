@@ -2380,6 +2380,7 @@ public class ImageCache
                 img?.Dispose();
             _cache.Clear();
             _accessOrder.Clear();
+            _pendingLoads.Clear();
         }
         _decodedPool.Clear();
         _resourceCache.Clear();

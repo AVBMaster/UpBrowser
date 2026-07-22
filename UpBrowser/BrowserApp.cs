@@ -6,6 +6,7 @@ using UpBrowser.Core;
 using UpBrowser.Core.Css;
 using UpBrowser.Core.Dom;
 using UpBrowser.Core.EventLoop;
+using FormElement = UpBrowser.Core.Dom.Html.HTMLFormElement;
 using UpBrowser.Core.JavaScript;
 using UpBrowser.Core.Layout;
 using UpBrowser.Process;
@@ -73,6 +74,7 @@ public class BrowserApp : IDisposable
 
     private long _lastInputTimeTick = Environment.TickCount64;
     private const long InputCooldownMs = 80;
+    private long _lastGcTick = Environment.TickCount64;
 
     private string? _dialogResult;
     private string? _dialogInput;
@@ -760,6 +762,22 @@ public class BrowserApp : IDisposable
         {
             Console.WriteLine($"Close tab {index} requested");
             _processManager.DestroyProcess(index);
+            // Clean up tab state to free memory
+            if (_tabStates.TryRemove(index, out var oldState) && oldState.LoadResult != null)
+            {
+                try { oldState.LoadResult.AngleSharpDoc?.Dispose(); }
+                catch (Exception ex) { Console.WriteLine($"[Dispose] Tab state doc error: {ex.Message}"); }
+            }
+            // If closing the active tab, clear current load
+            if (_currentLoad != null && _chrome.ActiveTabIndex == index)
+            {
+                try { _currentLoad.AngleSharpDoc?.Dispose(); }
+                catch (Exception ex) { Console.WriteLine($"[Dispose] Current doc error: {ex.Message}"); }
+                _currentLoad = null;
+            }
+            // Force GC to release managed memory back to the OS
+            GC.Collect(GC.MaxGeneration, GCCollectionMode.Aggressive, blocking: true);
+            GC.WaitForPendingFinalizers();
             _input.NeedsRedraw = true;
         };
     }
@@ -1065,6 +1083,9 @@ public class BrowserApp : IDisposable
             catch (Exception ex) { Console.WriteLine($"[Dispose] Error: {ex.Message}"); }
         }
 
+        // Release accumulated paint ops and blur cache on navigation
+        PaintOpPool.Clear();
+
         _currentLoad = loadResult;
         _currentHtml = html;
 
@@ -1118,6 +1139,9 @@ public class BrowserApp : IDisposable
         _isNavigating = false;
         _chrome.SetLoadingState(false);
         _input.NeedsRedraw = true;
+
+        // Prompt GC to free old page's managed memory
+        GC.Collect(GC.MaxGeneration, GCCollectionMode.Optimized, blocking: false);
     }
 
     private void ShowErrorPage(string url, string errorMessage)
@@ -1180,10 +1204,10 @@ public class BrowserApp : IDisposable
 
     private void BuildDisplayListImpl(float windowWidth, float windowHeight)
     {
-        // Route layout through the incremental engine when the hub is enabled.
-        // The incremental engine consults LayoutCache + DirtyFlags and skips
-        // clean subtrees, which is the main win on small JS-driven DOM updates.
-        if (_perfHub is { Enabled: true } && _incrementalLayout is { } incLayout)
+        // Route layout through the incremental engine when available.
+        // It consults LayoutCache + DirtyFlags and skips clean subtrees,
+        // which is the main win on small JS-driven DOM updates and typing.
+        if (_incrementalLayout is { } incLayout)
         {
             // When the viewport size changes we need a full re-layout. Bumping
             // the layout version invalidates the cache for all nodes that don't
@@ -1221,8 +1245,19 @@ public class BrowserApp : IDisposable
         _displayList.SortByZIndex();
         _displayList.BuildSpatialGrid();
 
-        // Invalidate the cached SKPicture so SkiaRenderer re-records on next frame
-        _skiaRenderer.InvalidatePageCache();
+        // Only invalidate the focused input region when possible, full page otherwise.
+        // This avoids destroying ALL tiles on every keystroke — only the tiles covering
+        // the input element are re-rasterized.
+        if (!_pendingRelayout && _focusedElement is { IsFormElement: true, LayoutBox: not null })
+        {
+            var box = _focusedElement.LayoutBox.PaddingBox;
+            var invalidRect = new SKRect(box.Left, box.Top, box.Right + 2, box.Bottom + 2);
+            _skiaRenderer.Invalidate(invalidRect);
+        }
+        else
+        {
+            _skiaRenderer.InvalidatePageCache();
+        }
     }
 
     private void RenderFrame(double dt)
@@ -1760,9 +1795,77 @@ public class BrowserApp : IDisposable
                 _inputShowCursor = true;
                 _inputLastCursorBlinkTick = Environment.TickCount64;
                 _inputDragging = isTextInput;
+
+                // Checkbox/radio toggle
+                if (inputType == "checkbox")
+                {
+                    if (element.HasAttribute("checked"))
+                        element.RemoveAttribute("checked");
+                    else
+                        element.SetAttribute("checked", "");
+                    _jsEngine.DispatchEvent(element, "change");
+                    _input.NeedsRedraw = true;
+                }
+                else if (inputType == "radio")
+                {
+                    if (!element.HasAttribute("checked"))
+                    {
+                        // Uncheck all radios with same name in the same form
+                        string? name = element.GetAttribute("name");
+                        if (!string.IsNullOrEmpty(name))
+                        {
+                            var parentForm = FindParentForm(element);
+                            if (parentForm != null)
+                            {
+                                foreach (var formEl in parentForm.Elements)
+                                {
+                                    if (formEl is Element fe && fe.TagName == "INPUT" &&
+                                        fe.GetAttribute("type") == "radio" &&
+                                        fe.GetAttribute("name") == name)
+                                        fe.RemoveAttribute("checked");
+                                }
+                            }
+                        }
+                        element.SetAttribute("checked", "");
+                        _jsEngine.DispatchEvent(element, "change");
+                        _input.NeedsRedraw = true;
+                    }
+                }
+
+                // Submit button handling
+                if (inputType == "submit" || inputType == "image")
+                {
+                    var form = FindParentForm(element);
+                    if (form != null)
+                        form.Submit();
+                }
+                else if (inputType == "reset")
+                {
+                    var form = FindParentForm(element);
+                    if (form != null)
+                        form.Reset();
+                }
             }
             else
             {
+                // Check if clicking a BUTTON element (for submit type)
+                if (element.TagName == "BUTTON")
+                {
+                    string? btnType = element.GetAttribute("type")?.ToLowerInvariant();
+                    if (btnType == "submit" || btnType == null)
+                    {
+                        var form = FindParentForm(element);
+                        if (form != null)
+                            form.Submit();
+                    }
+                    else if (btnType == "reset")
+                    {
+                        var form = FindParentForm(element);
+                        if (form != null)
+                            form.Reset();
+                    }
+                }
+
                 _isSelecting = false;
                 if (_focusedElement != null)
                 {
@@ -1781,7 +1884,6 @@ public class BrowserApp : IDisposable
                 {
                     _isSelecting = true;
                     _hasSelection = false;
-                    // Hit-test the exact text node and character offset at click position
                     float dlX = x + _scroll.ScrollX;
                     float dlY = y + _scroll.ScrollY;
                     var pt = HitTestTextPosition(_currentLoad.Document, dlX, dlY);
@@ -2114,7 +2216,12 @@ public class BrowserApp : IDisposable
                 _input.NeedsRedraw = true;
                 return true;
             }
-            BlurFocusedElement();
+            // Submit form on Enter in text input
+            var form = FindParentForm(_focusedElement);
+            if (form != null)
+                form.Submit();
+            else
+                BlurFocusedElement();
             _input.NeedsRedraw = true;
             return true;
         }
@@ -2178,6 +2285,16 @@ public class BrowserApp : IDisposable
             // Tel input: only allow digits (0-9)
             if (inputType == "tel" && (charCode < '0' || charCode > '9'))
                 return true;
+            // maxlength enforcement
+            string? maxlenStr = _focusedElement.GetAttribute("maxlength");
+            if (int.TryParse(maxlenStr, out int maxlen) && maxlen >= 0)
+            {
+                int lenAfter = value.Length;
+                if (selStart >= 0 && selStart != cursorPos)
+                    lenAfter -= Math.Abs(cursorPos - selStart);
+                if (lenAfter >= maxlen)
+                    return true;
+            }
             if (selStart >= 0 && selStart != cursorPos)
             {
                 int a = Math.Min(selStart, cursorPos);
@@ -2202,6 +2319,18 @@ public class BrowserApp : IDisposable
         return false;
     }
 
+    private static FormElement? FindParentForm(Element element)
+    {
+        var el = element.ParentElement;
+        while (el != null)
+        {
+            if (el is FormElement form)
+                return form;
+            el = el.ParentElement;
+        }
+        return null;
+    }
+
     private void BlurFocusedElement()
     {
         if (_focusedElement != null)
@@ -2221,6 +2350,7 @@ public class BrowserApp : IDisposable
     private bool HandleScrollContainerWheel(double deltaX, double deltaY, float mouseX, float mouseY)
     {
         if (_currentLoad == null) return false;
+        _lastInputTimeTick = Environment.TickCount64;
         // Find the element under the mouse in document coordinates (accounting for page scroll)
         float docX = mouseX + _scroll.ScrollX;
         float docY = mouseY - _contentOffset + _scroll.ScrollY;
@@ -2269,6 +2399,7 @@ public class BrowserApp : IDisposable
 
     private void HandleDomMouseMove(float x, float y)
     {
+        _lastInputTimeTick = Environment.TickCount64;
         if (_currentLoad == null) return;
 
         float docX = x + _scroll.ScrollX;
@@ -2635,7 +2766,9 @@ public class BrowserApp : IDisposable
         {
             _inputLastCursorBlinkTick = now;
             _inputShowCursor = !_inputShowCursor;
-            _input.NeedsRedraw = true;
+            // Don't force redraw if user recently interacted (typing, scroll, mouse)
+            if (now - _lastInputTimeTick >= InputCooldownMs)
+                _input.NeedsRedraw = true;
         }
     }
 
@@ -2747,6 +2880,18 @@ public class BrowserApp : IDisposable
             if (inputType == "tel")
                 text = new string(text.Where(char.IsDigit).ToArray());
             if (text.Length == 0) return;
+            // maxlength enforcement on paste
+            string? maxlenStr = _focusedElement.GetAttribute("maxlength");
+            if (int.TryParse(maxlenStr, out int maxlen) && maxlen >= 0)
+            {
+                int curLen = value.Length;
+                if (_inputSelStart >= 0 && _inputSelStart != _inputCursorPos)
+                    curLen -= Math.Abs(_inputCursorPos - _inputSelStart);
+                int avail = maxlen - curLen;
+                if (avail <= 0) return;
+                if (text.Length > avail)
+                    text = text[..avail];
+            }
             int cursorPos = _inputCursorPos;
             if (_inputSelStart >= 0 && _inputSelStart != cursorPos)
             {
@@ -3258,21 +3403,34 @@ public class BrowserApp : IDisposable
     /// </summary>
     private void RunPerfFrame(double dtMillis)
     {
-        if (_perfHub is null) return;
+        if (_perfHub is not null)
+        {
+            // Choose a frame budget based on the current target FPS (capped at 60 Hz
+            // for the C#/Skia renderer). When the page is "behind" (dt > target),
+            // use a larger catch-up budget to drain pending tasks.
+            var budget = dtMillis > 50
+                ? CooperativeScheduler.FrameBudget.CatchUp
+                : CooperativeScheduler.FrameBudget.For60Fps;
+            _perfHub.RunFrame(budget);
 
-        // Choose a frame budget based on the current target FPS (capped at 60 Hz
-        // for the C#/Skia renderer). When the page is "behind" (dt > target),
-        // use a larger catch-up budget to drain pending tasks.
-        var budget = dtMillis > 50
-            ? CooperativeScheduler.FrameBudget.CatchUp
-            : CooperativeScheduler.FrameBudget.For60Fps;
-        _perfHub.RunFrame(budget);
+            // Coarse memory accounting: bytes used by managed heap is not directly
+            // observable, but we can poke the GC heap and feed it to the pressure
+            // monitor. This is a hint — the real policy is in MemoryPressureMonitor.
+            long managedBytes = GC.GetTotalMemory(forceFullCollection: false);
+            _perfHub.Registry.MemoryPressure.ReportUsage(managedBytes);
+        }
 
-        // Coarse memory accounting: bytes used by managed heap is not directly
-        // observable, but we can poke the GC heap and feed it to the pressure
-        // monitor. This is a hint — the real policy is in MemoryPressureMonitor.
-        long managedBytes = GC.GetTotalMemory(forceFullCollection: false);
-        _perfHub.Registry.MemoryPressure.ReportUsage(managedBytes);
+        // Periodic JS GC to release V8/native heap memory every 30s
+        if (dtMillis > 0)
+        {
+            long now = Environment.TickCount64;
+            if (now - _lastGcTick >= 30000)
+            {
+                _lastGcTick = now;
+                _jsEngine.IntegrationService?.CollectGarbage();
+                GC.Collect(GC.MaxGeneration, GCCollectionMode.Optimized, blocking: false);
+            }
+        }
     }
 
     /// <summary>

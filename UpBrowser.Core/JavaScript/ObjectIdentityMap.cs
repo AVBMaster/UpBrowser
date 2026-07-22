@@ -7,7 +7,7 @@ public class ObjectIdentityMap : IDisposable
 {
     private readonly ConcurrentDictionary<IntPtr, WeakReference<object>> _map = new();
     private readonly ConcurrentDictionary<object, IntPtr> _reverseMap = new();
-    private readonly ConditionalWeakTable<object, object> _objectKeepAlive = new();
+    private ConditionalWeakTable<object, object> _objectKeepAlive = new();
     private readonly object _lock = new();
     private bool _disposed;
     private long _nextHandle;
@@ -98,6 +98,8 @@ public class ObjectIdentityMap : IDisposable
         {
             _map.Clear();
             _reverseMap.Clear();
+            // ConditionalWeakTable has no Clear(); recreate it to release old entries
+            _objectKeepAlive = new ConditionalWeakTable<object, object>();
         }
     }
 

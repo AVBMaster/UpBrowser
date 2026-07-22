@@ -1091,7 +1091,9 @@ public class DrawShadowOp : PaintOp
         Inset = false;
     }
 
+    private const int MaxBlurCacheSize = 32;
     private static readonly Dictionary<float, SKImageFilter> _blurCache = new();
+    private static readonly List<float> _blurCacheOrder = new();
 
     private static SKImageFilter GetOrCreateBlur(float radius)
     {
@@ -1101,9 +1103,29 @@ public class DrawShadowOp : PaintOp
             if (!_blurCache.TryGetValue(radius, out var filter))
             {
                 filter = SKImageFilter.CreateBlur(radius, radius);
+                // Evict oldest entry if cache is full
+                if (_blurCache.Count >= MaxBlurCacheSize)
+                {
+                    float oldest = _blurCacheOrder[0];
+                    _blurCacheOrder.RemoveAt(0);
+                    if (_blurCache.Remove(oldest, out var oldFilter))
+                        oldFilter?.Dispose();
+                }
                 _blurCache[radius] = filter;
+                _blurCacheOrder.Add(radius);
             }
             return filter;
+        }
+    }
+
+    internal static void ClearBlurCache()
+    {
+        lock (_blurCache)
+        {
+            foreach (var f in _blurCache.Values)
+                f?.Dispose();
+            _blurCache.Clear();
+            _blurCacheOrder.Clear();
         }
     }
 
@@ -1210,6 +1232,7 @@ public static class PaintOpPool
         _shadowOps.Clear();
         _layerOps.Clear();
         _popLayerOps.Clear();
+        DrawShadowOp.ClearBlurCache();
     }
 }
 
