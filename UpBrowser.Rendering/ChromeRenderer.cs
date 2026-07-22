@@ -523,12 +523,16 @@ public class ChromeRenderer : IImeSupport
         // Selection highlight
         if (_urlBarFocused && _selStart >= 0 && _selStart != _cursorPosition)
         {
-            int selMin = Math.Min(_selStart, _cursorPosition);
-            int selMax = Math.Max(_selStart, _cursorPosition);
-            string beforeSel = _urlBarText[..Math.Min(selMin, _urlBarText.Length)];
-            float selX = textX + _font14.MeasureText(beforeSel);
-            float selW = _font14.MeasureText(_urlBarText[selMin..selMax]);
-            canvas.DrawRect(selX, textY - 11, selW, 15, _selectionPaint);
+            int len = _urlBarText.Length;
+            int selMin = Math.Clamp(Math.Min(_selStart, _cursorPosition), 0, len);
+            int selMax = Math.Clamp(Math.Max(_selStart, _cursorPosition), 0, len);
+            if (selMax > selMin)
+            {
+                string beforeSel = _urlBarText[..selMin];
+                float selX = textX + _font14.MeasureText(beforeSel);
+                float selW = _font14.MeasureText(_urlBarText[selMin..selMax]);
+                canvas.DrawRect(selX, textY - 11, selW, 15, _selectionPaint);
+            }
         }
 
         _textPrimary.Color = _urlBarFocused ? SKColor.Parse("#1A73E8") : SKColor.Parse("#3C4043");
@@ -1062,6 +1066,14 @@ public class ChromeRenderer : IImeSupport
     public bool HandleKeyPress(char keyChar, SKKey key, bool shift = false)
     {
         if (!_urlBarFocused) return false;
+
+        // Normalize cursor and selection state (they can drift when _urlBarText changes externally)
+        if (_cursorPosition > _urlBarText.Length)
+            _cursorPosition = _urlBarText.Length;
+        if (_selStart > _urlBarText.Length)
+            _selStart = _urlBarText.Length;
+        if (_cursorPosition < 0) _cursorPosition = 0;
+        if (_selStart < -1) _selStart = -1;
 
         if (_isImeComposing)
         {
