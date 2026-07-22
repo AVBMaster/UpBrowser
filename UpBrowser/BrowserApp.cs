@@ -1277,9 +1277,9 @@ public class BrowserApp : IDisposable
         }
 
         bool cursorChanged = _chrome.UpdateCursorBlink();
-        bool formInputCursorChanged = UpdateFormInputCursorBlink();
+        UpdateFormInputCursorBlink();
         bool devToolsCursorChanged = _devTools.Visible && _devTools.TickCursorBlink();
-        bool cursorNeedsRedraw = (cursorChanged && _chrome.IsUrlBarFocused()) || formInputCursorChanged || devToolsCursorChanged;
+        bool cursorNeedsRedraw = (cursorChanged && _chrome.IsUrlBarFocused()) || devToolsCursorChanged;
 
         var (pw, ph) = _window.GetClientSize();
         int windowWidth = (int)(pw / _dpiScale);
@@ -1626,7 +1626,12 @@ public class BrowserApp : IDisposable
         else if (_focusedElement != null && _focusedElement.IsFormElement)
         {
             _devToolsFocused = false;
-            _window.SetImeTarget(_pageInputImeHost);
+            // Block IME for password fields to prevent pinyin composition
+            string? inputType = _focusedElement.InputType?.ToLowerInvariant();
+            if (inputType == "password")
+                _window.SetImeTarget(null);
+            else
+                _window.SetImeTarget(_pageInputImeHost);
         }
         else
         {
@@ -2167,6 +2172,9 @@ public class BrowserApp : IDisposable
         // Printable character (OnDomChar already dispatched this to JS)
         if (key == Key.Unknown && charCode >= 32)
         {
+            // Tel input: only allow digits (0-9)
+            if (inputType == "tel" && (charCode < '0' || charCode > '9'))
+                return true;
             if (selStart >= 0 && selStart != cursorPos)
             {
                 int a = Math.Min(selStart, cursorPos);
@@ -2564,35 +2572,39 @@ public class BrowserApp : IDisposable
     private int GetFormInputCharIndex(string text, float clickX, float fontSize, string fontFamily)
     {
         if (string.IsNullOrEmpty(text) || clickX <= 0) return 0;
-        float accumulated = 0;
-        for (int i = 0; i < text.Length; i++)
+        if (fontSize <= 0) fontSize = 14;
+        if (string.IsNullOrEmpty(fontFamily)) fontFamily = "Arial";
+
+        float totalWidth = Core.Layout.TextMeasurer.Instance?.MeasureText(text, fontFamily, fontSize)
+            ?? text.Length * fontSize * 0.55f;
+        if (clickX >= totalWidth) return text.Length;
+
+        int lo = 0, hi = text.Length;
+        while (lo < hi)
         {
-            float chWidth = MeasureSingleCharWidth(text[i], fontSize, fontFamily);
-            float midPoint = accumulated + chWidth / 2f;
-            if (clickX < midPoint) return i;
-            accumulated += chWidth;
+            int mid = (lo + hi) / 2;
+            string prefix = text[..mid];
+            float w = Core.Layout.TextMeasurer.Instance?.MeasureText(prefix, fontFamily, fontSize)
+                ?? mid * fontSize * 0.55f;
+            if (clickX <= w)
+                hi = mid;
+            else
+                lo = mid + 1;
         }
-        return text.Length;
+        return lo;
     }
 
-    private static float MeasureSingleCharWidth(char c, float fontSize, string fontFamily)
-    {
-        float avgWidth = fontSize * 0.55f;
-        return avgWidth;
-    }
-
-    private bool UpdateFormInputCursorBlink()
+    private void UpdateFormInputCursorBlink()
     {
         if (_focusedElement == null || !_focusedElement.IsFormElement)
-            return false;
+            return;
         long now = Environment.TickCount64;
         if (now - _inputLastCursorBlinkTick >= 500)
         {
             _inputLastCursorBlinkTick = now;
             _inputShowCursor = !_inputShowCursor;
-            return true;
+            _input.NeedsRedraw = true;
         }
-        return false;
     }
 
     private bool DevToolsHandleInput(char c, Key key, bool shift)
@@ -2698,6 +2710,11 @@ public class BrowserApp : IDisposable
         else if (_focusedElement != null && _focusedElement.IsFormElement)
         {
             string value = _focusedElement.Value ?? "";
+            string? inputType = _focusedElement.InputType?.ToLowerInvariant();
+            // Tel input: strip non-digits on paste
+            if (inputType == "tel")
+                text = new string(text.Where(char.IsDigit).ToArray());
+            if (text.Length == 0) return;
             int cursorPos = _inputCursorPos;
             if (_inputSelStart >= 0 && _inputSelStart != cursorPos)
             {

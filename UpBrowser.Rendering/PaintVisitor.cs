@@ -1534,20 +1534,36 @@ public class PaintVisitor
             }
         }
 
-        // Draw text (clipped to content area)
+        // Draw text in segments (supports selection highlight with inverted text color)
         float drawTextX = textX - scrollOffset;
-        var textOp = PaintOpPool.GetDrawTextOp();
-        textOp.Text = effectText;
-        textOp.X = drawTextX;
-        textOp.Y = textY + TotalOffsetY;
-        textOp.Color = textColor;
-        textOp.FontSize = fontSize;
-        textOp.FontFamily = style.FontFamily ?? "Arial";
-        textOp.FontWeight = style.FontWeight;
-        textOp.Italic = style.FontStyle == FontStyleType.Italic || style.FontStyle == FontStyleType.Oblique;
-        textOp.Bounds = new SKRect(contentBox.Left, contentBox.Top + TotalOffsetY,
-            contentBox.Right, contentBox.Bottom + TotalOffsetY);
-        _displayList.Add(textOp);
+        int selA = -1, selB = -1;
+        if (isFocused && selStart >= 0 && selStart != cursorPos)
+        {
+            selA = Math.Min(selStart, cursorPos);
+            selB = Math.Max(selStart, cursorPos);
+        }
+        if (selA >= 0)
+        {
+            // Before selection
+            if (selA > 0 && selA <= effectText.Length)
+                DrawTextSegment(effectText[..selA], drawTextX, fontSize, style, textColor,
+                    contentBox, TotalOffsetY);
+            drawTextX += MeasureTextWidth(effectText[..Math.Min(selA, effectText.Length)], fontSize, style.FontFamily ?? "Arial");
+            // Selected text (white on blue)
+            if (selB > selA && selB <= effectText.Length)
+                DrawTextSegment(effectText[selA..selB], drawTextX, fontSize, style, SKColors.White,
+                    contentBox, TotalOffsetY);
+            drawTextX += MeasureTextWidth(effectText[Math.Min(selA, effectText.Length)..Math.Min(selB, effectText.Length)], fontSize, style.FontFamily ?? "Arial");
+            // After selection
+            if (selB < effectText.Length)
+                DrawTextSegment(effectText[selB..], drawTextX, fontSize, style, textColor,
+                    contentBox, TotalOffsetY);
+        }
+        else
+        {
+            DrawTextSegment(effectText, drawTextX, fontSize, style, textColor,
+                contentBox, TotalOffsetY);
+        }
 
         // IME composition underline
         if (isFocused && _inputImeComposing && _inputImeComposition.Length > 0)
@@ -1604,6 +1620,23 @@ public class PaintVisitor
             cursorOp.Bounds = new SKRect(imeCursorX - 1, cursorTop, imeCursorX + 1, cursorBottom);
             _displayList.Add(cursorOp);
         }
+    }
+
+    private void DrawTextSegment(string text, float x, float fontSize, ComputedStyle style, SKColor color, SKRect contentBox, float yOffset)
+    {
+        if (string.IsNullOrEmpty(text)) return;
+        var op = PaintOpPool.GetDrawTextOp();
+        op.Text = text;
+        op.X = x;
+        op.Y = contentBox.Top + fontSize * 0.85f + yOffset;
+        op.Color = color;
+        op.FontSize = fontSize;
+        op.FontFamily = style.FontFamily ?? "Arial";
+        op.FontWeight = style.FontWeight;
+        op.Italic = style.FontStyle == FontStyleType.Italic || style.FontStyle == FontStyleType.Oblique;
+        op.Bounds = new SKRect(contentBox.Left, contentBox.Top + yOffset,
+            contentBox.Right, contentBox.Bottom + yOffset);
+        _displayList.Add(op);
     }
 
     private void DrawSelectElement(Element element, LayoutBox box, ComputedStyle style)
