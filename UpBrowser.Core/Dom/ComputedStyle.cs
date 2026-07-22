@@ -961,6 +961,16 @@ public class LayoutBox
     public float ScrollContentHeight { get; set; }
     public float ScrollX { get; set; }
     public float ScrollY { get; set; }
+    public float TargetScrollX { get; set; }
+    public float TargetScrollY { get; set; }
+    public bool IsSmoothScrollingX { get; set; }
+    public bool IsSmoothScrollingY { get; set; }
+    public float ScrollVelX { get; set; }
+    public float ScrollVelY { get; set; }
+    public float SnapTargetX { get; set; }
+    public float SnapTargetY { get; set; }
+    public bool IsBouncingX { get; set; }
+    public bool IsBouncingY { get; set; }
 
     public bool IsSticky { get; set; }
     public float StickyTop { get; set; }

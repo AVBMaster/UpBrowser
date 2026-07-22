@@ -191,8 +191,9 @@ public class InputHandler
         if (_scroll.CanScrollX)
         {
             float scrollbarTop = _window.Height / _dpiScale - statusBarHeight - ScrollManager.ScrollbarWidth;
+            float scrollbarRightEdge = _scroll.CanScrollY ? viewportWidth - ScrollManager.ScrollbarWidth : viewportWidth;
             if (logicalY >= scrollbarTop && logicalY <= scrollbarTop + ScrollManager.ScrollbarWidth &&
-                logicalX >= 0 && logicalX <= viewportWidth)
+                logicalX >= 0 && logicalX <= scrollbarRightEdge)
             {
                 float trackWidth = viewportWidth;
                 float thumbWidth = Math.Max(ScrollManager.ScrollbarMinThumbSize,
@@ -241,7 +242,7 @@ public class InputHandler
             if (maxScrollY <= 0) return;
 
             float delta = (_mouseY - _pageThumbDragStartY) / (trackHeight - thumbHeight) * maxScrollY;
-            _scroll.ScrollTo(_pageThumbDragStartScroll + delta);
+            _scroll.ScrollToInstant(_pageThumbDragStartScroll + delta);
         }
 
         if (_pageThumbXDragging)
@@ -255,7 +256,7 @@ public class InputHandler
             if (maxScrollX <= 0) return;
 
             float delta = (_mouseX - _pageThumbDragStartX) / (trackWidth - thumbWidth) * maxScrollX;
-            _scroll.ScrollTo(_pageThumbDragStartScrollX + delta, _scroll.ScrollY);
+            _scroll.ScrollToInstant(_pageThumbDragStartScrollX + delta, _scroll.ScrollY);
         }
     }
 

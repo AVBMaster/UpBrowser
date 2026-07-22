@@ -103,6 +103,12 @@ public class BrowserApp : IDisposable
     private string _inputImeCompositionStr = "";
     private int _inputImeCursorPos;
 
+    // Element scrollbar drag state
+    private LayoutBox? _elemScrollDragBox;
+    private bool _elemScrollDragVertical;
+    private float _elemScrollDragStart;
+    private float _elemScrollDragStartScroll;
+
     // Text selection support (node+offset based for character-level precision)
     private struct SelPoint
     {
@@ -1346,6 +1352,13 @@ public class BrowserApp : IDisposable
             _skiaRenderer.ReportScrollVelocity(0, 0);
         }
 
+        // Update smooth scrolling (page-level + element-level)
+        if (dt > 0)
+        {
+            bool pageMoving = _scroll.UpdateSmoothScroll((float)dt);
+            UpdateElementSmoothScrolls((float)dt);
+        }
+
         bool inputRecently = Environment.TickCount64 - _lastInputTimeTick < InputCooldownMs;
 
         // Accumulate pending relayout flag
@@ -1750,9 +1763,59 @@ public class BrowserApp : IDisposable
         return handled;
     }
 
+    private bool HitTestElementScrollbar(float x, float y, out LayoutBox? hitBox, out bool isVertical)
+    {
+        hitBox = null;
+        isVertical = false;
+        if (_currentLoad == null) return false;
+        float docX = x + _scroll.ScrollX;
+        float docY = y - _contentOffset + _scroll.ScrollY;
+
+        // Find the deepest element at this point, then walk up to find a scroll container
+        var element = HitTest(_currentLoad.Document, docX, docY);
+        if (element == null) return false;
+        var el = element;
+        while (el != null)
+        {
+            var box = el.LayoutBox;
+            if (box != null && box.IsScrollContainer &&
+                box.ContentBox.Height > 0 && box.ContentBox.Width > 0 &&
+                (box.ScrollContentHeight > box.ContentBox.Height || box.ScrollContentWidth > box.ContentBox.Width))
+            {
+                var pb = box.PaddingBox;
+                float scrollBarW = 12f;
+                bool vert = box.ScrollContentHeight > box.ContentBox.Height;
+                bool horz = box.ScrollContentWidth > box.ContentBox.Width;
+                if (vert && docX >= pb.Right - scrollBarW && docX <= pb.Right &&
+                    docY >= pb.Top && docY <= pb.Bottom)
+                {
+                    hitBox = box;
+                    isVertical = true;
+                    return true;
+                }
+                if (horz && docY >= pb.Bottom - scrollBarW && docY <= pb.Bottom &&
+                    docX >= pb.Left && docX <= pb.Right)
+                {
+                    hitBox = box;
+                    isVertical = false;
+                    return true;
+                }
+            }
+            el = el.ParentElement;
+        }
+        return false;
+    }
+
     private void HandleDomClick(float x, float y)
     {
         if (_currentLoad == null) return;
+
+        // Check element scrollbar first
+        if (HitTestElementScrollbar(x, y, out var sbBox, out bool isVert))
+        {
+            HandleElementScrollbarClick(sbBox!, isVert, x, y);
+            return;
+        }
 
         float docX = x + _scroll.ScrollX;
         float adjustedY = y - _contentOffset + _scroll.ScrollY;
@@ -2379,13 +2442,11 @@ public class BrowserApp : IDisposable
     {
         if (_currentLoad == null) return false;
         _lastInputTimeTick = Environment.TickCount64;
-        // Find the element under the mouse in document coordinates (accounting for page scroll)
         float docX = mouseX + _scroll.ScrollX;
         float docY = mouseY - _contentOffset + _scroll.ScrollY;
         var element = HitTest(_currentLoad.Document, docX, docY);
         if (element == null) return false;
 
-        // Walk up from the hit element to find a scroll container
         var el = element;
         while (el != null)
         {
@@ -2394,41 +2455,235 @@ public class BrowserApp : IDisposable
                 box.ContentBox.Height > 0 && box.ContentBox.Width > 0 &&
                 (box.ScrollContentHeight > box.ContentBox.Height || box.ScrollContentWidth > box.ContentBox.Width))
             {
-                // Check if mouse is within this scroll container's viewport
-                float scrollY = box.ScrollY - (float)deltaY;
-                float maxScrollY = box.ScrollContentHeight - box.ContentBox.Height;
-                if (maxScrollY > 0)
+                if (deltaY != 0)
                 {
-                    scrollY = Math.Clamp(scrollY, 0, maxScrollY);
-                    if (Math.Abs(scrollY - box.ScrollY) > 0.5f)
-                    {
-                        box.ScrollY = scrollY;
-                        _pendingRelayout = true;
-                        return true;
-                    }
+                    float impY = (float)(-deltaY / 120.0 * 60.0 * 3.0);
+                    box.ScrollVelY += impY;
+                    box.IsSmoothScrollingY = true;
                 }
-                float scrollX = box.ScrollX - (float)deltaX;
-                float maxScrollX = box.ScrollContentWidth - box.ContentBox.Width;
-                if (maxScrollX > 0)
+                if (deltaX != 0)
                 {
-                    scrollX = Math.Clamp(scrollX, 0, maxScrollX);
-                    if (Math.Abs(scrollX - box.ScrollX) > 0.5f)
-                    {
-                        box.ScrollX = scrollX;
-                        _pendingRelayout = true;
-                        return true;
-                    }
+                    float impX = (float)(-deltaX / 120.0 * 60.0 * 3.0);
+                    box.ScrollVelX += impX;
+                    box.IsSmoothScrollingX = true;
                 }
+                if (deltaY != 0 || deltaX != 0)
+                    return true;
             }
             el = el.ParentElement;
         }
         return false;
     }
 
+    private void UpdateElementSmoothScrolls(float dt)
+    {
+        if (_currentLoad == null) return;
+        dt = Math.Min(dt, 0.05f);
+        bool anyChanged = false;
+        const float decayLambda = 3.5f;
+        const float minVel = 1f;
+        const float bounceK = 150f, bounceDamp = 25f;
+        const float snapK = 60f, snapDamp = 16f;
+
+        var pending = new Queue<LayoutBox>();
+        pending.Enqueue(_currentLoad.Document.DocumentElement?.LayoutBox);
+        while (pending.Count > 0)
+        {
+            var box = pending.Dequeue();
+            if (box == null) continue;
+            if (box.IsScrollContainer)
+            {
+                bool changed = false;
+                float maxY = Math.Max(0, box.ScrollContentHeight - box.ContentBox.Height);
+                float maxX = Math.Max(0, box.ScrollContentWidth - box.ContentBox.Width);
+
+                // ── Vertical ──
+                if (box.IsSmoothScrollingY)
+                {
+                    if (box.IsBouncingY)
+                    {
+                        float boundary = box.ScrollY < 0 ? 0 : maxY;
+                        float diff = boundary - box.ScrollY;
+                        float force = diff * bounceK - box.ScrollVelY * bounceDamp;
+                        box.ScrollVelY += force * dt;
+                        box.ScrollVelY *= 0.97f;
+                        box.ScrollY += box.ScrollVelY * dt;
+                        if (Math.Abs(diff) < 0.5f && Math.Abs(box.ScrollVelY) < 5f)
+                        {
+                            box.ScrollY = boundary;
+                            box.ScrollVelY = 0;
+                            box.IsBouncingY = false;
+                            box.IsSmoothScrollingY = false;
+                        }
+                        else changed = true;
+                    }
+                    else if (Math.Abs(box.ScrollVelY) > minVel)
+                    {
+                        box.ScrollVelY *= MathF.Exp(-decayLambda * dt);
+                        box.ScrollY += box.ScrollVelY * dt;
+                        if (box.ScrollY < 0) { box.IsBouncingY = true; box.ScrollVelY *= 0.5f; }
+                        else if (box.ScrollY > maxY) { box.IsBouncingY = true; box.ScrollVelY *= 0.5f; }
+                        else if (Math.Abs(box.ScrollVelY) < minVel) { box.ScrollVelY = 0; box.IsSmoothScrollingY = false; }
+                        else changed = true;
+                    }
+                    else
+                    {
+                        box.IsSmoothScrollingY = false;
+                    }
+                }
+                else
+                {
+                    box.ScrollVelY *= 0.8f;
+                }
+
+                // ── Horizontal ──
+                if (box.IsSmoothScrollingX)
+                {
+                    if (box.IsBouncingX)
+                    {
+                        float boundary = box.ScrollX < 0 ? 0 : maxX;
+                        float diff = boundary - box.ScrollX;
+                        float force = diff * bounceK - box.ScrollVelX * bounceDamp;
+                        box.ScrollVelX += force * dt;
+                        box.ScrollVelX *= 0.97f;
+                        box.ScrollX += box.ScrollVelX * dt;
+                        if (Math.Abs(diff) < 0.5f && Math.Abs(box.ScrollVelX) < 5f)
+                        {
+                            box.ScrollX = boundary;
+                            box.ScrollVelX = 0;
+                            box.IsBouncingX = false;
+                            box.IsSmoothScrollingX = false;
+                        }
+                        else changed = true;
+                    }
+                    else if (Math.Abs(box.ScrollVelX) > minVel)
+                    {
+                        box.ScrollVelX *= MathF.Exp(-decayLambda * dt);
+                        box.ScrollX += box.ScrollVelX * dt;
+                        if (box.ScrollX < 0) { box.IsBouncingX = true; box.ScrollVelX *= 0.5f; }
+                        else if (box.ScrollX > maxX) { box.IsBouncingX = true; box.ScrollVelX *= 0.5f; }
+                        else if (Math.Abs(box.ScrollVelX) < minVel) { box.ScrollVelX = 0; box.IsSmoothScrollingX = false; }
+                        else changed = true;
+                    }
+                    else
+                    {
+                        box.IsSmoothScrollingX = false;
+                    }
+                }
+                else
+                {
+                    box.ScrollVelX *= 0.8f;
+                }
+
+                if (changed) anyChanged = true;
+            }
+            foreach (var child in box.Children)
+                pending.Enqueue(child);
+        }
+        if (anyChanged) _pendingRelayout = true;
+    }
+
+    private void HandleElementScrollbarClick(LayoutBox box, bool isVertical, float x, float y)
+    {
+        float docX = x + _scroll.ScrollX;
+        float docY = y - _contentOffset + _scroll.ScrollY;
+        var pb = box.PaddingBox;
+
+        if (isVertical)
+        {
+            // Compute thumb position (same as DrawScrollbar)
+            float trackHeight = pb.Height;
+            float thumbRatio = box.ContentBox.Height / Math.Max(1, box.ScrollContentHeight);
+            float thumbHeight = Math.Max(20, trackHeight * thumbRatio);
+            float scrollRange = Math.Max(1, box.ScrollContentHeight - box.ContentBox.Height);
+            float thumbTop = scrollRange > 0 ? (trackHeight - thumbHeight) * (box.ScrollY / scrollRange) : 0;
+            float trackY = pb.Top;
+
+            float localY = docY - trackY;
+            if (localY >= thumbTop && localY <= thumbTop + thumbHeight)
+            {
+                // Start thumb drag
+                _elemScrollDragBox = box;
+                _elemScrollDragVertical = true;
+                _elemScrollDragStart = localY;
+                _elemScrollDragStartScroll = box.ScrollY;
+            }
+            else
+            {
+                // Page up/down
+                float pageSize = box.ContentBox.Height * 0.9f;
+                float delta = localY < thumbTop ? -pageSize : pageSize;
+                box.ScrollVelY += delta * 1.5f;
+                box.IsSmoothScrollingY = true;
+                _pendingRelayout = true;
+            }
+        }
+        else
+        {
+            float trackWidth = pb.Width;
+            float thumbRatio = box.ContentBox.Width / Math.Max(1, box.ScrollContentWidth);
+            float thumbWidth = Math.Max(20, trackWidth * thumbRatio);
+            float scrollRange = Math.Max(1, box.ScrollContentWidth - box.ContentBox.Width);
+            float thumbLeft = scrollRange > 0 ? (trackWidth - thumbWidth) * (box.ScrollX / scrollRange) : 0;
+
+            float localX = docX - pb.Left;
+            if (localX >= thumbLeft && localX <= thumbLeft + thumbWidth)
+            {
+                _elemScrollDragBox = box;
+                _elemScrollDragVertical = false;
+                _elemScrollDragStart = localX;
+                _elemScrollDragStartScroll = box.ScrollX;
+            }
+            else
+            {
+                float pageSize = box.ContentBox.Width * 0.9f;
+                float delta = localX < thumbLeft ? -pageSize : pageSize;
+                box.ScrollVelX += delta * 1.5f;
+                box.IsSmoothScrollingX = true;
+                _pendingRelayout = true;
+            }
+        }
+    }
+
     private void HandleDomMouseMove(float x, float y)
     {
         _lastInputTimeTick = Environment.TickCount64;
         if (_currentLoad == null) return;
+
+        // Element scrollbar drag update
+        if (_elemScrollDragBox != null)
+        {
+            float dragDocX = x + _scroll.ScrollX;
+            float dragDocY = y - _contentOffset + _scroll.ScrollY;
+            var pb = _elemScrollDragBox.PaddingBox;
+            if (_elemScrollDragVertical)
+            {
+                float trackHeight = pb.Height;
+                float thumbHeight = Math.Max(20, trackHeight * (_elemScrollDragBox.ContentBox.Height / Math.Max(1, _elemScrollDragBox.ScrollContentHeight)));
+                float scrollRange = Math.Max(1, _elemScrollDragBox.ScrollContentHeight - _elemScrollDragBox.ContentBox.Height);
+                float localY = dragDocY - pb.Top;
+                float delta = (localY - _elemScrollDragStart) / (trackHeight - thumbHeight) * scrollRange;
+                float target = Math.Clamp(_elemScrollDragStartScroll + delta, 0, scrollRange);
+                _elemScrollDragBox.IsSmoothScrollingY = false;
+                _elemScrollDragBox.ScrollVelY = 0;
+                _elemScrollDragBox.ScrollY = target;
+                _pendingRelayout = true;
+            }
+            else
+            {
+                float trackWidth = pb.Width;
+                float thumbWidth = Math.Max(20, trackWidth * (_elemScrollDragBox.ContentBox.Width / Math.Max(1, _elemScrollDragBox.ScrollContentWidth)));
+                float scrollRange = Math.Max(1, _elemScrollDragBox.ScrollContentWidth - _elemScrollDragBox.ContentBox.Width);
+                float localX = dragDocX - pb.Left;
+                float delta = (localX - _elemScrollDragStart) / (trackWidth - thumbWidth) * scrollRange;
+                float target = Math.Clamp(_elemScrollDragStartScroll + delta, 0, scrollRange);
+                _elemScrollDragBox.IsSmoothScrollingX = false;
+                _elemScrollDragBox.ScrollVelX = 0;
+                _elemScrollDragBox.ScrollX = target;
+                _pendingRelayout = true;
+            }
+            return;
+        }
 
         float docX = x + _scroll.ScrollX;
         float adjustedY = y - _contentOffset + _scroll.ScrollY;
@@ -2543,6 +2798,9 @@ public class BrowserApp : IDisposable
 
     private void HandleDomMouseUp(float x, float y)
     {
+        // Element scrollbar drag release
+        _elemScrollDragBox = null;
+
         if (_isSelecting)
         {
             _isSelecting = false;

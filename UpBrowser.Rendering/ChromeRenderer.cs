@@ -1457,7 +1457,7 @@ public class ChromeRenderer : IImeSupport
             float cB = height - StatusBarHeight;
             float sbT = cB - ScrollManager.ScrollbarWidth;
             float tL = 0;
-            float tW = vW;
+            float tW = scrollManager.CanScrollY ? vW - ScrollManager.ScrollbarWidth : vW;
             float cW = scrollManager.ContentWidth;
             if (cW <= vW) return;
 

@@ -464,10 +464,18 @@ public class PaintVisitor
             if (needsClip)
                 _displayList.Add(PaintOpPool.GetPopClipOp());
 
-            // Draw scrollbar for scroll containers
-            if (layoutBox.IsScrollContainer && (layoutBox.ScrollContentHeight > layoutBox.ContentBox.Height || layoutBox.ScrollContentWidth > layoutBox.ContentBox.Width))
+            // Draw scrollbar for scroll containers:
+            //  overflow: scroll → always show; overflow: auto → only when content overflows
+            if (layoutBox.IsScrollContainer)
             {
-                DrawScrollbar(layoutBox, style);
+                bool overflowXScroll = style.OverflowX == OverflowType.Scroll || style.Overflow == OverflowType.Scroll;
+                bool overflowYScroll = style.OverflowY == OverflowType.Scroll || style.Overflow == OverflowType.Scroll;
+                bool needsScrollY = overflowYScroll || layoutBox.ScrollContentHeight > layoutBox.ContentBox.Height;
+                bool needsScrollX = overflowXScroll || layoutBox.ScrollContentWidth > layoutBox.ContentBox.Width;
+                if (needsScrollY || needsScrollX)
+                {
+                    DrawScrollbar(layoutBox, style);
+                }
             }
 
             if (hasTransform && transformMatrix != SKMatrix.Identity)
@@ -700,12 +708,17 @@ public class PaintVisitor
         var paddingBox = box.PaddingBox;
         float scrollbarWidth = 12f;
 
+        bool overflowYScroll = style.OverflowY == OverflowType.Scroll || style.Overflow == OverflowType.Scroll;
+        bool overflowXScroll = style.OverflowX == OverflowType.Scroll || style.Overflow == OverflowType.Scroll;
+        bool hasVOverflow = box.ScrollContentHeight > box.ContentBox.Height;
+        bool hasHOverflow = box.ScrollContentWidth > box.ContentBox.Width;
+
         // Vertical scrollbar
-        if (box.ScrollContentHeight > box.ContentBox.Height)
+        if (hasVOverflow || overflowYScroll)
         {
             float trackHeight = paddingBox.Height;
-            float thumbRatio = box.ContentBox.Height / box.ScrollContentHeight;
-            float thumbHeight = Math.Max(20, trackHeight * thumbRatio);
+            float thumbRatio = box.ContentBox.Height / Math.Max(1, box.ScrollContentHeight);
+            float thumbHeight = Math.Max(20, trackHeight * Math.Min(1, thumbRatio));
             float trackX = paddingBox.Right - scrollbarWidth;
             float trackY = paddingBox.Top + TotalOffsetY;
 
@@ -715,21 +728,26 @@ public class PaintVisitor
             trackOp.Bounds = trackOp.Rect;
             _displayList.Add(trackOp);
 
-            float scrollRange = Math.Max(1, box.ScrollContentHeight - box.ContentBox.Height);
-            float thumbY = trackY + (trackHeight - thumbHeight) * (box.ScrollY / scrollRange);
-            var thumbOp = PaintOpPool.GetDrawRectOp();
-            thumbOp.Rect = new SKRect(trackX + 2, thumbY + 1, trackX + scrollbarWidth - 2, thumbY + thumbHeight - 1);
-            thumbOp.FillColor = new SKColor(180, 180, 180);
-            thumbOp.Bounds = thumbOp.Rect;
-            _displayList.Add(thumbOp);
+            if (hasVOverflow)
+            {
+                float scrollRange = Math.Max(1, box.ScrollContentHeight - box.ContentBox.Height);
+                float thumbY = trackY + (trackHeight - thumbHeight) * (box.ScrollY / scrollRange);
+                var thumbOp = PaintOpPool.GetDrawRectOp();
+                thumbOp.Rect = new SKRect(trackX + 2, thumbY + 1, trackX + scrollbarWidth - 2, thumbY + thumbHeight - 1);
+                thumbOp.FillColor = new SKColor(180, 180, 180);
+                thumbOp.Bounds = thumbOp.Rect;
+                _displayList.Add(thumbOp);
+            }
         }
 
         // Horizontal scrollbar
-        if (box.ScrollContentWidth > box.ContentBox.Width)
+        if (hasHOverflow || overflowXScroll)
         {
             float trackWidth = paddingBox.Width;
-            float thumbRatio = box.ContentBox.Width / box.ScrollContentWidth;
-            float thumbWidth = Math.Max(20, trackWidth * thumbRatio);
+            bool alsoVertical = hasVOverflow || overflowYScroll;
+            if (alsoVertical) trackWidth -= scrollbarWidth;
+            float thumbRatio = box.ContentBox.Width / Math.Max(1, box.ScrollContentWidth);
+            float thumbWidth = Math.Max(20, trackWidth * Math.Min(1, thumbRatio));
             float trackX = paddingBox.Left;
             float trackY = paddingBox.Bottom - scrollbarWidth + TotalOffsetY;
 
@@ -739,13 +757,16 @@ public class PaintVisitor
             trackOp.Bounds = trackOp.Rect;
             _displayList.Add(trackOp);
 
-            float scrollRange = Math.Max(1, box.ScrollContentWidth - box.ContentBox.Width);
-            float thumbX = trackX + (trackWidth - thumbWidth) * (box.ScrollX / scrollRange);
-            var thumbOp = PaintOpPool.GetDrawRectOp();
-            thumbOp.Rect = new SKRect(thumbX + 1, trackY + 2, thumbX + thumbWidth - 1, trackY + scrollbarWidth - 2);
-            thumbOp.FillColor = new SKColor(180, 180, 180);
-            thumbOp.Bounds = thumbOp.Rect;
-            _displayList.Add(thumbOp);
+            if (hasHOverflow)
+            {
+                float scrollRange = Math.Max(1, box.ScrollContentWidth - box.ContentBox.Width);
+                float thumbX = trackX + (trackWidth - thumbWidth) * (box.ScrollX / scrollRange);
+                var thumbOp = PaintOpPool.GetDrawRectOp();
+                thumbOp.Rect = new SKRect(thumbX + 1, trackY + 2, thumbX + thumbWidth - 1, trackY + scrollbarWidth - 2);
+                thumbOp.FillColor = new SKColor(180, 180, 180);
+                thumbOp.Bounds = thumbOp.Rect;
+                _displayList.Add(thumbOp);
+            }
         }
     }
 
