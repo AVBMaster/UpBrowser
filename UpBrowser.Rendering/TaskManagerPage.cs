@@ -213,8 +213,9 @@ public class TaskManagerPage
         // Header
         using (var headerBg = new SKPaint { Color = new SKColor(32, 33, 36), Style = SKPaintStyle.Fill, IsAntialias = true })
         {
-            using var headerPath = new SKPath();
-            headerPath.AddRoundRect(new SKRect(dlgX, dlgY, dlgX + _dialogWidth, dlgY + _headerHeight + 4), 10, 10);
+            var pb = new SKPathBuilder();
+            pb.AddRoundRect(new SKRect(dlgX, dlgY, dlgX + _dialogWidth, dlgY + _headerHeight + 4), 10, 10);
+            using var headerPath = pb.Detach();
             canvas.DrawPath(headerPath, headerBg);
             canvas.DrawRect(dlgX, dlgY + 6, _dialogWidth, _headerHeight - 6, headerBg);
         }
@@ -458,11 +459,12 @@ public class TaskManagerPage
         }
         using var xPaint = new SKPaint { Color = new SKColor(200, 200, 200), Style = SKPaintStyle.Stroke, StrokeWidth = 2, IsAntialias = true };
         float pad = 6;
-        using var path = new SKPath();
-        path.MoveTo(x + pad, y + pad);
-        path.LineTo(x + size - pad, y + size - pad);
-        path.MoveTo(x + size - pad, y + pad);
-        path.LineTo(x + pad, y + size - pad);
+        var pb = new SKPathBuilder();
+        pb.MoveTo(x + pad, y + pad);
+        pb.LineTo(x + size - pad, y + size - pad);
+        pb.MoveTo(x + size - pad, y + pad);
+        pb.LineTo(x + pad, y + size - pad);
+        using var path = pb.Detach();
         canvas.DrawPath(path, xPaint);
         return hovering;
     }

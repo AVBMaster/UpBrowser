@@ -369,7 +369,7 @@ public sealed class TiledCompositor : IDisposable
             && tile.DisplayListVersion == _displayListVersion)
         {
             Touch(tile);
-            canvas.DrawImage(tile.Image, tx * _tileSize * physicalScale, ty * _tileSize * physicalScale);
+            canvas.DrawImage(tile.Image, tx * _tileSize * physicalScale, ty * _tileSize * physicalScale, new SKSamplingOptions(SKFilterMode.Linear), null);
             _drawCalls++;
             _tilesReused++;
             return false;
@@ -415,7 +415,7 @@ public sealed class TiledCompositor : IDisposable
         if (_currentBytes > _bytesHighWater) _bytesHighWater = _currentBytes;
         _tilesRasterized++;
 
-        canvas.DrawImage(img, tx * _tileSize * physicalScale, ty * _tileSize * physicalScale);
+        canvas.DrawImage(img, tx * _tileSize * physicalScale, ty * _tileSize * physicalScale, new SKSamplingOptions(SKFilterMode.Linear), null);
         _drawCalls++;
         return true;
     }

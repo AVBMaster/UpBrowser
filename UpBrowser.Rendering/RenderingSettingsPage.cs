@@ -221,8 +221,9 @@ public class RenderingSettingsPage
             Color = new SKColor(26, 115, 232),
             Style = SKPaintStyle.Fill
         };
-        using var headerPath = new SKPath();
-        headerPath.AddRoundRect(new SKRect(panelLeft, panelTop, panelLeft + _panelWidth, panelTop + headerHeight), 8, 8);
+        var pb = new SKPathBuilder();
+        pb.AddRoundRect(new SKRect(panelLeft, panelTop, panelLeft + _panelWidth, panelTop + headerHeight), 8, 8);
+        using var headerPath = pb.Detach();
         canvas.DrawPath(headerPath, headerBg);
         canvas.DrawRect(panelLeft, panelTop + 4, _panelWidth, headerHeight - 4, headerBg);
 

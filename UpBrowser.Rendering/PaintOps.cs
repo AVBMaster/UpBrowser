@@ -102,9 +102,10 @@ public class DrawRectOp : PaintOp
 
     private void ExecuteWithRoundRect(SKCanvas canvas, bool hasFill, bool hasBorder)
     {
-        using var borderPath = new SKPath();
+        var pb = new SKPathBuilder();
         var aligned = AlignRectToDevice(Rect, canvas);
-        borderPath.AddRoundRect(aligned, BorderRadius, BorderRadius);
+        pb.AddRoundRect(aligned, BorderRadius, BorderRadius);
+        using var borderPath = pb.Detach();
 
         if (hasBorder)
         {
@@ -124,8 +125,9 @@ public class DrawRectOp : PaintOp
                 Rect.Top + inset,
                 Rect.Right - inset,
                 Rect.Bottom - inset);
-            using var strokePath = new SKPath();
-            strokePath.AddRoundRect(innerRect, Math.Max(0, BorderRadius - inset), Math.Max(0, BorderRadius - inset));
+            var pb2 = new SKPathBuilder();
+            pb2.AddRoundRect(innerRect, Math.Max(0, BorderRadius - inset), Math.Max(0, BorderRadius - inset));
+            using var strokePath = pb2.Detach();
             borderPaint.Color = BorderTopColor;
             canvas.DrawPath(strokePath, borderPaint);
         }
@@ -320,7 +322,8 @@ public class DrawTextOp : PaintOp
                 };
                 float shadowX = SnapToDevice(x + shadow.OffsetX, scaleX);
                 float shadowY = SnapToDevice(Y + shadow.OffsetY, scaleY);
-                canvas.DrawText(Text, shadowX, shadowY, shadowPaint);
+                using var shadowFont = new SKFont(GetTypeface(), FontSize);
+                canvas.DrawText(Text, shadowX, shadowY, SKTextAlign.Left, shadowFont, shadowPaint);
             }
         }
         bool needsAlignment = TextAlign == TextAlignType.Center || TextAlign == TextAlignType.End || TextAlign == TextAlignType.Right;
@@ -352,12 +355,12 @@ public class DrawTextOp : PaintOp
             var underlineColor = UnderlineColor.Alpha > 0 ? UnderlineColor : Color;
             if (DecorationStyle == TextDecorationStyleType.Wavy)
             {
-                using var wavyPath = new SKPath();
+                    var pb3 = new SKPathBuilder();
                 float waveLength = MathF.Max(4, FontSize * 0.15f);
                 float amplitude = MathF.Max(1.5f, FontSize * 0.05f);
                 float endX = drawX + actualWidth;
                 float x0 = drawX;
-                wavyPath.MoveTo(x0, underlineY);
+                pb3.MoveTo(x0, underlineY);
                 int segments = Math.Max(1, (int)((endX - x0) / waveLength));
                 for (int i = 0; i < segments; i++)
                 {
@@ -368,8 +371,9 @@ public class DrawTextOp : PaintOp
                     float cy1 = underlineY - amplitude;
                     float cx2 = x0 + (endX - x0) * t2;
                     float cy2 = underlineY;
-                    wavyPath.QuadTo(cx1, cy1, cx2, cy2);
+                    pb3.QuadTo(cx1, cy1, cx2, cy2);
                 }
+                using var wavyPath = pb3.Detach();
                 using var wavyPaint = new SKPaint
                 {
                     Color = underlineColor,
@@ -469,7 +473,7 @@ public class DrawTextOp : PaintOp
                     using var font = CreateFont(currentTypeface);
                     float runWidth = font.MeasureText(run) + (run.Length - 1) * LetterSpacing;
                     if (!dryRun)
-                        canvas.DrawText(run, currentX, y, font, paint);
+                        canvas.DrawText(run, currentX, y, SKTextAlign.Left, font, paint);
                     currentX += runWidth;
 
                     currentTypeface = neededTypeface;
@@ -482,7 +486,7 @@ public class DrawTextOp : PaintOp
                 using var font = CreateFont(currentTypeface);
                 float runWidth = font.MeasureText(run) + (run.Length - 1) * LetterSpacing;
                 if (!dryRun)
-                    canvas.DrawText(run, currentX, y, font, paint);
+                    canvas.DrawText(run, currentX, y, SKTextAlign.Left, font, paint);
                 currentX += runWidth;
             }
         }
@@ -543,8 +547,12 @@ public class DrawTextOp : PaintOp
                 int styleIdx = FontWeight == FontWeight.Bold ? 1 : 0;
                 if (styleIdx >= styles.Count) styleIdx = 0;
                 var tf = styles.CreateTypeface(styleIdx);
-                if (tf != null && tf.ContainsGlyph(codePoint))
-                    return tf;
+                if (tf != null)
+                {
+                    using var checkFont = new SKFont(tf, 12);
+                    if (checkFont.ContainsGlyph(codePoint))
+                        return tf;
+                }
             }
         }
 
@@ -556,7 +564,8 @@ public class DrawTextOp : PaintOp
             return GetCachedDefaultTypeface();
 
         var defaultTf = GetCachedDefaultTypeface();
-        if (defaultTf.ContainsGlyph(codePoint))
+        using var defaultCheckFont = new SKFont(defaultTf, 12);
+        if (defaultCheckFont.ContainsGlyph(codePoint))
             return defaultTf;
 
         return GetCachedChineseTypeface();
@@ -863,7 +872,7 @@ public class DrawImageOp : PaintOp
                 break;
         }
 
-        canvas.DrawImage(Image, SourceRect, dest);
+        canvas.DrawImage(Image, SourceRect, dest, new SKSamplingOptions(SKFilterMode.Linear), null);
     }
 
     private SKRect CalculateNoneRect(float srcW, float srcH, SKRect dest)

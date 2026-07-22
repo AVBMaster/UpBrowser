@@ -377,7 +377,7 @@ public class PaintVisitor
                 if (detailsParent != null && detailsParent.HasAttribute("open"))
                     isOpen = true;
 
-                var arrowPath = new SKPath();
+                using var arrowPath = new SKPathBuilder();
                 if (isOpen)
                 {
                     // Downward-pointing triangle
@@ -395,8 +395,9 @@ public class PaintVisitor
                     arrowPath.Close();
                 }
 
+                var arrowPathFinal = arrowPath.Detach();
                 var arrowOp = PaintOpPool.GetDrawPathOp();
-                arrowOp.Path = arrowPath;
+                arrowOp.Path = arrowPathFinal;
                 arrowOp.FillPaint = new SKPaint { Color = style.Color, Style = SKPaintStyle.Fill, IsAntialias = true };
                 arrowOp.Bounds = new SKRect(arrowX, arrowY, arrowX + arrowSize, arrowY + arrowSize);
                 _displayList.Add(arrowOp);

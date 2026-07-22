@@ -265,16 +265,17 @@ public class ChromeRenderer : IImeSupport
             bool isHovered = i == _hoveredTabIndex;
 
             // Draw tab background with rounded top corners
-            using var tabPath = new SKPath();
+            var tabPb = new SKPathBuilder();
             float r = 8;
-            tabPath.MoveTo(tabRect.Left + r, tabRect.Top);
-            tabPath.LineTo(tabRect.Right - r, tabRect.Top);
-            tabPath.QuadTo(tabRect.Right, tabRect.Top, tabRect.Right, tabRect.Top + r);
-            tabPath.LineTo(tabRect.Right, tabRect.Bottom);
-            tabPath.LineTo(tabRect.Left, tabRect.Bottom);
-            tabPath.LineTo(tabRect.Left, tabRect.Top + r);
-            tabPath.QuadTo(tabRect.Left, tabRect.Top, tabRect.Left + r, tabRect.Top);
-            tabPath.Close();
+            tabPb.MoveTo(tabRect.Left + r, tabRect.Top);
+            tabPb.LineTo(tabRect.Right - r, tabRect.Top);
+            tabPb.QuadTo(tabRect.Right, tabRect.Top, tabRect.Right, tabRect.Top + r);
+            tabPb.LineTo(tabRect.Right, tabRect.Bottom);
+            tabPb.LineTo(tabRect.Left, tabRect.Bottom);
+            tabPb.LineTo(tabRect.Left, tabRect.Top + r);
+            tabPb.QuadTo(tabRect.Left, tabRect.Top, tabRect.Left + r, tabRect.Top);
+            tabPb.Close();
+            using var tabPath = tabPb.Detach();
 
             if (!isDragTab)
             {
@@ -331,12 +332,13 @@ public class ChromeRenderer : IImeSupport
                 // Draw × (SKPath)
                 float xPad = 5;
                 using (var xPaint = new SKPaint { Color = closeHovered ? SKColor.Parse("#202124") : SKColor.Parse("#80868B"), Style = SKPaintStyle.Stroke, StrokeWidth = 1.5f, IsAntialias = true })
-                using (var xPath = new SKPath())
                 {
-                    xPath.MoveTo(closeRect.Left + xPad, closeRect.Top + xPad);
-                    xPath.LineTo(closeRect.Right - xPad, closeRect.Bottom - xPad);
-                    xPath.MoveTo(closeRect.Right - xPad, closeRect.Top + xPad);
-                    xPath.LineTo(closeRect.Left + xPad, closeRect.Bottom - xPad);
+                    var xPb = new SKPathBuilder();
+                    xPb.MoveTo(closeRect.Left + xPad, closeRect.Top + xPad);
+                    xPb.LineTo(closeRect.Right - xPad, closeRect.Bottom - xPad);
+                    xPb.MoveTo(closeRect.Right - xPad, closeRect.Top + xPad);
+                    xPb.LineTo(closeRect.Left + xPad, closeRect.Bottom - xPad);
+                    using var xPath = xPb.Detach();
                     canvas.DrawPath(xPath, xPaint);
                 }
             }
@@ -372,16 +374,17 @@ public class ChromeRenderer : IImeSupport
             float ghostY = tabY;
             var ghostRect = new SKRect(ghostX, ghostY, ghostX + ghostW, ghostY + ghostH);
             using var ghostBg = new SKPaint { Color = new SKColor(255, 255, 255, 200), Style = SKPaintStyle.Fill, IsAntialias = true };
-            using var ghostPath = new SKPath();
+            var ghostPb = new SKPathBuilder();
             float gr = 8;
-            ghostPath.MoveTo(ghostRect.Left + gr, ghostRect.Top);
-            ghostPath.LineTo(ghostRect.Right - gr, ghostRect.Top);
-            ghostPath.QuadTo(ghostRect.Right, ghostRect.Top, ghostRect.Right, ghostRect.Top + gr);
-            ghostPath.LineTo(ghostRect.Right, ghostRect.Bottom);
-            ghostPath.LineTo(ghostRect.Left, ghostRect.Bottom);
-            ghostPath.LineTo(ghostRect.Left, ghostRect.Top + gr);
-            ghostPath.QuadTo(ghostRect.Left, ghostRect.Top, ghostRect.Left + gr, ghostRect.Top);
-            ghostPath.Close();
+            ghostPb.MoveTo(ghostRect.Left + gr, ghostRect.Top);
+            ghostPb.LineTo(ghostRect.Right - gr, ghostRect.Top);
+            ghostPb.QuadTo(ghostRect.Right, ghostRect.Top, ghostRect.Right, ghostRect.Top + gr);
+            ghostPb.LineTo(ghostRect.Right, ghostRect.Bottom);
+            ghostPb.LineTo(ghostRect.Left, ghostRect.Bottom);
+            ghostPb.LineTo(ghostRect.Left, ghostRect.Top + gr);
+            ghostPb.QuadTo(ghostRect.Left, ghostRect.Top, ghostRect.Left + gr, ghostRect.Top);
+            ghostPb.Close();
+            using var ghostPath = ghostPb.Detach();
             canvas.DrawPath(ghostPath, ghostBg);
             using var ghostBorder = new SKPaint { Color = new SKColor(0, 0, 0, 30), Style = SKPaintStyle.Stroke, StrokeWidth = 1, IsAntialias = true };
             canvas.DrawPath(ghostPath, ghostBorder);
@@ -419,11 +422,12 @@ public class ChromeRenderer : IImeSupport
         float plusCx = _newTabButtonRect.MidX;
         float plusCy = _newTabButtonRect.MidY;
         float plusHalf = (_newTabButtonRect.Width - plusPad * 2) / 2;
-        using var plusPath = new SKPath();
-        plusPath.MoveTo(plusCx - plusHalf, plusCy);
-        plusPath.LineTo(plusCx + plusHalf, plusCy);
-        plusPath.MoveTo(plusCx, plusCy - plusHalf);
-        plusPath.LineTo(plusCx, plusCy + plusHalf);
+        var plusPb = new SKPathBuilder();
+        plusPb.MoveTo(plusCx - plusHalf, plusCy);
+        plusPb.LineTo(plusCx + plusHalf, plusCy);
+        plusPb.MoveTo(plusCx, plusCy - plusHalf);
+        plusPb.LineTo(plusCx, plusCy + plusHalf);
+        using var plusPath = plusPb.Detach();
         canvas.DrawPath(plusPath, _newTabPlusPaint);
     }
 
@@ -562,10 +566,11 @@ public class ChromeRenderer : IImeSupport
         float cx = rect.MidX;
         float cy = rect.MidY;
         float s = 6;
-        using var path = new SKPath();
-        path.MoveTo(cx + s * 0.5f, cy - s);
-        path.LineTo(cx - s * 0.5f, cy);
-        path.LineTo(cx + s * 0.5f, cy + s);
+        var pb = new SKPathBuilder();
+        pb.MoveTo(cx + s * 0.5f, cy - s);
+        pb.LineTo(cx - s * 0.5f, cy);
+        pb.LineTo(cx + s * 0.5f, cy + s);
+        using var path = pb.Detach();
         canvas.DrawPath(path, paint);
     }
 
@@ -575,10 +580,11 @@ public class ChromeRenderer : IImeSupport
         float cx = rect.MidX;
         float cy = rect.MidY;
         float s = 6;
-        using var path = new SKPath();
-        path.MoveTo(cx - s * 0.5f, cy - s);
-        path.LineTo(cx + s * 0.5f, cy);
-        path.LineTo(cx - s * 0.5f, cy + s);
+        var pb = new SKPathBuilder();
+        pb.MoveTo(cx - s * 0.5f, cy - s);
+        pb.LineTo(cx + s * 0.5f, cy);
+        pb.LineTo(cx - s * 0.5f, cy + s);
+        using var path = pb.Detach();
         canvas.DrawPath(path, paint);
     }
 
@@ -587,16 +593,17 @@ public class ChromeRenderer : IImeSupport
         float cx = rect.MidX;
         float cy = rect.MidY;
         float r = 5;
-        using var path = new SKPath();
+        var pb = new SKPathBuilder();
         // Arrow circle
-        path.AddCircle(cx, cy, r);
+        pb.AddCircle(cx, cy, r);
         // Arrow head
         float ax = cx;
         float ay = cy - r - 2;
-        path.MoveTo(ax, ay);
-        path.LineTo(ax - 3, ay + 3);
-        path.MoveTo(ax, ay);
-        path.LineTo(ax + 3, ay + 3);
+        pb.MoveTo(ax, ay);
+        pb.LineTo(ax - 3, ay + 3);
+        pb.MoveTo(ax, ay);
+        pb.LineTo(ax + 3, ay + 3);
+        using var path = pb.Detach();
 
         using var refreshPaint = new SKPaint
         {
@@ -613,22 +620,23 @@ public class ChromeRenderer : IImeSupport
         float cx = rect.MidX;
         float cy = rect.MidY;
         float s = 7;
-        using var path = new SKPath();
+        var pb = new SKPathBuilder();
         // House shape
-        path.MoveTo(cx, cy - s);
-        path.LineTo(cx - s, cy - 1);
-        path.LineTo(cx - s + 2, cy - 1);
-        path.LineTo(cx - s + 2, cy + s - 2);
-        path.LineTo(cx + s - 2, cy + s - 2);
-        path.LineTo(cx + s - 2, cy - 1);
-        path.LineTo(cx + s, cy - 1);
-        path.Close();
+        pb.MoveTo(cx, cy - s);
+        pb.LineTo(cx - s, cy - 1);
+        pb.LineTo(cx - s + 2, cy - 1);
+        pb.LineTo(cx - s + 2, cy + s - 2);
+        pb.LineTo(cx + s - 2, cy + s - 2);
+        pb.LineTo(cx + s - 2, cy - 1);
+        pb.LineTo(cx + s, cy - 1);
+        pb.Close();
         // Chimney
-        path.MoveTo(cx + 2, cy - s);
-        path.LineTo(cx + 4, cy - s + 3);
-        path.LineTo(cx + 4, cy - s + 1);
-        path.LineTo(cx + 2, cy - s + 1);
-        path.Close();
+        pb.MoveTo(cx + 2, cy - s);
+        pb.LineTo(cx + 4, cy - s + 3);
+        pb.LineTo(cx + 4, cy - s + 1);
+        pb.LineTo(cx + 2, cy - s + 1);
+        pb.Close();
+        using var path = pb.Detach();
 
         using var homePaint = new SKPaint
         {
@@ -644,16 +652,17 @@ public class ChromeRenderer : IImeSupport
         float cx = rect.MidX;
         float cy = rect.MidY;
         float r = 5;
-        using var path = new SKPath();
-        path.AddCircle(cx, cy, r);
+        var pb = new SKPathBuilder();
+        pb.AddCircle(cx, cy, r);
         // Gear teeth (simplified as dots)
         for (int i = 0; i < 6; i++)
         {
             float angle = i * MathF.PI / 3 - MathF.PI / 6;
             float tx = cx + MathF.Cos(angle) * (r + 2);
             float ty = cy + MathF.Sin(angle) * (r + 2);
-            path.AddCircle(tx, ty, 1.5f);
+            pb.AddCircle(tx, ty, 1.5f);
         }
+        using var path = pb.Detach();
 
         using var settingsPaint = new SKPaint
         {
@@ -668,7 +677,7 @@ public class ChromeRenderer : IImeSupport
     {
         float cx = rect.MidX;
         float cy = rect.MidY;
-        using var path = new SKPath();
+        var pb = new SKPathBuilder();
         // Grid icon - 3x2 dots representing processes/tasks
         float spacing = 4.5f;
         float startX = cx - spacing;
@@ -679,9 +688,10 @@ public class ChromeRenderer : IImeSupport
             {
                 float dotX = startX + col * spacing;
                 float dotY = startY + row * spacing;
-                path.AddCircle(dotX, dotY, 2);
+                pb.AddCircle(dotX, dotY, 2);
             }
         }
+        using var path = pb.Detach();
         using var tmPaint = new SKPaint
         {
             Color = _iconPaint.Color,
@@ -694,18 +704,19 @@ public class ChromeRenderer : IImeSupport
     private void DrawLockIcon(SKCanvas canvas, float x, float y)
     {
         float s = 5;
-        using var path = new SKPath();
+        var pb = new SKPathBuilder();
         // Lock body
-        path.MoveTo(x - s * 0.7f, y + s * 0.5f);
-        path.LineTo(x + s * 0.7f, y + s * 0.5f);
-        path.LineTo(x + s * 0.7f, y - s * 0.1f);
-        path.LineTo(x - s * 0.7f, y - s * 0.1f);
-        path.Close();
+        pb.MoveTo(x - s * 0.7f, y + s * 0.5f);
+        pb.LineTo(x + s * 0.7f, y + s * 0.5f);
+        pb.LineTo(x + s * 0.7f, y - s * 0.1f);
+        pb.LineTo(x - s * 0.7f, y - s * 0.1f);
+        pb.Close();
         // Lock shackle
-        path.MoveTo(x - s * 0.45f, y - s * 0.1f);
-        path.LineTo(x - s * 0.45f, y - s * 0.6f);
-        path.ArcTo(x + s * 0.45f, y - s * 0.1f, x + s * 0.45f, y - s * 0.6f, s * 0.45f);
-        path.LineTo(x + s * 0.45f, y - s * 0.1f);
+        pb.MoveTo(x - s * 0.45f, y - s * 0.1f);
+        pb.LineTo(x - s * 0.45f, y - s * 0.6f);
+        pb.ArcTo(x + s * 0.45f, y - s * 0.1f, x + s * 0.45f, y - s * 0.6f, s * 0.45f);
+        pb.LineTo(x + s * 0.45f, y - s * 0.1f);
+        using var path = pb.Detach();
 
         _lockPaint.Style = SKPaintStyle.Stroke;
         canvas.DrawPath(path, _lockPaint);
