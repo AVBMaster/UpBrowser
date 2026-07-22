@@ -94,6 +94,7 @@ public class BrowserApp : IDisposable
     private int _inputSelStart = -1;
     private bool _inputShowCursor = true;
     private long _inputLastCursorBlinkTick = Environment.TickCount64;
+    private bool _inputDragging;
     // Form input IME state
     private bool _inputImeComposing;
     private string _inputImeCompositionStr = "";
@@ -1758,6 +1759,7 @@ public class BrowserApp : IDisposable
                 _inputSelStart = -1;
                 _inputShowCursor = true;
                 _inputLastCursorBlinkTick = Environment.TickCount64;
+                _inputDragging = isTextInput;
             }
             else
             {
@@ -1772,6 +1774,7 @@ public class BrowserApp : IDisposable
                 _inputImeComposing = false;
                 _inputImeCompositionStr = "";
                 _inputImeCursorPos = 0;
+                _inputDragging = false;
 
                 // Start text selection on non-interactive elements
                 if (shouldProceed && !IsInteractiveElement(element))
@@ -2280,11 +2283,36 @@ public class BrowserApp : IDisposable
             var pt = HitTestTextPosition(_currentLoad.Document, dlX, dlY);
             if (pt.Node != null)
             {
-                // Only redraw if selection actually changed
                 if (pt.Node != _selFocus.Node || pt.Offset != _selFocus.Offset)
                 {
                     _selFocus = pt;
                     _hasSelection = true;
+                    _input.NeedsRedraw = true;
+                }
+            }
+        }
+
+        // Form input drag selection
+        if (_inputDragging && _focusedElement != null && _focusedElement.IsFormElement)
+        {
+            string val = _focusedElement.Value ?? "";
+            string? inputType = _focusedElement.InputType?.ToLowerInvariant();
+            bool isTextInput = inputType == null || inputType == "text" || inputType == "password" ||
+                               inputType == "email" || inputType == "search" || inputType == "tel" ||
+                               inputType == "url" || inputType == "number";
+            if (isTextInput && _focusedElement.ComputedStyle != null && _focusedElement.LayoutBox != null)
+            {
+                float cbLeft = _focusedElement.LayoutBox.ContentBox.Left;
+                float clickX = docX - cbLeft - 2;
+                float fontSize = _focusedElement.ComputedStyle.FontSize > 0 ? _focusedElement.ComputedStyle.FontSize : 14;
+                string fontFamily = _focusedElement.ComputedStyle.FontFamily ?? "Arial";
+                int newPos = GetFormInputCharIndex(val, clickX, fontSize, fontFamily);
+                if (newPos != _inputCursorPos)
+                {
+                    if (_inputSelStart < 0) _inputSelStart = _inputCursorPos;
+                    _inputCursorPos = newPos;
+                    _inputShowCursor = true;
+                    _inputLastCursorBlinkTick = Environment.TickCount64;
                     _input.NeedsRedraw = true;
                 }
             }
@@ -2360,9 +2388,13 @@ public class BrowserApp : IDisposable
             _isSelecting = false;
             if (_hasSelection)
             {
-                // Finalize selection
                 _input.NeedsRedraw = true;
             }
+        }
+        if (_inputDragging)
+        {
+            _inputDragging = false;
+            _input.NeedsRedraw = true;
         }
     }
 

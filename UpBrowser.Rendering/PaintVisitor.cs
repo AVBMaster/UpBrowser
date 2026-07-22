@@ -1467,9 +1467,14 @@ public class PaintVisitor
         string? inputType = element.InputType?.ToLowerInvariant();
         bool isPassword = inputType == "password";
         string displayText;
+        bool isFocused = _focusedElement == element;
+        bool isDisabled = element.HasAttribute("disabled");
+        bool isReadOnly = element.HasAttribute("readonly");
         bool showPlaceholder = false;
         if (!string.IsNullOrEmpty(value))
             displayText = isPassword ? new string('●', value.Length) : value;
+        else if (isFocused)
+            displayText = "";
         else if (!string.IsNullOrEmpty(placeholder))
         {
             displayText = placeholder;
@@ -1478,13 +1483,25 @@ public class PaintVisitor
         else
             return;
 
+        // Clip to padding box to prevent text overflow
+        var paddingBox = box.PaddingBox;
+        var clipRect = new SKRect(paddingBox.Left, paddingBox.Top + TotalOffsetY,
+            paddingBox.Right, paddingBox.Bottom + TotalOffsetY);
+        if (clipRect.Width > 0 && clipRect.Height > 0)
+        {
+            var clipOp = PaintOpPool.GetPushClipOp();
+            clipOp.ClipRect = clipRect;
+            _displayList.Add(clipOp);
+        }
+
         float fontSize = style.FontSize > 0 ? style.FontSize : 14;
         var contentBox = box.ContentBox;
         float textY = contentBox.Top + fontSize * 0.85f;
         SKColor textColor = showPlaceholder ? new SKColor(160, 160, 160) : (style.Color.Alpha > 0 ? style.Color : SKColors.Black);
+        if (isDisabled)
+            textColor = new SKColor(160, 160, 160);
         float textX = contentBox.Left + 2;
         float usableWidth = contentBox.Width - 4;
-        bool isFocused = _focusedElement == element;
 
         // Determine the effective text to display and cursor/selection positions
         string effectText = isFocused && _inputImeComposing
@@ -1582,8 +1599,8 @@ public class PaintVisitor
             _displayList.Add(lineOp);
         }
 
-        // Draw cursor
-        if (isFocused && _inputShowCursor && !_inputImeComposing)
+        // Draw cursor (hidden for readonly/disabled inputs)
+        if (isFocused && _inputShowCursor && !_inputImeComposing && !isReadOnly && !isDisabled)
         {
             float cursorWidth = MeasureTextWidth(effectText[..Math.Min(cursorPos, effectText.Length)], fontSize, style.FontFamily);
             float cursorX = textX + cursorWidth - scrollOffset;
@@ -1619,6 +1636,21 @@ public class PaintVisitor
             cursorOp.StrokeWidth = 1.5f;
             cursorOp.Bounds = new SKRect(imeCursorX - 1, cursorTop, imeCursorX + 1, cursorBottom);
             _displayList.Add(cursorOp);
+        }
+
+        // Pop clip
+        if (clipRect.Width > 0 && clipRect.Height > 0)
+            _displayList.Add(PaintOpPool.GetPopClipOp());
+
+        // Disabled overlay drawn outside clip so it covers the entire border area
+        if (isDisabled)
+        {
+            var borderBox = box.BorderBox;
+            var disableOp = PaintOpPool.GetDrawRectOp();
+            disableOp.FillColor = new SKColor(200, 200, 200, 100);
+            disableOp.Rect = new SKRect(borderBox.Left, borderBox.Top + TotalOffsetY,
+                borderBox.Right, borderBox.Bottom + TotalOffsetY);
+            _displayList.Add(disableOp);
         }
     }
 
