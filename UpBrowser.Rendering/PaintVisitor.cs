@@ -11,6 +11,8 @@ namespace UpBrowser.Rendering;
 public class PaintVisitor
 {
     private readonly DisplayList _displayList = new();
+    public DisplayList OverlayList => _overlayList;
+    private readonly DisplayList _overlayList = new();
     private SKTypeface _defaultTypeface = SKTypeface.Default;
     private Dictionary<string, SKTypeface> _typefaceCache;     // cached typefaces per family:weight
     private ImageCache _imageCache;
@@ -30,6 +32,7 @@ public class PaintVisitor
     private int _selFocusOffset;
     private bool _hasSelection;
     private bool _selStartIsAnchor;
+    private bool _skipInputTextOverlay;
 
     public PaintVisitor(float contentOffsetY = 0,
         Dictionary<string, SKTypeface>? sharedTypefaceCache = null,
@@ -46,6 +49,7 @@ public class PaintVisitor
     }
 
     public void SetFocusedElement(Core.Dom.Element? element) => _focusedElement = element;
+    public void SetSkipInputTextOverlay(bool skip) => _skipInputTextOverlay = skip;
 
     public void SetInputState(int cursorPos, int selStart, bool showCursor,
         bool isImeComposing, string imeComposition, int imeCursor)
@@ -201,6 +205,30 @@ public class PaintVisitor
     private float TotalOffsetX => 0;
 
     public DisplayList GetDisplayList() => _displayList;
+
+    public void RebuildOverlay()
+    {
+        // Cheap: clear overlay list and rebuild only the focused input's text/cursor/selection ops.
+        // This is ~O(1) — a single element — vs the O(n) DOM walk of a full BuildDisplayList.
+        _overlayList.Clear();
+        if (_focusedElement == null || !_focusedElement.IsFormElement) return;
+        if (_focusedElement.LayoutBox == null) return;
+        var style = _focusedElement.ComputedStyle;
+        if (style == null) return;
+        var box = _focusedElement.LayoutBox;
+        // Override skipContent: route directly into overlay list
+        bool savedSkip = _skipInputTextOverlay;
+        _skipInputTextOverlay = true;
+        DrawInputElement(_focusedElement, box, style);
+        _skipInputTextOverlay = savedSkip;
+    }
+
+    public void RenderOverlay(SKCanvas canvas)
+    {
+        // Composite overlay on top of the already-drawn page skeleton.
+        // The overlay list contains only the focused input's text, cursor, and selection.
+        _overlayList.Execute(canvas);
+    }
 
     private SKTypeface GetTypeface(string family, FontWeight weight)
     {
@@ -1483,6 +1511,13 @@ public class PaintVisitor
         else
             return;
 
+        // When _skipInputTextOverlay is active, the focused input's text/cursor/selection
+        // will be drawn as a separate overlay after the page render. This allows the main
+        // display list to be cached — only the overlay (a few paint ops) is rebuilt
+        // on every keystroke, eliminating the O(n) DOM walk + display list rebuild cost.
+        bool skipContent = _skipInputTextOverlay && isFocused;
+        var targetList = skipContent ? _overlayList : _displayList;
+
         // Clip to padding box to prevent text overflow
         var paddingBox = box.PaddingBox;
         var clipRect = new SKRect(paddingBox.Left, paddingBox.Top + TotalOffsetY,
@@ -1503,6 +1538,7 @@ public class PaintVisitor
         float textX = contentBox.Left + 2;
         float usableWidth = contentBox.Width - 4;
 
+        // Text and cursor rendering (always rendered; when overlay is active, goes to overlay list)
         // Determine the effective text to display and cursor/selection positions
         string effectText = isFocused && _inputImeComposing
             ? displayText[..Math.Min(_inputCursorPos, displayText.Length)] + _inputImeComposition +
@@ -1547,7 +1583,7 @@ public class PaintVisitor
                     clampRight, contentBox.Bottom + TotalOffsetY - 1);
                 selOp.FillColor = new SKColor(0x1A, 0x73, 0xE8);
                 selOp.Bounds = selOp.Rect;
-                _displayList.Add(selOp);
+                targetList.Add(selOp);
             }
         }
 
@@ -1564,22 +1600,22 @@ public class PaintVisitor
             // Before selection
             if (selA > 0 && selA <= effectText.Length)
                 DrawTextSegment(effectText[..selA], drawTextX, fontSize, style, textColor,
-                    contentBox, TotalOffsetY);
+                    contentBox, TotalOffsetY, targetList);
             drawTextX += MeasureTextWidth(effectText[..Math.Min(selA, effectText.Length)], fontSize, style.FontFamily ?? "Arial");
             // Selected text (white on blue)
             if (selB > selA && selB <= effectText.Length)
                 DrawTextSegment(effectText[selA..selB], drawTextX, fontSize, style, SKColors.White,
-                    contentBox, TotalOffsetY);
+                    contentBox, TotalOffsetY, targetList);
             drawTextX += MeasureTextWidth(effectText[Math.Min(selA, effectText.Length)..Math.Min(selB, effectText.Length)], fontSize, style.FontFamily ?? "Arial");
             // After selection
             if (selB < effectText.Length)
                 DrawTextSegment(effectText[selB..], drawTextX, fontSize, style, textColor,
-                    contentBox, TotalOffsetY);
+                    contentBox, TotalOffsetY, targetList);
         }
         else
         {
             DrawTextSegment(effectText, drawTextX, fontSize, style, textColor,
-                contentBox, TotalOffsetY);
+                contentBox, TotalOffsetY, targetList);
         }
 
         // IME composition underline
@@ -1596,7 +1632,7 @@ public class PaintVisitor
             lineOp.Color = new SKColor(0, 0, 0);
             lineOp.StrokeWidth = 1;
             lineOp.Bounds = new SKRect(lineOp.X1, compY - 1, lineOp.X2, compY + 1);
-            _displayList.Add(lineOp);
+            targetList.Add(lineOp);
         }
 
         // Draw cursor (hidden for readonly/disabled inputs)
@@ -1616,7 +1652,7 @@ public class PaintVisitor
             cursorOp.Color = caretColor;
             cursorOp.StrokeWidth = 1.5f;
             cursorOp.Bounds = new SKRect(cursorX - 1, cursorTop, cursorX + 1, cursorBottom);
-            _displayList.Add(cursorOp);
+            targetList.Add(cursorOp);
         }
 
         // IME composition cursor
@@ -1635,7 +1671,7 @@ public class PaintVisitor
             cursorOp.Color = caretColor;
             cursorOp.StrokeWidth = 1.5f;
             cursorOp.Bounds = new SKRect(imeCursorX - 1, cursorTop, imeCursorX + 1, cursorBottom);
-            _displayList.Add(cursorOp);
+            targetList.Add(cursorOp);
         }
 
         // Pop clip
@@ -1654,7 +1690,7 @@ public class PaintVisitor
         }
     }
 
-    private void DrawTextSegment(string text, float x, float fontSize, ComputedStyle style, SKColor color, SKRect contentBox, float yOffset)
+    private void DrawTextSegment(string text, float x, float fontSize, ComputedStyle style, SKColor color, SKRect contentBox, float yOffset, DisplayList? targetList = null)
     {
         if (string.IsNullOrEmpty(text)) return;
         var op = PaintOpPool.GetDrawTextOp();
@@ -1668,7 +1704,7 @@ public class PaintVisitor
         op.Italic = style.FontStyle == FontStyleType.Italic || style.FontStyle == FontStyleType.Oblique;
         op.Bounds = new SKRect(contentBox.Left, contentBox.Top + yOffset,
             contentBox.Right, contentBox.Bottom + yOffset);
-        _displayList.Add(op);
+        (targetList ?? _displayList).Add(op);
     }
 
     private void DrawSelectElement(Element element, LayoutBox box, ComputedStyle style)

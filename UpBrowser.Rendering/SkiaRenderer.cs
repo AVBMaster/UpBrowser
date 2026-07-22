@@ -513,7 +513,7 @@ public class SkiaRenderer : IDisposable
         Canvas.Restore();
     }
 
-    public void RenderWithScroll(DisplayList displayList, float contentOffsetY, float scrollX, float scrollY, float viewportWidth, float viewportHeight)
+    public void RenderWithScroll(DisplayList displayList, float contentOffsetY, float scrollX, float scrollY, float viewportWidth, float viewportHeight, DisplayList? overlayList = null)
     {
         _currentDisplayList = displayList;
 
@@ -552,6 +552,10 @@ public class SkiaRenderer : IDisposable
 
             Canvas.DrawPicture(_cachedPicture);
         }
+
+        // Composite input overlay (text/cursor/selection) in the same transformed context
+        if (overlayList != null)
+            overlayList.Execute(Canvas);
 
         Canvas.Restore();
 

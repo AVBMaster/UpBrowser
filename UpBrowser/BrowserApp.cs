@@ -1231,6 +1231,7 @@ public class BrowserApp : IDisposable
 
         _cachedPaintVisitor = new PaintVisitor(_contentOffset, _sharedTypefaceCache, _sharedImageCache, _fontFamilies, _currentBaseUrl);
         _cachedPaintVisitor.SetFocusedElement(_focusedElement);
+        _cachedPaintVisitor.SetSkipInputTextOverlay(true);
         if (_focusedElement != null && _focusedElement.IsFormElement)
         {
             _cachedPaintVisitor.SetInputState(_inputCursorPos, _inputSelStart, _inputShowCursor,
@@ -1382,7 +1383,8 @@ public class BrowserApp : IDisposable
 
         float contentViewportHeight = windowHeight - _contentOffset - _chrome.GetStatusBarHeight() - currentDevToolsHeight;
 
-        if (sizeChanged || windowWidth != _lastLayoutWidth || _pendingRelayout || devToolsChanged || _input.NeedsRedraw)
+        bool needsFullRebuild = sizeChanged || windowWidth != _lastLayoutWidth || _pendingRelayout || devToolsChanged;
+        if (needsFullRebuild)
         {
             _lastLayoutWidth = windowWidth;
 
@@ -1419,6 +1421,18 @@ public class BrowserApp : IDisposable
             _scroll.UpdateScroll(contentWidth, contentHeight, windowWidth, contentViewportHeight);
 
             _window.UpdateImeCompositionWindow();
+        }
+        else if (_input.NeedsRedraw && _cachedPaintVisitor != null)
+        {
+            // Input-only change: avoid O(n) DOM walk + display list rebuild.
+            // Only rebuild the overlay (input text/cursor/selection — ~O(1)).
+            _cachedPaintVisitor.SetFocusedElement(_focusedElement);
+            if (_focusedElement != null && _focusedElement.IsFormElement)
+            {
+                _cachedPaintVisitor.SetInputState(_inputCursorPos, _inputSelStart, _inputShowCursor,
+                    _inputImeComposing, _inputImeCompositionStr, _inputImeCursorPos);
+            }
+            _cachedPaintVisitor.RebuildOverlay();
         }
 
         if (_focusedElement != null && _focusedElement.IsFormElement)
@@ -1461,7 +1475,8 @@ public class BrowserApp : IDisposable
 
         _skiaRenderer.RenderWithScroll(_displayList, _contentOffset,
             _scroll.ScrollX, _scroll.ScrollY,
-            windowWidth, contentViewportHeight);
+            windowWidth, contentViewportHeight,
+            _cachedPaintVisitor?.OverlayList);
 
         _chrome.RenderScrollbars(_skiaRenderer.Canvas, windowWidth, windowHeight, _scroll);
 
