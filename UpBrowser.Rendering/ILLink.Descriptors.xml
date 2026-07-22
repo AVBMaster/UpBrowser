@@ -1,0 +1,4 @@
+<linker>
+  <!-- SkiaSharp uses internal reflection for platform-specific rendering -->
+  <assembly fullname="SkiaSharp" />
+</linker>

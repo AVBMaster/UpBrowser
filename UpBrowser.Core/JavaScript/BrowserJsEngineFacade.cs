@@ -304,7 +304,7 @@ public class BrowserJsEngineFacade : IDisposable
                 _adapter.InvokeCallbackWith(callbackId, args[0]);
             else
             {
-                var json = System.Text.Json.JsonSerializer.Serialize(args, _jsonOpts);
+                var json = JsonAotHelper.ToJson(args);
                 _adapter.Execute($"__g_invoke({callbackId}, JSON.parse('{EscapeJsString(json)}'))");
             }
             FlushPostExecution();
@@ -404,12 +404,6 @@ public class BrowserJsEngineFacade : IDisposable
 
     [ThreadStatic]
     public static IJavaScriptEngineAdapter? Current;
-
-    private static readonly System.Text.Json.JsonSerializerOptions _jsonOpts = new()
-    {
-        WriteIndented = false,
-        PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase
-    };
 
     private static string EscapeJsString(string s)
     {

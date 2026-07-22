@@ -120,11 +120,12 @@ public abstract class EngineAdapterBase : IJavaScriptEngineAdapter
             }
         }
 
-        // Fallback: serialize to JSON
+        // Fallback: serialize to JSON using AOT-safe helper
         try
         {
-            var json = System.Text.Json.JsonSerializer.Serialize(arg, _jsonOpts);
-            _engine.Execute($"__g_invoke({id}, JSON.parse('{EscapeJs(json)}'))");
+            var node = JsonAotHelper.ToJsonNode(arg);
+            if (node != null)
+                _engine.Execute($"__g_invoke({id}, JSON.parse('{EscapeJs(node.ToJsonString())}'))");
         }
         catch { }
     }
@@ -186,12 +187,6 @@ public abstract class EngineAdapterBase : IJavaScriptEngineAdapter
     {
         lock (_cbLock) return _nextCbId++;
     }
-
-    private static readonly System.Text.Json.JsonSerializerOptions _jsonOpts = new()
-    {
-        WriteIndented = false,
-        PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase
-    };
 
     private static string EscapeJs(string s)
     {

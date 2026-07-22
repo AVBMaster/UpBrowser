@@ -1,0 +1,11 @@
+<linker>
+  <!-- JavaScript engines use heavy reflection internally; root them entirely -->
+  <assembly fullname="JavaScriptEngineSwitcher.Core" />
+  <assembly fullname="JavaScriptEngineSwitcher.Jint" />
+  <assembly fullname="JavaScriptEngineSwitcher.Jurassic" />
+  <assembly fullname="JavaScriptEngineSwitcher.V8" />
+  <assembly fullname="Microsoft.ClearScript" />
+  <assembly fullname="Microsoft.ClearScript.V8.Native.win-x64" />
+  <assembly fullname="Jint" />
+  <assembly fullname="Jurassic" />
+</linker>

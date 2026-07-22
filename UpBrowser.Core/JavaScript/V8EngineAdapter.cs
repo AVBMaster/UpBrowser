@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Diagnostics.CodeAnalysis;
 using JavaScriptEngineSwitcher.Core;
 
 namespace UpBrowser.Core.JavaScript;
@@ -48,6 +49,7 @@ public class V8EngineAdapter : EngineAdapterBase
         return base.StoreCallback(callback);
     }
 
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "V8 assemblies are rooted - dynamic dispatch is safe")]
     public override void InvokeCallbackWith(int id, object? arg)
     {
         if (_directCallbacks.TryGetValue(id, out var cb) && IsScriptObject(cb))
@@ -66,6 +68,7 @@ public class V8EngineAdapter : EngineAdapterBase
         base.InvokeCallbackWith(id, arg);
     }
 
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "V8 assemblies are rooted - dynamic dispatch is safe")]
     public override void InvokeCallback(int id)
     {
         if (_directCallbacks.TryGetValue(id, out var cb) && IsScriptObject(cb))

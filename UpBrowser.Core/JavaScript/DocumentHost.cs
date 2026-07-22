@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using UpBrowser.Core.Css;
 using UpBrowser.Core.Dom;
 using DomDocument = UpBrowser.Core.Dom.Document;
@@ -351,6 +352,7 @@ public class DocumentHost
         addEventListener(type, callback, null);
     }
 
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "JS engine assemblies are rooted - dynamic access to options is safe")]
     public void addEventListener(string type, object callback, object? options)
     {
         var engine = JavaScriptEngine.Current ?? Engine;

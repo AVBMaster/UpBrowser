@@ -1,5 +1,7 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using JavaScriptEngineSwitcher.Core;
 using DomDocument = UpBrowser.Core.Dom.Document;
 using DomElement = UpBrowser.Core.Dom.Element;
@@ -60,6 +62,7 @@ public class JavaScriptEngine : IDisposable
         SetupGlobals();
     }
 
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "CreateAdapterForEngine attribute cascaded; caller takes existing engine, adapter selection is safe")]
     public JavaScriptEngine(IJsEngine existingEngine)
     {
         _adapter = CreateAdapterForEngine(existingEngine);
@@ -80,6 +83,7 @@ public class JavaScriptEngine : IDisposable
         };
     }
 
+    [RequiresUnreferencedCode("Engine type detection uses GetType().Name")]
     private static IJavaScriptEngineAdapter CreateAdapterForEngine(IJsEngine engine)
     {
         var engineName = engine?.GetType().Name ?? "";
@@ -444,15 +448,17 @@ public class JavaScriptEngine : IDisposable
                 {
                     if (result.Success)
                     {
-                        var resp = new Dictionary<string, object?>
+                        var jsonObj = new JsonObject
                         {
-                            ["ok"] = result.Status >= 200 && result.Status < 300,
-                            ["status"] = result.Status,
-                            ["statusText"] = result.StatusText ?? "",
-                            ["data"] = result.Data ?? "",
-                            ["headers"] = result.Headers ?? new Dictionary<string, string>()
+                            ["ok"] = (JsonNode?)JsonValue.Create(result.Status >= 200 && result.Status < 300),
+                            ["status"] = (JsonNode?)JsonValue.Create(result.Status),
+                            ["statusText"] = (JsonNode?)JsonValue.Create(result.StatusText ?? ""),
+                            ["data"] = (JsonNode?)JsonValue.Create(result.Data ?? ""),
+                            ["headers"] = result.Headers != null
+                                ? JsonSerializer.SerializeToNode(result.Headers, UpBrowserJsonContext.Default.DictionaryStringString)
+                                : null
                         };
-                        var json = JsonSerializer.Serialize(resp, _jsonOpts);
+                        var json = jsonObj.ToJsonString();
                         _adapter?.Execute($"__g_invoke({cbs.resolveId}, JSON.parse('{EscapeJsString(json)}'))");
                     }
                     else
@@ -650,20 +656,18 @@ public class JavaScriptEngine : IDisposable
         ";
     }
 
-    private static readonly JsonSerializerOptions _jsonOpts = new() { WriteIndented = false };
-
     private static string EscapeJsString(string s)
     {
         return s.Replace("\\", "\\\\").Replace("'", "\\'").Replace("\n", "\\n").Replace("\r", "\\r");
     }
 }
 
-public class FetchOptions
-{
-    public string? Method { get; set; }
-    public string? Body { get; set; }
-    public Dictionary<string, object?>? Headers { get; set; }
-}
+    public class FetchOptions
+    {
+        public string? Method { get; set; }
+        public string? Body { get; set; }
+        public Dictionary<string, string>? Headers { get; set; }
+    }
 
 public class FetchResult
 {
@@ -782,7 +786,7 @@ public class UpBrowserBuiltins
                 using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
 
                 var options = string.IsNullOrEmpty(optionsJson) ? null :
-                    System.Text.Json.JsonSerializer.Deserialize<FetchOptions>(optionsJson);
+                    JsonSerializer.Deserialize(optionsJson, UpBrowserJsonContext.Default.FetchOptions);
 
                 var method = options?.Method ?? "GET";
                 var req = new HttpRequestMessage(new HttpMethod(method), url);
@@ -903,6 +907,7 @@ public class ConsoleHost
         WriteLine("[JS Trace]", args);
         Console.WriteLine(new System.Diagnostics.StackTrace(true).ToString());
     }
+    [UnconditionalSuppressMessage("Trimming", "IL2075", Justification = "dir is a debug console helper; object is user-provided")]
     public void dir(object? obj)
     {
         if (obj == null)
@@ -919,7 +924,7 @@ public class ConsoleHost
         }
         else
         {
-            foreach (var prop in obj.GetType().GetProperties())
+            foreach (var prop in obj.GetType().GetProperties(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance))
             {
                 try { Console.WriteLine($"  {prop.Name}: {prop.GetValue(obj)}"); }
                 catch { }

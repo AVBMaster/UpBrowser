@@ -15,7 +15,7 @@ public static class RenderingSettingsConfig
         return Path.Combine(dir, "settings.json");
     }
 
-    private class ConfigData
+    internal class ConfigData
     {
         public PerformancePreset Preset { get; set; } = PerformancePreset.Balanced;
         public bool GpuAcceleration { get; set; } = true;
@@ -45,7 +45,8 @@ public static class RenderingSettingsConfig
             ShowFps = settings.ShowFps
         };
 
-        var json = JsonSerializer.Serialize(data, new JsonSerializerOptions { WriteIndented = true });
+        var ctx = new RenderingSettingsJsonContext(new JsonSerializerOptions { WriteIndented = true });
+        var json = JsonSerializer.Serialize(data, ctx.ConfigData);
         File.WriteAllText(GetConfigPath(), json);
     }
 
@@ -57,7 +58,8 @@ public static class RenderingSettingsConfig
         try
         {
             var json = File.ReadAllText(path);
-            var data = JsonSerializer.Deserialize<ConfigData>(json);
+            var ctx = new RenderingSettingsJsonContext();
+            var data = JsonSerializer.Deserialize(json, ctx.ConfigData);
             if (data == null) return;
 
             settings.Preset = data.Preset;

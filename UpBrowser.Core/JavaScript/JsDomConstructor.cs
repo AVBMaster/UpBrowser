@@ -150,7 +150,10 @@ public class JsDomPrototypeSystem
 
         if (!_prototypesInitialized) return;
 
-        var chainJson = System.Text.Json.JsonSerializer.Serialize(prototypeChain);
+        var chainArr = new System.Text.Json.Nodes.JsonArray();
+        foreach (var pn in prototypeChain)
+            chainArr.Add((System.Text.Json.Nodes.JsonNode)System.Text.Json.Nodes.JsonValue.Create(pn)!);
+        var chainJson = chainArr.ToJsonString();
         var safeName = System.Web.HttpUtility.JavaScriptStringEncode(name);
 
         try

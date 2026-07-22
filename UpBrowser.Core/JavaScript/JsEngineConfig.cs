@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using JavaScriptEngineSwitcher.Core;
 using JavaScriptEngineSwitcher.Jint;
@@ -53,7 +54,9 @@ public static class JsEngineConfig
         switcher.EngineFactories.AddJint();
         switcher.EngineFactories.AddJurassic();
 
+#pragma warning disable IL2026 // TryRegisterV8 uses Assembly.Load, but this is a best-effort registration on Windows
         TryRegisterV8(switcher);
+#pragma warning restore IL2026
 
         if (!IsEngineAvailable(_defaultEngineType))
         {
@@ -96,6 +99,8 @@ public static class JsEngineConfig
             .Any(f => f.EngineName == name);
     }
 
+    [RequiresDynamicCode("V8 engine registration uses Assembly.Load and reflection")]
+    [RequiresUnreferencedCode("V8 engine registration uses Assembly.Load and reflection")]
     private static void TryRegisterV8(IJsEngineSwitcher switcher)
     {
         try

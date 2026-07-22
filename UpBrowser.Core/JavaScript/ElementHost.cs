@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Threading;
 using UpBrowser.Core.Dom;
 using UpBrowser.Core.Dom.Html;
@@ -278,6 +279,7 @@ public class ElementHost
         addEventListener(type, callback, null);
     }
 
+    [UnconditionalSuppressMessage("Trimming", "IL2075", Justification = "JS engine assemblies are rooted - reflection on options object is safe")]
     public void addEventListener(string type, object callback, object? options)
     {
         var engine = JavaScriptEngine.Current ?? Engine;

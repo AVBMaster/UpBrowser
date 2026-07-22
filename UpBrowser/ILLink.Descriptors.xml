@@ -1,0 +1,4 @@
+<linker>
+  <!-- Root ClearScript native assembly -->
+  <assembly fullname="Microsoft.ClearScript.V8.Native.win-x64" />
+</linker>
