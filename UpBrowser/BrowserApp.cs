@@ -97,6 +97,7 @@ public class BrowserApp : IDisposable
     private bool _inputShowCursor = true;
     private long _inputLastCursorBlinkTick = Environment.TickCount64;
     private bool _inputDragging;
+    private float _inputScrollOffset;
     // Form input IME state
     private bool _inputImeComposing;
     private string _inputImeCompositionStr = "";
@@ -1413,6 +1414,7 @@ public class BrowserApp : IDisposable
             }
 
             BuildDisplayList(windowWidth, Math.Max(100, (int)contentViewportHeight));
+            UpdateInputScrollOffset(_focusedElement);
 
             var bodyBox = _currentLoad.Document.Body?.LayoutBox;
             float contentWidth = bodyBox?.BorderBox.Width ?? windowWidth;
@@ -1431,6 +1433,8 @@ public class BrowserApp : IDisposable
             {
                 _cachedPaintVisitor.SetInputState(_inputCursorPos, _inputSelStart, _inputShowCursor,
                     _inputImeComposing, _inputImeCompositionStr, _inputImeCursorPos);
+                // Update stored scroll offset from PaintVisitor's overlay build
+                UpdateInputScrollOffset(_focusedElement);
             }
             _cachedPaintVisitor.RebuildOverlay();
         }
@@ -1730,7 +1734,11 @@ public class BrowserApp : IDisposable
         if (handled)
         {
             _devToolsFocused = true;
-            _focusedElement = null;
+            if (_focusedElement != null)
+            {
+                _focusedElement = null;
+                _pendingRelayout = true;
+            }
             _window.UpdateImeCompositionWindow();
             _input.NeedsRedraw = true;
         }
@@ -1800,7 +1808,10 @@ public class BrowserApp : IDisposable
                     float clickX = docX - cbLeft - 2;
                     float fontSize = element.ComputedStyle.FontSize > 0 ? element.ComputedStyle.FontSize : 14;
                     string fontFamily = element.ComputedStyle.FontFamily ?? "Arial";
-                    _inputCursorPos = GetFormInputCharIndex(val, clickX, fontSize, fontFamily);
+                    // Account for horizontal scroll offset so click targeting works
+                    // when text inside the input has been scrolled.
+                    UpdateInputScrollOffset(element);
+                    _inputCursorPos = GetFormInputCharIndex(val, clickX + _inputScrollOffset, fontSize, fontFamily);
                 }
                 else
                 {
@@ -1886,6 +1897,7 @@ public class BrowserApp : IDisposable
                 {
                     _jsEngine.DispatchEvent(_focusedElement, "blur");
                     _focusedElement = null;
+                    _pendingRelayout = true;
                 }
                 _inputSelStart = -1;
                 _inputCursorPos = 0;
@@ -1920,6 +1932,7 @@ public class BrowserApp : IDisposable
             {
                 _jsEngine.DispatchEvent(_focusedElement, "blur");
                 _focusedElement = null;
+                _pendingRelayout = true;
             }
             _inputSelStart = -1;
             _inputCursorPos = 0;
@@ -2452,7 +2465,8 @@ public class BrowserApp : IDisposable
                 float clickX = docX - cbLeft - 2;
                 float fontSize = _focusedElement.ComputedStyle.FontSize > 0 ? _focusedElement.ComputedStyle.FontSize : 14;
                 string fontFamily = _focusedElement.ComputedStyle.FontFamily ?? "Arial";
-                int newPos = GetFormInputCharIndex(val, clickX, fontSize, fontFamily);
+                UpdateInputScrollOffset(_focusedElement);
+                int newPos = GetFormInputCharIndex(val, clickX + _inputScrollOffset, fontSize, fontFamily);
                 if (newPos != _inputCursorPos)
                 {
                     if (_inputSelStart < 0) _inputSelStart = _inputCursorPos;
@@ -2746,6 +2760,27 @@ public class BrowserApp : IDisposable
     private bool IsCtrlPressed() => _input.IsCtrlDown;
     private bool IsShiftPressed() => _input.IsShiftDown;
     private bool IsAltPressed() => _input.IsAltDown;
+
+    private void UpdateInputScrollOffset(Core.Dom.Element? element)
+    {
+        _inputScrollOffset = 0;
+        if (element == null || element.LayoutBox == null) return;
+        var style = element.ComputedStyle;
+        if (style == null) return;
+        string? value = element.Value;
+        if (string.IsNullOrEmpty(value)) return;
+        float fontSize = style.FontSize > 0 ? style.FontSize : 14;
+        string fontFamily = style.FontFamily ?? "Arial";
+        float fullTextWidth = TextMeasurer.Instance?.MeasureText(value, fontFamily, fontSize) ?? value.Length * fontSize * 0.55f;
+        float usableWidth = element.LayoutBox.ContentBox.Width - 4;
+        if (fullTextWidth > usableWidth)
+        {
+            float cursorWidth = TextMeasurer.Instance?.MeasureText(value[..Math.Min(_inputCursorPos, value.Length)], fontFamily, fontSize)
+                ?? _inputCursorPos * fontSize * 0.55f;
+            float desiredOffset = cursorWidth - usableWidth * 0.33f;
+            _inputScrollOffset = Math.Clamp(desiredOffset, 0, Math.Max(0, fullTextWidth - usableWidth));
+        }
+    }
 
     private int GetFormInputCharIndex(string text, float clickX, float fontSize, string fontFamily)
     {
