@@ -229,6 +229,9 @@ namespace UpBrowser;
             var dest = JsEngineDownloader.EngineDir(type.Value);
             try
             {
+                // 清空旧文件，确保完全更新
+                if (Directory.Exists(dest))
+                    Directory.Delete(dest, true);
                 Directory.CreateDirectory(dest);
                 var result = ScanAndCopyEngineDlls(folder, dest, type.Value);
                 if (!result.Success)
@@ -315,6 +318,9 @@ namespace UpBrowser;
             var dest = JsEngineDownloader.EngineDir(type.Value);
             try
             {
+                // 清空旧文件，确保完全更新
+                if (Directory.Exists(dest))
+                    Directory.Delete(dest, true);
                 Directory.CreateDirectory(dest);
                 var result = ScanAndCopyEngineDlls(folder, dest, type.Value);
                 if (result.Success)
@@ -4185,7 +4191,7 @@ namespace UpBrowser;
                 .ToList();
             var dllList = string.Join(", ", allDlls);
             return (false, null,
-                $"未找到 {expectedDll}\n\n该目录中包含的 DLL 文件:\n{dllList}\n\n提示:\n- V8 引擎需要 JavaScriptEngineSwitcher.V8.dll 和 ClearScript.V8.dll\n- Jurassic 引擎需要 JavaScriptEngineSwitcher.Jurassic.dll\n- 请从 NuGet 包中复制对应的文件，或选择正确的目录");
+                $"未找到 {expectedDll}\n\n该目录中包含的 DLL 文件:\n{dllList}\n\n提示:\n- V8 引擎需要 JavaScriptEngineSwitcher.V8.dll 和 ClearScript.V8.dll\n- V8 原生库位于 runtimes/{JsEngineDownloader.GetRuntimeIdentifier()}/native/ 目录中\n- Jurassic 引擎需要 JavaScriptEngineSwitcher.Jurassic.dll\n- 请从 NuGet 包中复制对应的文件，或选择正确的目录");
         }
 
         // 同时复制所有依赖 DLL（从根目录和匹配的 TFM 目录）
@@ -4221,14 +4227,118 @@ namespace UpBrowser;
 
         Console.WriteLine($"[Engine] Copied {copiedCount} additional DLLs");
 
+        // 策略4：复制原生运行时 DLL
+        // V8 需要 ClearScript 原生库（如 ClearScriptV8.win-x64.dll），托管 DLL 跨平台通用
+        if (type == JsEngineType.V8)
+        {
+            var rid = JsEngineDownloader.GetRuntimeIdentifier();
+            var osPrefix = rid.Split('-')[0];
+
+            // 路径A：NuGet 包结构 runtimes/{rid}/native/
+            // 路径B：用户直接整理的平台目录结构 {win-x64}/
+            bool nativeCopied = false;
+
+            // 先尝试 NuGet 包结构
+            var runtimesDir = Path.Combine(sourceDir, "runtimes");
+            if (Directory.Exists(runtimesDir))
+            {
+                var nativeDir = Path.Combine(runtimesDir, rid, "native");
+                if (!Directory.Exists(nativeDir))
+                {
+                    var matchingDirs = Directory.EnumerateDirectories(runtimesDir)
+                        .Where(d => Path.GetFileName(d).StartsWith(osPrefix))
+                        .ToList();
+                    if (matchingDirs.Count > 0)
+                        nativeDir = Path.Combine(matchingDirs[0], "native");
+                }
+
+                if (Directory.Exists(nativeDir))
+                {
+                    int n = 0;
+                    foreach (var file in Directory.EnumerateFiles(nativeDir))
+                    {
+                        File.Copy(file, Path.Combine(destDir, Path.GetFileName(file)), true);
+                        n++;
+                    }
+                    Console.WriteLine($"[Engine] Copied {n} native runtime files from {nativeDir}");
+                    nativeCopied = true;
+                }
+            }
+
+            // 再尝试用户整理的平台目录结构（如 win-x64/ 直接放在源目录下）
+            if (!nativeCopied)
+            {
+                // 先找精确匹配当前 RID 的目录
+                var platformDir = Path.Combine(sourceDir, rid);
+                if (!Directory.Exists(platformDir))
+                {
+                    // 没找到精确匹配，尝试前缀匹配（如 win-*）
+                    var matchingDirs = Directory.EnumerateDirectories(sourceDir)
+                        .Where(d => Path.GetFileName(d).StartsWith(osPrefix))
+                        .ToList();
+                    if (matchingDirs.Count > 0)
+                        platformDir = matchingDirs[0];
+                }
+
+                if (Directory.Exists(platformDir))
+                {
+                    int n = 0;
+                    foreach (var file in Directory.EnumerateFiles(platformDir))
+                    {
+                        var name = Path.GetFileName(file);
+                        // 原生 DLL 有平台后缀（如 ClearScriptV8.win-x64.dll），托管 DLL 没有
+                        if (name.Contains(osPrefix, StringComparison.OrdinalIgnoreCase))
+                        {
+                            File.Copy(file, Path.Combine(destDir, name), true);
+                            n++;
+                            Console.WriteLine($"[Engine] Copied native: {name}");
+                        }
+                        else
+                        {
+                            // 托管 DLL（如 ClearScript.Core.dll, Newtonsoft.Json.dll）跨平台通用
+                            // 只复制一次，避免重复覆盖
+                            var destFile = Path.Combine(destDir, name);
+                            if (!File.Exists(destFile))
+                            {
+                                File.Copy(file, destFile, true);
+                                n++;
+                                Console.WriteLine($"[Engine] Copied managed: {name}");
+                            }
+                        }
+                    }
+                    Console.WriteLine($"[Engine] Copied {n} files from platform directory {platformDir}");
+                    nativeCopied = true;
+                }
+            }
+
+            if (!nativeCopied)
+            {
+                Console.WriteLine($"[Engine] No native runtime directory found for {rid}. " +
+                    "V8 引擎需要 ClearScript 原生库（ClearScriptV8.win-x64.dll 等），请确保选择包含该文件的目录。");
+            }
+        }
+
         // 验证关键文件是否存在
         if (type == JsEngineType.V8)
         {
+            // 列出目标目录中所有文件用于调试
+            var destFiles = Directory.EnumerateFiles(destDir).Select(Path.GetFileName).ToList();
+            Console.WriteLine($"[Engine] Files in {destDir}: {string.Join(", ", destFiles)}");
+
             // V8 需要 ClearScript.V8.dll
             var clearScriptPath = Path.Combine(destDir, "ClearScript.V8.dll");
             if (!File.Exists(clearScriptPath))
             {
                 Console.WriteLine($"[Engine] Warning: ClearScript.V8.dll not found in {destDir}, V8 may not work");
+                Console.WriteLine($"[Engine] Please ensure the selected directory contains ClearScript.V8.dll from the NuGet package.");
+            }
+            // 检查原生运行时 DLL（如 ClearScriptV8.win-x64.dll）
+            var nativeCount = Directory.EnumerateFiles(destDir, "ClearScriptV8*.*").Count();
+            if (nativeCount == 0)
+            {
+                Console.WriteLine($"[Engine] Warning: No ClearScriptV8 native DLL found in {destDir}");
+                var rid = JsEngineDownloader.GetRuntimeIdentifier();
+                Console.WriteLine($"[Engine] The ClearScript native library (ClearScriptV8.{rid}.dll) should be in the runtimes/{rid}/native/ folder of the NuGet package.");
             }
         }
 

@@ -1090,6 +1090,8 @@ public class RenderingSettingsPage
         {
             _hoveredItem = hovered;
             _hoveredActionButton = newHoveredAction;
+            // 触发重绘，让 hover 高亮即时更新
+            OnChanged?.Invoke();
         }
         return true;
     }

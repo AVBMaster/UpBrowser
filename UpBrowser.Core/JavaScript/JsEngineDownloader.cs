@@ -127,7 +127,7 @@ public static class JsEngineDownloader
         }
     }
 
-    private static string GetRuntimeIdentifier()
+    public static string GetRuntimeIdentifier()
     {
         var os = RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "win"
             : RuntimeInformation.IsOSPlatform(OSPlatform.Linux) ? "linux"
