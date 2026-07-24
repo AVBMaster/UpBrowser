@@ -34,4 +34,9 @@ public interface IWindow : IDisposable
     void Render(byte[] pixels, int width, int height);
     void Close();
     bool PumpPendingMessage();
+
+    /// <summary>
+    /// 获取底层平台窗口句柄 (Windows: HWND, Linux: Display/Drawable, Mac: CGWindowID).
+    /// </summary>
+    IntPtr? GetNativeHandle() => null;
 }

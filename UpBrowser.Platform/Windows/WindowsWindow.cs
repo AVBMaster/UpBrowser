@@ -109,6 +109,7 @@ public class WindowsWindow : IWindow
     public int Width => _width;
     public int Height => _height;
     public IntPtr Handle => _hwnd;
+    public IntPtr? GetNativeHandle() => _hwnd;
 
     public IImeHandler? ImeHandler => _imeHandler;
 

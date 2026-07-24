@@ -13,7 +13,6 @@ public enum JsEngineType
 
 public static class JsEngineConfig
 {
-    private static bool _initialized;
     private static JsEngineType _defaultEngineType = JsEngineType.Jint;
 
     public static JsEngineType DefaultEngineType
@@ -22,11 +21,8 @@ public static class JsEngineConfig
         set
         {
             _defaultEngineType = value;
-            if (_initialized)
-            {
-                var switcher = JsEngineSwitcher.Current;
-                switcher.DefaultEngineName = GetEngineName(value);
-            }
+            var switcher = JsEngineSwitcher.Current;
+            switcher.DefaultEngineName = GetEngineName(value);
         }
     }
 
@@ -42,10 +38,19 @@ public static class JsEngineConfig
 
     public static void Initialize()
     {
-        if (_initialized) return;
-        _initialized = true;
+        Reinitialize();
+    }
 
+    /// <summary>
+    /// 重新初始化引擎注册（即使已初始化也会重新注册所有已下载的引擎）。
+    /// 用于用户切换 JS 引擎后确保新标签页使用正确的引擎。
+    /// </summary>
+    public static void Reinitialize()
+    {
         var switcher = JsEngineSwitcher.Current;
+
+        // 清空已有引擎注册，重新注册
+        switcher.EngineFactories.Clear();
         switcher.EngineFactories.AddJint();
 
         TryRegisterDownloadedEngine(switcher, JsEngineType.V8);
@@ -64,13 +69,13 @@ public static class JsEngineConfig
 
     public static IJsEngine CreateEngine()
     {
-        if (!_initialized) Initialize();
+        Initialize();
         return JsEngineSwitcher.Current.CreateDefaultEngine();
     }
 
     public static IJsEngine CreateEngine(JsEngineType type)
     {
-        if (!_initialized) Initialize();
+        Initialize();
 
         var name = GetEngineName(type);
         var factory = JsEngineSwitcher.Current.EngineFactories

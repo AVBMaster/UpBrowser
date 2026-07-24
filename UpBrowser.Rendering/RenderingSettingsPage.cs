@@ -49,13 +49,18 @@ public class RenderingSettingsPage
         public int SelectedOption;
         public Action<int>? OnOptionChange;
         public Func<string>? DynamicValue;
-        public bool IsRadio;
         public bool IsEngineDetail;
         public bool IsEngineAction;
         public bool IsEngineProgress;
         public int ProgressValue;
         public string? ActionLabel2;
         public Action? ActionOnClick2;
+        public bool IsEngineCard;
+        public string EngineName;
+        public EngineCardStatus EngineCardStatus;
+        public bool EngineIsBuiltIn;
+        public bool EngineIsDownloading;
+        public int EngineDownloadPct;
     }
 
     private List<SettingItem> _items = new();
@@ -196,54 +201,84 @@ public class RenderingSettingsPage
         });
     }
 
+    public enum EngineCardStatus
+    {
+        Active,       // 当前正在使用的引擎
+        Downloaded,   // 已下载但未使用
+        NotDownloaded, // 未下载
+        Downloading,  // 正在下载
+    }
+
+    private struct EngineCardItem
+    {
+        public string Name;
+        public EngineCardStatus Status;
+        public bool IsBuiltIn; // Jint
+    }
+
     private void BuildJsEngineSection(ref int idx)
     {
         string[] engines = { "Jint", "V8", "Jurassic" };
         string selected = _settings.JsEngine ?? "Jint";
 
-        // Hint line shown once above the radios
-        AddEngineDetail("更改将在下次启动时生效；已下载的可立即用于新标签页。", ref idx);
+        // Hint
+        AddEngineDetail("下载和切换是分离的：先下载，再选择「应用」生效。", ref idx);
 
         foreach (var name in engines)
         {
             var type = JsEngineConfig.GetEngineTypeByName(name);
-            bool isSelected = name == selected;
+            bool isBuiltIn = name == "Jint";
+            bool isActive = name == selected;
+            bool downloaded = isBuiltIn || JsEngineDownloader.IsEngineDownloaded(type!.Value);
+            bool isDownloading = _downloadProgress.TryGetValue(name, out int pct) && pct >= 0 && pct < 100;
 
-            string status = name == "Jint" ? "内置" : GetEngineStatusText(name);
-            AddRadio(name, status, isSelected, () =>
+            EngineCardStatus cardStatus;
+            if (isBuiltIn) cardStatus = EngineCardStatus.Active;
+            else if (isDownloading) cardStatus = EngineCardStatus.Downloading;
+            else if (downloaded) cardStatus = isActive ? EngineCardStatus.Active : EngineCardStatus.Downloaded;
+            else cardStatus = EngineCardStatus.NotDownloaded;
+
+            _items.Add(new SettingItem
             {
-                if (_settings.JsEngine != name)
+                Label = "",
+                Value = "",
+                Category = "",
+                IsEngineCard = true,
+                Index = idx++,
+                EngineName = name,
+                EngineCardStatus = cardStatus,
+                EngineIsBuiltIn = isBuiltIn,
+                EngineIsDownloading = isDownloading,
+                EngineDownloadPct = pct,
+                OnClick = () =>
                 {
-                    _settings.JsEngine = name;
-                    if (name != "Jint")
+                    // 点击卡片：如果是已下载但非当前的引擎，应用它
+                    if (cardStatus == EngineCardStatus.Downloaded)
                     {
-                        var t = JsEngineConfig.GetEngineTypeByName(name);
-                        if (t != null && !JsEngineDownloader.IsEngineDownloaded(t.Value))
-                            TriggerEngineDownload(name);
-                        else
-                            ApplyEngineChoice();
+                        _settings.JsEngine = name;
+                        ApplyEngineChoice();
                     }
                 }
-            }, ref idx);
+            });
 
-            if (!isSelected) continue;
-
-            // ── Detail rows for the selected engine ──
-            if (name == "Jint")
+            // ── Details for the card ──
+            if (isBuiltIn)
             {
                 AddEngineDetail("类型: 纯 C# 引擎（内建）", ref idx);
                 AddEngineDetail("平台: 跨平台通用，无需下载", ref idx);
                 continue;
             }
 
-            // Non-Jint engines: show status
-            bool downloaded = JsEngineDownloader.IsEngineDownloaded(type!.Value);
-            bool isDownloading = _downloadProgress.TryGetValue(name, out int pct) && pct >= 0 && pct < 100;
-            string statusIcon = downloaded ? "✅" : (isDownloading ? "⏳" : "⬇");
-            string statusText = downloaded ? "已就绪" : (isDownloading ? "下载中…" : "未下载");
-            AddEngineDetail($"{statusIcon} 状态: {statusText}", ref idx);
-
-            if (downloaded)
+            // Non-Jint engines
+            if (isDownloading)
+            {
+                AddEngineProgress(pct, ref idx);
+            }
+            else if (!downloaded)
+            {
+                AddEngineDetail("尚未下载，点击「下载」按钮获取引擎。", ref idx);
+            }
+            else
             {
                 string dir = JsEngineDownloader.EngineDir(type!.Value);
                 long size = GetDirectorySize(dir);
@@ -252,26 +287,37 @@ public class RenderingSettingsPage
                 AddEngineDetail($"位置: {dir}", ref idx);
             }
 
-            // Download progress bar
-            if (!downloaded && isDownloading)
+            // Action buttons
+            if (!isDownloading)
             {
-                AddEngineProgress(pct, ref idx);
-            }
-            if (!string.IsNullOrEmpty(_downloadError) && _downloadProgress.TryGetValue(name, out _))
-            {
-                AddEngineDetail($"❌ 下载失败: {_downloadError}", ref idx);
-            }
-
-            // Action buttons (two per row)
-            if (downloaded)
-            {
-                AddEngineActions("重新下载", () => TriggerEngineDownload(name),
-                    "从本地选择…", () => OnBrowseEngine?.Invoke(name), ref idx);
-            }
-            else if (!isDownloading)
-            {
-                AddEngineActions("⬇ 下载", () => TriggerEngineDownload(name),
-                    "📁 从本地选择…", () => OnBrowseEngine?.Invoke(name), ref idx);
+                if (downloaded)
+                {
+                    if (!isActive)
+                    {
+                        // 已下载但未使用 → 显示「应用」和「从本地选择」
+                        AddEngineActions(
+                            "应用此引擎", () =>
+                            {
+                                _settings.JsEngine = name;
+                                ApplyEngineChoice();
+                            },
+                            "从本地选择…", () => OnBrowseEngine?.Invoke(name), ref idx);
+                    }
+                    else
+                    {
+                        // 当前正在使用的引擎 → 显示「重新下载」和「从本地选择」
+                        AddEngineActions(
+                            "重新下载", () => TriggerEngineDownload(name),
+                            "从本地选择…", () => OnBrowseEngine?.Invoke(name), ref idx);
+                    }
+                }
+                else
+                {
+                    // 未下载 → 显示「下载」和「从本地选择」
+                    AddEngineActions(
+                        "⬇ 下载", () => TriggerEngineDownload(name),
+                        "📁 从本地选择…", () => OnBrowseEngine?.Invoke(name), ref idx);
+                }
             }
         }
     }
@@ -291,20 +337,6 @@ public class RenderingSettingsPage
         if (type == null) return "";
         if (type == JsEngineType.Jint) return "内置";
         return JsEngineDownloader.IsEngineDownloaded(type.Value) ? "已就绪" : "未下载";
-    }
-
-    private void AddRadio(string label, string status, bool isSelected, Action onClick, ref int idx)
-    {
-        _items.Add(new SettingItem
-        {
-            Label = label,
-            Value = status,
-            Category = "",
-            IsRadio = true,
-            IsOn = () => _settings.JsEngine == label,
-            OnClick = onClick,
-            Index = idx++
-        });
     }
 
     private void AddEngineDetail(string text, ref int idx)
@@ -599,33 +631,23 @@ public class RenderingSettingsPage
                 if (!string.IsNullOrEmpty(item.ActionLabel2))
                     DrawActionButton(canvas, item.ActionLabel2!, b2x, itemY, b2w, itemHeight, isHovered && _hoveredActionButton == 2);
             }
+            else if (item.IsEngineCard)
+            {
+                DrawEngineCard(canvas, item, xPos, itemY, itemHeight, isHovered);
+            }
             else
             {
-                if (item.IsRadio)
+                if (item.IsOn != null)
                 {
-                    canvas.DrawText(item.Label, xPos + 24, itemY + 21, SKTextAlign.Left, labelFont, labelPaint);
-                    SKColor statusColor = item.Value is "内置" or "已就绪"
-                        ? new SKColor(52, 124, 69)
-                        : new SKColor(128, 134, 139);
-                    using var statusPaint = new SKPaint { Color = statusColor, IsAntialias = true };
-                    canvas.DrawText(item.Value, xPos + 24 + labelFont.MeasureText(item.Label) + 4, itemY + 21, SKTextAlign.Left, valueFont, statusPaint);
-                    DrawRadioButton(canvas, xPos + 8, itemY + 6, item.IsOn());
+                    canvas.DrawText(item.Label, xPos + 8, itemY + 21, SKTextAlign.Left, labelFont, labelPaint);
+                    DrawToggle(canvas, xPos + _panelWidth - 52, itemY + 6, 36, 20, item.IsOn(), isHovered);
                 }
                 else
                 {
-                    canvas.DrawText(item.Label, xPos + 8, itemY + 21, SKTextAlign.Left, labelFont, labelPaint);
-
-                    if (item.IsOn != null)
-                    {
-                        DrawToggle(canvas, xPos + _panelWidth - 52, itemY + 6, 36, 20, item.IsOn(), isHovered);
-                    }
-                    else
-                    {
-                        string val = item.Value;
-                        float vw = valueFont.MeasureText(val);
-                        canvas.DrawText(val, xPos + _panelWidth - 24 - vw, itemY + 21, SKTextAlign.Left, valueFont, valuePaint);
-                        canvas.DrawText("›", xPos + _panelWidth - 20, itemY + 21, SKTextAlign.Left, valueFont, valuePaint);
-                    }
+                    string val = item.Value;
+                    float vw = valueFont.MeasureText(val);
+                    canvas.DrawText(val, xPos + _panelWidth - 24 - vw, itemY + 21, SKTextAlign.Left, valueFont, valuePaint);
+                    canvas.DrawText("›", xPos + _panelWidth - 20, itemY + 21, SKTextAlign.Left, valueFont, valuePaint);
                 }
             }
 
@@ -664,6 +686,86 @@ public class RenderingSettingsPage
                 IsAntialias = true
             };
             canvas.DrawCircle(cx, cy, r - 4, inner);
+        }
+    }
+
+    private void DrawEngineCard(SKCanvas canvas, SettingItem item, float xPos, float itemY, float itemHeight, bool isHovered)
+    {
+        float cardLeft = xPos - 4;
+        float cardTop = itemY - 2;
+        float cardRight = xPos + _panelWidth - 8;
+        float cardBottom = itemY + itemHeight + 2;
+        float cardW = cardRight - cardLeft;
+        float cardH = cardBottom - cardTop;
+
+        // Card background
+        using var cardBg = new SKPaint
+        {
+            Color = item.EngineCardStatus == EngineCardStatus.Active
+                ? new SKColor(240, 248, 255, 255) // light blue for active
+                : (isHovered ? new SKColor(232, 240, 254, 255) : new SKColor(250, 250, 250, 255)),
+            Style = SKPaintStyle.Fill,
+            IsAntialias = true
+        };
+        canvas.DrawRoundRect(cardLeft, cardTop, cardW, cardH, 6, 6, cardBg);
+
+        // Card border
+        using var cardBorder = new SKPaint
+        {
+            Color = item.EngineCardStatus == EngineCardStatus.Active
+                ? new SKColor(26, 115, 232) // blue border for active
+                : new SKColor(218, 220, 224),
+            Style = SKPaintStyle.Stroke,
+            StrokeWidth = item.EngineCardStatus == EngineCardStatus.Active ? 2 : 1,
+            IsAntialias = true
+        };
+        canvas.DrawRoundRect(cardLeft, cardTop, cardW, cardH, 6, 6, cardBorder);
+
+        float padX = 12;
+        float padY = 8;
+
+        // Engine name
+        using var namePaint = new SKPaint
+        {
+            Color = new SKColor(40, 44, 52),
+            IsAntialias = true
+        };
+        using var nameFont = new SKFont(_typeface, 14);
+        canvas.DrawText(item.EngineName, cardLeft + padX, cardTop + padY + 16, SKTextAlign.Left, nameFont, namePaint);
+
+        // Status indicator (right side)
+        string statusText;
+        SKColor statusColor;
+        if (item.EngineCardStatus == EngineCardStatus.Active)
+        {
+            statusText = "● 当前使用";
+            statusColor = new SKColor(26, 115, 232);
+        }
+        else if (item.EngineCardStatus == EngineCardStatus.Downloaded)
+        {
+            statusText = "✅ 已就绪";
+            statusColor = new SKColor(52, 124, 69);
+        }
+        else if (item.EngineCardStatus == EngineCardStatus.Downloading)
+        {
+            statusText = $"⏳ 下载中 {item.EngineDownloadPct}%";
+            statusColor = new SKColor(255, 183, 43);
+        }
+        else
+        {
+            statusText = "⬇ 未下载";
+            statusColor = new SKColor(128, 134, 139);
+        }
+
+        float statusW = nameFont.MeasureText(statusText);
+        canvas.DrawText(statusText, cardLeft + cardW - padX - statusW, cardTop + padY + 16, SKTextAlign.Left, nameFont,
+            new SKPaint { Color = statusColor, IsAntialias = true });
+
+        // Downloaded engine hint (click to apply)
+        if (item.EngineCardStatus == EngineCardStatus.Downloaded)
+        {
+            using var hintPaint = new SKPaint { Color = new SKColor(26, 115, 232), IsAntialias = true };
+            canvas.DrawText("点击卡片或「应用此引擎」按钮即可切换", cardLeft + padX, cardTop + padY + 32, SKTextAlign.Left, _smallFont, hintPaint);
         }
     }
 
@@ -789,6 +891,13 @@ public class RenderingSettingsPage
                     else if (b2w > 0 && x >= b2x && x <= b2x + b2w)
                         item.ActionOnClick2?.Invoke();
                     OnChanged?.Invoke();
+                    return true;
+                }
+                if (item.IsEngineCard)
+                {
+                    // 点击卡片：如果已下载且非当前引擎，则应用它
+                    if (item.OnClick != null)
+                        item.OnClick();
                     return true;
                 }
                 if (item.OnClick != null)

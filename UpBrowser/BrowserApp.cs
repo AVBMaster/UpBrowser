@@ -143,22 +143,16 @@ namespace UpBrowser;
         // Load persisted config first to get JS engine choice
         RenderingSettingsConfig.Load(_renderingSettings);
 
-        // Resolve JS engine: use setting, download if needed, fall back to Jint
+        // Resolve JS engine: use setting, but DO NOT auto-download without user permission
+        // Just detect what's available and fall back to Jint if configured engine isn't ready.
         var engineType = JsEngineConfig.GetEngineTypeByName(_renderingSettings.JsEngine) ?? JsEngineType.Jint;
         if (engineType != JsEngineType.Jint && !JsEngineDownloader.IsEngineDownloaded(engineType))
         {
-            try
-            {
-                Console.WriteLine($"[Startup] Downloading {engineType} JS engine...");
-                JsEngineDownloader.DownloadEngineAsync(engineType).GetAwaiter().GetResult();
-                Console.WriteLine($"[Startup] {engineType} engine ready");
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[Startup] Cannot get {engineType} engine: {ex.Message}, using Jint");
-                engineType = JsEngineType.Jint;
-                _renderingSettings.JsEngine = "Jint";
-            }
+            // Configured engine not downloaded. Inform user, fall back to Jint.
+            Console.WriteLine($"[Startup] Engine '{engineType}' is configured but not downloaded. Using Jint (built-in).");
+            Console.WriteLine($"[Startup] To use {engineType}, go to Settings → JavaScript Engine and download it first.");
+            engineType = JsEngineType.Jint;
+            _renderingSettings.JsEngine = "Jint";
         }
         JsEngineConfig.DefaultEngineType = engineType;
         JsEngineConfig.Initialize();
@@ -218,28 +212,47 @@ namespace UpBrowser;
         _renderingSettingsPage.OnEngineApplied += type =>
         {
             JsEngineConfig.DefaultEngineType = type;
-            JsEngineConfig.Initialize();
+            JsEngineConfig.Reinitialize(); // 重新注册所有引擎，确保新标签页使用正确引擎
             Console.WriteLine($"[JS] Engine applied for new tabs: {type}");
         };
 
         _renderingSettingsPage.OnBrowseEngine += engineName =>
         {
-            string? folder = PickFolder("选择引擎目录");
-            if (folder == null) return;
             var type = JsEngineConfig.GetEngineTypeByName(engineName);
             if (type == null || type == JsEngineType.Jint) return;
+
+            // 弹出模态文件夹选择对话框，附属到主窗口
+            var hwnd = _window.GetNativeHandle();
+            string? folder = PickFolder("选择引擎目录", hwnd);
+            if (folder == null) return;
+
             var dest = JsEngineDownloader.EngineDir(type.Value);
             try
             {
                 Directory.CreateDirectory(dest);
                 CopyDirectory(folder, dest);
                 Console.WriteLine($"[Engine] {engineName} installed from {folder}");
+
+                // 验证关键 DLL 是否存在
+                var assemblyPath = JsEngineDownloader.GetEngineAssemblyPath(type.Value);
+                if (assemblyPath == null || !File.Exists(assemblyPath))
+                {
+                    Console.WriteLine($"[Engine] {engineName} directory does not contain the expected DLL: {assemblyPath}");
+                    _renderingSettingsPage.Invalidate();
+                    return;
+                }
+
+                // 注册引擎到 switcher
                 JsEngineConfig.TryRegisterDownloadedEngine(JsEngineSwitcher.Current, type.Value);
+
+                // 保存引擎安装信息到配置文件
+                JsEngineInfoRegistry.Register(type.Value, assemblyPath, folder);
+
                 _renderingSettingsPage.Invalidate();
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[Engine] Failed to copy: {ex.Message}");
+                Console.WriteLine($"[Engine] Failed to copy {engineName}: {ex.Message}");
             }
         };
 
@@ -3832,10 +3845,10 @@ namespace UpBrowser;
 
     #endregion
 
-    private static string? PickFolder(string title)
+    private static string? PickFolder(string title, IntPtr? hwndOwner = null)
     {
         if (OperatingSystem.IsWindows())
-            return PickFolderWindows(title);
+            return PickFolderWindows(title, hwndOwner);
         if (OperatingSystem.IsMacOS())
             return PickFolderMac(title);
         if (OperatingSystem.IsLinux())
@@ -3865,12 +3878,13 @@ namespace UpBrowser;
         public int iImage;
     }
 
-    private static string? PickFolderWindows(string title)
+    private static string? PickFolderWindows(string title, IntPtr? hwndOwner)
     {
         var bi = new BROWSEINFOW
         {
             lpszTitle = title,
-            ulFlags = 0x0001 // BIF_RETURNONLYFSDIRS
+            ulFlags = 0x0001, // BIF_RETURNONLYFSDIRS
+            hwndOwner = hwndOwner ?? IntPtr.Zero  // 附属到主窗口
         };
         nint pidl = SHBrowseForFolderW(ref bi);
         if (pidl == 0) return null;
