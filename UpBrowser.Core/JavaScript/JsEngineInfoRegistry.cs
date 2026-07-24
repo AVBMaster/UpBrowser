@@ -1,17 +1,14 @@
-using System.Text.Json;
-using System.Text.Json.Serialization;
-
 namespace UpBrowser.Core.JavaScript;
 
 /// <summary>
 /// 管理 JS 引擎安装信息（从本地目录安装的引擎路径等元数据）。
-/// 存储于 %APPDATA%\UpBrowser\engine_registry.json。
+/// 存储于 %APPDATA%\UpBrowser\engine_registry.txt（简单 key=value 格式，避免 JSON 序列化问题）。
 /// </summary>
 public static class JsEngineInfoRegistry
 {
     private static string RegistryPath => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-        "UpBrowser", "engine_registry.json");
+        "UpBrowser", "engine_registry.txt");
 
     private static EngineRegistry? _data;
 
@@ -24,8 +21,23 @@ public static class JsEngineInfoRegistry
             {
                 try
                 {
-                    var json = File.ReadAllText(RegistryPath);
-                    _data = JsonSerializer.Deserialize<EngineRegistry>(json);
+                    var data = new EngineRegistry();
+                    foreach (var line in File.ReadAllLines(RegistryPath))
+                    {
+                        if (string.IsNullOrWhiteSpace(line) || line.StartsWith("#"))
+                            continue;
+                        var parts = line.Split('|', 4);
+                        if (parts.Length >= 4)
+                        {
+                            data.Engines[parts[0].Trim().ToLowerInvariant()] = new EngineInfo
+                            {
+                                AssemblyPath = parts[1].Trim(),
+                                SourceFolder = parts[2].Trim(),
+                                InstalledAt = parts[3].Trim()
+                            };
+                        }
+                    }
+                    _data = data;
                 }
                 catch { _data = new EngineRegistry(); }
             }
@@ -56,27 +68,23 @@ public static class JsEngineInfoRegistry
     private static void Save()
     {
         Directory.CreateDirectory(Path.GetDirectoryName(RegistryPath)!);
-        var json = JsonSerializer.Serialize(Data, new JsonSerializerOptions { WriteIndented = true });
-        File.WriteAllText(RegistryPath, json);
+        var lines = new List<string>();
+        foreach (var kvp in Data.Engines)
+        {
+            lines.Add($"{kvp.Key}|{kvp.Value.AssemblyPath}|{kvp.Value.SourceFolder}|{kvp.Value.InstalledAt}");
+        }
+        File.WriteAllLines(RegistryPath, lines);
     }
 
     public class EngineRegistry
     {
-        [JsonConstructor]
-        public EngineRegistry() { Engines = new Dictionary<string, EngineInfo>(); }
-
-        public Dictionary<string, EngineInfo> Engines { get; set; }
+        public Dictionary<string, EngineInfo> Engines = new();
     }
 
     public class EngineInfo
     {
-        [JsonPropertyName("assemblyPath")]
         public string AssemblyPath { get; set; } = "";
-
-        [JsonPropertyName("sourceFolder")]
         public string SourceFolder { get; set; } = "";
-
-        [JsonPropertyName("installedAt")]
         public string InstalledAt { get; set; } = "";
     }
 }

@@ -13,6 +13,7 @@ public enum JsEngineType
 
 public static class JsEngineConfig
 {
+    private static bool _initialized;
     private static JsEngineType _defaultEngineType = JsEngineType.Jint;
 
     public static JsEngineType DefaultEngineType
@@ -38,6 +39,8 @@ public static class JsEngineConfig
 
     public static void Initialize()
     {
+        if (_initialized) return;
+        _initialized = true;
         Reinitialize();
     }
 
@@ -75,7 +78,7 @@ public static class JsEngineConfig
 
     public static IJsEngine CreateEngine(JsEngineType type)
     {
-        Initialize();
+        if (!_initialized) Initialize();
 
         var name = GetEngineName(type);
         var factory = JsEngineSwitcher.Current.EngineFactories
@@ -87,7 +90,15 @@ public static class JsEngineConfig
             return JsEngineSwitcher.Current.CreateDefaultEngine();
         }
 
-        return factory.CreateEngine();
+        try
+        {
+            return factory.CreateEngine();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[JS] Failed to create {type} engine: {ex.Message}");
+            return JsEngineSwitcher.Current.CreateDefaultEngine();
+        }
     }
 
     public static JsEngineType? GetEngineTypeByName(string? name)

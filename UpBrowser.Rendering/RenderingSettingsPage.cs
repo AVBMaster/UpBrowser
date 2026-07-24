@@ -421,6 +421,7 @@ public class RenderingSettingsPage
                 _downloadError = ex.Message;
                 _downloadProgress.TryRemove(engineName, out _);
                 Console.WriteLine($"[JS] Failed to download {engineName}: {ex.Message}");
+                // 错误会在设置面板中显示（通过 RebuildItems 刷新）
                 OnChanged?.Invoke();
             }
         });
@@ -932,7 +933,7 @@ public class RenderingSettingsPage
         if (x < panelLeft || x > panelLeft + _panelWidth || y < panelTop)
         {
             _hoveredItem = -1;
-            if (oldHovered != -1) OnChanged?.Invoke();
+            _hoveredActionButton = 0;
             return false;
         }
 
@@ -973,7 +974,6 @@ public class RenderingSettingsPage
         {
             _hoveredItem = hovered;
             _hoveredActionButton = newHoveredAction;
-            OnChanged?.Invoke();
         }
         return true;
     }

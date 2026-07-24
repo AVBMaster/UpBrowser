@@ -75,12 +75,20 @@ public class JavaScriptEngine : IDisposable
     {
         JsEngineConfig.Initialize();
         var effectiveType = JsEngineConfig.EffectiveEngineType;
-        return effectiveType switch
+        try
         {
-            JsEngineType.V8 => new V8EngineAdapter(),
-            JsEngineType.Jurassic => new JurassicEngineAdapter(),
-            _ => new JintEngineAdapter()
-        };
+            return effectiveType switch
+            {
+                JsEngineType.V8 => new V8EngineAdapter(),
+                JsEngineType.Jurassic => new JurassicEngineAdapter(),
+                _ => new JintEngineAdapter()
+            };
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[JS] Engine '{effectiveType}' creation failed ({ex.Message}), falling back to Jint");
+            return new JintEngineAdapter();
+        }
     }
 
     [RequiresUnreferencedCode("Engine type detection uses GetType().Name")]

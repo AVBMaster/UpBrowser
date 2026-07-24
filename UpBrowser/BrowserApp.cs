@@ -237,7 +237,8 @@ namespace UpBrowser;
                 var assemblyPath = JsEngineDownloader.GetEngineAssemblyPath(type.Value);
                 if (assemblyPath == null || !File.Exists(assemblyPath))
                 {
-                    Console.WriteLine($"[Engine] {engineName} directory does not contain the expected DLL: {assemblyPath}");
+                    ShowDialog($"选择的目录不包含 {engineName} 引擎文件。\n\n期望找到: {assemblyPath}\n请在该目录中寻找 JavaScriptEngineSwitcher.{engineName}.dll。",
+                        "引擎验证失败");
                     _renderingSettingsPage.Invalidate();
                     return;
                 }
@@ -252,7 +253,8 @@ namespace UpBrowser;
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[Engine] Failed to copy {engineName}: {ex.Message}");
+                ShowDialog($"从本地安装 {engineName} 时出错:\n{ex.Message}",
+                    "引擎安装失败");
             }
         };
 
