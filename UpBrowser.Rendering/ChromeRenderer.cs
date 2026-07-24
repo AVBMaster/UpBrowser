@@ -98,6 +98,7 @@ public class ChromeRenderer : IImeSupport
     private float _loadingProgress;
     private long _loadingStartTime;
     private bool _progressDirty; // 标记进度条需要渲染一次 100% 后消失
+    private bool _progressJustCleared; // 进度条刚被清除，需要一帧来清理残留
 
     public Action<string>? OnNavigate { get; set; }
     public Action? OnRefresh { get; set; }
@@ -448,7 +449,10 @@ public class ChromeRenderer : IImeSupport
         canvas.DrawRect(0, progressY, width * pct, barHeight, _progressPaint);
 
         if (!_isLoading && _loadingProgress >= 1f)
+        {
             _progressDirty = false;
+            _progressJustCleared = true;
+        }
     }
 
     private void RenderToolbar(SKCanvas canvas, float width, string url)
@@ -1413,6 +1417,19 @@ public class ChromeRenderer : IImeSupport
     }
     public bool IsLoading => _isLoading;
     public float GetLoadingProgress() => _loadingProgress;
+    public bool IsProgressDirty => _progressDirty;
+    public bool IsProgressJustCleared
+    {
+        get
+        {
+            if (_progressJustCleared)
+            {
+                _progressJustCleared = false;
+                return true;
+            }
+            return false;
+        }
+    }
     public IReadOnlyList<TabInfo> Tabs
     {
         get { _tabRwLock.EnterReadLock(); try { return _tabs.ToArray(); } finally { _tabRwLock.ExitReadLock(); } }

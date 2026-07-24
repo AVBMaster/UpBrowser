@@ -1885,6 +1885,9 @@ namespace UpBrowser;
 
         _input.NeedsRedraw = false;
         if (_input.IsMouseDown()) _input.NeedsRedraw = true;
+        // 进度条刚被清除时，强制再渲染一帧来清除残留的进度条图像
+        if (_chrome.IsProgressJustCleared)
+            _input.NeedsRedraw = true;
     }
 
     private void UpdateImeTarget()
