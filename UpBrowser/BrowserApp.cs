@@ -470,10 +470,12 @@ namespace UpBrowser;
         }
 
         // Wire JS engine management callbacks for upbrowser://js page
+        // 设置实例回调（主线程引擎）和全局回调（TabProcess 后台线程引擎）
         if (_jsEngine.Builtins != null)
         {
             _jsEngine.Builtins.EngineAction = (action, engineName) => HandleEngineAction(action, engineName);
         }
+        UpBrowserBuiltins.GlobalEngineAction = (action, engineName) => HandleEngineAction(action, engineName);
 
         // Wire DOM keyboard events
         _input.OnDomKeyDown = (charCode, key, repeat) => HandleDomKeyDown(charCode, key, repeat);

@@ -786,9 +786,14 @@ public class UpBrowserBuiltins
     // ── JS Engine Management ──────────────────────────────────
 
     /// <summary>
-    /// 回调，由 BrowserApp 设置，用于处理 JS 引擎管理操作。
+    /// 实例回调，由 BrowserApp 主线程设置。
     /// </summary>
     public Func<string, string, string>? EngineAction { get; set; }
+
+    /// <summary>
+    /// 全局静态回调，由 BrowserApp 设置，供 TabProcess 等后台线程使用。
+    /// </summary>
+    public static Func<string, string, string>? GlobalEngineAction { get; set; }
 
     /// <summary>
     /// 获取所有 JS 引擎的状态（JSON 字符串）。
@@ -829,7 +834,7 @@ public class UpBrowserBuiltins
     /// </summary>
     public string engineDownload(string name)
     {
-        var result = EngineAction?.Invoke("download", name);
+        var result = EngineAction?.Invoke("download", name) ?? GlobalEngineAction?.Invoke("download", name);
         return result ?? "[no handler]";
     }
 
@@ -838,7 +843,7 @@ public class UpBrowserBuiltins
     /// </summary>
     public string engineBrowse(string name)
     {
-        var result = EngineAction?.Invoke("browse", name);
+        var result = EngineAction?.Invoke("browse", name) ?? GlobalEngineAction?.Invoke("browse", name);
         return result ?? "[no handler]";
     }
 
@@ -847,7 +852,7 @@ public class UpBrowserBuiltins
     /// </summary>
     public string engineApply(string name)
     {
-        var result = EngineAction?.Invoke("apply", name);
+        var result = EngineAction?.Invoke("apply", name) ?? GlobalEngineAction?.Invoke("apply", name);
         return result ?? "[no handler]";
     }
 
