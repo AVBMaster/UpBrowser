@@ -36,6 +36,38 @@ public class RenderingSettingsPage
     private float _resizeStartX;
     private float _resizeStartWidth;
 
+    // Cached reusable paints/fonts for render loop (avoid per-frame GC pressure)
+    private readonly SKPaint _bgPaint;
+    private readonly SKPaint _borderPaint;
+    private readonly SKPaint _headerBgPaint;
+    private readonly SKFont _headerFont;
+    private readonly SKPaint _headerPaint;
+    private readonly SKFont _labelFont;
+    private readonly SKFont _valueFont;
+    private readonly SKPaint _valuePaint;
+    private readonly SKPaint _labelPaint;
+    private readonly SKPaint _catPaint;
+    private readonly SKFont _catFont;
+    private readonly SKPaint _hoverPaint;
+    private readonly SKPaint _trackPaint;
+    private readonly SKPaint _fillPaint;
+    private readonly SKPaint _thumbPaint;
+    private readonly SKPaint _thumbBorderPaint;
+    private readonly SKPaint _arrowPaint;
+    private readonly SKPaint _sliderBgPaint;
+    private readonly SKPaint _sliderFillPaint;
+    private readonly SKPaint _sliderThumbPaint;
+    private readonly SKPaint _sliderThumbBorderPaint;
+    private readonly SKPaint _btnBgPaint;
+    private readonly SKPaint _btnBorderPaint;
+    private readonly SKPaint _btnTextPaint;
+    private readonly SKPaint _radioOuterPaint;
+    private readonly SKPaint _radioInnerPaint;
+    private readonly SKPaint _toggleBgPaint;
+    private readonly SKPaint _toggleThumbPaint;
+    private readonly SKPaint _toggleGlowPaint;
+    private readonly SKPaint _pctPaint;
+
     private int _hoveredItem = -1;
     private bool _draggingSlider;
     private int _draggingSliderIndex = -1;
@@ -101,6 +133,38 @@ public class RenderingSettingsPage
         _hintPaint = new SKPaint { Color = new SKColor(26, 115, 232), IsAntialias = true };
         _namePaint = new SKPaint { Color = new SKColor(40, 44, 52), IsAntialias = true };
         _detailPaint = new SKPaint { Color = new SKColor(95, 99, 104), IsAntialias = true };
+
+        // Render loop cached paints (avoid per-frame GC pressure)
+        _bgPaint = new SKPaint { Color = new SKColor(255, 255, 255, 240), Style = SKPaintStyle.Fill, IsAntialias = true };
+        _borderPaint = new SKPaint { Color = new SKColor(200, 200, 200, 200), Style = SKPaintStyle.Stroke, StrokeWidth = 1, IsAntialias = true };
+        _headerBgPaint = new SKPaint { Color = new SKColor(26, 115, 232), Style = SKPaintStyle.Fill };
+        _headerFont = new SKFont(_typeface, 15);
+        _headerPaint = new SKPaint { Color = SKColors.White, IsAntialias = true };
+        _labelFont = new SKFont(_typeface, 12);
+        _valueFont = new SKFont(_typeface, 12);
+        _valuePaint = new SKPaint { Color = new SKColor(26, 115, 232), IsAntialias = true };
+        _labelPaint = new SKPaint { Color = new SKColor(60, 64, 67), IsAntialias = true };
+        _catPaint = new SKPaint { Color = new SKColor(26, 115, 232), IsAntialias = true };
+        _catFont = new SKFont(_typeface, 11);
+        _hoverPaint = new SKPaint { Color = new SKColor(232, 240, 254), Style = SKPaintStyle.Fill };
+        _trackPaint = new SKPaint { Color = new SKColor(218, 220, 224), Style = SKPaintStyle.Fill };
+        _fillPaint = new SKPaint { Color = new SKColor(26, 115, 232), Style = SKPaintStyle.Fill };
+        _thumbPaint = new SKPaint { Color = SKColors.White, Style = SKPaintStyle.Fill, IsAntialias = true };
+        _thumbBorderPaint = new SKPaint { Color = new SKColor(26, 115, 232), Style = SKPaintStyle.Stroke, StrokeWidth = 2, IsAntialias = true };
+        _arrowPaint = new SKPaint { Color = new SKColor(26, 115, 232), IsAntialias = true };
+        _sliderBgPaint = new SKPaint { Color = new SKColor(218, 220, 224), Style = SKPaintStyle.Fill };
+        _sliderFillPaint = new SKPaint { Color = new SKColor(26, 115, 232), Style = SKPaintStyle.Fill };
+        _sliderThumbPaint = new SKPaint { Color = SKColors.White, Style = SKPaintStyle.Fill, IsAntialias = true };
+        _sliderThumbBorderPaint = new SKPaint { Color = new SKColor(26, 115, 232), Style = SKPaintStyle.Stroke, StrokeWidth = 2, IsAntialias = true };
+        _btnBgPaint = new SKPaint { Color = new SKColor(248, 249, 250), Style = SKPaintStyle.Fill, IsAntialias = true };
+        _btnBorderPaint = new SKPaint { Color = new SKColor(218, 220, 224), Style = SKPaintStyle.Stroke, StrokeWidth = 1, IsAntialias = true };
+        _btnTextPaint = new SKPaint { Color = new SKColor(26, 115, 232), IsAntialias = true };
+        _radioOuterPaint = new SKPaint { Color = new SKColor(128, 134, 139), Style = SKPaintStyle.Stroke, StrokeWidth = 2, IsAntialias = true };
+        _radioInnerPaint = new SKPaint { Color = new SKColor(26, 115, 232), Style = SKPaintStyle.Fill, IsAntialias = true };
+        _toggleBgPaint = new SKPaint { Color = new SKColor(189, 193, 198), Style = SKPaintStyle.Fill, IsAntialias = true };
+        _toggleThumbPaint = new SKPaint { Color = SKColors.White, Style = SKPaintStyle.Fill, IsAntialias = true };
+        _toggleGlowPaint = new SKPaint { Color = new SKColor(255, 255, 255, 60), Style = SKPaintStyle.Fill, IsAntialias = true };
+        _pctPaint = new SKPaint { Color = new SKColor(95, 99, 104), IsAntialias = true };
 
         _settings.OnChanged += RebuildItems;
         RebuildItems();
@@ -259,9 +323,9 @@ public class RenderingSettingsPage
             bool isDownloading = _downloadProgress.TryGetValue(name, out int pct) && pct >= 0 && pct < 100;
 
             EngineCardStatus cardStatus;
-            if (isBuiltIn) cardStatus = EngineCardStatus.Active;
+            if (isActive) cardStatus = EngineCardStatus.Active;
             else if (isDownloading) cardStatus = EngineCardStatus.Downloading;
-            else if (downloaded) cardStatus = isActive ? EngineCardStatus.Active : EngineCardStatus.Downloaded;
+            else if (downloaded) cardStatus = EngineCardStatus.Downloaded;
             else cardStatus = EngineCardStatus.NotDownloaded;
 
             _items.Add(new SettingItem
@@ -480,31 +544,26 @@ public class RenderingSettingsPage
         canvas.Save();
 
         // Panel background — use cached paint
-        _cardBgPaint.Color = new SKColor(255, 255, 255, 240);
-        _cardBgPaint.Style = SKPaintStyle.Fill;
-        canvas.DrawRoundRect(panelLeft, panelTop, _panelWidth, panelBottom - panelTop, 8, 8, _cardBgPaint);
+        _bgPaint.Color = new SKColor(255, 255, 255, 240);
+        _bgPaint.Style = SKPaintStyle.Fill;
+        canvas.DrawRoundRect(panelLeft, panelTop, _panelWidth, panelBottom - panelTop, 8, 8, _bgPaint);
 
         // Panel border — use cached paint
-        _cardBorderPaint.Color = new SKColor(200, 200, 200, 200);
-        _cardBorderPaint.Style = SKPaintStyle.Stroke;
-        _cardBorderPaint.StrokeWidth = 1;
-        canvas.DrawRoundRect(panelLeft, panelTop, _panelWidth, panelBottom - panelTop, 8, 8, _cardBorderPaint);
+        _borderPaint.Color = new SKColor(200, 200, 200, 200);
+        _borderPaint.Style = SKPaintStyle.Stroke;
+        _borderPaint.StrokeWidth = 1;
+        canvas.DrawRoundRect(panelLeft, panelTop, _panelWidth, panelBottom - panelTop, 8, 8, _borderPaint);
 
         float headerHeight = 40;
-        using var headerBg = new SKPaint
-        {
-            Color = new SKColor(26, 115, 232),
-            Style = SKPaintStyle.Fill
-        };
+        _headerBgPaint.Color = new SKColor(26, 115, 232);
+        _headerBgPaint.Style = SKPaintStyle.Fill;
         var pb = new SKPathBuilder();
         pb.AddRoundRect(new SKRect(panelLeft, panelTop, panelLeft + _panelWidth, panelTop + headerHeight), 8, 8);
         using var headerPath = pb.Detach();
-        canvas.DrawPath(headerPath, headerBg);
-        canvas.DrawRect(panelLeft, panelTop + 4, _panelWidth, headerHeight - 4, headerBg);
+        canvas.DrawPath(headerPath, _headerBgPaint);
+        canvas.DrawRect(panelLeft, panelTop + 4, _panelWidth, headerHeight - 4, _headerBgPaint);
 
-        using var headerFont = new SKFont(_typeface, 15);
-        using var headerPaint = new SKPaint { Color = SKColors.White, IsAntialias = true };
-        canvas.DrawText("渲染设置", panelLeft + 16, panelTop + 26, SKTextAlign.Left, headerFont, headerPaint);
+        canvas.DrawText("渲染设置", panelLeft + 16, panelTop + 26, SKTextAlign.Left, _headerFont, _headerPaint);
 
         // ── Resize handle (left edge of panel) ──
         DrawResizeHandle(canvas, panelLeft, panelTop, panelBottom);
@@ -517,13 +576,6 @@ public class RenderingSettingsPage
         canvas.Save();
         var clipRect = new SKRect(panelLeft, panelTop + headerHeight, panelLeft + _panelWidth, panelBottom);
         canvas.ClipRect(clipRect);
-
-        using var labelFont = new SKFont(_typeface, 12);
-        using var valueFont = new SKFont(_typeface, 12);
-        using var valuePaint = new SKPaint { Color = new SKColor(26, 115, 232), IsAntialias = true };
-        using var labelPaint = new SKPaint { Color = new SKColor(60, 64, 67), IsAntialias = true };
-        using var catPaint = new SKPaint { Color = new SKColor(26, 115, 232), IsAntialias = true };
-        using var catFont = new SKFont(_typeface, 11);
 
         for (int i = 0; i < _items.Count; i++)
         {
@@ -539,7 +591,7 @@ public class RenderingSettingsPage
 
             if (!string.IsNullOrEmpty(item.Category))
             {
-                canvas.DrawText(item.Label, xPos + 4, itemY + 22, SKTextAlign.Left, catFont, catPaint);
+                canvas.DrawText(item.Label, xPos + 4, itemY + 22, SKTextAlign.Left, _catFont, _catPaint);
                 yPos += itemHeight + 4;
                 continue;
             }
@@ -547,19 +599,17 @@ public class RenderingSettingsPage
             bool isHovered = i == _hoveredItem;
             bool isCategory = !string.IsNullOrEmpty(item.Category);
 
-            if (!isCategory && isHovered)
+            // 只有可交互的项才显示高亮（有 OnClick、IsSlider 等）
+            bool isInteractive = item.IsSlider || item.IsEngineAction || item.IsEngineCard || item.IsOn != null || item.OnClick != null || item.Options != null;
+            if (!isCategory && isHovered && isInteractive)
             {
-                using var hoverBg = new SKPaint
-                {
-                    Color = new SKColor(232, 240, 254),
-                    Style = SKPaintStyle.Fill
-                };
-                canvas.DrawRoundRect(xPos, itemY, _panelWidth - 24, itemHeight, 4, 4, hoverBg);
+                _hoverPaint.Color = new SKColor(232, 240, 254);
+                canvas.DrawRoundRect(xPos, itemY, _panelWidth - 24, itemHeight, 4, 4, _hoverPaint);
             }
 
             if (item.IsSlider)
             {
-                canvas.DrawText(item.Label, xPos + 8, itemY + 16, SKTextAlign.Left, labelFont, labelPaint);
+                canvas.DrawText(item.Label, xPos + 8, itemY + 16, SKTextAlign.Left, _labelFont, _labelPaint);
 
                 float sliderLeft = xPos + 8;
                 float sliderWidth = _panelWidth - 72;
@@ -567,9 +617,9 @@ public class RenderingSettingsPage
                 float sliderTrackH = 4;
 
                 string val = $"{_settings.ResolutionScale:F1}x";
-                float vw = valueFont.MeasureText(val);
+                float vw = _valueFont.MeasureText(val);
                 float valX = xPos + _panelWidth - 24 - vw - 6;
-                canvas.DrawText(val, valX, itemY + 16, SKTextAlign.Left, valueFont, valuePaint);
+                canvas.DrawText(val, valX, itemY + 16, SKTextAlign.Left, _valueFont, _valuePaint);
 
                 using var trackPaint = new SKPaint
                 {
@@ -606,11 +656,11 @@ public class RenderingSettingsPage
             }
             else if (item.Options != null)
             {
-                canvas.DrawText(item.Label, xPos + 8, itemY + 21, SKTextAlign.Left, labelFont, labelPaint);
+                canvas.DrawText(item.Label, xPos + 8, itemY + 21, SKTextAlign.Left, _labelFont, _labelPaint);
 
                 string val = item.DynamicValue != null ? item.DynamicValue() : item.Value;
-                float vw = valueFont.MeasureText(val);
-                canvas.DrawText(val, xPos + _panelWidth - 24 - vw - 8, itemY + 21, SKTextAlign.Left, valueFont, valuePaint);
+                float vw = _valueFont.MeasureText(val);
+                canvas.DrawText(val, xPos + _panelWidth - 24 - vw - 8, itemY + 21, SKTextAlign.Left, _valueFont, _valuePaint);
 
                 float arrowX = xPos + _panelWidth - 24;
                 using var arrowPaint = new SKPaint
@@ -618,7 +668,7 @@ public class RenderingSettingsPage
                     Color = new SKColor(26, 115, 232),
                     IsAntialias = true
                 };
-                canvas.DrawText("›", arrowX - 4, itemY + 21, SKTextAlign.Left, valueFont, arrowPaint);
+                canvas.DrawText("›", arrowX - 4, itemY + 21, SKTextAlign.Left, _valueFont, arrowPaint);
             }
             else if (item.IsEngineDetail)
             {
@@ -645,7 +695,7 @@ public class RenderingSettingsPage
                 }
                 using var pctPaint = new SKPaint { Color = new SKColor(95, 99, 104), IsAntialias = true };
                 string pctStr = $"{item.ProgressValue}%";
-                float pctW = valueFont.MeasureText(pctStr);
+                float pctW = _valueFont.MeasureText(pctStr);
                 canvas.DrawText(pctStr, xPos + _panelWidth - 24 - pctW, itemY + 21, SKTextAlign.Left, _smallFont, pctPaint);
             }
             else if (item.IsEngineAction)
@@ -663,15 +713,15 @@ public class RenderingSettingsPage
             {
                 if (item.IsOn != null)
                 {
-                    canvas.DrawText(item.Label, xPos + 8, itemY + 21, SKTextAlign.Left, labelFont, labelPaint);
+                    canvas.DrawText(item.Label, xPos + 8, itemY + 21, SKTextAlign.Left, _labelFont, _labelPaint);
                     DrawToggle(canvas, xPos + _panelWidth - 52, itemY + 6, 36, 20, item.IsOn(), isHovered);
                 }
                 else
                 {
                     string val = item.Value;
-                    float vw = valueFont.MeasureText(val);
-                    canvas.DrawText(val, xPos + _panelWidth - 24 - vw, itemY + 21, SKTextAlign.Left, valueFont, valuePaint);
-                    canvas.DrawText("›", xPos + _panelWidth - 20, itemY + 21, SKTextAlign.Left, valueFont, valuePaint);
+                    float vw = _valueFont.MeasureText(val);
+                    canvas.DrawText(val, xPos + _panelWidth - 24 - vw, itemY + 21, SKTextAlign.Left, _valueFont, _valuePaint);
+                    canvas.DrawText("›", xPos + _panelWidth - 20, itemY + 21, SKTextAlign.Left, _valueFont, _valuePaint);
                 }
             }
 

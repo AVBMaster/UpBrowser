@@ -357,7 +357,10 @@ namespace UpBrowser;
             }
             catch (Exception ex)
             {
-                return $"{{\"success\":false,\"error\":\"引擎加载失败: {ex.Message}\\n\\n提示: V8 引擎需要 ClearScript.V8.dll，请确保从本地选择时包含了所有依赖文件。\"}}";
+                // Escape exception message for valid JSON
+                var escapedMsg = ex.Message.Replace("\\", "\\\\").Replace("\"", "\\\"").Replace("\n", "\\n").Replace("\r", "\\r").Replace("\t", "\\t");
+                var fullMsg = $"引擎加载失败: {escapedMsg}\n\n提示: V8 引擎需要 ClearScript.V8.dll，请确保从本地选择时包含了所有依赖文件。";
+                return $"{{\"success\":false,\"error\":\"{fullMsg}\"}}";
             }
 
             _renderingSettings.JsEngine = engineName;
