@@ -18,8 +18,23 @@ public class RenderingSettingsPage
 
     private readonly SKTypeface _typeface;
     private readonly SKFont _smallFont;
+    private readonly SKFont _nameFont;
     private int _hoveredActionButton; // 1 or 2 within the hovered action item
     private readonly float _dpiScale;
+
+    // Cached reusable paints for rendering (avoid GC pressure from per-frame allocations)
+    private readonly SKPaint _cardBgPaint;
+    private readonly SKPaint _cardBorderPaint;
+    private readonly SKPaint _statusPaint;
+    private readonly SKPaint _hintPaint;
+    private readonly SKPaint _namePaint;
+    private readonly SKPaint _detailPaint;
+
+    // Resize handle state
+    private const float ResizeHandleWidth = 6;
+    private bool _resizingPanel;
+    private float _resizeStartX;
+    private float _resizeStartWidth;
 
     private int _hoveredItem = -1;
     private bool _draggingSlider;
@@ -77,6 +92,16 @@ public class RenderingSettingsPage
         _dpiScale = dpiScale;
         _typeface = FontHelper.GetChineseTypeface() ?? SKTypeface.Default;
         _smallFont = new SKFont(_typeface, 10);
+        _nameFont = new SKFont(_typeface, 14);
+
+        // Pre-create reusable paints (avoid GC pressure)
+        _cardBgPaint = new SKPaint { Style = SKPaintStyle.Fill, IsAntialias = true };
+        _cardBorderPaint = new SKPaint { Style = SKPaintStyle.Stroke, IsAntialias = true };
+        _statusPaint = new SKPaint { IsAntialias = true };
+        _hintPaint = new SKPaint { Color = new SKColor(26, 115, 232), IsAntialias = true };
+        _namePaint = new SKPaint { Color = new SKColor(40, 44, 52), IsAntialias = true };
+        _detailPaint = new SKPaint { Color = new SKColor(95, 99, 104), IsAntialias = true };
+
         _settings.OnChanged += RebuildItems;
         RebuildItems();
     }
@@ -223,6 +248,7 @@ public class RenderingSettingsPage
 
         // Hint
         AddEngineDetail("下载和切换是分离的：先下载，再选择「应用」生效。", ref idx);
+        AddEngineDetail("也可访问 upbrowser://js 使用 HTML 管理页面。", ref idx);
 
         foreach (var name in engines)
         {
@@ -385,7 +411,7 @@ public class RenderingSettingsPage
     {
         var type = JsEngineConfig.GetEngineTypeByName(_settings.JsEngine ?? "Jint") ?? JsEngineType.Jint;
         JsEngineConfig.DefaultEngineType = type;
-        JsEngineConfig.Initialize();
+        JsEngineConfig.Reinitialize(); // 重新注册所有引擎，确保新标签页使用正确引擎
         OnEngineApplied?.Invoke(type);
     }
 
@@ -453,22 +479,16 @@ public class RenderingSettingsPage
 
         canvas.Save();
 
-        using var bg = new SKPaint
-        {
-            Color = new SKColor(255, 255, 255, 240),
-            Style = SKPaintStyle.Fill,
-            IsAntialias = true
-        };
-        canvas.DrawRoundRect(panelLeft, panelTop, _panelWidth, panelBottom - panelTop, 8, 8, bg);
+        // Panel background — use cached paint
+        _cardBgPaint.Color = new SKColor(255, 255, 255, 240);
+        _cardBgPaint.Style = SKPaintStyle.Fill;
+        canvas.DrawRoundRect(panelLeft, panelTop, _panelWidth, panelBottom - panelTop, 8, 8, _cardBgPaint);
 
-        using var border = new SKPaint
-        {
-            Color = new SKColor(200, 200, 200, 200),
-            Style = SKPaintStyle.Stroke,
-            StrokeWidth = 1,
-            IsAntialias = true
-        };
-        canvas.DrawRoundRect(panelLeft, panelTop, _panelWidth, panelBottom - panelTop, 8, 8, border);
+        // Panel border — use cached paint
+        _cardBorderPaint.Color = new SKColor(200, 200, 200, 200);
+        _cardBorderPaint.Style = SKPaintStyle.Stroke;
+        _cardBorderPaint.StrokeWidth = 1;
+        canvas.DrawRoundRect(panelLeft, panelTop, _panelWidth, panelBottom - panelTop, 8, 8, _cardBorderPaint);
 
         float headerHeight = 40;
         using var headerBg = new SKPaint
@@ -485,6 +505,9 @@ public class RenderingSettingsPage
         using var headerFont = new SKFont(_typeface, 15);
         using var headerPaint = new SKPaint { Color = SKColors.White, IsAntialias = true };
         canvas.DrawText("渲染设置", panelLeft + 16, panelTop + 26, SKTextAlign.Left, headerFont, headerPaint);
+
+        // ── Resize handle (left edge of panel) ──
+        DrawResizeHandle(canvas, panelLeft, panelTop, panelBottom);
 
         float xPos = panelLeft + 12;
         float yPos = panelTop + headerHeight + 10 - _scrollOffset;
@@ -699,42 +722,26 @@ public class RenderingSettingsPage
         float cardW = cardRight - cardLeft;
         float cardH = cardBottom - cardTop;
 
-        // Card background
-        using var cardBg = new SKPaint
-        {
-            Color = item.EngineCardStatus == EngineCardStatus.Active
-                ? new SKColor(240, 248, 255, 255) // light blue for active
-                : (isHovered ? new SKColor(232, 240, 254, 255) : new SKColor(250, 250, 250, 255)),
-            Style = SKPaintStyle.Fill,
-            IsAntialias = true
-        };
-        canvas.DrawRoundRect(cardLeft, cardTop, cardW, cardH, 6, 6, cardBg);
+        // Card background — use cached paint
+        _cardBgPaint.Color = item.EngineCardStatus == EngineCardStatus.Active
+            ? new SKColor(240, 248, 255, 255)
+            : (isHovered ? new SKColor(232, 240, 254, 255) : new SKColor(250, 250, 250, 255));
+        canvas.DrawRoundRect(cardLeft, cardTop, cardW, cardH, 6, 6, _cardBgPaint);
 
-        // Card border
-        using var cardBorder = new SKPaint
-        {
-            Color = item.EngineCardStatus == EngineCardStatus.Active
-                ? new SKColor(26, 115, 232) // blue border for active
-                : new SKColor(218, 220, 224),
-            Style = SKPaintStyle.Stroke,
-            StrokeWidth = item.EngineCardStatus == EngineCardStatus.Active ? 2 : 1,
-            IsAntialias = true
-        };
-        canvas.DrawRoundRect(cardLeft, cardTop, cardW, cardH, 6, 6, cardBorder);
+        // Card border — use cached paint
+        _cardBorderPaint.Color = item.EngineCardStatus == EngineCardStatus.Active
+            ? new SKColor(26, 115, 232)
+            : new SKColor(218, 220, 224);
+        _cardBorderPaint.StrokeWidth = item.EngineCardStatus == EngineCardStatus.Active ? 2 : 1;
+        canvas.DrawRoundRect(cardLeft, cardTop, cardW, cardH, 6, 6, _cardBorderPaint);
 
         float padX = 12;
         float padY = 8;
 
-        // Engine name
-        using var namePaint = new SKPaint
-        {
-            Color = new SKColor(40, 44, 52),
-            IsAntialias = true
-        };
-        using var nameFont = new SKFont(_typeface, 14);
-        canvas.DrawText(item.EngineName, cardLeft + padX, cardTop + padY + 16, SKTextAlign.Left, nameFont, namePaint);
+        // Engine name — use cached paint
+        canvas.DrawText(item.EngineName, cardLeft + padX, cardTop + padY + 16, SKTextAlign.Left, _nameFont, _namePaint);
 
-        // Status indicator (right side)
+        // Status indicator
         string statusText;
         SKColor statusColor;
         if (item.EngineCardStatus == EngineCardStatus.Active)
@@ -758,16 +765,49 @@ public class RenderingSettingsPage
             statusColor = new SKColor(128, 134, 139);
         }
 
-        float statusW = nameFont.MeasureText(statusText);
-        canvas.DrawText(statusText, cardLeft + cardW - padX - statusW, cardTop + padY + 16, SKTextAlign.Left, nameFont,
-            new SKPaint { Color = statusColor, IsAntialias = true });
+        // Status text — use cached paint
+        _statusPaint.Color = statusColor;
+        float statusW = _nameFont.MeasureText(statusText);
+        canvas.DrawText(statusText, cardLeft + cardW - padX - statusW, cardTop + padY + 16, SKTextAlign.Left, _nameFont, _statusPaint);
 
         // Downloaded engine hint (click to apply)
         if (item.EngineCardStatus == EngineCardStatus.Downloaded)
         {
-            using var hintPaint = new SKPaint { Color = new SKColor(26, 115, 232), IsAntialias = true };
-            canvas.DrawText("点击卡片或「应用此引擎」按钮即可切换", cardLeft + padX, cardTop + padY + 32, SKTextAlign.Left, _smallFont, hintPaint);
+            canvas.DrawText("点击卡片或「应用此引擎」按钮即可切换", cardLeft + padX, cardTop + padY + 32, SKTextAlign.Left, _smallFont, _hintPaint);
         }
+    }
+
+    /// <summary>
+    /// 绘制面板左侧的拖拽缩放手柄。
+    /// 鼠标在 panelLeft 附近时可拖拽改变 _panelWidth。
+    /// </summary>
+    private void DrawResizeHandle(SKCanvas canvas, float panelLeft, float panelTop, float panelBottom)
+    {
+        float handleX = panelLeft;
+        float handleWidth = ResizeHandleWidth;
+        float handleY = panelTop + 8;
+        float handleH = panelBottom - panelTop - 16;
+
+        // 手柄颜色：hovered 时高亮，否则半透明灰色
+        using var handlePaint = new SKPaint
+        {
+            Color = _resizingPanel ? new SKColor(26, 115, 232) : new SKColor(200, 200, 200),
+            Style = SKPaintStyle.Fill,
+            IsAntialias = true
+        };
+        canvas.DrawRoundRect(handleX, handleY, handleWidth, handleH, 3, 3, handlePaint);
+
+        // 手柄上的两条横线装饰
+        using var gripPaint = new SKPaint
+        {
+            Color = new SKColor(150, 150, 150),
+            Style = SKPaintStyle.Stroke,
+            StrokeWidth = 1,
+            IsAntialias = true
+        };
+        float gripY = panelTop + panelBottom / 2;
+        canvas.DrawLine(handleX + 1.5f, gripY - 4f, handleX + handleWidth - 1.5f, gripY - 4f, gripPaint);
+        canvas.DrawLine(handleX + 1.5f, gripY + 4f, handleX + handleWidth - 1.5f, gripY + 4f, gripPaint);
     }
 
     private void DrawToggle(SKCanvas canvas, float x, float y, float w, float h, bool isOn, bool hovered)
@@ -850,6 +890,18 @@ public class RenderingSettingsPage
 
         float panelLeft = windowWidth - _panelWidth;
         float panelTop = contentOffset;
+        float panelBottom = contentOffset + windowWidth; // approximate
+
+        // ── Check resize handle (left edge) ──
+        float handleLeft = panelLeft - 5;
+        float handleRight = panelLeft + ResizeHandleWidth;
+        if (x >= handleLeft && x <= handleRight && y >= panelTop && y <= panelBottom)
+        {
+            _resizingPanel = true;
+            _resizeStartX = x;
+            _resizeStartWidth = _panelWidth;
+            return true;
+        }
 
         if (x < panelLeft || x > panelLeft + _panelWidth || y < panelTop) return false;
 
@@ -922,6 +974,20 @@ public class RenderingSettingsPage
         float panelLeft = windowWidth - _panelWidth;
         float panelTop = contentOffset;
 
+        // ── Handle panel resizing ──
+        if (_resizingPanel)
+        {
+            float delta = x - _resizeStartX;
+            float newWidth = _resizeStartWidth - delta;
+            newWidth = Math.Clamp(newWidth, 200f, 500f); // min 200, max 500
+            if (Math.Abs(newWidth - _panelWidth) > 2)
+            {
+                _panelWidth = newWidth;
+                OnChanged?.Invoke();
+            }
+            return true;
+        }
+
         if (_draggingSlider && _draggingSliderIndex >= 0)
         {
             UpdateSliderValue(_draggingSliderIndex, x, panelLeft + 12, panelLeft);
@@ -988,6 +1054,7 @@ public class RenderingSettingsPage
         }
         _draggingSlider = false;
         _draggingSliderIndex = -1;
+        _resizingPanel = false;
     }
 
     public bool HandleWheel(float delta, float windowHeight, float contentOffset)

@@ -230,25 +230,17 @@ namespace UpBrowser;
             try
             {
                 Directory.CreateDirectory(dest);
-                CopyDirectory(folder, dest);
-                Console.WriteLine($"[Engine] {engineName} installed from {folder}");
-
-                // 验证关键 DLL 是否存在
-                var assemblyPath = JsEngineDownloader.GetEngineAssemblyPath(type.Value);
-                if (assemblyPath == null || !File.Exists(assemblyPath))
+                var result = ScanAndCopyEngineDlls(folder, dest, type.Value);
+                if (!result.Success)
                 {
-                    ShowDialog($"选择的目录不包含 {engineName} 引擎文件。\n\n期望找到: {assemblyPath}\n请在该目录中寻找 JavaScriptEngineSwitcher.{engineName}.dll。",
-                        "引擎验证失败");
+                    ShowDialog(result.ErrorMessage ?? "引擎文件验证失败", "引擎验证失败");
                     _renderingSettingsPage.Invalidate();
                     return;
                 }
 
-                // 注册引擎到 switcher
+                Console.WriteLine($"[Engine] {engineName} installed from {folder}");
                 JsEngineConfig.TryRegisterDownloadedEngine(JsEngineSwitcher.Current, type.Value);
-
-                // 保存引擎安装信息到配置文件
-                JsEngineInfoRegistry.Register(type.Value, assemblyPath, folder);
-
+                JsEngineInfoRegistry.Register(type.Value, result.AssemblyPath!, folder);
                 _renderingSettingsPage.Invalidate();
             }
             catch (Exception ex)
@@ -257,6 +249,123 @@ namespace UpBrowser;
                     "引擎安装失败");
             }
         };
+
+        // ── JS engine action handler for upbrowser://js page ──
+        string HandleEngineAction(string action, string engineName)
+        {
+            try
+            {
+                return action switch
+                {
+                    "download" => HandleEngineDownload(engineName),
+                    "browse" => HandleEngineBrowse(engineName),
+                    "apply" => HandleEngineApply(engineName),
+                    _ => "{\"success\":false,\"error\":\"unknown action\"}"
+                };
+            }
+            catch (Exception ex)
+            {
+                return $"{{\"success\":false,\"error\":\"{ex.Message}\"}}";
+            }
+        }
+
+        string HandleEngineDownload(string engineName)
+        {
+            var type = JsEngineConfig.GetEngineTypeByName(engineName);
+            if (type == null || type == JsEngineType.Jint)
+                return "{\"success\":false,\"error\":\"不支持的引擎\"}";
+
+            if (JsEngineDownloader.IsEngineDownloaded(type.Value))
+                return "{\"success\":false,\"error\":\"引擎已下载\"}";
+
+            try
+            {
+                // Start async download
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        await JsEngineDownloader.DownloadEngineAsync(type.Value);
+                        Console.WriteLine($"[JS] {engineName} downloaded via HTML page");
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"[JS] Download failed: {ex.Message}");
+                    }
+                });
+                return "{\"success\":true,\"message\":\"下载已开始，请稍候刷新页面\"}";
+            }
+            catch (Exception ex)
+            {
+                return $"{{\"success\":false,\"error\":\"{ex.Message}\"}}";
+            }
+        }
+
+        string HandleEngineBrowse(string engineName)
+        {
+            var type = JsEngineConfig.GetEngineTypeByName(engineName);
+            if (type == null || type == JsEngineType.Jint)
+                return "{\"success\":false,\"error\":\"不支持的引擎\"}";
+
+            var hwnd = _window.GetNativeHandle();
+            string? folder = PickFolder("选择引擎目录", hwnd);
+            if (folder == null)
+                return "{\"success\":false,\"error\":\"用户取消选择\"}";
+
+            var dest = JsEngineDownloader.EngineDir(type.Value);
+            try
+            {
+                Directory.CreateDirectory(dest);
+                var result = ScanAndCopyEngineDlls(folder, dest, type.Value);
+                if (result.Success)
+                {
+                    Console.WriteLine($"[Engine] {engineName} installed from {folder}");
+                    JsEngineConfig.TryRegisterDownloadedEngine(JsEngineSwitcher.Current, type.Value);
+                    JsEngineInfoRegistry.Register(type.Value, result.AssemblyPath!, folder);
+                    return "{\"success\":true,\"message\":\"引擎安装成功\"}";
+                }
+                return $"{{\"success\":false,\"error\":\"{result.ErrorMessage}\"}}";
+            }
+            catch (Exception ex)
+            {
+                return $"{{\"success\":false,\"error\":\"{ex.Message}\"}}";
+            }
+        }
+
+        string HandleEngineApply(string engineName)
+        {
+            var type = JsEngineConfig.GetEngineTypeByName(engineName);
+            if (type == null)
+                return "{\"success\":false,\"error\":\"不支持的引擎\"}";
+
+            if (type == JsEngineType.Jint)
+            {
+                _renderingSettings.JsEngine = "Jint";
+                JsEngineConfig.DefaultEngineType = JsEngineType.Jint;
+                JsEngineConfig.Reinitialize();
+                return "{\"success\":true,\"message\":\"已切换到内置 Jint 引擎\"}";
+            }
+
+            if (!JsEngineDownloader.IsEngineDownloaded(type.Value))
+                return "{\"success\":false,\"error\":\"引擎未下载，请先下载或从本地安装\"}";
+
+            // Verify the engine can actually be created
+            try
+            {
+                var testEngine = JsEngineConfig.CreateEngine(type.Value);
+                testEngine?.Dispose();
+            }
+            catch (Exception ex)
+            {
+                return $"{{\"success\":false,\"error\":\"引擎加载失败: {ex.Message}\\n\\n提示: V8 引擎需要 ClearScript.V8.dll，请确保从本地选择时包含了所有依赖文件。\"}}";
+            }
+
+            _renderingSettings.JsEngine = engineName;
+            JsEngineConfig.DefaultEngineType = type.Value;
+            JsEngineConfig.Reinitialize();
+            Console.WriteLine($"[JS] Engine applied for new tabs: {type.Value}");
+            return "{\"success\":true,\"message\":\"已切换到 \" + engineName + \" 引擎，新标签页将使用新引擎\"}";
+        }
 
         _renderingSettings.OnChanged += () =>
         {
@@ -349,6 +458,12 @@ namespace UpBrowser;
             _jsEngine.Builtins.GetScrollY = () => (int)_scroll.ScrollY;
             _jsEngine.Builtins.OnScrollTo = (x, y) => _scroll.ScrollTo(x, y);
             _jsEngine.Builtins.OnScrollBy = (x, y) => _scroll.ScrollBy(x, y);
+        }
+
+        // Wire JS engine management callbacks for upbrowser://js page
+        if (_jsEngine.Builtins != null)
+        {
+            _jsEngine.Builtins.EngineAction = (action, engineName) => HandleEngineAction(action, engineName);
         }
 
         // Wire DOM keyboard events
@@ -704,6 +819,12 @@ namespace UpBrowser;
                     LoadAndRenderHtml(_currentHtml);
                     _scroll.ScrollTo(0, 0);
                 }
+                else if (url == "upbrowser://js")
+                {
+                    _currentHtml = DocumentManager.JsEngineHtml;
+                    LoadAndRenderHtml(_currentHtml);
+                    _scroll.ScrollTo(0, 0);
+                }
             }
             else if (url.StartsWith("http://") || url.StartsWith("https://"))
             {
@@ -814,6 +935,11 @@ namespace UpBrowser;
                 else if (url == "upbrowser://debug")
                 {
                     _currentHtml = DocumentManager.DebugHtml;
+                    LoadAndRenderHtml(_currentHtml);
+                }
+                else if (url == "upbrowser://js")
+                {
+                    _currentHtml = DocumentManager.JsEngineHtml;
                     LoadAndRenderHtml(_currentHtml);
                 }
             }
@@ -3964,6 +4090,146 @@ namespace UpBrowser;
             string destSubDir = Path.Combine(destDir, Path.GetFileName(dir));
             CopyDirectory(dir, destSubDir);
         }
+    }
+
+    /// <summary>
+    /// 智能扫描引擎目录，自动匹配当前运行时的 TFM 子文件夹。
+    /// 返回包含复制结果的结构体。
+    /// </summary>
+    private static (bool Success, string? AssemblyPath, string? ErrorMessage) ScanAndCopyEngineDlls(
+        string sourceDir, string destDir, JsEngineType type)
+    {
+        var expectedDll = type switch
+        {
+            JsEngineType.V8 => "JavaScriptEngineSwitcher.V8.dll",
+            JsEngineType.Jurassic => "JavaScriptEngineSwitcher.Jurassic.dll",
+            _ => null
+        };
+
+        if (expectedDll == null)
+            return (false, null, "不支持的引擎类型");
+
+        var targetAssemblyPath = Path.Combine(destDir, expectedDll);
+        bool found = false;
+
+        // 收集所有 TFM 子文件夹
+        var tfmFolders = Directory.EnumerateDirectories(sourceDir)
+            .Select(Path.GetFileName)
+            .Where(n => n != null && (n.StartsWith("net") || n.StartsWith("netstandard")))
+            .ToList();
+
+        // 排序：优先匹配当前运行时
+        tfmFolders.Sort((a, b) =>
+        {
+            int Score(string name) => name switch
+            {
+                _ when name.Contains("net8") => 100,
+                _ when name.Contains("net7") => 90,
+                _ when name.Contains("net6") => 80,
+                _ when name.Contains("netstandard2.1") => 70,
+                _ when name.Contains("netstandard2.0") => 60,
+                _ when name.Contains("netstandard") => 50,
+                _ when name.Contains("net4") => 40,
+                _ => 30
+            };
+            return Score(b) - Score(a);
+        });
+
+        // 策略1：在根目录直接查找
+        var rootDll = Directory.EnumerateFiles(sourceDir, expectedDll).FirstOrDefault();
+        if (!string.IsNullOrEmpty(rootDll))
+        {
+            File.Copy(rootDll, targetAssemblyPath, true);
+            found = true;
+            Console.WriteLine($"[Engine] Found {expectedDll} in root directory");
+        }
+
+        // 策略2：在 TFM 子文件夹中查找
+        if (!found)
+        {
+            foreach (var tfm in tfmFolders)
+            {
+                var dllInTfm = Path.Combine(sourceDir, tfm, expectedDll);
+                if (File.Exists(dllInTfm))
+                {
+                    File.Copy(dllInTfm, targetAssemblyPath, true);
+                    found = true;
+                    Console.WriteLine($"[Engine] Found {expectedDll} in {tfm} folder");
+                    break;
+                }
+            }
+        }
+
+        // 策略3：在整个目录树中搜索（兜底）
+        if (!found)
+        {
+            var allMatches = Directory.EnumerateFiles(sourceDir, expectedDll, SearchOption.AllDirectories).ToList();
+            if (allMatches.Count > 0)
+            {
+                File.Copy(allMatches[0], targetAssemblyPath, true);
+                found = true;
+                Console.WriteLine($"[Engine] Found {expectedDll} in subdirectory: {allMatches[0]}");
+            }
+        }
+
+        // 如果还是没找到，给出详细错误信息
+        if (!found)
+        {
+            var allDlls = Directory.EnumerateFiles(sourceDir, "*.dll", SearchOption.AllDirectories)
+                .Select(Path.GetFileName)
+                .Distinct()
+                .OrderBy(n => n)
+                .ToList();
+            var dllList = string.Join(", ", allDlls);
+            return (false, null,
+                $"未找到 {expectedDll}\n\n该目录中包含的 DLL 文件:\n{dllList}\n\n提示:\n- V8 引擎需要 JavaScriptEngineSwitcher.V8.dll 和 ClearScript.V8.dll\n- Jurassic 引擎需要 JavaScriptEngineSwitcher.Jurassic.dll\n- 请从 NuGet 包中复制对应的文件，或选择正确的目录");
+        }
+
+        // 同时复制所有依赖 DLL（从根目录和匹配的 TFM 目录）
+        var copiedCount = 0;
+        foreach (var file in Directory.EnumerateFiles(sourceDir, "*.dll"))
+        {
+            var name = Path.GetFileName(file);
+            if (name != expectedDll)
+            {
+                var destFile = Path.Combine(destDir, name);
+                File.Copy(file, destFile, true);
+                copiedCount++;
+            }
+        }
+
+        // 也复制 TFM 子文件夹中的依赖 DLL
+        foreach (var tfm in tfmFolders)
+        {
+            var tfmPath = Path.Combine(sourceDir, tfm);
+            if (Directory.Exists(tfmPath))
+            {
+                foreach (var file in Directory.EnumerateFiles(tfmPath, "*.dll"))
+                {
+                    var name = Path.GetFileName(file);
+                    if (name != expectedDll && !File.Exists(Path.Combine(destDir, name)))
+                    {
+                        File.Copy(file, Path.Combine(destDir, name), true);
+                        copiedCount++;
+                    }
+                }
+            }
+        }
+
+        Console.WriteLine($"[Engine] Copied {copiedCount} additional DLLs");
+
+        // 验证关键文件是否存在
+        if (type == JsEngineType.V8)
+        {
+            // V8 需要 ClearScript.V8.dll
+            var clearScriptPath = Path.Combine(destDir, "ClearScript.V8.dll");
+            if (!File.Exists(clearScriptPath))
+            {
+                Console.WriteLine($"[Engine] Warning: ClearScript.V8.dll not found in {destDir}, V8 may not work");
+            }
+        }
+
+        return (true, targetAssemblyPath, null);
     }
 }
 

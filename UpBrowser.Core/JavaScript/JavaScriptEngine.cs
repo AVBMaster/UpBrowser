@@ -783,6 +783,74 @@ public class UpBrowserBuiltins
     public URLHost createURL(string url, string? baseUrl) => new URLHost(url, baseUrl);
     public URLSearchParamsHost createURLSearchParams(string query) => new URLSearchParamsHost(query);
 
+    // ── JS Engine Management ──────────────────────────────────
+
+    /// <summary>
+    /// 回调，由 BrowserApp 设置，用于处理 JS 引擎管理操作。
+    /// </summary>
+    public Func<string, string, string>? EngineAction { get; set; }
+
+    /// <summary>
+    /// 获取所有 JS 引擎的状态（JSON 字符串）。
+    /// 返回格式: [{"name":"Jint","type":"jint","active":true,"downloaded":true,"builtIn":true},...]
+    /// </summary>
+    public string engineGetStatus()
+    {
+        try
+        {
+            var effectiveType = JsEngineConfig.EffectiveEngineType;
+            var activeName = effectiveType.ToString().ToLowerInvariant();
+
+            var parts = new List<string>();
+            foreach (var engName in new[] { "Jint", "V8", "Jurassic" })
+            {
+                var engType = JsEngineConfig.GetEngineTypeByName(engName);
+                bool isBuiltIn = engType == JsEngineType.Jint;
+                bool isDownloaded = isBuiltIn || JsEngineDownloader.IsEngineDownloaded(engType!.Value);
+                bool isActive = engName == activeName;
+                // JSON requires lowercase true/false — convert bool to lowercase string
+                string activeStr = isActive ? "true" : "false";
+                string downloadedStr = isDownloaded ? "true" : "false";
+                string builtInStr = isBuiltIn ? "true" : "false";
+                string status = isBuiltIn ? "内置" : (isDownloaded ? "已就绪" : "未下载");
+                parts.Add($"{{\"name\":\"{engName}\",\"type\":\"{engName.ToLowerInvariant()}\",\"active\":{activeStr},\"downloaded\":{downloadedStr},\"builtIn\":{builtInStr},\"status\":\"{status}\"}}");
+            }
+
+            return "[" + string.Join(",", parts) + "]";
+        }
+        catch (Exception ex)
+        {
+            return $"[error] {ex.Message}";
+        }
+    }
+
+    /// <summary>
+    /// 下载指定引擎。返回 JSON: {"success":true} 或 {"success":false,"error":"..."}
+    /// </summary>
+    public string engineDownload(string name)
+    {
+        var result = EngineAction?.Invoke("download", name);
+        return result ?? "[no handler]";
+    }
+
+    /// <summary>
+    /// 从本地选择并安装指定引擎。返回 JSON: {"success":true} 或 {"success":false,"error":"..."}
+    /// </summary>
+    public string engineBrowse(string name)
+    {
+        var result = EngineAction?.Invoke("browse", name);
+        return result ?? "[no handler]";
+    }
+
+    /// <summary>
+    /// 应用（切换）到指定引擎。返回 JSON: {"success":true} 或 {"success":false,"error":"..."}
+    /// </summary>
+    public string engineApply(string name)
+    {
+        var result = EngineAction?.Invoke("apply", name);
+        return result ?? "[no handler]";
+    }
+
     public int _fetch(string url, string optionsJson, int resolveId, int rejectId)
     {
         var id = _engine.AddFetch(resolveId, rejectId);

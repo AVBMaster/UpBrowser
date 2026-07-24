@@ -87,6 +87,9 @@ public class DocumentManager
     private static string? _debugHtml;
     public static string DebugHtml => _debugHtml ??= LoadEmbeddedResource("Html.debug.html");
 
+    private static string? _jsEngineHtml;
+    public static string JsEngineHtml => _jsEngineHtml ??= LoadEmbeddedResource("Html.js-engine.html");
+
     private async Task LoadStylesFromHtml(AngleSharp.Dom.IDocument angleSharpDoc, StyleComputer styleComputer, string? baseUrl)
     {
         var elements = angleSharpDoc.All;
