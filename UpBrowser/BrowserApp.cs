@@ -1239,6 +1239,13 @@ namespace UpBrowser;
         _isSelecting = false;
         _hoveredElement = null;
 
+        // 显示加载进度条（仅当尚未加载时，避免覆盖 HTTP 加载的进度）
+        if (!_chrome.IsLoading)
+        {
+            _chrome.SetLoadingState(true);
+            _input.NeedsRedraw = true;
+        }
+
         // Parse HTML on background thread
         // Capture current viewport and dpi so layout during load uses correct CSS pixel size
         var (pw_cap, ph_cap) = _window.GetClientSize();
@@ -1577,7 +1584,11 @@ namespace UpBrowser;
         bool needsRedraw = _input.NeedsRedraw || _pendingRelayout || devToolsChanged ||
                            (cursorNeedsRedraw && !inputRecently) || scrollChanged;
 
-        if (!sizeChanged && !needsRedraw)
+        // 加载中时强制全帧渲染，确保进度条可见
+        if (_chrome.IsLoading)
+            _input.NeedsRedraw = true;
+
+        if (!sizeChanged && !needsRedraw && !_chrome.IsLoading)
             return;
 
         if (windowWidth <= 0 || windowHeight <= 0 || _currentLoad == null)

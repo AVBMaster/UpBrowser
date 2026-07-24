@@ -97,6 +97,7 @@ public class ChromeRenderer : IImeSupport
     private bool _isLoading;
     private float _loadingProgress;
     private long _loadingStartTime;
+    private bool _progressDirty; // 标记进度条需要渲染一次 100% 后消失
 
     public Action<string>? OnNavigate { get; set; }
     public Action? OnRefresh { get; set; }
@@ -203,8 +204,9 @@ public class ChromeRenderer : IImeSupport
         }
         finally { _tabRwLock.ExitWriteLock(); }
         RenderTabBar(canvas, width);
-        RenderLoadingProgress(canvas, width);
         RenderToolbar(canvas, width, url);
+        // 进度条画在工具栏下方（避免被工具栏覆盖）
+        RenderLoadingProgress(canvas, width);
         RenderStatusBar(canvas, width, height);
     }
 
@@ -431,17 +433,22 @@ public class ChromeRenderer : IImeSupport
         canvas.DrawPath(plusPath, _newTabPlusPaint);
     }
 
-    private void RenderLoadingProgress(SKCanvas canvas, float width)
+    public void RenderLoadingProgress(SKCanvas canvas, float width)
     {
-        if (!_isLoading && _loadingProgress >= 1f) return;
+        if (!_isLoading && !_progressDirty)
+            return;
 
         UpdateLoadingProgress();
-        float progressY = TabBarHeight;
+
+        float progressY = TabBarHeight + ToolbarHeight;
         float barHeight = 2;
 
         canvas.DrawRect(0, progressY, width, barHeight, _progressBgPaint);
         float pct = _loadingProgress > 0 ? _loadingProgress : 0.05f;
         canvas.DrawRect(0, progressY, width * pct, barHeight, _progressPaint);
+
+        if (!_isLoading && _loadingProgress >= 1f)
+            _progressDirty = false;
     }
 
     private void RenderToolbar(SKCanvas canvas, float width, string url)
@@ -1405,6 +1412,7 @@ public class ChromeRenderer : IImeSupport
         get { _tabRwLock.EnterReadLock(); try { return _activeTabIndex; } finally { _tabRwLock.ExitReadLock(); } }
     }
     public bool IsLoading => _isLoading;
+    public float GetLoadingProgress() => _loadingProgress;
     public IReadOnlyList<TabInfo> Tabs
     {
         get { _tabRwLock.EnterReadLock(); try { return _tabs.ToArray(); } finally { _tabRwLock.ExitReadLock(); } }
@@ -1422,6 +1430,8 @@ public class ChromeRenderer : IImeSupport
         {
             _loadingProgress = 1.0f;
         }
+        _progressDirty = true;
+        OnChanged?.Invoke();
     }
 
     public void UpdateLoadingProgress()
@@ -1429,6 +1439,8 @@ public class ChromeRenderer : IImeSupport
         if (!_isLoading) return;
         var elapsed = Environment.TickCount64 - _loadingStartTime;
         _loadingProgress = Math.Min(0.95f, elapsed / 2000f);
+        _progressDirty = true;
+        OnChanged?.Invoke();
     }
 
     public float GetContentOffset() => TabBarHeight + ToolbarHeight;
