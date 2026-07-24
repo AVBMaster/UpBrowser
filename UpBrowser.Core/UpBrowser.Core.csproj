@@ -21,6 +21,6 @@
     <PackageReference Include="AngleSharp" Version="*" />
     <PackageReference Include="JavaScriptEngineSwitcher.Core" Version="*" />
     <PackageReference Include="JavaScriptEngineSwitcher.Jint" Version="*" />
-    <PackageReference Include="SkiaSharp" Version="3.119.1" />
+    <PackageReference Include="SkiaSharp" Version="4.150.1" />
   </ItemGroup>
 </Project>
