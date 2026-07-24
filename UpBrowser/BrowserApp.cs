@@ -1,3 +1,4 @@
+using JavaScriptEngineSwitcher.Core;
 using SkiaSharp;
 using System.Collections.Concurrent;
 using System.IO;
@@ -214,6 +215,13 @@ namespace UpBrowser;
             _skiaRenderer.InvalidatePageCache();
         };
 
+        _renderingSettingsPage.OnEngineApplied += type =>
+        {
+            JsEngineConfig.DefaultEngineType = type;
+            JsEngineConfig.Initialize();
+            Console.WriteLine($"[JS] Engine applied for new tabs: {type}");
+        };
+
         _renderingSettingsPage.OnBrowseEngine += engineName =>
         {
             string? folder = PickFolder("选择引擎目录");
@@ -224,14 +232,10 @@ namespace UpBrowser;
             try
             {
                 Directory.CreateDirectory(dest);
-                foreach (var file in Directory.EnumerateFiles(folder))
-                {
-                    var name = Path.GetFileName(file);
-                    File.Copy(file, Path.Combine(dest, name), true);
-                    Console.WriteLine($"[Engine] Copied {name}");
-                }
+                CopyDirectory(folder, dest);
                 Console.WriteLine($"[Engine] {engineName} installed from {folder}");
-                _input.NeedsRedraw = true;
+                JsEngineConfig.TryRegisterDownloadedEngine(JsEngineSwitcher.Current, type.Value);
+                _renderingSettingsPage.Invalidate();
             }
             catch (Exception ex)
             {
@@ -3828,7 +3832,17 @@ namespace UpBrowser;
 
     #endregion
 
-#if WINDOWS
+    private static string? PickFolder(string title)
+    {
+        if (OperatingSystem.IsWindows())
+            return PickFolderWindows(title);
+        if (OperatingSystem.IsMacOS())
+            return PickFolderMac(title);
+        if (OperatingSystem.IsLinux())
+            return PickFolderLinux(title);
+        return null;
+    }
+
     [System.Runtime.InteropServices.DllImport("shell32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
     private static extern nint SHBrowseForFolderW(ref BROWSEINFOW bi);
 
@@ -3851,7 +3865,7 @@ namespace UpBrowser;
         public int iImage;
     }
 
-    private static string? PickFolder(string title)
+    private static string? PickFolderWindows(string title)
     {
         var bi = new BROWSEINFOW
         {
@@ -3866,72 +3880,75 @@ namespace UpBrowser;
         var path = sb.ToString();
         return string.IsNullOrWhiteSpace(path) ? null : path;
     }
-#elif LINUX
-    private static string? PickFolder(string title)
+
+    private static string? PickFolderLinux(string title)
     {
         // Linux: shell out to zenity if available (GNOME, KDE etc.)
         try
         {
-            if (OperatingSystem.IsLinux())
+            var psi = new System.Diagnostics.ProcessStartInfo
             {
-                var psi = new System.Diagnostics.ProcessStartInfo
-                {
-                    FileName = "zenity",
-                    Arguments = $"--file-selection --directory --title=\"{title}\"",
-                    RedirectStandardOutput = true,
-                    UseShellExecute = false,
-                    CreateNoWindow = true
-                };
-                using var p = System.Diagnostics.Process.Start(psi);
-                if (p != null)
-                {
-                    string output = p.StandardOutput.ReadToEnd().Trim();
-                    p.WaitForExit();
-                    if (p.ExitCode == 0 && !string.IsNullOrWhiteSpace(output))
-                        return output;
-                }
+                FileName = "zenity",
+                Arguments = $"--file-selection --directory --title=\"{title}\"",
+                RedirectStandardOutput = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+            using var p = System.Diagnostics.Process.Start(psi);
+            if (p != null)
+            {
+                string output = p.StandardOutput.ReadToEnd().Trim();
+                p.WaitForExit();
+                if (p.ExitCode == 0 && !string.IsNullOrWhiteSpace(output))
+                    return output;
             }
         }
         catch { /* zenity not available */ }
         return null;
     }
-#elif MACOS
-    private static string? PickFolder(string title)
+
+    private static string? PickFolderMac(string title)
     {
         // macOS: use AppleScript to open a native folder picker
         try
         {
-            if (OperatingSystem.IsMacOS())
+            var escaped = title.Replace("\"", "\\\"");
+            var script = $"set f to choose folder with prompt \"{escaped}\"\nreturn POSIX path of f";
+            var psi = new System.Diagnostics.ProcessStartInfo
             {
-                var escaped = title.Replace("\"", "\\\"");
-                var script = $"set f to choose folder with prompt \"{escaped}\"\nreturn POSIX path of f";
-                var psi = new System.Diagnostics.ProcessStartInfo
-                {
-                    FileName = "osascript",
-                    Arguments = $"-e \"{script}\"",
-                    RedirectStandardOutput = true,
-                    UseShellExecute = false,
-                    CreateNoWindow = true
-                };
-                using var p = System.Diagnostics.Process.Start(psi);
-                if (p != null)
-                {
-                    string output = p.StandardOutput.ReadToEnd().Trim();
-                    p.WaitForExit();
-                    if (p.ExitCode == 0 && !string.IsNullOrWhiteSpace(output))
-                        return output;
-                }
+                FileName = "osascript",
+                Arguments = $"-e \"{script}\"",
+                RedirectStandardOutput = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+            using var p = System.Diagnostics.Process.Start(psi);
+            if (p != null)
+            {
+                string output = p.StandardOutput.ReadToEnd().Trim();
+                p.WaitForExit();
+                if (p.ExitCode == 0 && !string.IsNullOrWhiteSpace(output))
+                    return output;
             }
         }
         catch { }
         return null;
     }
-#else
-    private static string? PickFolder(string title)
+
+    private static void CopyDirectory(string sourceDir, string destDir)
     {
-        return null;
+        Directory.CreateDirectory(destDir);
+        foreach (var file in Directory.EnumerateFiles(sourceDir))
+        {
+            string destFile = Path.Combine(destDir, Path.GetFileName(file));
+            File.Copy(file, destFile, true);
+        }
+        foreach (var dir in Directory.EnumerateDirectories(sourceDir))
+        {
+            string destSubDir = Path.Combine(destDir, Path.GetFileName(dir));
+            CopyDirectory(dir, destSubDir);
+        }
     }
-#endif
 }
 
 /// <summary>

@@ -17,6 +17,8 @@ public class RenderingSettingsPage
     private float _contentHeight;
 
     private readonly SKTypeface _typeface;
+    private readonly SKFont _smallFont;
+    private int _hoveredActionButton; // 1 or 2 within the hovered action item
     private readonly float _dpiScale;
 
     private int _hoveredItem = -1;
@@ -50,6 +52,10 @@ public class RenderingSettingsPage
         public bool IsRadio;
         public bool IsEngineDetail;
         public bool IsEngineAction;
+        public bool IsEngineProgress;
+        public int ProgressValue;
+        public string? ActionLabel2;
+        public Action? ActionOnClick2;
     }
 
     private List<SettingItem> _items = new();
@@ -65,6 +71,7 @@ public class RenderingSettingsPage
         _settings = settings;
         _dpiScale = dpiScale;
         _typeface = FontHelper.GetChineseTypeface() ?? SKTypeface.Default;
+        _smallFont = new SKFont(_typeface, 10);
         _settings.OnChanged += RebuildItems;
         RebuildItems();
     }
@@ -194,6 +201,9 @@ public class RenderingSettingsPage
         string[] engines = { "Jint", "V8", "Jurassic" };
         string selected = _settings.JsEngine ?? "Jint";
 
+        // Hint line shown once above the radios
+        AddEngineDetail("更改将在下次启动时生效；已下载的可立即用于新标签页。", ref idx);
+
         foreach (var name in engines)
         {
             var type = JsEngineConfig.GetEngineTypeByName(name);
@@ -205,8 +215,14 @@ public class RenderingSettingsPage
                 if (_settings.JsEngine != name)
                 {
                     _settings.JsEngine = name;
-                    if (name != "Jint" && !JsEngineDownloader.IsEngineDownloaded(type!.Value))
-                        TriggerEngineDownload(name);
+                    if (name != "Jint")
+                    {
+                        var t = JsEngineConfig.GetEngineTypeByName(name);
+                        if (t != null && !JsEngineDownloader.IsEngineDownloaded(t.Value))
+                            TriggerEngineDownload(name);
+                        else
+                            ApplyEngineChoice();
+                    }
                 }
             }, ref idx);
 
@@ -216,14 +232,15 @@ public class RenderingSettingsPage
             if (name == "Jint")
             {
                 AddEngineDetail("类型: 纯 C# 引擎（内建）", ref idx);
-                AddEngineDetail("平台: 跨平台通用", ref idx);
+                AddEngineDetail("平台: 跨平台通用，无需下载", ref idx);
                 continue;
             }
 
             // Non-Jint engines: show status
             bool downloaded = JsEngineDownloader.IsEngineDownloaded(type!.Value);
-            string statusIcon = downloaded ? "✅" : "⬇";
-            string statusText = downloaded ? "已就绪" : "未下载";
+            bool isDownloading = _downloadProgress.TryGetValue(name, out int pct) && pct >= 0 && pct < 100;
+            string statusIcon = downloaded ? "✅" : (isDownloading ? "⏳" : "⬇");
+            string statusText = downloaded ? "已就绪" : (isDownloading ? "下载中…" : "未下载");
             AddEngineDetail($"{statusIcon} 状态: {statusText}", ref idx);
 
             if (downloaded)
@@ -235,33 +252,31 @@ public class RenderingSettingsPage
                 AddEngineDetail($"位置: {dir}", ref idx);
             }
 
-            // Download progress
-            if (!downloaded && _downloadProgress.TryGetValue(name, out int pct) && pct >= 0)
+            // Download progress bar
+            if (!downloaded && isDownloading)
             {
-                AddEngineDetail($"下载中: {pct}%", ref idx);
+                AddEngineProgress(pct, ref idx);
             }
             if (!string.IsNullOrEmpty(_downloadError) && _downloadProgress.TryGetValue(name, out _))
             {
-                AddEngineDetail($"❌ 失败: {_downloadError}", ref idx);
+                AddEngineDetail($"❌ 下载失败: {_downloadError}", ref idx);
             }
 
-            // Action buttons
+            // Action buttons (two per row)
             if (downloaded)
             {
-                AddEngineAction("重新下载", () => TriggerEngineDownload(name), ref idx);
-                AddEngineAction("从本地选择...", () => OnBrowseEngine?.Invoke(name), ref idx);
+                AddEngineActions("重新下载", () => TriggerEngineDownload(name),
+                    "从本地选择…", () => OnBrowseEngine?.Invoke(name), ref idx);
             }
-            else
+            else if (!isDownloading)
             {
-                bool isDownloading = _downloadProgress.TryGetValue(name, out int p) && p >= 0 && p < 100;
-                if (!isDownloading)
-                {
-                    AddEngineAction("⬇ 下载", () => TriggerEngineDownload(name), ref idx);
-                }
-                AddEngineAction("📁 从本地选择...", () => OnBrowseEngine?.Invoke(name), ref idx);
+                AddEngineActions("⬇ 下载", () => TriggerEngineDownload(name),
+                    "📁 从本地选择…", () => OnBrowseEngine?.Invoke(name), ref idx);
             }
         }
     }
+
+    public void Invalidate() => RebuildItems();
 
     private static long GetDirectorySize(string dir)
     {
@@ -304,17 +319,42 @@ public class RenderingSettingsPage
         });
     }
 
-    private void AddEngineAction(string btnText, Action onClick, ref int idx)
+    private void AddEngineProgress(int pct, ref int idx)
     {
         _items.Add(new SettingItem
         {
-            Label = btnText,
+            Label = "",
+            Value = "",
+            Category = "",
+            IsEngineProgress = true,
+            ProgressValue = Math.Clamp(pct, 0, 100),
+            Index = idx++
+        });
+    }
+
+    private void AddEngineActions(string btn1, Action onClick1, string? btn2, Action? onClick2, ref int idx)
+    {
+        _items.Add(new SettingItem
+        {
+            Label = btn1,
             Value = "",
             Category = "",
             IsEngineAction = true,
-            OnClick = onClick,
+            OnClick = onClick1,
+            ActionLabel2 = btn2,
+            ActionOnClick2 = onClick2,
             Index = idx++
         });
+    }
+
+    public event Action<JsEngineType>? OnEngineApplied;
+
+    private void ApplyEngineChoice()
+    {
+        var type = JsEngineConfig.GetEngineTypeByName(_settings.JsEngine ?? "Jint") ?? JsEngineType.Jint;
+        JsEngineConfig.DefaultEngineType = type;
+        JsEngineConfig.Initialize();
+        OnEngineApplied?.Invoke(type);
     }
 
     private void TriggerEngineDownload(string engineName)
@@ -424,7 +464,6 @@ public class RenderingSettingsPage
 
         using var labelFont = new SKFont(_typeface, 12);
         using var valueFont = new SKFont(_typeface, 12);
-        using var smallFont = new SKFont(_typeface, 10);
         using var valuePaint = new SKPaint { Color = new SKColor(26, 115, 232), IsAntialias = true };
         using var labelPaint = new SKPaint { Color = new SKColor(60, 64, 67), IsAntialias = true };
         using var catPaint = new SKPaint { Color = new SKColor(26, 115, 232), IsAntialias = true };
@@ -532,45 +571,43 @@ public class RenderingSettingsPage
                     Color = new SKColor(95, 99, 104),
                     IsAntialias = true
                 };
-                canvas.DrawText(item.Label, xPos + 20, itemY + 21, SKTextAlign.Left, smallFont, detailPaint);
+                canvas.DrawText(item.Label, xPos + 20, itemY + 21, SKTextAlign.Left, _smallFont, detailPaint);
+            }
+            else if (item.IsEngineProgress)
+            {
+                float barX = xPos + 20;
+                float barW = _panelWidth - 64;
+                float barY = itemY + (itemHeight - 8) / 2f;
+                float barH = 8;
+                using var track = new SKPaint { Color = new SKColor(224, 226, 230), Style = SKPaintStyle.Fill, IsAntialias = true };
+                canvas.DrawRoundRect(barX, barY, barW, barH, 4, 4, track);
+                float fillW = barW * item.ProgressValue / 100f;
+                if (fillW > 1)
+                {
+                    using var fill = new SKPaint { Color = new SKColor(26, 115, 232), Style = SKPaintStyle.Fill, IsAntialias = true };
+                    canvas.DrawRoundRect(barX, barY, fillW, barH, 4, 4, fill);
+                }
+                using var pctPaint = new SKPaint { Color = new SKColor(95, 99, 104), IsAntialias = true };
+                string pctStr = $"{item.ProgressValue}%";
+                float pctW = valueFont.MeasureText(pctStr);
+                canvas.DrawText(pctStr, xPos + _panelWidth - 24 - pctW, itemY + 21, SKTextAlign.Left, _smallFont, pctPaint);
             }
             else if (item.IsEngineAction)
             {
-                using var btnBg = new SKPaint
-                {
-                    Color = isHovered ? new SKColor(232, 240, 254) : new SKColor(248, 249, 250),
-                    Style = SKPaintStyle.Fill,
-                    IsAntialias = true
-                };
-                float pad = 12;
-                float fw = smallFont.MeasureText(item.Label) + pad * 2;
-                float bx = xPos + 20;
-                float by = itemY + 2;
-                float bw = fw;
-                float bh = itemHeight - 4;
-                canvas.DrawRoundRect(bx, by, bw, bh, 6, 6, btnBg);
-                using var btnBorder = new SKPaint
-                {
-                    Color = new SKColor(218, 220, 224),
-                    Style = SKPaintStyle.Stroke,
-                    StrokeWidth = 1,
-                    IsAntialias = true
-                };
-                canvas.DrawRoundRect(bx, by, bw, bh, 6, 6, btnBorder);
-                using var btnText = new SKPaint
-                {
-                    Color = new SKColor(26, 115, 232),
-                    IsAntialias = true
-                };
-                float textX = bx + (bw - smallFont.MeasureText(item.Label)) / 2;
-                canvas.DrawText(item.Label, textX, by + 17, SKTextAlign.Left, smallFont, btnText);
+                var (b1x, b1w, b2x, b2w) = ComputeActionRects(item, xPos);
+                DrawActionButton(canvas, item.Label, b1x, itemY, b1w, itemHeight, isHovered && _hoveredActionButton == 1);
+                if (!string.IsNullOrEmpty(item.ActionLabel2))
+                    DrawActionButton(canvas, item.ActionLabel2!, b2x, itemY, b2w, itemHeight, isHovered && _hoveredActionButton == 2);
             }
             else
             {
                 if (item.IsRadio)
                 {
                     canvas.DrawText(item.Label, xPos + 24, itemY + 21, SKTextAlign.Left, labelFont, labelPaint);
-                    using var statusPaint = new SKPaint { Color = new SKColor(128, 134, 139), IsAntialias = true };
+                    SKColor statusColor = item.Value is "内置" or "已就绪"
+                        ? new SKColor(52, 124, 69)
+                        : new SKColor(128, 134, 139);
+                    using var statusPaint = new SKPaint { Color = statusColor, IsAntialias = true };
                     canvas.DrawText(item.Value, xPos + 24 + labelFont.MeasureText(item.Label) + 4, itemY + 21, SKTextAlign.Left, valueFont, statusPaint);
                     DrawRadioButton(canvas, xPos + 8, itemY + 6, item.IsOn());
                 }
@@ -663,6 +700,47 @@ public class RenderingSettingsPage
         }
     }
 
+    private (float b1x, float b1w, float b2x, float b2w) ComputeActionRects(SettingItem item, float xPos)
+    {
+        const float pad = 12f;
+        const float gap = 8f;
+        float w1 = _smallFont.MeasureText(item.Label) + pad * 2;
+        float b1x = xPos + 20;
+        if (string.IsNullOrEmpty(item.ActionLabel2))
+            return (b1x, w1, 0, 0);
+        float w2 = _smallFont.MeasureText(item.ActionLabel2) + pad * 2;
+        float b2x = b1x + w1 + gap;
+        return (b1x, w1, b2x, w2);
+    }
+
+    private void DrawActionButton(SKCanvas canvas, string text, float bx, float itemY, float bw, float itemHeight, bool hovered)
+    {
+        float by = itemY + 2;
+        float bh = itemHeight - 4;
+        using var btnBg = new SKPaint
+        {
+            Color = hovered ? new SKColor(232, 240, 254) : new SKColor(248, 249, 250),
+            Style = SKPaintStyle.Fill,
+            IsAntialias = true
+        };
+        canvas.DrawRoundRect(bx, by, bw, bh, 6, 6, btnBg);
+        using var btnBorder = new SKPaint
+        {
+            Color = new SKColor(218, 220, 224),
+            Style = SKPaintStyle.Stroke,
+            StrokeWidth = 1,
+            IsAntialias = true
+        };
+        canvas.DrawRoundRect(bx, by, bw, bh, 6, 6, btnBorder);
+        using var btnText = new SKPaint
+        {
+            Color = new SKColor(26, 115, 232),
+            IsAntialias = true
+        };
+        float textX = bx + (bw - _smallFont.MeasureText(text)) / 2;
+        canvas.DrawText(text, textX, by + 17, SKTextAlign.Left, _smallFont, btnText);
+    }
+
     public bool HandleClick(float x, float y, float windowWidth, float contentOffset)
     {
         if (!_visible) return false;
@@ -701,6 +779,16 @@ public class RenderingSettingsPage
                     _draggingSlider = true;
                     _draggingSliderIndex = i;
                     UpdateSliderValue(i, x, xPos, panelLeft);
+                    return true;
+                }
+                if (item.IsEngineAction)
+                {
+                    var (b1x, b1w, b2x, b2w) = ComputeActionRects(item, xPos);
+                    if (x >= b1x && x <= b1x + b1w)
+                        item.OnClick?.Invoke();
+                    else if (b2w > 0 && x >= b2x && x <= b2x + b2w)
+                        item.ActionOnClick2?.Invoke();
+                    OnChanged?.Invoke();
                     return true;
                 }
                 if (item.OnClick != null)
@@ -742,6 +830,7 @@ public class RenderingSettingsPage
         float headerHeight = 40;
         float itemY = panelTop + headerHeight + 10 - _scrollOffset;
         float itemHeight = 38;
+        float xPos = panelLeft + 12;
 
         int hovered = -1;
         for (int i = 0; i < _items.Count; i++)
@@ -760,9 +849,21 @@ public class RenderingSettingsPage
             itemY += itemHeight;
         }
 
-        if (_hoveredItem != hovered)
+        int newHoveredAction = 0;
+        if (hovered != -1 && _items[hovered].IsEngineAction)
+        {
+            var item = _items[hovered];
+            var (b1x, b1w, b2x, b2w) = ComputeActionRects(item, xPos);
+            if (x >= b1x && x <= b1x + b1w)
+                newHoveredAction = 1;
+            else if (b2w > 0 && x >= b2x && x <= b2x + b2w)
+                newHoveredAction = 2;
+        }
+
+        if (_hoveredItem != hovered || _hoveredActionButton != newHoveredAction)
         {
             _hoveredItem = hovered;
+            _hoveredActionButton = newHoveredAction;
             OnChanged?.Invoke();
         }
         return true;
