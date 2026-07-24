@@ -85,8 +85,8 @@ public class TabProcess : IDisposable
     {
         try
         {
-            // Use engine type already configured by BrowserApp from user settings
-            JsEngineConfig.Initialize();
+            // 重新注册引擎，确保新标签页使用用户当前选择的引擎
+            JsEngineConfig.Reinitialize();
 
             _docManager = new DocumentManager();
             _layoutEngine = new LayoutEngine();

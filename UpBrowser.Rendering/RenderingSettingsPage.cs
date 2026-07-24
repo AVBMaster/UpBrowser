@@ -405,8 +405,8 @@ public class RenderingSettingsPage
                 {
                     // 未下载 → 显示「下载」和「从本地选择」
                     AddEngineActions(
-                        "⬇ 下载", () => TriggerEngineDownload(name),
-                        "📁 从本地选择…", () => OnBrowseEngine?.Invoke(name), ref idx);
+                        "下载", () => TriggerEngineDownload(name),
+                        "从本地选择…", () => OnBrowseEngine?.Invoke(name), ref idx);
                 }
             }
         }

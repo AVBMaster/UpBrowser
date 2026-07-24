@@ -254,6 +254,9 @@ namespace UpBrowser;
         };
 
         // ── JS engine action handler for upbrowser://js page ──
+        string JsEscape(string s) => s.Replace("\\", "\\\\").Replace("\"", "\\\"").Replace("\n", "\\n").Replace("\r", "\\r").Replace("\t", "\\t");
+        string JsResult(bool ok, string msg) => $"{{\"success\":{(ok ? "true" : "false")},\"error\":\"{JsEscape(msg)}\"}}";
+
         string HandleEngineAction(string action, string engineName)
         {
             try
@@ -283,7 +286,6 @@ namespace UpBrowser;
 
             try
             {
-                // Start async download
                 _ = Task.Run(async () =>
                 {
                     try
@@ -300,7 +302,7 @@ namespace UpBrowser;
             }
             catch (Exception ex)
             {
-                return $"{{\"success\":false,\"error\":\"{ex.Message}\"}}";
+                return JsResult(false, ex.Message);
             }
         }
 
@@ -318,7 +320,6 @@ namespace UpBrowser;
             var dest = JsEngineDownloader.EngineDir(type.Value);
             try
             {
-                // 清空旧文件，确保完全更新
                 if (Directory.Exists(dest))
                     Directory.Delete(dest, true);
                 Directory.CreateDirectory(dest);
@@ -330,11 +331,11 @@ namespace UpBrowser;
                     JsEngineInfoRegistry.Register(type.Value, result.AssemblyPath!, folder);
                     return "{\"success\":true,\"message\":\"引擎安装成功\"}";
                 }
-                return $"{{\"success\":false,\"error\":\"{result.ErrorMessage}\"}}";
+                return JsResult(false, result.ErrorMessage);
             }
             catch (Exception ex)
             {
-                return $"{{\"success\":false,\"error\":\"{ex.Message}\"}}";
+                return JsResult(false, ex.Message);
             }
         }
 
@@ -355,7 +356,6 @@ namespace UpBrowser;
             if (!JsEngineDownloader.IsEngineDownloaded(type.Value))
                 return "{\"success\":false,\"error\":\"引擎未下载，请先下载或从本地安装\"}";
 
-            // Verify the engine can actually be created
             try
             {
                 var testEngine = JsEngineConfig.CreateEngine(type.Value);
@@ -363,17 +363,17 @@ namespace UpBrowser;
             }
             catch (Exception ex)
             {
-                // Escape exception message for valid JSON
-                var escapedMsg = ex.Message.Replace("\\", "\\\\").Replace("\"", "\\\"").Replace("\n", "\\n").Replace("\r", "\\r").Replace("\t", "\\t");
-                var fullMsg = $"引擎加载失败: {escapedMsg}\n\n提示: V8 引擎需要 ClearScript.V8.dll，请确保从本地选择时包含了所有依赖文件。";
-                return $"{{\"success\":false,\"error\":\"{fullMsg}\"}}";
+                var fullMsg = $"引擎加载失败: {JsEscape(ex.Message)}\n\n提示: V8 引擎需要 ClearScript.V8.dll，请确保从本地选择时包含了所有依赖文件。";
+                return JsResult(false, fullMsg);
             }
 
             _renderingSettings.JsEngine = engineName;
             JsEngineConfig.DefaultEngineType = type.Value;
             JsEngineConfig.Reinitialize();
+
+            // 确保新标签页使用新引擎——重新注册所有引擎工厂
             Console.WriteLine($"[JS] Engine applied for new tabs: {type.Value}");
-            return "{\"success\":true,\"message\":\"已切换到 \" + engineName + \" 引擎，新标签页将使用新引擎\"}";
+            return $"{{\"success\":true,\"message\":\"已切换到 {JsEscape(engineName)} 引擎，新标签页将使用新引擎\"}}";
         }
 
         _renderingSettings.OnChanged += () =>
