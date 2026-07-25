@@ -28,7 +28,11 @@ public static class JsEngineConfig
     [DynamicDependency(DynamicallyAccessedMemberTypes.All, "Jint.Runtime.Debugger.DebuggerStatementHandling[]", "Jint")]
     private static void EnsureJintEnumPreserved()
     {
-        // 这个方法的调用被 Initialize 引用，确保链接器保留这些类型
+        // 强制链接器保留枚举类型及其数组类型（JavaScriptEngineSwitcher.Core 通过反射使用）
+        var t = typeof(Jint.Runtime.Debugger.DebuggerStatementHandling);
+        _ = t.Name;
+        _ = Enum.GetNames(t);
+        _ = Enum.GetValues<Jint.Runtime.Debugger.DebuggerStatementHandling>();
     }
 
     public static JsEngineType DefaultEngineType
