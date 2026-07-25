@@ -439,6 +439,9 @@ public class ChromeRenderer : IImeSupport
         if (!_isLoading && !_progressDirty)
             return;
 
+        // 确保进度条在加载中始终被渲染
+        _progressDirty = true;
+
         UpdateLoadingProgress();
 
         float progressY = TabBarHeight + ToolbarHeight;

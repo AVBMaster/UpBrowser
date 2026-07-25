@@ -206,7 +206,7 @@ namespace UpBrowser;
         _renderingSettingsPage.OnChanged += () =>
         {
             _input.NeedsRedraw = true;
-            _skiaRenderer.InvalidatePageCache();
+            // 不在这里使页面缓存失效，避免每次鼠标悬停都重绘网页
         };
 
         _renderingSettingsPage.OnEngineApplied += type =>
@@ -382,6 +382,8 @@ namespace UpBrowser;
             _window.TargetFrameTimeMs = _renderingSettings.TargetFps > 0
                 ? (float)(1000.0 / _renderingSettings.TargetFps)
                 : 1f;
+            // 设置变更时使页面缓存失效，确保新设置生效
+            _skiaRenderer.InvalidatePageCache();
         };
 
         _renderingSettings.OnGpuChanged += (enable) =>

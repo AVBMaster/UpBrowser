@@ -9,6 +9,8 @@
     <IsTrimmable>true</IsTrimmable>
     <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
     <JsonSerializerIsReflectionEnabledByDefault>false</JsonSerializerIsReflectionEnabledByDefault>
+    <!-- 启用动态代码支持，让 Jurassic 等通过 Assembly.LoadFrom 加载的引擎可以正常工作 -->
+    <IlcDynamicCodeSupportNeeded>true</IlcDynamicCodeSupportNeeded>
   </PropertyGroup>
 
   <ItemGroup>
