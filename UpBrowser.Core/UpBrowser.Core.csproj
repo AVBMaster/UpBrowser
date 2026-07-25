@@ -15,6 +15,9 @@
 
   <ItemGroup>
     <TrimmerRootDescriptor Include="$(MSBuildThisFileDirectory)ILLink.Descriptors.JS.xml" />
+    <TrimmerRootAssembly Include="Jint" />
+    <TrimmerRootAssembly Include="JavaScriptEngineSwitcher.Jint" />
+    <TrimmerRootAssembly Include="JavaScriptEngineSwitcher.Core" />
   </ItemGroup>
 
   <ItemGroup>

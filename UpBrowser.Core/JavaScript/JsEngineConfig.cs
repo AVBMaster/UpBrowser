@@ -16,6 +16,21 @@ public static class JsEngineConfig
     private static bool _initialized;
     private static JsEngineType _defaultEngineType = JsEngineType.Jint;
 
+    static JsEngineConfig()
+    {
+        // AOT: 确保 Jint 的枚举类型及其数组类型被保留（JavaScriptEngineSwitcher.Core 通过反射枚举枚举值）
+        _ = typeof(Jint.Runtime.Debugger.DebuggerStatementHandling).Name;
+        _ = typeof(Jint.Runtime.Debugger.DebuggerStatementHandling[]).Name;
+    }
+
+    // AOT: 确保 Jint 的枚举数组类型被保留（用于 GetEnumFromOtherEnum 反射调用）
+    [DynamicDependency(DynamicallyAccessedMemberTypes.All, "Jint.Runtime.Debugger.DebuggerStatementHandling", "Jint")]
+    [DynamicDependency(DynamicallyAccessedMemberTypes.All, "Jint.Runtime.Debugger.DebuggerStatementHandling[]", "Jint")]
+    private static void EnsureJintEnumPreserved()
+    {
+        // 这个方法的调用被 Initialize 引用，确保链接器保留这些类型
+    }
+
     public static JsEngineType DefaultEngineType
     {
         get => _defaultEngineType;
@@ -41,6 +56,7 @@ public static class JsEngineConfig
     {
         if (_initialized) return;
         _initialized = true;
+        EnsureJintEnumPreserved();
         Reinitialize();
     }
 
