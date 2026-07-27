@@ -85,9 +85,6 @@ public class TabProcess : IDisposable
     {
         try
         {
-            // 重新注册引擎，确保新标签页使用用户当前选择的引擎
-            JsEngineConfig.Reinitialize();
-
             _docManager = new DocumentManager();
             _layoutEngine = new LayoutEngine();
             _jsEngine = new JavaScriptEngine();

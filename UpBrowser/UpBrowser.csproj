@@ -23,7 +23,26 @@
     <ProjectReference Include="..\UpBrowser.Rendering\UpBrowser.Rendering.csproj" />
     <ProjectReference Include="..\UpBrowser.Core\UpBrowser.Core.csproj" />
     <ProjectReference Include="..\UpBrowser.Input\UpBrowser.Input.csproj" />
+    <ProjectReference Include="..\UpBrowser.JsEngineHost\UpBrowser.JsEngineHost.csproj" ReferenceOutputAssembly="false" />
   </ItemGroup>
+
+  <!-- 开发时复制 JsEngineHost 输出文件到主项目输出目录 -->
+  <Target Name="CopyJsEngineHostOutput" AfterTargets="Build" Condition="'$(RuntimeIdentifier)' == ''">
+    <MSBuild Projects="..\UpBrowser.JsEngineHost\UpBrowser.JsEngineHost.csproj"
+             Targets="Build"
+             Properties="Configuration=$(Configuration);TargetFramework=net10.0" />
+    <ItemGroup>
+      <JsEngineHostFiles Include="..\UpBrowser.JsEngineHost\bin\$(Configuration)\net10.0\UpBrowser.JsEngineHost.*" />
+      <JsEngineHostFiles Include="..\UpBrowser.JsEngineHost\bin\$(Configuration)\net10.0\*.dll" />
+    </ItemGroup>
+    <Copy SourceFiles="@(JsEngineHostFiles)" DestinationFolder="$(TargetDir)" />
+  </Target>
+
+<!-- 发布时自动编译 JsEngineHost 并复制到输出目录 -->
+  <Target Name="PublishJsEngineHost" AfterTargets="Publish" Condition="'$(RuntimeIdentifier)' != ''">
+    <Exec Command="dotnet publish &quot;..\UpBrowser.JsEngineHost\UpBrowser.JsEngineHost.csproj&quot; -c $(Configuration) -r $(RuntimeIdentifier) --self-contained true -p:PublishSingleFile=true -o &quot;$(PublishDir)&quot;" />
+    <Message Text="JsEngineHost published to $(PublishDir)" Importance="high" />
+  </Target>
 
   <!-- V8 native DLL is downloaded on-demand via JsEngineDownloader -->
 </Project>

@@ -1,4 +1,3 @@
-using JavaScriptEngineSwitcher.Core;
 using SkiaSharp;
 using System.Collections.Concurrent;
 using System.IO;
@@ -155,7 +154,6 @@ namespace UpBrowser;
             _renderingSettings.JsEngine = "Jint";
         }
         JsEngineConfig.DefaultEngineType = engineType;
-        JsEngineConfig.Initialize();
         _jsEngine = new JavaScriptEngine();
         _eventLoop = new EventLoop();
         _devTools = new DevToolsPanel();
@@ -210,9 +208,9 @@ namespace UpBrowser;
         };
 
         _renderingSettingsPage.OnEngineApplied += type =>
+        _renderingSettingsPage.OnEngineApplied += type =>
         {
             JsEngineConfig.DefaultEngineType = type;
-            JsEngineConfig.Reinitialize(); // 重新注册所有引擎，确保新标签页使用正确引擎
             Console.WriteLine($"[JS] Engine applied for new tabs: {type}");
         };
 
@@ -242,7 +240,6 @@ namespace UpBrowser;
                 }
 
                 Console.WriteLine($"[Engine] {engineName} installed from {folder}");
-                JsEngineConfig.TryRegisterDownloadedEngine(JsEngineSwitcher.Current, type.Value);
                 JsEngineInfoRegistry.Register(type.Value, result.AssemblyPath!, folder);
                 _renderingSettingsPage.Invalidate();
             }
@@ -327,7 +324,6 @@ namespace UpBrowser;
                 if (result.Success)
                 {
                     Console.WriteLine($"[Engine] {engineName} installed from {folder}");
-                    JsEngineConfig.TryRegisterDownloadedEngine(JsEngineSwitcher.Current, type.Value);
                     JsEngineInfoRegistry.Register(type.Value, result.AssemblyPath!, folder);
                     return "{\"success\":true,\"message\":\"引擎安装成功\"}";
                 }
@@ -349,29 +345,15 @@ namespace UpBrowser;
             {
                 _renderingSettings.JsEngine = "Jint";
                 JsEngineConfig.DefaultEngineType = JsEngineType.Jint;
-                JsEngineConfig.Reinitialize();
                 return "{\"success\":true,\"message\":\"已切换到内置 Jint 引擎\"}";
             }
 
             if (!JsEngineDownloader.IsEngineDownloaded(type.Value))
                 return "{\"success\":false,\"error\":\"引擎未下载，请先下载或从本地安装\"}";
 
-            try
-            {
-                var testEngine = JsEngineConfig.CreateEngine(type.Value);
-                testEngine?.Dispose();
-            }
-            catch (Exception ex)
-            {
-                var fullMsg = $"引擎加载失败: {JsEscape(ex.Message)}\n\n提示: V8 引擎需要 ClearScript.V8.dll，请确保从本地选择时包含了所有依赖文件。";
-                return JsResult(false, fullMsg);
-            }
-
             _renderingSettings.JsEngine = engineName;
             JsEngineConfig.DefaultEngineType = type.Value;
-            JsEngineConfig.Reinitialize();
 
-            // 确保新标签页使用新引擎——重新注册所有引擎工厂
             Console.WriteLine($"[JS] Engine applied for new tabs: {type.Value}");
             return $"{{\"success\":true,\"message\":\"已切换到 {JsEscape(engineName)} 引擎，新标签页将使用新引擎\"}}";
         }
@@ -3840,6 +3822,7 @@ namespace UpBrowser;
     public void Dispose()
     {
         ShutdownPerformanceHub();
+        EngineProcessManager.ReleaseAll();
         _processManager.Dispose();
         if (_currentLoad != null)
         {

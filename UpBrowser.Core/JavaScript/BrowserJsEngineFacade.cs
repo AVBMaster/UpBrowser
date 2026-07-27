@@ -1,93 +1,8 @@
-using JavaScriptEngineSwitcher.Core;
 using System.Collections.Concurrent;
+using System.Text;
+using System.Text.Json;
 
 namespace UpBrowser.Core.JavaScript;
-
-public enum ScriptType
-{
-    Inline,
-    External,
-    Module,
-    Defer,
-    Async
-}
-
-public class BrowserJsException : Exception
-{
-    public string SourceUrl { get; }
-    public int LineNumber { get; }
-    public int ColumnNumber { get; }
-    public string JsStackTrace { get; }
-    public JsErrorType ErrorType { get; }
-
-    public BrowserJsException(string message, string sourceUrl = "",
-        int lineNumber = 0, int columnNumber = 0,
-        string stackTrace = "", JsErrorType errorType = JsErrorType.Error)
-        : base(message)
-    {
-        SourceUrl = sourceUrl;
-        LineNumber = lineNumber;
-        ColumnNumber = columnNumber;
-        JsStackTrace = stackTrace;
-        ErrorType = errorType;
-    }
-
-    public BrowserJsException(JsScriptException ex)
-        : base(ex.Message)
-    {
-        SourceUrl = ex.Source ?? "";
-        LineNumber = ex.LineNumber;
-        ColumnNumber = ex.ColumnNumber;
-        JsStackTrace = ex.StackTrace ?? "";
-        ErrorType = MapErrorType(ex);
-    }
-
-    private static JsErrorType MapErrorType(JsScriptException ex)
-    {
-        if (ex is JsCompilationException compEx)
-        {
-            return compEx.Type switch
-            {
-                "SyntaxError" => JsErrorType.SyntaxError,
-                "TypeError" => JsErrorType.TypeError,
-                "ReferenceError" => JsErrorType.ReferenceError,
-                "RangeError" => JsErrorType.RangeError,
-                "EvalError" => JsErrorType.Error,
-                _ => JsErrorType.SyntaxError
-            };
-        }
-
-        if (ex is JsRuntimeException rtEx)
-        {
-            return rtEx.Type switch
-            {
-                "TypeError" => JsErrorType.TypeError,
-                "ReferenceError" => JsErrorType.ReferenceError,
-                "RangeError" => JsErrorType.RangeError,
-                "SyntaxError" => JsErrorType.SyntaxError,
-                _ => JsErrorType.Error
-            };
-        }
-
-        return ex.Category switch
-        {
-            "Interrupted error" => JsErrorType.Interrupted,
-            _ => JsErrorType.Error
-        };
-    }
-}
-
-public enum JsErrorType
-{
-    Error,
-    SyntaxError,
-    TypeError,
-    ReferenceError,
-    RangeError,
-    EvalError,
-    URIError,
-    Interrupted
-}
 
 public class JsPropertyDescriptor
 {
@@ -119,69 +34,18 @@ public class BrowserJsEngineFacade : IDisposable
 {
     private readonly IJavaScriptEngineAdapter _adapter;
     private bool _disposed;
-    private int _realmIdCounter;
-    private readonly Dictionary<int, RealmInfo> _realms = new();
-    private int _activeRealmId;
     private readonly ConcurrentDictionary<string, object?> _lazyBindings = new();
     private readonly List<Action> _postExecutionActions = new();
     private readonly object _lock = new();
 
     public IJavaScriptEngineAdapter Adapter => _adapter;
     public JsEngineType EngineType => _adapter.EngineType;
-    public int ActiveRealmId => _activeRealmId;
 
     public event Action<BrowserJsException>? OnScriptError;
 
     public BrowserJsEngineFacade(IJavaScriptEngineAdapter adapter)
     {
         _adapter = adapter;
-        Initialize();
-    }
-
-    private void Initialize()
-    {
-        _activeRealmId = CreateRealmInternal("main", null);
-    }
-
-    public int CreateRealm(string name = "", int? parentRealmId = null)
-    {
-        return CreateRealmInternal(name, parentRealmId);
-    }
-
-    private int CreateRealmInternal(string name, int? parentRealmId)
-    {
-        var id = Interlocked.Increment(ref _realmIdCounter);
-        lock (_lock)
-        {
-            _realms[id] = new RealmInfo
-            {
-                Id = id,
-                Name = name,
-                ParentRealmId = parentRealmId,
-                CreatedAt = DateTime.UtcNow
-            };
-        }
-        return id;
-    }
-
-    public void SwitchToRealm(int realmId)
-    {
-        lock (_lock)
-        {
-            if (!_realms.ContainsKey(realmId))
-                throw new ArgumentException($"Realm {realmId} not found");
-            _activeRealmId = realmId;
-        }
-    }
-
-    public void DestroyRealm(int realmId)
-    {
-        lock (_lock)
-        {
-            _realms.Remove(realmId);
-            if (_activeRealmId == realmId)
-                _activeRealmId = _realms.Keys.FirstOrDefault();
-        }
     }
 
     public void SetGlobalObject(string name, object? hostObject)
@@ -198,27 +62,11 @@ public class BrowserJsEngineFacade : IDisposable
     public void Execute(string code, string? sourceUrl = null, int lineOffset = 0)
     {
         if (_disposed || string.IsNullOrEmpty(code)) return;
-
-        var wrappedCode = code;
-        if (!string.IsNullOrEmpty(sourceUrl) && EngineType == JsEngineType.V8)
-        {
-            wrappedCode = $"//# sourceURL={sourceUrl}\n{code}";
-        }
-
         Current = _adapter;
-
         try
         {
-            _adapter.Execute(wrappedCode);
+            _adapter.Execute(code);
             FlushPostExecution();
-        }
-        catch (JsScriptException ex)
-        {
-            var browserEx = new BrowserJsException(ex);
-            if (!string.IsNullOrEmpty(sourceUrl))
-                browserEx = new BrowserJsException(ex.Message, sourceUrl, ex.LineNumber + lineOffset, ex.ColumnNumber, ex.StackTrace ?? "");
-            OnScriptError?.Invoke(browserEx);
-            throw browserEx;
         }
         catch (Exception ex)
         {
@@ -235,21 +83,12 @@ public class BrowserJsEngineFacade : IDisposable
     public object? Evaluate(string expression, string? sourceUrl = null)
     {
         if (_disposed || string.IsNullOrEmpty(expression)) return null;
-
         Current = _adapter;
         try
         {
             var result = _adapter.Evaluate(expression);
             FlushPostExecution();
             return result;
-        }
-        catch (JsScriptException ex)
-        {
-            var browserEx = new BrowserJsException(ex);
-            if (!string.IsNullOrEmpty(sourceUrl))
-                browserEx = new BrowserJsException(ex.Message, sourceUrl, ex.LineNumber, ex.ColumnNumber, ex.StackTrace ?? "");
-            OnScriptError?.Invoke(browserEx);
-            return null;
         }
         catch
         {
@@ -271,11 +110,6 @@ public class BrowserJsEngineFacade : IDisposable
             FlushPostExecution();
             return result;
         }
-        catch (JsScriptException ex)
-        {
-            OnScriptError?.Invoke(new BrowserJsException(ex));
-            return null;
-        }
         catch
         {
             return null;
@@ -295,7 +129,6 @@ public class BrowserJsEngineFacade : IDisposable
     {
         if (_disposed) return;
         Current = _adapter;
-
         try
         {
             if (args == null || args.Length == 0)
@@ -303,10 +136,10 @@ public class BrowserJsEngineFacade : IDisposable
             else if (args.Length == 1)
                 _adapter.InvokeCallbackWith(callbackId, args[0]);
             else
-            {
-                var json = JsonAotHelper.ToJson(args);
-                _adapter.Execute($"__g_invoke({callbackId}, JSON.parse('{EscapeJsString(json)}'))");
-            }
+                {
+                    var json = SerializeArgsToJson(args);
+                    _adapter.Execute($"__g_invoke({callbackId}, JSON.parse('{EscapeJsString(json)}'))");
+                }
             FlushPostExecution();
         }
         catch { }
@@ -364,18 +197,6 @@ public class BrowserJsEngineFacade : IDisposable
 
     public void CollectGarbage()
     {
-        if (_adapter is EngineAdapterBase adapter)
-        {
-            try
-            {
-                _adapter.Execute(@"
-                    if (typeof gc !== 'undefined') gc();
-                    if (typeof CollectGarbage !== 'undefined') CollectGarbage();
-                ");
-            }
-            catch { }
-        }
-
         GC.Collect();
         GC.WaitForPendingFinalizers();
     }
@@ -405,16 +226,53 @@ public class BrowserJsEngineFacade : IDisposable
     [ThreadStatic]
     public static IJavaScriptEngineAdapter? Current;
 
+    private static string SerializeArgsToJson(object?[] args)
+    {
+        var sb = new StringBuilder();
+        sb.Append('[');
+        for (int i = 0; i < args.Length; i++)
+        {
+            if (i > 0) sb.Append(',');
+            sb.Append(ToJsonLiteral(args[i]));
+        }
+        sb.Append(']');
+        return sb.ToString();
+    }
+
+    private static string ToJsonLiteral(object? value)
+    {
+        if (value is null) return "null";
+        if (value is bool b) return b ? "true" : "false";
+        if (value is string s) return $"'{EscapeJsString(s)}'";
+
+        if (value is int i) return i.ToString();
+        if (value is long l) return l.ToString();
+        if (value is uint ui) return ui.ToString();
+        if (value is ulong ul) return ul.ToString();
+        if (value is short sh) return sh.ToString();
+        if (value is ushort us) return us.ToString();
+        if (value is byte bt) return bt.ToString();
+        if (value is sbyte sb) return sb.ToString();
+
+        if (value is double d)
+        {
+            if (double.IsNaN(d)) return "NaN";
+            if (double.IsInfinity(d)) return d > 0 ? "Infinity" : "-Infinity";
+            return d.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        }
+        if (value is float f)
+        {
+            if (float.IsNaN(f)) return "NaN";
+            if (float.IsInfinity(f)) return f > 0 ? "Infinity" : "-Infinity";
+            return f.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        }
+
+        // Fallback for unknown types: use ToString() wrapped as string
+        return $"'{EscapeJsString(value.ToString() ?? "")}'";
+    }
+
     private static string EscapeJsString(string s)
     {
         return s.Replace("\\", "\\\\").Replace("'", "\\'").Replace("\n", "\\n").Replace("\r", "\\r");
-    }
-
-    private class RealmInfo
-    {
-        public int Id { get; set; }
-        public string Name { get; set; } = "";
-        public int? ParentRealmId { get; set; }
-        public DateTime CreatedAt { get; set; }
     }
 }

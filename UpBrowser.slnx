@@ -7,4 +7,6 @@
   <Project Path="UpBrowser.Core.Tests\UpBrowser.Core.Tests.csproj" />
   <Project Path="UpBrowser.PerfSmokeTest\UpBrowser.PerfSmokeTest.csproj" />
   <Project Path="UpBrowser\UpBrowser.csproj" />
+  <Project Path="UpBrowser.JsEngineProtocol\UpBrowser.JsEngineProtocol.csproj" />
+  <Project Path="UpBrowser.JsEngineHost\UpBrowser.JsEngineHost.csproj" />
 </Solution>

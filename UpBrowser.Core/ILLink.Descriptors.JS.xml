@@ -1,9 +1,0 @@
-<linker>
-  <!-- Embedded (non-downloadable) JS engines -->
-  <assembly fullname="JavaScriptEngineSwitcher.Core" />
-  <assembly fullname="JavaScriptEngineSwitcher.Jint" />
-  <assembly fullname="Jint" preserve="all">
-    <!-- JavaScriptEngineSwitcher.Core 通过反射枚举枚举值，AOT 下需要保留 -->
-    <type fullname="Jint.Runtime.Debugger.DebuggerStatementHandling" preserve="all" />
-  </assembly>
-</linker>

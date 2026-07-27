@@ -475,7 +475,6 @@ public class RenderingSettingsPage
     {
         var type = JsEngineConfig.GetEngineTypeByName(_settings.JsEngine ?? "Jint") ?? JsEngineType.Jint;
         JsEngineConfig.DefaultEngineType = type;
-        JsEngineConfig.Reinitialize(); // 重新注册所有引擎，确保新标签页使用正确引擎
         OnEngineApplied?.Invoke(type);
     }
 

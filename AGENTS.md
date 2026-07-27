@@ -28,9 +28,10 @@ Project dependency order: `Core` → `Platform`+`Input`+`Native` → `Rendering`
 
 - **.NET 10.0**, nullable enabled, implicit usings everywhere.
 - `AllowUnsafeBlocks` in: `UpBrowser`, `Rendering`, `Platform`, `Native`.
-- **SkiaSharp 3.119.1** for all rendering (CPU + OpenGL GPU).
+- **AOT**,avoid reflection and make sure the project is cross-platfrom
+- **SkiaSharp 4.150.1** for all rendering (CPU + OpenGL GPU).
 - **AngleSharp** for HTML parsing, **JavaScriptEngineSwitcher.*`** for JS engines.
-- **V8 (ClearScript) is Windows-only** — conditioned on `IsOSPlatform('Windows')` in `.csproj`. On Linux/macOS falls back to Jint/Jurassic.
+- Some documents about html standard in ./docs
 - Embedded resources in `UpBrowser.Core/Resources/Html/` and `Resources/Css/`.
 - No `Directory.Build.props` — each project self-configures.
 

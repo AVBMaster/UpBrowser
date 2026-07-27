@@ -551,26 +551,27 @@ public class ElementHost
                     var engine = JavaScriptEngine.Current ?? Engine;
                     if (engine?.Adapter != null)
                     {
+                        var adapter = engine.Adapter;
                         var tmp = $"__tmp_dispatch_{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}";
                         try
                         {
-                            engine.Adapter.InnerEngine?.EmbedHostObject(tmp, evt);
-                            var type = engine.Adapter.InnerEngine?.Evaluate($"{tmp}.type") as string;
+                            adapter.EmbedHostObject(tmp, evt);
+                            var type = adapter.Evaluate($"{tmp}.type") as string;
                             if (!string.IsNullOrEmpty(type))
                             {
                                 scriptEvt = new ScriptEvent(type, this);
-                                var bubbles = engine.Adapter.InnerEngine?.Evaluate($"{tmp}.bubbles");
+                                var bubbles = adapter.Evaluate($"{tmp}.bubbles");
                                 if (bubbles is bool b) scriptEvt.bubbles = b;
-                                var cancelable = engine.Adapter.InnerEngine?.Evaluate($"{tmp}.cancelable");
+                                var cancelable = adapter.Evaluate($"{tmp}.cancelable");
                                 if (cancelable is bool c) scriptEvt.cancelable = c;
-                                var detail = engine.Adapter.InnerEngine?.Evaluate($"{tmp}.detail");
+                                var detail = adapter.Evaluate($"{tmp}.detail");
                                 if (detail != null) scriptEvt.detail = detail;
                             }
-                            engine.Adapter.InnerEngine?.Evaluate($"delete {tmp};");
+                            adapter.Execute($"delete {tmp};");
                         }
                         catch
                         {
-                            try { engine.Adapter?.InnerEngine?.Evaluate($"delete {tmp};"); } catch { }
+                            try { adapter.Execute($"delete {tmp};"); } catch { }
                         }
                     }
                 }
@@ -931,11 +932,11 @@ public class ElementHost
                 try
                 {
                     var adapter = engine.Adapter;
-                    if (adapter?.InnerEngine != null)
+                    if (adapter != null)
                     {
                         var tmp = $"__tmp_ds_{Interlocked.Increment(ref _datasetProxyCounter)}";
-                        adapter.InnerEngine.EmbedHostObject(tmp, this);
-                        var result = adapter.InnerEngine.Evaluate(@"
+                        adapter.EmbedHostObject(tmp, this);
+                        var result = adapter.Evaluate(@"
                             (function() {
                                 var el = " + tmp + @";
                                 return new Proxy({}, {
@@ -963,7 +964,7 @@ public class ElementHost
                                 });
                             })()
                         ");
-                        try { adapter.InnerEngine.Evaluate($"delete {tmp};"); } catch { }
+                        try { adapter.Evaluate($"delete {tmp};"); } catch { }
                         _datasetProxyCache = result;
                         return _datasetProxyCache;
                     }

@@ -3,7 +3,6 @@ using System.IO.Compression;
 using System.Net.Http;
 using System.Reflection;
 using System.Runtime.InteropServices;
-using JavaScriptEngineSwitcher.Core;
 
 namespace UpBrowser.Core.JavaScript;
 
@@ -86,44 +85,6 @@ public static class JsEngineDownloader
         {
             Console.WriteLine($"[EngineDownload] Failed to extract {type}: {ex.Message}");
             throw;
-        }
-    }
-
-    [RequiresUnreferencedCode("Assembly.LoadFrom requires dynamic assembly loading")]
-    [RequiresDynamicCode("Assembly.LoadFrom requires dynamic assembly loading")]
-    public static bool TryLoadEngine(JsEngineType type, IJsEngineSwitcher switcher)
-    {
-        var assemblyPath = GetEngineAssemblyPath(type);
-        if (assemblyPath == null || !File.Exists(assemblyPath))
-            return false;
-
-        try
-        {
-            var assembly = Assembly.LoadFrom(assemblyPath);
-            var factoryType = type switch
-            {
-                JsEngineType.V8 =>
-                    assembly.GetType("JavaScriptEngineSwitcher.V8.JsEngineFactoryCollectionExtensions"),
-                JsEngineType.Jurassic =>
-                    assembly.GetType("JavaScriptEngineSwitcher.Jurassic.JsEngineFactoryCollectionExtensions"),
-                _ => null
-            };
-
-            if (factoryType == null) return false;
-
-            var addMethod = factoryType.GetMethod(
-                "Add" + type.ToString(),
-                new[] { switcher.EngineFactories.GetType() });
-
-            if (addMethod == null) return false;
-
-            addMethod.Invoke(null, new object[] { switcher.EngineFactories });
-            return true;
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"[EngineDownload] Failed to load {type}: {ex.Message}");
-            return false;
         }
     }
 

@@ -2,7 +2,6 @@ using System.Diagnostics.CodeAnalysis;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using JavaScriptEngineSwitcher.Core;
 using DomDocument = UpBrowser.Core.Dom.Document;
 using DomElement = UpBrowser.Core.Dom.Element;
 
@@ -42,13 +41,18 @@ public class JavaScriptEngine : IDisposable
     public Func<string, string?, string?>? ShowDialog { get; set; }
     public bool HasTimers { get { lock (_timersLock) return _timers.Count > 0; } }
     public int TimerCount { get { lock (_timersLock) return _timers.Count; } }
+    public void SetWindowSize(int width, int height)
+    {
+        _windowWidth = width;
+        _windowHeight = height;
+    }
 
     public int GetHeapSizeKB()
     {
         return (int)(GC.GetTotalMemory(false) / 1024);
     }
 
-    internal IJsEngine? InnerEngine => _adapter?.InnerEngine;
+    internal object? InnerEngine => _adapter?.InnerEngine;
 
     public JavaScriptEngine() : this(CreateDefaultAdapter())
     {
@@ -59,45 +63,100 @@ public class JavaScriptEngine : IDisposable
         _adapter = adapter;
         _integrationService = new JsIntegrationService(adapter);
         _integrationService.SetJsEngine(this);
+
+        if (adapter is RemoteJsEngineAdapter remote)
+        {
+            remote.OnAlert = msg => ShowDialog?.Invoke(msg, "alert");
+            remote.OnConfirm = msg => ShowDialog?.Invoke(msg, "confirm") == "true";
+            remote.OnPrompt = (msg, def) => ShowDialog?.Invoke(msg, "prompt:" + def);
+            remote.OnGetInnerWidth = () => _windowWidth;
+            remote.OnGetInnerHeight = () => _windowHeight;
+            remote.OnScrollTo = (x, y) => { _pendingScrollX = x; _pendingScrollY = y; };
+            remote.OnScrollBy = (x, y) => { _pendingScrollX += x; _pendingScrollY += y; };
+        }
+
         SetupGlobals();
     }
 
-    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "CreateAdapterForEngine attribute cascaded; caller takes existing engine, adapter selection is safe")]
-    public JavaScriptEngine(IJsEngine existingEngine)
-    {
-        _adapter = CreateAdapterForEngine(existingEngine);
-        _integrationService = new JsIntegrationService(_adapter);
-        _integrationService.SetJsEngine(this);
-        SetupGlobals();
-    }
+    private int _windowWidth = 1024;
+    private int _windowHeight = 768;
+    private int _pendingScrollX;
+    private int _pendingScrollY;
 
     private static IJavaScriptEngineAdapter CreateDefaultAdapter()
     {
-        JsEngineConfig.Initialize();
         var effectiveType = JsEngineConfig.EffectiveEngineType;
+
+        // 始终使用远程 JS 引擎（通过 IPC 与 JsEngineHost 进程通信）
+        if (TryCreateRemoteAdapter(effectiveType, out var remoteAdapter))
+            return remoteAdapter;
+
+        // 如果远程引擎不可用，抛出异常（不再回退到本地引擎）
+        throw new InvalidOperationException(
+            "There are something errors happened in JavaScript engine initialization.");
+    }
+
+    private static bool TryCreateRemoteAdapter(JsEngineType type, out IJavaScriptEngineAdapter adapter)
+    {
+        adapter = null!;
         try
         {
-            return effectiveType switch
+            Console.WriteLine($"[JS] TryCreateRemoteAdapter: BaseDirectory={AppContext.BaseDirectory}");
+            var hostExe = FindHostExe();
+            if (hostExe == null)
             {
-                JsEngineType.V8 => new V8EngineAdapter(),
-                JsEngineType.Jurassic => new JurassicEngineAdapter(),
-                _ => new JintEngineAdapter()
-            };
+                Console.WriteLine("[JS] Remote engine not available: FindHostExe returned null");
+                // 列出当前目录中的文件用于调试
+                if (Directory.Exists(AppContext.BaseDirectory))
+                {
+                    var files = Directory.EnumerateFiles(AppContext.BaseDirectory, "UpBrowser.JsEngineHost*").ToList();
+                    Console.WriteLine($"[JS] Files in BaseDirectory: {string.Join(", ", files)}");
+                }
+                return false;
+            }
+
+            Console.WriteLine($"[JS] Starting remote engine: {hostExe}");
+            var remote = EngineProcessManager.GetOrCreate(0);
+            adapter = remote;
+            Console.WriteLine("[JS] Remote engine started successfully");
+            return true;
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[JS] Engine '{effectiveType}' creation failed ({ex.Message}), falling back to Jint");
-            return new JintEngineAdapter();
+            Console.WriteLine($"[JS] Remote engine failed: {ex.Message}");
+            return false;
         }
     }
 
-    [RequiresUnreferencedCode("Engine type detection uses GetType().Name")]
-    private static IJavaScriptEngineAdapter CreateAdapterForEngine(IJsEngine engine)
+    private static string? FindHostExe()
     {
-        var engineName = engine?.GetType().Name ?? "";
-        if (engineName.Contains("V8")) return new V8EngineAdapter(engine);
-        if (engineName.Contains("Jurassic")) return new JurassicEngineAdapter(engine);
-        return new JintEngineAdapter(engine);
+        // 1. 当前目录（发布后）
+        var exe = Path.Combine(AppContext.BaseDirectory, "UpBrowser.JsEngineHost.exe");
+        if (File.Exists(exe)) return exe;
+        var dll = Path.Combine(AppContext.BaseDirectory, "UpBrowser.JsEngineHost.dll");
+        if (File.Exists(dll)) return dll;
+
+        // 2. 开发环境：从项目输出目录查找
+        var baseDir = AppContext.BaseDirectory;
+        for (int i = 0; i < 5; i++)
+        {
+            baseDir = Path.GetDirectoryName(baseDir);
+            if (baseDir == null) break;
+
+            // 检查 DLL（无 RuntimeIdentifier 的 build 输出）
+            var devDll = Path.Combine(baseDir, "UpBrowser.JsEngineHost", "bin", "Debug", "net10.0", "UpBrowser.JsEngineHost.dll");
+            if (File.Exists(devDll)) return devDll;
+            var releaseDll = Path.Combine(baseDir, "UpBrowser.JsEngineHost", "bin", "Release", "net10.0", "UpBrowser.JsEngineHost.dll");
+            if (File.Exists(releaseDll)) return releaseDll;
+
+            // 检查 EXE（带 RuntimeIdentifier 的 build 输出）
+            var ridExe = Path.Combine(baseDir, "UpBrowser.JsEngineHost", "bin", "Debug", "net10.0", "win-x64", "UpBrowser.JsEngineHost.exe");
+            if (File.Exists(ridExe)) return ridExe;
+            var ridReleaseExe = Path.Combine(baseDir, "UpBrowser.JsEngineHost", "bin", "Release", "net10.0", "win-x64", "UpBrowser.JsEngineHost.exe");
+            if (File.Exists(ridReleaseExe)) return ridReleaseExe;
+        }
+
+        return null;
     }
 
     private void SetupGlobals()

@@ -5,7 +5,6 @@
     <Nullable>enable</Nullable>
     <IsTrimmable>false</IsTrimmable>
     <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
-    <JsonSerializerIsReflectionEnabledByDefault>false</JsonSerializerIsReflectionEnabledByDefault>
   </PropertyGroup>
 
   <ItemGroup>
@@ -14,16 +13,11 @@
   </ItemGroup>
 
   <ItemGroup>
-    <TrimmerRootDescriptor Include="$(MSBuildThisFileDirectory)ILLink.Descriptors.JS.xml" />
-    <TrimmerRootAssembly Include="Jint" />
-    <TrimmerRootAssembly Include="JavaScriptEngineSwitcher.Jint" />
-    <TrimmerRootAssembly Include="JavaScriptEngineSwitcher.Core" />
+    <ProjectReference Include="..\UpBrowser.JsEngineProtocol\UpBrowser.JsEngineProtocol.csproj" />
   </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="AngleSharp" Version="*" />
-    <PackageReference Include="JavaScriptEngineSwitcher.Core" Version="*" />
-    <PackageReference Include="JavaScriptEngineSwitcher.Jint" Version="*" />
     <PackageReference Include="SkiaSharp" Version="4.150.1" />
   </ItemGroup>
 </Project>
