@@ -193,6 +193,11 @@ public class JavaScriptEngine : IDisposable
         if (_adapter != null)
         {
             ClearState();
+            var remoteAdapter = _adapter as RemoteJsEngineAdapter;
+            remoteAdapter?.DomStore?.Clear();
+            if (remoteAdapter != null && remoteAdapter.DomStore == null)
+                remoteAdapter.DomStore = new DomProxyStore();
+            remoteAdapter?.DomStore?.SetDocument(_documentHost);
             _integrationService?.LoadDocument(document);
             ReapplyGlobals();
             _adapter.SetGlobal("document", _documentHost);

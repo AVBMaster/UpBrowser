@@ -19,4 +19,10 @@
     <PackageReference Include="JavaScriptEngineSwitcher.Jint" Version="*" />
   </ItemGroup>
 
+  <ItemGroup>
+    <None Update="DomSetup.js">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
 </Project>

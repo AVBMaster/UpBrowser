@@ -368,7 +368,7 @@
     g.decodeURI = function(s) { try { return decodeURI(s); } catch(e) { return s; } };
     g.encodeURI = function(s) { try { return encodeURI(s); } catch(e) { return s; } };
     g.decodeURIComponent = function(s) { try { return decodeURIComponent(s); } catch(e) { return s; } };
-    g.encodeURIComponent = function(s) { try { returnencodeURIComponent(s); } catch(e) { return s; } };
+    g.encodeURIComponent = function(s) { try { return encodeURIComponent(s); } catch(e) { return s; } };
     g.parseInt = function(s,r) { return parseInt(s, r||10); };
     g.parseFloat = function(s) { return parseFloat(s); };
     g.isNaN = function(v) { return isNaN(v); };
