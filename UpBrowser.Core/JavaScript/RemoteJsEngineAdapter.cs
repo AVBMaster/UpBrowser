@@ -32,6 +32,8 @@ public class RemoteJsEngineAdapter : IJavaScriptEngineAdapter, IDisposable
     public Action<int, int>? OnScrollBy { get; set; }
     public string? OnFetch { get; set; } // JSON 格式的 fetch 结果
 
+    public DomProxyStore? DomStore { get; set; }
+
     public JsEngineType EngineType => JsEngineType.Jint;
     public object? InnerEngine => null;
     public bool SupportsHostObjects => true;
@@ -291,6 +293,107 @@ var console = __ipc_console;
                 "atob" => JsonResult(request, DecodeBase64(GetStringArg(argsJson, 0) ?? "")),
                 "btoa" => JsonResult(request, EncodeBase64(GetStringArg(argsJson, 0) ?? "")),
                 "fetch" => HandleFetch(request, argsJson),
+                "dom_getPropertyValue" => HandleDomGetPropertyValue(request, argsJson),
+                "dom_getProperty" => HandleDomGetProperty(request, argsJson),
+                "dom_setProperty" => HandleDomSetProperty(request, argsJson),
+                "dom_createElement" => HandleDomCreateElement(request, argsJson),
+                "dom_appendChild" => HandleDomAppendChild(request, argsJson),
+                "dom_insertBefore" => HandleDomInsertBefore(request, argsJson),
+                "dom_removeChild" => HandleDomRemoveChild(request, argsJson),
+                "dom_remove" => HandleDomRemove(request, argsJson),
+                "dom_setAttribute" => HandleDomSetAttribute(request, argsJson),
+                "dom_getAttribute" => HandleDomGetAttribute(request, argsJson),
+                "dom_removeAttribute" => HandleDomRemoveAttribute(request, argsJson),
+                "dom_setClassName" => HandleDomSetClassName(request, argsJson),
+                "dom_setId" => HandleDomSetId(request, argsJson),
+                "dom_setValue" => HandleDomSetValue(request, argsJson),
+                "dom_setTextContent" => HandleDomSetTextContent(request, argsJson),
+                "dom_setInnerHTML" => HandleDomSetInnerHTML(request, argsJson),
+                "dom_dispatchEvent" => HandleDomDispatchEvent(request, argsJson),
+                "dom_getBoundingClientRect" => HandleDomGetBoundingClientRect(request, argsJson),
+                "dom_click" => HandleDomClick(request, argsJson),
+                "dom_getChildren" => HandleDomGetChildren(request, argsJson),
+                "dom_getParent" => HandleDomGetParent(request, argsJson),
+                "dom_nextSibling" => HandleDomNextSibling(request, argsJson),
+                "dom_previousSibling" => HandleDomPreviousSibling(request, argsJson),
+                "dom_focus" => HandleDomFocus(request, argsJson),
+                "dom_blur" => HandleDomBlur(request, argsJson),
+                "dom_scrollIntoView" => HandleDomScrollIntoView(request, argsJson),
+                "dom_insertAdjacentHTML" => HandleDomInsertAdjacentHTML(request, argsJson),
+                "dom_replaceWith" => HandleDomReplaceWith(request, argsJson),
+                "dom_before" => HandleDomBefore(request, argsJson),
+                "dom_after" => HandleDomAfter(request, argsJson),
+                "dom_cloneNode" => HandleDomCloneNode(request, argsJson),
+                "dom_toggleAttribute" => HandleDomToggleAttribute(request, argsJson),
+                "dom_getTag" => HandleDomGetTag(request, argsJson),
+                "dom_getClassName" => HandleDomGetClassName(request, argsJson),
+                "dom_getId" => HandleDomGetId(request, argsJson),
+                "dom_getValue" => HandleDomGetValue(request, argsJson),
+                "dom_getTextContent" => HandleDomGetTextContent(request, argsJson),
+                "dom_getInnerHTML" => HandleDomGetInnerHTML(request, argsJson),
+                "dom_hasAttribute" => HandleDomHasAttribute(request, argsJson),
+                "dom_getNodeType" => HandleDomGetNodeType(request, argsJson),
+                "dom_contains" => HandleDomContains(request, argsJson),
+                "dom_getOffsetWidth" => HandleDomGetOffsetWidth(request, argsJson),
+                "dom_getOffsetHeight" => HandleDomGetOffsetHeight(request, argsJson),
+                "dom_getClientWidth" => HandleDomGetClientWidth(request, argsJson),
+                "dom_getClientHeight" => HandleDomGetClientHeight(request, argsJson),
+                "dom_getScrollTop" => HandleDomGetScrollTop(request, argsJson),
+                "dom_getScrollLeft" => HandleDomGetScrollLeft(request, argsJson),
+                "dom_setScrollTop" => HandleDomSetScrollTop(request, argsJson),
+                "dom_setScrollLeft" => HandleDomSetScrollLeft(request, argsJson),
+                "dom_getOffsetTop" => HandleDomGetOffsetTop(request, argsJson),
+                "dom_getOffsetLeft" => HandleDomGetOffsetLeft(request, argsJson),
+                "dom_getComputedStyle" => HandleDomGetComputedStyle(request, argsJson),
+                "dom_addEventListener" => HandleDomAddEventListener(request, argsJson),
+                "dom_removeEventListener" => HandleDomRemoveEventListener(request, argsJson),
+                "dom_matches" => HandleDomMatches(request, argsJson),
+                "dom_closest" => HandleDomClosest(request, argsJson),
+                "dom_normalize" => HandleDomNormalize(request, argsJson),
+                "dom_getClassList" => HandleDomGetClassList(request, argsJson),
+                "dom_getChildNodes" => HandleDomGetChildNodes(request, argsJson),
+                "dom_getFirstElementChild" => HandleDomGetFirstElementChild(request, argsJson),
+                "dom_getLastElementChild" => HandleDomGetLastElementChild(request, argsJson),
+                "dom_getChildElementCount" => HandleDomGetChildElementCount(request, argsJson),
+                "dom_querySelector" => HandleDomQuerySelector(request, argsJson),
+                "dom_querySelectorAll" => HandleDomQuerySelectorAll(request, argsJson),
+                "dom_getElementsByTagName" => HandleDomGetElementsByTagName(request, argsJson),
+                "dom_getElementsByClassName" => HandleDomGetElementsByClassName(request, argsJson),
+                "dom_getElementsByName" => HandleDomGetElementsByName(request, argsJson),
+                "dom_getElementById" => HandleDomGetElementById(request, argsJson),
+                "dom_setTitle" => HandleDomSetTitle(request, argsJson),
+                "dom_getUrl" => HandleDomGetUrl(request, argsJson),
+                "dom_getReadyState" => JsonResult(request, "complete"),
+                "dom_getDocumentElement" => HandleDomGetDocumentElement(request, argsJson),
+                "dom_getBody" => HandleDomGetBody(request, argsJson),
+                "dom_getHead" => HandleDomGetHead(request, argsJson),
+                "dom_getActiveElement" => HandleDomGetActiveElement(request, argsJson),
+                "dom_write" => HandleDomWrite(request, argsJson),
+                "dom_getForms" => HandleDomGetForms(request, argsJson),
+                "dom_getImages" => HandleDomGetImages(request, argsJson),
+                "dom_getLinks" => HandleDomGetLinks(request, argsJson),
+                "dom_getScripts" => HandleDomGetScripts(request, argsJson),
+                "dom_getAnchors" => HandleDomGetAnchors(request, argsJson),
+                "dom_setWindowLocation" => HandleDomSetWindowLocation(request, argsJson),
+                "dom_getWindowInnerWidth" => JsonResult(request, (OnGetInnerWidth?.Invoke() ?? 1024).ToString()),
+                "dom_getWindowInnerHeight" => JsonResult(request, (OnGetInnerHeight?.Invoke() ?? 768).ToString()),
+                "dom_localStorage_get" => HandleDomLocalStorageGet(request, argsJson),
+                "dom_localStorage_set" => HandleDomLocalStorageSet(request, argsJson),
+                "dom_localStorage_remove" => HandleDomLocalStorageRemove(request, argsJson),
+                "dom_localStorage_clear" => HandleDomLocalStorageClear(request, argsJson),
+                "dom_sessionStorage_get" => HandleDomSessionStorageGet(request, argsJson),
+                "dom_sessionStorage_set" => HandleDomSessionStorageSet(request, argsJson),
+                "dom_sessionStorage_remove" => HandleDomSessionStorageRemove(request, argsJson),
+                "dom_sessionStorage_clear" => HandleDomSessionStorageClear(request, argsJson),
+                "dom_history_pushState" => HandleDomHistoryPushState(request, argsJson),
+                "dom_history_replaceState" => HandleDomHistoryReplaceState(request, argsJson),
+                "dom_history_back" => HandleDomHistoryBack(request),
+                "dom_history_forward" => HandleDomHistoryForward(request),
+                "dom_history_go" => HandleDomHistoryGo(request, argsJson),
+                "dom_history_getState" => HandleDomHistoryGetState(request),
+                "dom_history_getLength" => HandleDomHistoryGetLength(request),
+                "dom_getFirstChild" => HandleDomGetFirstChild(request, argsJson),
+                "dom_getLastChild" => HandleDomGetLastChild(request, argsJson),
                 _ => new IpcResponse { RequestId = request.RequestId, Success = false, Error = $"Unknown: {method}" }
             };
         }
@@ -471,6 +574,1143 @@ var console = __ipc_console;
             return new IpcResponse { RequestId = request.RequestId, Success = false, Error = ex.Message };
         }
     }
+
+    #region DOM Helpers
+
+    private static int GetIntArg(string argsJson, int idx)
+    {
+        try
+        {
+            var arr = System.Text.Json.JsonSerializer.Deserialize<string[]>(argsJson);
+            return arr != null && idx < arr.Length ? int.Parse(arr[idx]) : 0;
+        }
+        catch { return 0; }
+    }
+
+    private ElementHost? GetDomElement(string argsJson)
+    {
+        var id = GetIntArg(argsJson, 0);
+        if (id == -1) return DomStore?.Document?.documentElement;
+        return DomStore?.GetElement(id);
+    }
+
+    private IpcResponse OkElement(IpcRequest request, ElementHost? el)
+    {
+        if (el == null) return new IpcResponse { RequestId = request.RequestId, Success = true, Result = "null" };
+        var id = DomStore?.RegisterElement(el) ?? 0;
+        return new IpcResponse { RequestId = request.RequestId, Success = true, Result = id.ToString(), NewElementId = id };
+    }
+
+    private static IpcResponse OkBool(IpcRequest request, bool v) =>
+        new() { RequestId = request.RequestId, Success = true, Result = v ? "true" : "false" };
+
+    private void MarkDirty()
+    {
+        if (DomStore?.Document?.Engine != null)
+            DomStore.Document.Engine?.MarkDirty();
+    }
+
+    #endregion
+
+    #region DOM Element Property Handlers
+
+    private IpcResponse HandleDomGetProperty(IpcRequest request, string argsJson)
+    {
+        try
+        {
+            var el = GetDomElement(argsJson);
+            if (el == null) return new IpcResponse { RequestId = request.RequestId, Success = false, Error = "Element not found" };
+            var p = GetStringArg(argsJson, 1) ?? "";
+            string? r = p switch
+            {
+                "tagName" => el.tagName, "nodeName" => el.nodeName, "localName" => el.localName,
+                "nodeType" => el.nodeType.ToString(), "className" => el.className, "id" => el.id,
+                "textContent" => el.textContent, "innerHTML" => el.innerHTML, "outerHTML" => el.outerHTML,
+                "value" => el.value, "hidden" => el.hidden ? "true" : "false",
+                "draggable" => el.draggable ? "true" : "false", "disabled" => el.disabled ? "true" : "false",
+                "readOnly" => el.readOnly ? "true" : "false", "required" => el.required ? "true" : "false",
+                "checked" => el.@checked ? "true" : "false", "isConnected" => el.isConnected ? "true" : "false",
+                "offsetWidth" => el.offsetWidth.ToString(), "offsetHeight" => el.offsetHeight.ToString(),
+                "clientWidth" => el.clientWidth.ToString(), "clientHeight" => el.clientHeight.ToString(),
+                "scrollTop" => el.scrollTop.ToString(), "scrollLeft" => el.scrollLeft.ToString(),
+                "type" => el.type, "placeholder" => el.placeholder, "href" => el.href,
+                "rel" => el.rel, "target" => el.target, "src" => el.src, "lang" => el.lang,
+                "dir" => el.dir, "title" => el.title, "tabIndex" => el.tabIndex.ToString(),
+                "nodeValue" => el.nodeValue, "hasAttributes" => el.hasAttributes() ? "true" : "false",
+                "childElementCount" => el.childElementCount.ToString(),
+                _ => null
+            };
+            return r != null ? JsonResult(request, r) : new IpcResponse { RequestId = request.RequestId, Success = true, Result = "null" };
+        }
+        catch (Exception ex) { return new IpcResponse { RequestId = request.RequestId, Success = false, Error = ex.Message }; }
+    }
+
+    private IpcResponse HandleDomGetPropertyValue(IpcRequest request, string argsJson)
+    {
+        return HandleDomGetProperty(request, argsJson);
+    }
+
+    private IpcResponse HandleDomSetProperty(IpcRequest request, string argsJson)
+    {
+        try
+        {
+            var el = GetDomElement(argsJson);
+            if (el == null) return new IpcResponse { RequestId = request.RequestId, Success = false, Error = "Element not found" };
+            var p = GetStringArg(argsJson, 1) ?? "";
+            var v = GetStringArg(argsJson, 2) ?? "";
+            SetElProp(el, p, v);
+            MarkDirty();
+            return RespondOk(request);
+        }
+        catch (Exception ex) { return new IpcResponse { RequestId = request.RequestId, Success = false, Error = ex.Message }; }
+    }
+
+    private static void SetElProp(ElementHost el, string p, string v)
+    {
+        switch (p)
+        {
+            case "className": el.className = v; break;
+            case "id": el.id = v; break;
+            case "textContent": el.textContent = v; break;
+            case "innerHTML": el.innerHTML = v; break;
+            case "value": el.value = v; break;
+            case "scrollTop": el.scrollTop = double.Parse(v ?? "0"); break;
+            case "scrollLeft": el.scrollLeft = double.Parse(v ?? "0"); break;
+            case "hidden": el.hidden = v == "true"; break;
+            case "draggable": el.draggable = v == "true"; break;
+            case "disabled": el.disabled = v == "true"; break;
+            case "readOnly": el.readOnly = v == "true"; break;
+            case "required": el.required = v == "true"; break;
+            case "checked": el.@checked = v == "true"; break;
+            case "type": el.type = v; break;
+            case "placeholder": el.placeholder = v; break;
+            case "href": el.href = v; break;
+            case "rel": el.rel = v; break;
+            case "target": el.target = v; break;
+            case "src": el.src = v; break;
+            case "lang": el.lang = v; break;
+            case "dir": el.dir = v; break;
+            case "title": el.title = v; break;
+            case "tabIndex": el.tabIndex = int.Parse(v ?? "0"); break;
+        }
+    }
+
+    #endregion
+
+    #region DOM Element Creation & Manipulation
+
+    private IpcResponse HandleDomCreateElement(IpcRequest request, string argsJson)
+    {
+        try
+        {
+            var tag = GetStringArg(argsJson, 0) ?? "div";
+            var doc = DomStore?.Document;
+            if (doc != null)
+            {
+                var el = doc.createElement(tag);
+                return OkElement(request, el);
+            }
+            return new IpcResponse { RequestId = request.RequestId, Success = false, Error = "No document" };
+        }
+        catch (Exception ex) { return new IpcResponse { RequestId = request.RequestId, Success = false, Error = ex.Message }; }
+    }
+
+    private IpcResponse HandleDomAppendChild(IpcRequest request, string argsJson)
+    {
+        try
+        {
+            var parent = GetDomElement(argsJson);
+            var childId = GetIntArg(argsJson, 1);
+            var child = DomStore?.GetElement(childId);
+            if (parent != null && child != null) parent.appendChild(child);
+            MarkDirty();
+            return RespondOk(request);
+        }
+        catch (Exception ex) { return new IpcResponse { RequestId = request.RequestId, Success = false, Error = ex.Message }; }
+    }
+
+    private IpcResponse HandleDomInsertBefore(IpcRequest request, string argsJson)
+    {
+        try
+        {
+            var parent = GetDomElement(argsJson);
+            var childId = GetIntArg(argsJson, 1);
+            var refId = GetIntArg(argsJson, 2);
+            var child = DomStore?.GetElement(childId);
+            var refEl = refId > 0 ? DomStore?.GetElement(refId) : null;
+            if (parent != null && child != null) parent.insertBefore(child, refEl);
+            MarkDirty();
+            return RespondOk(request);
+        }
+        catch (Exception ex) { return new IpcResponse { RequestId = request.RequestId, Success = false, Error = ex.Message }; }
+    }
+
+    private IpcResponse HandleDomRemoveChild(IpcRequest request, string argsJson)
+    {
+        try
+        {
+            var parent = GetDomElement(argsJson);
+            var childId = GetIntArg(argsJson, 1);
+            var child = DomStore?.GetElement(childId);
+            if (parent != null && child != null) parent.removeChild(child);
+            MarkDirty();
+            return RespondOk(request);
+        }
+        catch (Exception ex) { return new IpcResponse { RequestId = request.RequestId, Success = false, Error = ex.Message }; }
+    }
+
+    private IpcResponse HandleDomRemove(IpcRequest request, string argsJson)
+    {
+        try
+        {
+            var el = GetDomElement(argsJson);
+            if (el != null) el.remove();
+            MarkDirty();
+            return RespondOk(request);
+        }
+        catch (Exception ex) { return new IpcResponse { RequestId = request.RequestId, Success = false, Error = ex.Message }; }
+    }
+
+    private IpcResponse HandleDomInsertAdjacentHTML(IpcRequest request, string argsJson)
+    {
+        try
+        {
+            var el = GetDomElement(argsJson);
+            if (el != null) el.insertAdjacentHTML(GetStringArg(argsJson, 1) ?? "beforeend", GetStringArg(argsJson, 2) ?? "");
+            MarkDirty();
+            return RespondOk(request);
+        }
+        catch (Exception ex) { return new IpcResponse { RequestId = request.RequestId, Success = false, Error = ex.Message }; }
+    }
+
+    private IpcResponse HandleDomReplaceWith(IpcRequest request, string argsJson)
+    {
+        try
+        {
+            var oldEl = DomStore?.GetElement(GetIntArg(argsJson, 0));
+            var newEl = DomStore?.GetElement(GetIntArg(argsJson, 1));
+            if (oldEl != null && newEl != null) oldEl.replaceWith(newEl);
+            MarkDirty();
+            return RespondOk(request);
+        }
+        catch (Exception ex) { return new IpcResponse { RequestId = request.RequestId, Success = false, Error = ex.Message }; }
+    }
+
+    private IpcResponse HandleDomBefore(IpcRequest request, string argsJson)
+    {
+        try
+        {
+            var el = DomStore?.GetElement(GetIntArg(argsJson, 0));
+            var newEl = DomStore?.GetElement(GetIntArg(argsJson, 1));
+            if (el != null && newEl != null) el.before(newEl);
+            MarkDirty();
+            return RespondOk(request);
+        }
+        catch (Exception ex) { return new IpcResponse { RequestId = request.RequestId, Success = false, Error = ex.Message }; }
+    }
+
+    private IpcResponse HandleDomAfter(IpcRequest request, string argsJson)
+    {
+        try
+        {
+            var el = DomStore?.GetElement(GetIntArg(argsJson, 0));
+            var newEl = DomStore?.GetElement(GetIntArg(argsJson, 1));
+            if (el != null && newEl != null) el.after(newEl);
+            MarkDirty();
+            return RespondOk(request);
+        }
+        catch (Exception ex) { return new IpcResponse { RequestId = request.RequestId, Success = false, Error = ex.Message }; }
+    }
+
+    private IpcResponse HandleDomCloneNode(IpcRequest request, string argsJson)
+    {
+        try
+        {
+            var el = GetDomElement(argsJson);
+            if (el != null)
+            {
+                var clone = el.cloneNode(GetStringArg(argsJson, 1) == "true");
+                var cloneEl = clone as ElementHost;
+                if (cloneEl != null) DomStore?.RegisterElement(cloneEl);
+            }
+            return RespondOk(request);
+        }
+        catch (Exception ex) { return new IpcResponse { RequestId = request.RequestId, Success = false, Error = ex.Message }; }
+    }
+
+    #endregion
+
+    #region DOM Attributes
+
+    private IpcResponse HandleDomSetAttribute(IpcRequest request, string argsJson)
+    {
+        try
+        {
+            var el = GetDomElement(argsJson);
+            if (el != null) el.setAttribute(GetStringArg(argsJson, 1) ?? "", GetStringArg(argsJson, 2) ?? "");
+            MarkDirty();
+            return RespondOk(request);
+        }
+        catch (Exception ex) { return new IpcResponse { RequestId = request.RequestId, Success = false, Error = ex.Message }; }
+    }
+
+    private IpcResponse HandleDomGetAttribute(IpcRequest request, string argsJson)
+    {
+        try
+        {
+            var el = GetDomElement(argsJson);
+            if (el != null)
+            {
+                var v = el.getAttribute(GetStringArg(argsJson, 1) ?? "");
+                return v != null ? JsonResult(request, v) : new IpcResponse { RequestId = request.RequestId, Success = true, Result = "null" };
+            }
+            return new IpcResponse { RequestId = request.RequestId, Success = false, Error = "Element not found" };
+        }
+        catch (Exception ex) { return new IpcResponse { RequestId = request.RequestId, Success = false, Error = ex.Message }; }
+    }
+
+    private IpcResponse HandleDomRemoveAttribute(IpcRequest request, string argsJson)
+    {
+        try
+        {
+            var el = GetDomElement(argsJson);
+            if (el != null) el.removeAttribute(GetStringArg(argsJson, 1) ?? "");
+            MarkDirty();
+            return RespondOk(request);
+        }
+        catch (Exception ex) { return new IpcResponse { RequestId = request.RequestId, Success = false, Error = ex.Message }; }
+    }
+
+    private IpcResponse HandleDomToggleAttribute(IpcRequest request, string argsJson)
+    {
+        try
+        {
+            var el = GetDomElement(argsJson);
+            if (el != null) el.toggleAttribute(GetStringArg(argsJson, 1) ?? "");
+            MarkDirty();
+            return RespondOk(request);
+        }
+        catch (Exception ex) { return new IpcResponse { RequestId = request.RequestId, Success = false, Error = ex.Message }; }
+    }
+
+    private IpcResponse HandleDomHasAttribute(IpcRequest request, string argsJson)
+    {
+        try
+        {
+            var el = GetDomElement(argsJson);
+            if (el != null) return OkBool(request, el.hasAttribute(GetStringArg(argsJson, 1) ?? ""));
+            return OkBool(request, false);
+        }
+        catch { return OkBool(request, false); }
+    }
+
+    #endregion
+
+    #region DOM Element Setters
+
+    private IpcResponse HandleDomSetClassName(IpcRequest request, string argsJson)
+    {
+        try
+        {
+            var el = GetDomElement(argsJson);
+            if (el != null) el.className = GetStringArg(argsJson, 1) ?? "";
+            MarkDirty();
+            return RespondOk(request);
+        }
+        catch (Exception ex) { return new IpcResponse { RequestId = request.RequestId, Success = false, Error = ex.Message }; }
+    }
+
+    private IpcResponse HandleDomSetId(IpcRequest request, string argsJson)
+    {
+        try
+        {
+            var el = GetDomElement(argsJson);
+            if (el != null) el.id = GetStringArg(argsJson, 1) ?? "";
+            MarkDirty();
+            return RespondOk(request);
+        }
+        catch (Exception ex) { return new IpcResponse { RequestId = request.RequestId, Success = false, Error = ex.Message }; }
+    }
+
+    private IpcResponse HandleDomSetValue(IpcRequest request, string argsJson)
+    {
+        try
+        {
+            var el = GetDomElement(argsJson);
+            if (el != null) el.value = GetStringArg(argsJson, 1);
+            MarkDirty();
+            return RespondOk(request);
+        }
+        catch (Exception ex) { return new IpcResponse { RequestId = request.RequestId, Success = false, Error = ex.Message }; }
+    }
+
+    private IpcResponse HandleDomSetTextContent(IpcRequest request, string argsJson)
+    {
+        try
+        {
+            var el = GetDomElement(argsJson);
+            if (el != null) el.textContent = GetStringArg(argsJson, 1);
+            MarkDirty();
+            return RespondOk(request);
+        }
+        catch (Exception ex) { return new IpcResponse { RequestId = request.RequestId, Success = false, Error = ex.Message }; }
+    }
+
+    private IpcResponse HandleDomSetInnerHTML(IpcRequest request, string argsJson)
+    {
+        try
+        {
+            var el = GetDomElement(argsJson);
+            if (el != null) el.innerHTML = GetStringArg(argsJson, 1);
+            MarkDirty();
+            return RespondOk(request);
+        }
+        catch (Exception ex) { return new IpcResponse { RequestId = request.RequestId, Success = false, Error = ex.Message }; }
+    }
+
+    private IpcResponse HandleDomSetScrollTop(IpcRequest request, string argsJson)
+    {
+        try
+        {
+            var el = GetDomElement(argsJson);
+            if (el != null) el.scrollTop = double.Parse(GetStringArg(argsJson, 1) ?? "0");
+            return RespondOk(request);
+        }
+        catch (Exception ex) { return new IpcResponse { RequestId = request.RequestId, Success = false, Error = ex.Message }; }
+    }
+
+    private IpcResponse HandleDomSetScrollLeft(IpcRequest request, string argsJson)
+    {
+        try
+        {
+            var el = GetDomElement(argsJson);
+            if (el != null) el.scrollLeft = double.Parse(GetStringArg(argsJson, 1) ?? "0");
+            return RespondOk(request);
+        }
+        catch (Exception ex) { return new IpcResponse { RequestId = request.RequestId, Success = false, Error = ex.Message }; }
+    }
+
+    #endregion
+
+    #region DOM Element Layout
+
+    private IpcResponse HandleDomGetBoundingClientRect(IpcRequest request, string argsJson)
+    {
+        try
+        {
+            var el = GetDomElement(argsJson);
+            if (el != null)
+            {
+                var rect = el.getBoundingClientRect();
+                return JsonResult(request, System.Text.Json.JsonSerializer.Serialize(new { x = rect.x, y = rect.y, width = rect.width, height = rect.height }));
+            }
+            return JsonResult(request, "{\"x\":0,\"y\":0,\"width\":0,\"height\":0}");
+        }
+        catch (Exception ex) { return new IpcResponse { RequestId = request.RequestId, Success = false, Error = ex.Message }; }
+    }
+
+    private IpcResponse HandleDomGetComputedStyle(IpcRequest request, string argsJson)
+    {
+        try
+        {
+            return JsonResult(request, "{}");
+        }
+        catch (Exception ex) { return new IpcResponse { RequestId = request.RequestId, Success = false, Error = ex.Message }; }
+    }
+
+    #endregion
+
+    #region DOM Element Traversal
+
+    private IpcResponse HandleDomGetChildren(IpcRequest request, string argsJson)
+    {
+        try
+        {
+            var el = GetDomElement(argsJson);
+            if (el != null)
+            {
+                var ids = el.GetChildHosts().Select(e => (DomStore?.RegisterElement(e) ?? 0).ToString()).ToArray();
+                return JsonResult(request, System.Text.Json.JsonSerializer.Serialize(ids));
+            }
+            return JsonResult(request, "[]");
+        }
+        catch (Exception ex) { return new IpcResponse { RequestId = request.RequestId, Success = false, Error = ex.Message }; }
+    }
+
+    private IpcResponse HandleDomGetChildNodes(IpcRequest request, string argsJson)
+    {
+        return HandleDomGetChildren(request, argsJson);
+    }
+
+    private IpcResponse HandleDomGetParent(IpcRequest request, string argsJson)
+    {
+        try
+        {
+            var el = GetDomElement(argsJson);
+            if (el != null) return OkElement(request, el.parentElement);
+            return new IpcResponse { RequestId = request.RequestId, Success = true, Result = "null" };
+        }
+        catch (Exception ex) { return new IpcResponse { RequestId = request.RequestId, Success = false, Error = ex.Message }; }
+    }
+
+    private IpcResponse HandleDomNextSibling(IpcRequest request, string argsJson)
+    {
+        try
+        {
+            var el = GetDomElement(argsJson);
+            if (el != null) return OkElement(request, el.nextElementSibling as ElementHost);
+            return new IpcResponse { RequestId = request.RequestId, Success = true, Result = "null" };
+        }
+        catch (Exception ex) { return new IpcResponse { RequestId = request.RequestId, Success = false, Error = ex.Message }; }
+    }
+
+    private IpcResponse HandleDomPreviousSibling(IpcRequest request, string argsJson)
+    {
+        try
+        {
+            var el = GetDomElement(argsJson);
+            if (el != null) return OkElement(request, el.previousElementSibling as ElementHost);
+            return new IpcResponse { RequestId = request.RequestId, Success = true, Result = "null" };
+        }
+        catch (Exception ex) { return new IpcResponse { RequestId = request.RequestId, Success = false, Error = ex.Message }; }
+    }
+
+    private IpcResponse HandleDomGetFirstChild(IpcRequest request, string argsJson)
+    {
+        try
+        {
+            var el = GetDomElement(argsJson);
+            if (el != null) return OkElement(request, el.firstChild as ElementHost);
+            return new IpcResponse { RequestId = request.RequestId, Success = true, Result = "null" };
+        }
+        catch (Exception ex) { return new IpcResponse { RequestId = request.RequestId, Success = false, Error = ex.Message }; }
+    }
+
+    private IpcResponse HandleDomGetLastChild(IpcRequest request, string argsJson)
+    {
+        try
+        {
+            var el = GetDomElement(argsJson);
+            if (el != null) return OkElement(request, el.lastChild as ElementHost);
+            return new IpcResponse { RequestId = request.RequestId, Success = true, Result = "null" };
+        }
+        catch (Exception ex) { return new IpcResponse { RequestId = request.RequestId, Success = false, Error = ex.Message }; }
+    }
+
+    private IpcResponse HandleDomGetFirstElementChild(IpcRequest request, string argsJson)
+    {
+        try
+        {
+            var el = GetDomElement(argsJson);
+            if (el != null) return OkElement(request, el.firstElementChild);
+            return new IpcResponse { RequestId = request.RequestId, Success = true, Result = "null" };
+        }
+        catch (Exception ex) { return new IpcResponse { RequestId = request.RequestId, Success = false, Error = ex.Message }; }
+    }
+
+    private IpcResponse HandleDomGetLastElementChild(IpcRequest request, string argsJson)
+    {
+        try
+        {
+            var el = GetDomElement(argsJson);
+            if (el != null) return OkElement(request, el.lastElementChild);
+            return new IpcResponse { RequestId = request.RequestId, Success = true, Result = "null" };
+        }
+        catch (Exception ex) { return new IpcResponse { RequestId = request.RequestId, Success = false, Error = ex.Message }; }
+    }
+
+    private IpcResponse HandleDomGetChildElementCount(IpcRequest request, string argsJson)
+    {
+        try
+        {
+            var el = GetDomElement(argsJson);
+            if (el != null) return JsonResult(request, el.childElementCount.ToString());
+            return JsonResult(request, "0");
+        }
+        catch (Exception ex) { return new IpcResponse { RequestId = request.RequestId, Success = false, Error = ex.Message }; }
+    }
+
+    #endregion
+
+    #region DOM Element Selection
+
+    private IpcResponse HandleDomQuerySelector(IpcRequest request, string argsJson)
+    {
+        try
+        {
+            var el = GetDomElement(argsJson);
+            if (el != null)
+            {
+                var result = el.querySelector(GetStringArg(argsJson, 1) ?? "");
+                return OkElement(request, result as ElementHost);
+            }
+            return new IpcResponse { RequestId = request.RequestId, Success = false, Error = "Element not found" };
+        }
+        catch (Exception ex) { return new IpcResponse { RequestId = request.RequestId, Success = false, Error = ex.Message }; }
+    }
+
+    private IpcResponse HandleDomQuerySelectorAll(IpcRequest request, string argsJson)
+    {
+        try
+        {
+            var el = GetDomElement(argsJson);
+            if (el != null)
+            {
+                var results = el.querySelectorAll(GetStringArg(argsJson, 1) ?? "");
+                var ids = new List<string>();
+                foreach (var item in results)
+                {
+                    if (item is ElementHost h) ids.Add((DomStore?.RegisterElement(h) ?? 0).ToString());
+                }
+                return JsonResult(request, System.Text.Json.JsonSerializer.Serialize(ids));
+            }
+            return JsonResult(request, "[]");
+        }
+        catch (Exception ex) { return new IpcResponse { RequestId = request.RequestId, Success = false, Error = ex.Message }; }
+    }
+
+    private IpcResponse HandleDomGetElementById(IpcRequest request, string argsJson)
+    {
+        try
+        {
+            var doc = DomStore?.Document;
+            if (doc != null)
+            {
+                var result = doc.getElementById(GetStringArg(argsJson, 0) ?? "");
+                return OkElement(request, result);
+            }
+            return new IpcResponse { RequestId = request.RequestId, Success = false, Error = "No document" };
+        }
+        catch (Exception ex) { return new IpcResponse { RequestId = request.RequestId, Success = false, Error = ex.Message }; }
+    }
+
+    private IpcResponse HandleDomGetElementsByTagName(IpcRequest request, string argsJson)
+    {
+        try
+        {
+            var el = GetDomElement(argsJson);
+            if (el != null)
+            {
+                var coll = el.getElementsByTagName(GetStringArg(argsJson, 1) ?? "");
+                var ids = new List<string>();
+                foreach (var item in coll)
+                {
+                    if (item is ElementHost h) ids.Add((DomStore?.RegisterElement(h) ?? 0).ToString());
+                }
+                return JsonResult(request, System.Text.Json.JsonSerializer.Serialize(ids));
+            }
+            return JsonResult(request, "[]");
+        }
+        catch (Exception ex) { return new IpcResponse { RequestId = request.RequestId, Success = false, Error = ex.Message }; }
+    }
+
+    private IpcResponse HandleDomGetElementsByClassName(IpcRequest request, string argsJson)
+    {
+        try
+        {
+            var el = GetDomElement(argsJson);
+            if (el != null)
+            {
+                var coll = el.getElementsByClassName(GetStringArg(argsJson, 1) ?? "");
+                var ids = new List<string>();
+                foreach (var item in coll)
+                {
+                    if (item is ElementHost h) ids.Add((DomStore?.RegisterElement(h) ?? 0).ToString());
+                }
+                return JsonResult(request, System.Text.Json.JsonSerializer.Serialize(ids));
+            }
+            return JsonResult(request, "[]");
+        }
+        catch (Exception ex) { return new IpcResponse { RequestId = request.RequestId, Success = false, Error = ex.Message }; }
+    }
+
+    private IpcResponse HandleDomGetElementsByName(IpcRequest request, string argsJson)
+    {
+        return JsonResult(request, "[]");
+    }
+
+    private IpcResponse HandleDomMatches(IpcRequest request, string argsJson)
+    {
+        try
+        {
+            var el = GetDomElement(argsJson);
+            if (el != null) return OkBool(request, el.matches(GetStringArg(argsJson, 1) ?? ""));
+            return OkBool(request, false);
+        }
+        catch { return OkBool(request, false); }
+    }
+
+    private IpcResponse HandleDomClosest(IpcRequest request, string argsJson)
+    {
+        try
+        {
+            var el = GetDomElement(argsJson);
+            if (el != null)
+            {
+                var result = el.closest(GetStringArg(argsJson, 1) ?? "");
+                return OkElement(request, result as ElementHost);
+            }
+            return new IpcResponse { RequestId = request.RequestId, Success = true, Result = "null" };
+        }
+        catch (Exception ex) { return new IpcResponse { RequestId = request.RequestId, Success = false, Error = ex.Message }; }
+    }
+
+    private IpcResponse HandleDomContains(IpcRequest request, string argsJson)
+    {
+        try
+        {
+            var el = GetDomElement(argsJson);
+            if (el != null)
+            {
+                var other = DomStore?.GetElement(GetIntArg(argsJson, 1));
+                return OkBool(request, other != null && el.contains(other));
+            }
+            return OkBool(request, false);
+        }
+        catch { return OkBool(request, false); }
+    }
+
+    #endregion
+
+    #region DOM Events
+
+    private IpcResponse HandleDomClick(IpcRequest request, string argsJson)
+    {
+        try
+        {
+            var el = GetDomElement(argsJson);
+            if (el != null) el.click();
+            return RespondOk(request);
+        }
+        catch (Exception ex) { return new IpcResponse { RequestId = request.RequestId, Success = false, Error = ex.Message }; }
+    }
+
+    private IpcResponse HandleDomFocus(IpcRequest request, string argsJson)
+    {
+        try
+        {
+            var el = GetDomElement(argsJson);
+            if (el != null) el.focus();
+            return RespondOk(request);
+        }
+        catch (Exception ex) { return new IpcResponse { RequestId = request.RequestId, Success = false, Error = ex.Message }; }
+    }
+
+    private IpcResponse HandleDomBlur(IpcRequest request, string argsJson)
+    {
+        try
+        {
+            var el = GetDomElement(argsJson);
+            if (el != null) el.blur();
+            return RespondOk(request);
+        }
+        catch (Exception ex) { return new IpcResponse { RequestId = request.RequestId, Success = false, Error = ex.Message }; }
+    }
+
+    private IpcResponse HandleDomScrollIntoView(IpcRequest request, string argsJson)
+    {
+        try
+        {
+            var el = GetDomElement(argsJson);
+            if (el != null) el.scrollIntoView(GetStringArg(argsJson, 1) == "true");
+            return RespondOk(request);
+        }
+        catch (Exception ex) { return new IpcResponse { RequestId = request.RequestId, Success = false, Error = ex.Message }; }
+    }
+
+    private IpcResponse HandleDomDispatchEvent(IpcRequest request, string argsJson)
+    {
+        try
+        {
+            var el = GetDomElement(argsJson);
+            if (el != null)
+            {
+                var evt = new ScriptEvent(GetStringArg(argsJson, 1) ?? "", el);
+                el.dispatchEvent(evt);
+            }
+            return RespondOk(request);
+        }
+        catch (Exception ex) { return new IpcResponse { RequestId = request.RequestId, Success = false, Error = ex.Message }; }
+    }
+
+    private IpcResponse HandleDomAddEventListener(IpcRequest request, string argsJson)
+    {
+        return RespondOk(request);
+    }
+
+    private IpcResponse HandleDomRemoveEventListener(IpcRequest request, string argsJson)
+    {
+        return RespondOk(request);
+    }
+
+    #endregion
+
+    #region DOM Document Methods
+
+    private IpcResponse HandleDomSetTitle(IpcRequest request, string argsJson)
+    {
+        try
+        {
+            var doc = DomStore?.Document;
+            if (doc != null) doc.title = GetStringArg(argsJson, 0) ?? "";
+            return RespondOk(request);
+        }
+        catch (Exception ex) { return new IpcResponse { RequestId = request.RequestId, Success = false, Error = ex.Message }; }
+    }
+
+    private IpcResponse HandleDomGetUrl(IpcRequest request, string argsJson)
+    {
+        try
+        {
+            var doc = DomStore?.Document;
+            return doc != null ? JsonResult(request, doc.URL) : JsonResult(request, "");
+        }
+        catch (Exception ex) { return new IpcResponse { RequestId = request.RequestId, Success = false, Error = ex.Message }; }
+    }
+
+    private IpcResponse HandleDomGetDocumentElement(IpcRequest request, string argsJson)
+    {
+        try
+        {
+            var doc = DomStore?.Document;
+            if (doc != null) return OkElement(request, doc.documentElement);
+            return new IpcResponse { RequestId = request.RequestId, Success = true, Result = "null" };
+        }
+        catch (Exception ex) { return new IpcResponse { RequestId = request.RequestId, Success = false, Error = ex.Message }; }
+    }
+
+    private IpcResponse HandleDomGetBody(IpcRequest request, string argsJson)
+    {
+        try
+        {
+            var doc = DomStore?.Document;
+            if (doc != null) return OkElement(request, doc.body);
+            return new IpcResponse { RequestId = request.RequestId, Success = true, Result = "null" };
+        }
+        catch (Exception ex) { return new IpcResponse { RequestId = request.RequestId, Success = false, Error = ex.Message }; }
+    }
+
+    private IpcResponse HandleDomGetHead(IpcRequest request, string argsJson)
+    {
+        try
+        {
+            var doc = DomStore?.Document;
+            if (doc != null) return OkElement(request, doc.head);
+            return new IpcResponse { RequestId = request.RequestId, Success = true, Result = "null" };
+        }
+        catch (Exception ex) { return new IpcResponse { RequestId = request.RequestId, Success = false, Error = ex.Message }; }
+    }
+
+    private IpcResponse HandleDomGetActiveElement(IpcRequest request, string argsJson)
+    {
+        try
+        {
+            var doc = DomStore?.Document;
+            if (doc != null) return OkElement(request, doc.activeElement);
+            return new IpcResponse { RequestId = request.RequestId, Success = true, Result = "null" };
+        }
+        catch (Exception ex) { return new IpcResponse { RequestId = request.RequestId, Success = false, Error = ex.Message }; }
+    }
+
+    private IpcResponse HandleDomWrite(IpcRequest request, string argsJson)
+    {
+        try
+        {
+            var doc = DomStore?.Document;
+            if (doc != null) doc.write(GetStringArg(argsJson, 0) ?? "");
+            MarkDirty();
+            return RespondOk(request);
+        }
+        catch (Exception ex) { return new IpcResponse { RequestId = request.RequestId, Success = false, Error = ex.Message }; }
+    }
+
+    private IpcResponse HandleDomGetForms(IpcRequest request, string argsJson)
+    {
+        try
+        {
+            var doc = DomStore?.Document;
+            if (doc != null)
+            {
+                var ids = doc.forms.Select(f => (DomStore?.RegisterElement(f as ElementHost) ?? 0).ToString()).ToArray();
+                return JsonResult(request, System.Text.Json.JsonSerializer.Serialize(ids));
+            }
+            return JsonResult(request, "[]");
+        }
+        catch (Exception ex) { return new IpcResponse { RequestId = request.RequestId, Success = false, Error = ex.Message }; }
+    }
+
+    private IpcResponse HandleDomGetImages(IpcRequest request, string argsJson)
+    {
+        try
+        {
+            var doc = DomStore?.Document;
+            if (doc != null)
+            {
+                var ids = doc.images.Select(f => (DomStore?.RegisterElement(f as ElementHost) ?? 0).ToString()).ToArray();
+                return JsonResult(request, System.Text.Json.JsonSerializer.Serialize(ids));
+            }
+            return JsonResult(request, "[]");
+        }
+        catch (Exception ex) { return new IpcResponse { RequestId = request.RequestId, Success = false, Error = ex.Message }; }
+    }
+
+    private IpcResponse HandleDomGetLinks(IpcRequest request, string argsJson)
+    {
+        try
+        {
+            var doc = DomStore?.Document;
+            if (doc != null)
+            {
+                var ids = doc.links.Select(f => (DomStore?.RegisterElement(f as ElementHost) ?? 0).ToString()).ToArray();
+                return JsonResult(request, System.Text.Json.JsonSerializer.Serialize(ids));
+            }
+            return JsonResult(request, "[]");
+        }
+        catch (Exception ex) { return new IpcResponse { RequestId = request.RequestId, Success = false, Error = ex.Message }; }
+    }
+
+    private IpcResponse HandleDomGetScripts(IpcRequest request, string argsJson)
+    {
+        try
+        {
+            var doc = DomStore?.Document;
+            if (doc != null)
+            {
+                var ids = doc.scripts.Select(f => (DomStore?.RegisterElement(f as ElementHost) ?? 0).ToString()).ToArray();
+                return JsonResult(request, System.Text.Json.JsonSerializer.Serialize(ids));
+            }
+            return JsonResult(request, "[]");
+        }
+        catch (Exception ex) { return new IpcResponse { RequestId = request.RequestId, Success = false, Error = ex.Message }; }
+    }
+
+    private IpcResponse HandleDomGetAnchors(IpcRequest request, string argsJson)
+    {
+        try
+        {
+            var doc = DomStore?.Document;
+            if (doc != null)
+            {
+                var ids = doc.anchors.Select(f => (DomStore?.RegisterElement(f as ElementHost) ?? 0).ToString()).ToArray();
+                return JsonResult(request, System.Text.Json.JsonSerializer.Serialize(ids));
+            }
+            return JsonResult(request, "[]");
+        }
+        catch (Exception ex) { return new IpcResponse { RequestId = request.RequestId, Success = false, Error = ex.Message }; }
+    }
+
+    #endregion
+
+    #region DOM Element Generic Getters
+
+    private IpcResponse HandleDomGetTag(IpcRequest request, string argsJson)
+    {
+        try { var el = GetDomElement(argsJson); return el != null ? JsonResult(request, el.tagName) : JsonResult(request, ""); }
+        catch (Exception ex) { return new IpcResponse { RequestId = request.RequestId, Success = false, Error = ex.Message }; }
+    }
+
+    private IpcResponse HandleDomGetClassName(IpcRequest request, string argsJson)
+    {
+        try { var el = GetDomElement(argsJson); return el != null ? JsonResult(request, el.className) : JsonResult(request, ""); }
+        catch (Exception ex) { return new IpcResponse { RequestId = request.RequestId, Success = false, Error = ex.Message }; }
+    }
+
+    private IpcResponse HandleDomGetId(IpcRequest request, string argsJson)
+    {
+        try { var el = GetDomElement(argsJson); return el != null ? JsonResult(request, el.id) : JsonResult(request, ""); }
+        catch (Exception ex) { return new IpcResponse { RequestId = request.RequestId, Success = false, Error = ex.Message }; }
+    }
+
+    private IpcResponse HandleDomGetValue(IpcRequest request, string argsJson)
+    {
+        try { var el = GetDomElement(argsJson); return el != null ? JsonResult(request, el.value ?? "") : JsonResult(request, "null"); }
+        catch (Exception ex) { return new IpcResponse { RequestId = request.RequestId, Success = false, Error = ex.Message }; }
+    }
+
+    private IpcResponse HandleDomGetTextContent(IpcRequest request, string argsJson)
+    {
+        try { var el = GetDomElement(argsJson); return el != null ? JsonResult(request, el.textContent ?? "") : JsonResult(request, "null"); }
+        catch (Exception ex) { return new IpcResponse { RequestId = request.RequestId, Success = false, Error = ex.Message }; }
+    }
+
+    private IpcResponse HandleDomGetInnerHTML(IpcRequest request, string argsJson)
+    {
+        try { var el = GetDomElement(argsJson); return el != null ? JsonResult(request, el.innerHTML ?? "") : JsonResult(request, "null"); }
+        catch (Exception ex) { return new IpcResponse { RequestId = request.RequestId, Success = false, Error = ex.Message }; }
+    }
+
+    private IpcResponse HandleDomGetNodeType(IpcRequest request, string argsJson)
+    {
+        try { var el = GetDomElement(argsJson); return el != null ? JsonResult(request, el.nodeType.ToString()) : JsonResult(request, "0"); }
+        catch (Exception ex) { return new IpcResponse { RequestId = request.RequestId, Success = false, Error = ex.Message }; }
+    }
+
+    private IpcResponse HandleDomGetOffsetWidth(IpcRequest request, string argsJson)
+    {
+        try { var el = GetDomElement(argsJson); return el != null ? JsonResult(request, el.offsetWidth.ToString()) : JsonResult(request, "0"); }
+        catch (Exception ex) { return new IpcResponse { RequestId = request.RequestId, Success = false, Error = ex.Message }; }
+    }
+
+    private IpcResponse HandleDomGetOffsetHeight(IpcRequest request, string argsJson)
+    {
+        try { var el = GetDomElement(argsJson); return el != null ? JsonResult(request, el.offsetHeight.ToString()) : JsonResult(request, "0"); }
+        catch (Exception ex) { return new IpcResponse { RequestId = request.RequestId, Success = false, Error = ex.Message }; }
+    }
+
+    private IpcResponse HandleDomGetClientWidth(IpcRequest request, string argsJson)
+    {
+        try { var el = GetDomElement(argsJson); return el != null ? JsonResult(request, el.clientWidth.ToString()) : JsonResult(request, "0"); }
+        catch (Exception ex) { return new IpcResponse { RequestId = request.RequestId, Success = false, Error = ex.Message }; }
+    }
+
+    private IpcResponse HandleDomGetClientHeight(IpcRequest request, string argsJson)
+    {
+        try { var el = GetDomElement(argsJson); return el != null ? JsonResult(request, el.clientHeight.ToString()) : JsonResult(request, "0"); }
+        catch (Exception ex) { return new IpcResponse { RequestId = request.RequestId, Success = false, Error = ex.Message }; }
+    }
+
+    private IpcResponse HandleDomGetScrollTop(IpcRequest request, string argsJson)
+    {
+        try { var el = GetDomElement(argsJson); return el != null ? JsonResult(request, el.scrollTop.ToString()) : JsonResult(request, "0"); }
+        catch (Exception ex) { return new IpcResponse { RequestId = request.RequestId, Success = false, Error = ex.Message }; }
+    }
+
+    private IpcResponse HandleDomGetScrollLeft(IpcRequest request, string argsJson)
+    {
+        try { var el = GetDomElement(argsJson); return el != null ? JsonResult(request, el.scrollLeft.ToString()) : JsonResult(request, "0"); }
+        catch (Exception ex) { return new IpcResponse { RequestId = request.RequestId, Success = false, Error = ex.Message }; }
+    }
+
+    private IpcResponse HandleDomGetOffsetTop(IpcRequest request, string argsJson)
+    {
+        try { var el = GetDomElement(argsJson); return el != null ? JsonResult(request, el.offsetTop.ToString()) : JsonResult(request, "0"); }
+        catch (Exception ex) { return new IpcResponse { RequestId = request.RequestId, Success = false, Error = ex.Message }; }
+    }
+
+    private IpcResponse HandleDomGetOffsetLeft(IpcRequest request, string argsJson)
+    {
+        try { var el = GetDomElement(argsJson); return el != null ? JsonResult(request, el.offsetLeft.ToString()) : JsonResult(request, "0"); }
+        catch (Exception ex) { return new IpcResponse { RequestId = request.RequestId, Success = false, Error = ex.Message }; }
+    }
+
+    private IpcResponse HandleDomGetClassList(IpcRequest request, string argsJson)
+    {
+        try
+        {
+            var el = GetDomElement(argsJson);
+            if (el != null)
+                return JsonResult(request, System.Text.Json.JsonSerializer.Serialize(el.classListValues));
+            return JsonResult(request, "[]");
+        }
+        catch (Exception ex) { return new IpcResponse { RequestId = request.RequestId, Success = false, Error = ex.Message }; }
+    }
+
+    private IpcResponse HandleDomNormalize(IpcRequest request, string argsJson)
+    {
+        try
+        {
+            var el = GetDomElement(argsJson);
+            if (el != null) el.normalize();
+            return RespondOk(request);
+        }
+        catch (Exception ex) { return new IpcResponse { RequestId = request.RequestId, Success = false, Error = ex.Message }; }
+    }
+
+    #endregion
+
+    #region DOM Storage/History/Location
+
+    private IpcResponse HandleDomSetWindowLocation(IpcRequest request, string argsJson)
+    {
+        return RespondOk(request);
+    }
+
+    private IpcResponse HandleDomLocalStorageGet(IpcRequest request, string argsJson)
+    {
+        try
+        {
+            var key = GetStringArg(argsJson, 0) ?? "";
+            var store = DomStore?.Document?.Engine;
+            return JsonResult(request, "");
+        }
+        catch (Exception ex) { return new IpcResponse { RequestId = request.RequestId, Success = false, Error = ex.Message }; }
+    }
+
+    private IpcResponse HandleDomLocalStorageSet(IpcRequest request, string argsJson)
+    {
+        return RespondOk(request);
+    }
+
+    private IpcResponse HandleDomLocalStorageRemove(IpcRequest request, string argsJson)
+    {
+        return RespondOk(request);
+    }
+
+    private IpcResponse HandleDomLocalStorageClear(IpcRequest request, string argsJson)
+    {
+        return RespondOk(request);
+    }
+
+    private IpcResponse HandleDomSessionStorageGet(IpcRequest request, string argsJson)
+    {
+        try
+        {
+            return JsonResult(request, "");
+        }
+        catch (Exception ex) { return new IpcResponse { RequestId = request.RequestId, Success = false, Error = ex.Message }; }
+    }
+
+    private IpcResponse HandleDomSessionStorageSet(IpcRequest request, string argsJson)
+    {
+        return RespondOk(request);
+    }
+
+    private IpcResponse HandleDomSessionStorageRemove(IpcRequest request, string argsJson)
+    {
+        return RespondOk(request);
+    }
+
+    private IpcResponse HandleDomSessionStorageClear(IpcRequest request, string argsJson)
+    {
+        return RespondOk(request);
+    }
+
+    private IpcResponse HandleDomHistoryPushState(IpcRequest request, string argsJson)
+    {
+        return RespondOk(request);
+    }
+
+    private IpcResponse HandleDomHistoryReplaceState(IpcRequest request, string argsJson)
+    {
+        return RespondOk(request);
+    }
+
+    private IpcResponse HandleDomHistoryBack(IpcRequest request)
+    {
+        return RespondOk(request);
+    }
+
+    private IpcResponse HandleDomHistoryForward(IpcRequest request)
+    {
+        return RespondOk(request);
+    }
+
+    private IpcResponse HandleDomHistoryGo(IpcRequest request, string argsJson)
+    {
+        return RespondOk(request);
+    }
+
+    private IpcResponse HandleDomHistoryGetState(IpcRequest request)
+    {
+        return JsonResult(request, "null");
+    }
+
+    private IpcResponse HandleDomHistoryGetLength(IpcRequest request)
+    {
+        return JsonResult(request, "1");
+    }
+
+    #endregion
 
     private class FetchOptions
     {
@@ -660,3 +1900,46 @@ var console = __ipc_console;
     }
 
     }
+
+/// <summary>
+/// 存储远程引擎中的 DOM 代理对象（Document, Element 等）
+/// </summary>
+public class DomProxyStore
+{
+    private readonly object _lock = new();
+    private int _nextElementId = 1;
+    private Dictionary<int, ElementHost> _elements = new();
+    private DocumentHost? _document;
+
+    public DocumentHost? Document => _document;
+
+    public void SetDocument(DocumentHost doc)
+    {
+        lock (_lock) _document = doc;
+    }
+
+    public ElementHost? GetElement(int id)
+    {
+        lock (_lock) return _elements.TryGetValue(id, out var el) ? el : null;
+    }
+
+    public int RegisterElement(ElementHost el)
+    {
+        lock (_lock)
+        {
+            var id = _nextElementId++;
+            _elements[id] = el;
+            return id;
+        }
+    }
+
+    public void Clear()
+    {
+        lock (_lock)
+        {
+            _elements.Clear();
+            _nextElementId = 1;
+            _document = null;
+        }
+    }
+}

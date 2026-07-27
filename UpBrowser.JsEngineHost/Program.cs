@@ -183,6 +183,25 @@ class EngineManager
 })();
 ";
         _engine.Execute(setup);
+        // Load DOM setup from external JS file
+        var domSetupPath = Path.Combine(AppContext.BaseDirectory, "DomSetup.js");
+        if (File.Exists(domSetupPath))
+        {
+            try
+            {
+                var domSetup = File.ReadAllText(domSetupPath);
+                _engine.Execute(domSetup);
+                Console.WriteLine("[JsEngineHost] DOM setup loaded from file");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[JsEngineHost] Failed to load DOM setup: {ex.Message}");
+            }
+        }
+        else
+        {
+            Console.WriteLine("[JsEngineHost] DomSetup.js not found at " + domSetupPath);
+        }
     }
 
     private string SendToMain(string method, string argsJson)

@@ -54,6 +54,7 @@ public class IpcResponse
     public string? Error { get; set; }
     public int NewProxyId { get; set; }
     public int CallbackId { get; set; }
+    public int NewElementId { get; set; }
 }
 
 /// <summary>DOM 代理信息</summary>
