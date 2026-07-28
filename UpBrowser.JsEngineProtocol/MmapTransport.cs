@@ -185,12 +185,29 @@ public class MmapTransport : IDisposable
         if (len > MaxMsgSize)
             throw new InvalidOperationException($"Message too large: {len}");
 
-        while (true)
+        var deadline = DateTime.UtcNow.AddSeconds(10);
+
+        Console.WriteLine($"[MmapTransport] SendAsync START len={len}");
+        var waitStart = DateTime.UtcNow;
+        while (DateTime.UtcNow < deadline)
         {
             var sync = new byte[4];
             _outView.ReadArray<byte>(SyncOffset, sync, 0, 4);
-            if (BitConverter.ToInt32(sync, 0) == StateIdle) break;
+            var state = BitConverter.ToInt32(sync, 0);
+            if (state == StateIdle) break;
             await Task.Delay(1);
+            if ((DateTime.UtcNow - waitStart).TotalMilliseconds > 200)
+            {
+                Console.WriteLine($"[MmapTransport] SendAsync waiting for Idle (current={state}, elapsed={(DateTime.UtcNow - waitStart).TotalMilliseconds:F0}ms)");
+                waitStart = DateTime.UtcNow;
+            }
+        }
+        if (DateTime.UtcNow >= deadline)
+        {
+            var sync = new byte[4];
+            _outView.ReadArray<byte>(SyncOffset, sync, 0, 4);
+            var finalState = BitConverter.ToInt32(sync, 0);
+            throw new TimeoutException($"SendAsync: timeout waiting for channel to become idle (final_state={finalState})");
         }
 
         var header = BitConverter.GetBytes(len);
@@ -203,13 +220,23 @@ public class MmapTransport : IDisposable
         var ready = BitConverter.GetBytes(StateReady);
         _outView.WriteArray<byte>(SyncOffset, ready, 0, 4);
 
-        for (int i = 0; i < 5000; i++)
+        Console.WriteLine($"[MmapTransport] SendAsync wrote data, waiting for acknowledge");
+        while (DateTime.UtcNow < deadline)
         {
             var sync = new byte[4];
             _outView.ReadArray<byte>(SyncOffset, sync, 0, 4);
-            if (BitConverter.ToInt32(sync, 0) == StateIdle) break;
+            var state = BitConverter.ToInt32(sync, 0);
+            if (state == StateIdle) break;
             await Task.Delay(1);
         }
+        if (DateTime.UtcNow >= deadline)
+        {
+            var sync = new byte[4];
+            _outView.ReadArray<byte>(SyncOffset, sync, 0, 4);
+            var finalState = BitConverter.ToInt32(sync, 0);
+            throw new TimeoutException($"SendAsync: timeout waiting for peer to acknowledge message (final_state={finalState})");
+        }
+        Console.WriteLine($"[MmapTransport] SendAsync DONE");
     }
 
     public async Task<byte[]> ReceiveAsync()
@@ -217,13 +244,22 @@ public class MmapTransport : IDisposable
         if (_disposed || _inView == null)
             return Array.Empty<byte>();
 
+        Console.WriteLine($"[MmapTransport] ReceiveAsync START");
+        var waitStart = DateTime.UtcNow;
         while (true)
         {
             var sync = new byte[4];
             _inView.ReadArray<byte>(SyncOffset, sync, 0, 4);
-            if (BitConverter.ToInt32(sync, 0) == StateReady) break;
+            var state = BitConverter.ToInt32(sync, 0);
+            if (state == StateReady) break;
             await Task.Delay(1);
+            if ((DateTime.UtcNow - waitStart).TotalMilliseconds > 200)
+            {
+                Console.WriteLine($"[MmapTransport] ReceiveAsync waiting for Ready (current={state}, elapsed={(DateTime.UtcNow - waitStart).TotalMilliseconds:F0}ms)");
+                waitStart = DateTime.UtcNow;
+            }
         }
+        Console.WriteLine($"[MmapTransport] ReceiveAsync state=Ready, reading header");
 
         var header = new byte[HeaderSize];
         int? len = null;
@@ -253,6 +289,7 @@ public class MmapTransport : IDisposable
 
         var idle = BitConverter.GetBytes(StateIdle);
         _inView.WriteArray<byte>(SyncOffset, idle, 0, 4);
+        Console.WriteLine($"[MmapTransport] ReceiveAsync DONE len={finalLen}");
 
         return data;
     }

@@ -223,6 +223,7 @@ var console = __ipc_console;
 
     private async Task ReceiveLoop(CancellationToken ct)
     {
+        Console.WriteLine("[RemoteJsEngine] ReceiveLoop START");
         while (!ct.IsCancellationRequested && _transport != null)
         {
         try
@@ -233,17 +234,48 @@ var console = __ipc_console;
             var msg = ProtocolSerializer.DeserializeAny(bytes);
             if (msg.Request != null)
             {
+                Console.WriteLine($"[RemoteJsEngine] ReceiveLoop got REQUEST type={msg.Request.Type} reqId={msg.Request.RequestId}");
                 if (msg.Request.Type == RequestType.DomCall)
                 {
-                    var result = HandleDomCall(msg.Request);
-                    var responseData = ProtocolSerializer.Serialize(result);
-                    await _transport.SendAsync(responseData);
+                    // Dispatch DomCall to a background thread so ReceiveLoop stays free
+                    // to read the child's Execute response. If we handled DomCall
+                    // synchronously here, SendAsync(responseData) would block the
+                    // ReceiveLoop thread, preventing it from ever reading the
+                    // Execute response that unblocks the parent's SendRequest.
+                    var reqCopy = msg.Request;
+                    Console.WriteLine($"[RemoteJsEngine] Dispatching DomCall to background thread reqId={reqCopy.RequestId}");
+                    _ = Task.Run(() =>
+                    {
+                        try
+                        {
+                            Console.WriteLine($"[RemoteJsEngine] Background DomCall handler START reqId={reqCopy.RequestId}");
+                            var result = HandleDomCall(reqCopy);
+                            Console.WriteLine($"[RemoteJsEngine] Background DomCall handler done reqId={reqCopy.RequestId} success={result.Success}");
+                            var responseData = ProtocolSerializer.Serialize(result);
+                            if (_transport != null)
+                                _transport.SendAsync(responseData).GetAwaiter().GetResult();
+                        }
+                        catch (Exception ex)
+                        {
+                            Console.WriteLine($"[RemoteJsEngine] Background DomCall handler ERROR reqId={reqCopy.RequestId}: {ex.Message}");
+                            var errorResponse = new IpcResponse
+                            {
+                                RequestId = reqCopy.RequestId,
+                                Success = false,
+                                Error = ex.Message
+                            };
+                            var errorData = ProtocolSerializer.Serialize(errorResponse);
+                            if (_transport != null)
+                                _transport.SendAsync(errorData).GetAwaiter().GetResult();
+                        }
+                    });
                 }
                 continue;
             }
 
             if (msg.Response != null)
             {
+                Console.WriteLine($"[RemoteJsEngine] ReceiveLoop got RESPONSE reqId={msg.Response.RequestId} success={msg.Response.Success}");
                 TaskCompletionSource<IpcResponse>? tcs;
                 lock (_lock)
                 {
@@ -1856,6 +1888,7 @@ var console = __ipc_console;
         if (_transport == null)
             throw new InvalidOperationException("IPC transport not initialized");
 
+        Console.WriteLine($"[RemoteJsEngine] SendRequest START type={request.Type} reqId={request.RequestId}");
         var tcs = new TaskCompletionSource<IpcResponse>(TaskCreationOptions.RunContinuationsAsynchronously);
         lock (_lock)
         {
@@ -1866,18 +1899,35 @@ var console = __ipc_console;
         {
             var data = ProtocolSerializer.Serialize(request);
             _transport.SendAsync(data).GetAwaiter().GetResult();
+            Console.WriteLine($"[RemoteJsEngine] SendRequest sent, waiting for response reqId={request.RequestId}");
+
+            var waitStart = DateTime.UtcNow;
+            while (!tcs.Task.IsCompleted)
+            {
+                Thread.Sleep(50);
+                if ((DateTime.UtcNow - waitStart).TotalMilliseconds > 1000)
+                {
+                    Console.WriteLine($"[RemoteJsEngine] SendRequest waiting for response (reqId={request.RequestId}, elapsed={(DateTime.UtcNow - waitStart).TotalMilliseconds:F0}ms)");
+                    waitStart = DateTime.UtcNow;
+                }
+            }
 
             if (!tcs.Task.Wait(10000))
             {
                 lock (_lock) _pending.Remove(request.RequestId);
-                throw new TimeoutException($"IPC request {request.RequestId} timed out");
+                var procStatus = _hostProcess?.HasExited == true ? $" (host process {_hostProcess?.Id} has exited)" : "";
+                Console.WriteLine($"[RemoteJsEngine] SendRequest TIMEOUT reqId={request.RequestId}{procStatus}");
+                throw new TimeoutException($"IPC request {request.RequestId} timed out{procStatus}");
             }
 
-            return tcs.Task.Result;
+            var result = tcs.Task.Result;
+            Console.WriteLine($"[RemoteJsEngine] SendRequest DONE reqId={request.RequestId} success={result.Success}");
+            return result;
         }
-        catch (Exception)
+        catch (Exception ex)
         {
             lock (_lock) _pending.Remove(request.RequestId);
+            Console.WriteLine($"[RemoteJsEngine] SendRequest ERROR reqId={request.RequestId} err={ex.Message}");
             throw;
         }
     }

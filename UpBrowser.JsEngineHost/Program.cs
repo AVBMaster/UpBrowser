@@ -28,7 +28,10 @@ class Program
 
         Console.WriteLine($"[JsEngineHost] Starting channel={channelName} engine={engineType} tab={tabIndex}");
 
-        JsEngineSwitcher.Current.EngineFactories.AddJint();
+        JsEngineSwitcher.Current.EngineFactories.AddJint(s =>
+        {
+            s.MaxRecursionDepth = 500;
+        });
         JsEngineSwitcher.Current.DefaultEngineName = JsEngineSwitcher.Current.EngineFactories.First().EngineName;
         using var engine = JsEngineSwitcher.Current.CreateDefaultEngine();
         var manager = new EngineManager(engine, tabIndex);
@@ -38,7 +41,6 @@ class Program
         {
             await transport.StartServerAsync();
             Console.WriteLine("[JsEngineHost] MMAP connected");
-            manager.ExecuteSetup();
             Console.WriteLine("[JsEngineHost] Setup completed");
             await manager.RunAsync(transport);
         }
@@ -61,6 +63,7 @@ class EngineManager
     private readonly object _lock = new();
     private long _nextRequestId;
     private CancellationTokenSource? _cts;
+    private readonly SemaphoreSlim _engineLock = new(1, 1);
 
     public EngineManager(IJsEngine engine, int tabIndex)
     {
@@ -114,6 +117,16 @@ class EngineManager
     };
     g.__g_remove = function(id) { delete g.__g_cbs[id]; };
 
+    // Capture native built-ins BEFORE shadowing them, to avoid self-recursion (stack overflow).
+    g.___nativeInt = parseInt;
+    g.___nativeFloat = parseFloat;
+    g.___nativeNaN = isNaN;
+    g.___nativeFinite = isFinite;
+    g.___nativeDecodeURI = decodeURI;
+    g.___nativeEncodeURI = encodeURI;
+    g.___nativeDecodeURIComponent = decodeURIComponent;
+    g.___nativeEncodeURIComponent = encodeURIComponent;
+
     g.console = {
         log: function() { print('[JS Log] ' + Array.prototype.slice.call(arguments).join(' ')); },
         error: function() { print('[JS Error] ' + Array.prototype.slice.call(arguments).join(' ')); },
@@ -130,21 +143,21 @@ class EngineManager
     g.__upbrowser = {
         setTimeout: g.setTimeout, setInterval: g.setInterval,
         clearTimeout: g.clearTimeout, clearInterval: g.clearInterval,
-        innerWidth: function() { return parseInt(__ipc('innerWidth', '[]')); },
-        innerHeight: function() { return parseInt(__ipc('innerHeight', '[]')); },
+        innerWidth: function() { return g.___nativeInt(__ipc('innerWidth', '[]')); },
+        innerHeight: function() { return g.___nativeInt(__ipc('innerHeight', '[]')); },
         scrollTo: function(x,y) { __ipc('scrollTo', JSON.stringify([x||0,y||0])); },
         scrollBy: function(x,y) { __ipc('scrollBy', JSON.stringify([x||0,y||0])); },
         alert: function(msg) { __ipc('alert', JSON.stringify([msg||''])); },
         confirm: function(msg) { return __ipc('confirm', JSON.stringify([msg||''])) === 'true'; },
         prompt: function(msg,def) { return __ipc('prompt', JSON.stringify([msg||'',def||''])); },
-        decodeURI: function(s) { return decodeURI(s); },
-        encodeURI: function(s) { return encodeURI(s); },
-        decodeURIComponent: function(s) { return decodeURIComponent(s); },
-        encodeURIComponent: function(s) { return encodeURIComponent(s); },
-        parseInt: function(s,r) { return parseInt(s, r||10); },
-        parseFloat: function(s) { return parseFloat(s); },
-        isNaN: function(v) { return isNaN(v); },
-        isFinite: function(v) { return isFinite(v); },
+        decodeURI: function(s) { return g.___nativeDecodeURI(s); },
+        encodeURI: function(s) { return g.___nativeEncodeURI(s); },
+        decodeURIComponent: function(s) { return g.___nativeDecodeURIComponent(s); },
+        encodeURIComponent: function(s) { return g.___nativeEncodeURIComponent(s); },
+        parseInt: function(s,r) { return g.___nativeInt(s, r||10); },
+        parseFloat: function(s) { return g.___nativeFloat(s); },
+        isNaN: function(v) { return g.___nativeNaN(v); },
+        isFinite: function(v) { return g.___nativeFinite(v); },
         atob: function(s) { return __ipc('atob', JSON.stringify([s||''])); },
         btoa: function(s) { return __ipc('btoa', JSON.stringify([s||''])); },
         _fetch: function(url, opts, resolveId, rejectId) {
@@ -168,18 +181,18 @@ class EngineManager
     };
     g.requestAnimationFrame = function(fn) { return g.setTimeout(fn, 16); };
     g.cancelAnimationFrame = function(id) { g.clearTimeout(id); };
-    g.decodeURI = function(s) { try { return decodeURI(s); } catch(e) { return s; } };
-    g.encodeURI = function(s) { try { return encodeURI(s); } catch(e) { return s; } };
-    g.decodeURIComponent = function(s) { try { return decodeURIComponent(s); } catch(e) { return s; } };
-    g.encodeURIComponent = function(s) { try { return encodeURIComponent(s); } catch(e) { return s; } };
-    g.parseInt = function(s,r) { return parseInt(s, r||10); };
-    g.parseFloat = function(s) { return parseFloat(s); };
-    g.isNaN = function(v) { return isNaN(v); };
-    g.isFinite = function(v) { return isFinite(v); };
+    g.decodeURI = function(s) { try { return g.___nativeDecodeURI(s); } catch(e) { return s; } };
+    g.encodeURI = function(s) { try { return g.___nativeEncodeURI(s); } catch(e) { return s; } };
+    g.decodeURIComponent = function(s) { try { return g.___nativeDecodeURIComponent(s); } catch(e) { return s; } };
+    g.encodeURIComponent = function(s) { try { return g.___nativeEncodeURIComponent(s); } catch(e) { return s; } };
+    g.parseInt = function(s,r) { return g.___nativeInt(s, r||10); };
+    g.parseFloat = function(s) { return g.___nativeFloat(s); };
+    g.isNaN = function(v) { return g.___nativeNaN(v); };
+    g.isFinite = function(v) { return g.___nativeFinite(v); };
     g.atob = function(s) { return __ipc('atob', JSON.stringify([s||''])); };
     g.btoa = function(s) { return __ipc('btoa', JSON.stringify([s||''])); };
-    try { g.Object.defineProperty(g, 'innerWidth', { configurable: true, get: function() { return parseInt(__ipc('innerWidth', '[]')); } }); } catch(e) {}
-    try { g.Object.defineProperty(g, 'innerHeight', { configurable: true, get: function() { return parseInt(__ipc('innerHeight', '[]')); } }); } catch(e) {}
+    try { g.Object.defineProperty(g, 'innerWidth', { configurable: true, get: function() { return g.___nativeInt(__ipc('innerWidth', '[]')); } }); } catch(e) {}
+    try { g.Object.defineProperty(g, 'innerHeight', { configurable: true, get: function() { return g.___nativeInt(__ipc('innerHeight', '[]')); } }); } catch(e) {}
 })();
 ";
         _engine.Execute(setup);
@@ -207,6 +220,7 @@ class EngineManager
     private string SendToMain(string method, string argsJson)
     {
         var requestId = Interlocked.Increment(ref _nextRequestId);
+        Console.WriteLine($"[JsEngineHost] SendToMain START method={method} reqId={requestId}");
         var tcs = new TaskCompletionSource<IpcResponse>(TaskCreationOptions.RunContinuationsAsynchronously);
 
         lock (_lock)
@@ -224,26 +238,42 @@ class EngineManager
         try
         {
             var data = ProtocolSerializer.Serialize(request);
+            Console.WriteLine($"[JsEngineHost] SendToMain calling SendAsync");
             _transport!.SendAsync(data).Wait();
+            Console.WriteLine($"[JsEngineHost] SendAsync returned, waiting for DomCall response");
+            var waitStart = DateTime.UtcNow;
+            while (!tcs.Task.IsCompleted)
+            {
+                Thread.Sleep(50);
+                if ((DateTime.UtcNow - waitStart).TotalMilliseconds > 1000)
+                {
+                    Console.WriteLine($"[JsEngineHost] SendToMain waiting for response (elapsed={(DateTime.UtcNow - waitStart).TotalMilliseconds:F0}ms)");
+                    waitStart = DateTime.UtcNow;
+                }
+            }
 
-            if (!tcs.Task.Wait(5000))
+            if (!tcs.Task.Wait(10000))
             {
                 lock (_lock) _pending.Remove(requestId);
+                Console.WriteLine($"[JsEngineHost] SendToMain TIMEOUT for requestId={requestId} method={method}");
                 return "{\"error\":\"timeout\"}";
             }
 
             var response = tcs.Task.Result;
+            Console.WriteLine($"[JsEngineHost] SendToMain DONE reqId={requestId} success={response.Success} resultLen={response.Result?.Length ?? 0}");
             return response.Result ?? "null";
         }
         catch (Exception ex)
         {
             lock (_lock) _pending.Remove(requestId);
+            Console.WriteLine($"[JsEngineHost] SendToMain ERROR method={method} err={ex.Message}");
             return $"{{\"error\":\"{ex.Message}\"}}";
         }
     }
 
     private async Task ReceiveLoop(CancellationToken ct)
     {
+        Console.WriteLine("[JsEngineHost] ReceiveLoop START");
         while (!ct.IsCancellationRequested && _transport != null)
         {
         try
@@ -252,6 +282,15 @@ class EngineManager
             var msg = ProtocolSerializer.DeserializeAny(data);
             if (msg.Request != null)
             {
+                Console.WriteLine($"[JsEngineHost] ReceiveLoop got REQUEST type={msg.Request.Type} reqId={msg.Request.RequestId}");
+                // Dispatch request processing to a threadpool thread.
+                // CRITICAL: ReceiveLoop must stay free to read parent responses.
+                // __ipc (called from JS inside ProcessRequest) calls SendToMain which
+                // blocks waiting for the parent's DomCall response.  If we process on
+                // the ReceiveLoop thread, ReceiveLoop can never read that response,
+                // causing a deadlock:
+                //   child  → blocked in SendToMain waiting for parent response
+                //   parent → blocked in SendAsync waiting for child to set StateIdle
                 var reqCopy = msg.Request;
                 _ = Task.Run(async () =>
                 {
@@ -263,7 +302,15 @@ class EngineManager
                     }
                     catch (Exception ex)
                     {
-                        Console.Error.WriteLine($"[JsEngineHost] Request error: {ex.Message}");
+                        Console.Error.WriteLine($"[JsEngineHost] Request processing error: {ex.Message}");
+                        var errorResponse = new IpcResponse
+                        {
+                            RequestId = reqCopy.RequestId,
+                            Success = false,
+                            Error = ex.Message
+                        };
+                        var errorData = ProtocolSerializer.Serialize(errorResponse);
+                        await _transport!.SendAsync(errorData);
                     }
                 });
                 continue;
@@ -271,6 +318,7 @@ class EngineManager
 
             if (msg.Response != null)
             {
+                Console.WriteLine($"[JsEngineHost] ReceiveLoop got RESPONSE reqId={msg.Response.RequestId} success={msg.Response.Success}");
                 TaskCompletionSource<IpcResponse>? tcs;
                 lock (_lock)
                 {
@@ -295,9 +343,10 @@ class EngineManager
 
     private async Task<IpcResponse> ProcessRequest(IpcRequest request)
     {
+        Console.WriteLine($"[JsEngineHost] ProcessRequest START type={request.Type} reqId={request.RequestId}");
         try
         {
-            return request.Type switch
+            var result = request.Type switch
             {
                 RequestType.Execute => HandleExecute(request),
                 RequestType.Evaluate => HandleEvaluate(request),
@@ -305,52 +354,137 @@ class EngineManager
                 RequestType.InvokeCallback => HandleInvokeCallback(request),
                 RequestType.DisposeEngine => HandleDispose(),
                 RequestType.Ping => new IpcResponse { RequestId = request.RequestId, Success = true, Type = ResponseType.Pong },
+                RequestType.DomCall => HandleDomCall(request),
                 _ => new IpcResponse { RequestId = request.RequestId, Success = false, Error = $"Unknown: {request.Type}" }
             };
+            Console.WriteLine($"[JsEngineHost] ProcessRequest DONE reqId={request.RequestId} success={result.Success}");
+            return result;
         }
         catch (Exception ex)
         {
+            Console.WriteLine($"[JsEngineHost] ProcessRequest ERROR reqId={request.RequestId} err={ex.Message}");
+            return new IpcResponse { RequestId = request.RequestId, Success = false, Error = ex.Message };
+        }
+    }
+
+    private IpcResponse HandleDomCall(IpcRequest request)
+    {
+        try
+        {
+            var payload = request.Payload ?? "";
+            var sep = payload.IndexOf('|');
+            if (sep < 0)
+                return new IpcResponse { RequestId = request.RequestId, Success = false, Error = "Invalid payload" };
+
+            var method = payload[..sep];
+            var argsJson = payload[(sep + 1)..];
+
+            Console.WriteLine($"[JsEngineHost] HandleDomCall START method={method}");
+            var result = SendToMain(method, argsJson);
+            Console.WriteLine($"[JsEngineHost] HandleDomCall DONE method={method} resultLen={result.Length}");
+            return new IpcResponse { RequestId = request.RequestId, Success = true, Result = result };
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[JsEngineHost] HandleDomCall ERROR err={ex.Message}");
             return new IpcResponse { RequestId = request.RequestId, Success = false, Error = ex.Message };
         }
     }
 
     private IpcResponse HandleExecute(IpcRequest request)
     {
-        _engine.Execute(request.Payload ?? "");
-        return new IpcResponse { RequestId = request.RequestId, Success = true };
+        Console.WriteLine($"[JsEngineHost] HandleExecute START reqId={request.RequestId}");
+        _engineLock.Wait();
+        try
+        {
+            var code = request.Payload ?? "";
+            Console.WriteLine($"[JsEngineHost] HandleExecute acq lock, executing {code.Length} chars");
+            try
+            {
+                _engine.Execute(code);
+                Console.WriteLine($"[JsEngineHost] HandleExecute done success");
+                return new IpcResponse { RequestId = request.RequestId, Success = true };
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[JsEngineHost] Execute error: {ex.Message}");
+                Console.WriteLine($"[JsEngineHost] Code: {code[..Math.Min(500, code.Length)]}");
+                throw;
+            }
+        }
+        finally
+        {
+            _engineLock.Release();
+            Console.WriteLine($"[JsEngineHost] HandleExecute release lock");
+        }
     }
 
     private IpcResponse HandleEvaluate(IpcRequest request)
     {
-        var result = _engine.Evaluate(request.Payload ?? "");
-        return new IpcResponse
+        _engineLock.Wait();
+        try
         {
-            RequestId = request.RequestId,
-            Success = true,
-            Result = result?.ToString()
-        };
+            var code = request.Payload ?? "";
+            try
+            {
+                Console.WriteLine($"[JsEngineHost] Evaluate({code.Length} chars): {code[..Math.Min(200, code.Length)]}");
+                var result = _engine.Evaluate(code);
+                return new IpcResponse
+                {
+                    RequestId = request.RequestId,
+                    Success = true,
+                    Result = result?.ToString()
+                };
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"[JsEngineHost] Evaluate error: {ex.Message}");
+                Console.Error.WriteLine($"[JsEngineHost] Code: {code[..Math.Min(500, code.Length)]}");
+                throw;
+            }
+        }
+        finally
+        {
+            _engineLock.Release();
+        }
     }
 
     private IpcResponse HandleCallFunction(IpcRequest request)
     {
-        if (request.Payload != null)
+        _engineLock.Wait();
+        try
         {
-            var parts = JsonSerializer.Deserialize<string[]>(request.Payload);
-            if (parts != null && parts.Length >= 1)
+            if (request.Payload != null)
             {
-                var args = parts.Length > 1 ? parts.Skip(1).Cast<object>().ToArray() : Array.Empty<object>();
-                var result = _engine.CallFunction(parts[0], args);
-                return new IpcResponse { RequestId = request.RequestId, Success = true, Result = result?.ToString() };
+                var parts = JsonSerializer.Deserialize<string[]>(request.Payload);
+                if (parts != null && parts.Length >= 1)
+                {
+                    var args = parts.Length > 1 ? parts.Skip(1).Cast<object>().ToArray() : Array.Empty<object>();
+                    var result = _engine.CallFunction(parts[0], args);
+                    return new IpcResponse { RequestId = request.RequestId, Success = true, Result = result?.ToString() };
+                }
             }
+            return new IpcResponse { RequestId = request.RequestId, Success = false, Error = "Invalid call" };
         }
-        return new IpcResponse { RequestId = request.RequestId, Success = false, Error = "Invalid call" };
+        finally
+        {
+            _engineLock.Release();
+        }
     }
 
     private IpcResponse HandleInvokeCallback(IpcRequest request)
     {
-        var code = $"__g_invoke({request.CallbackId}, {JsonSerializer.Serialize(request.Payload)})";
-        _engine.Evaluate(code);
-        return new IpcResponse { RequestId = request.RequestId, Success = true, Type = ResponseType.CallbackInvoked };
+        _engineLock.Wait();
+        try
+        {
+            var code = $"__g_invoke({request.CallbackId}, {JsonSerializer.Serialize(request.Payload)})";
+            _engine.Evaluate(code);
+            return new IpcResponse { RequestId = request.RequestId, Success = true, Type = ResponseType.CallbackInvoked };
+        }
+        finally
+        {
+            _engineLock.Release();
+        }
     }
 
     private IpcResponse HandleDispose()

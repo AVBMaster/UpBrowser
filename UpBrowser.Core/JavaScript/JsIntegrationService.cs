@@ -158,6 +158,7 @@ namespace UpBrowser.Core.JavaScript;
     {
         try
         {
+            if (_facade.Adapter is RemoteJsEngineAdapter) return;
             var id = Interlocked.Increment(ref _fixProtoCounter);
             var tmpName = $"__tmp_fp_{id}";
             _facade.SetGlobalObject(tmpName, host);

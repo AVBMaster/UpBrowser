@@ -315,27 +315,28 @@
     g.clearTimeout = function(id) { try { __ipc('clearTimeout', JSON.stringify([id])); } catch(e) {} };
     g.clearInterval = function(id) { try { __ipc('clearInterval', JSON.stringify([id])); } catch(e) {} };
 
+    // Native built-ins were already captured in the main setup (g.___nativeInt, g.___nativeFloat, etc.).
+    // DomSetup.js does NOT re-capture — it relies on Program.cs's capture to avoid self-recursion.
+
     // === __upbrowser ===
     g.__upbrowser = {
         setTimeout: g.setTimeout, setInterval: g.setInterval,
         clearTimeout: g.clearTimeout, clearInterval: g.clearInterval,
-        innerWidth: function() { return parseInt(__ipc('innerWidth', '[]')); },
-        innerHeight: function() { return parseInt(__ipc('innerHeight', '[]')); },
+        innerWidth: function() { return g.___nativeInt(__ipc('innerWidth', '[]')); },
+        innerHeight: function() { return g.___nativeInt(__ipc('innerHeight', '[]')); },
         scrollTo: function(x,y) { __ipc('scrollTo', JSON.stringify([x||0,y||0])); },
         scrollBy: function(x,y) { __ipc('scrollBy', JSON.stringify([x||0,y||0])); },
         alert: function(msg) { __ipc('alert', JSON.stringify([msg||''])); },
         confirm: function(msg) { return __ipc('confirm', JSON.stringify([msg||''])) === 'true'; },
         prompt: function(msg,def) { return __ipc('prompt', JSON.stringify([msg||'',def||''])); },
-        decodeURI: function(s) { return decodeURI(s); },
-        encodeURI: function(s) { return encodeURI(s); },
-        decodeURIComponent: function(s) { return decodeURIComponent(s); },
-        encodeURIComponent: function(s) { return encodeURIComponent(s); },
-        parseInt: function(s,r) { return parseInt(s, r||10); },
-        parseFloat: function(s) { return parseFloat(s); },
-        isNaN: function(v) { return isNaN(v); },
-        isFinite: function(v) { return isFinite(v); },
-        escape: function(s) { return escape(s); },
-        unescape: function(s) { return unescape(s); },
+        decodeURI: function(s) { return g.___nativeDecodeURI(s); },
+        encodeURI: function(s) { return g.___nativeEncodeURI(s); },
+        decodeURIComponent: function(s) { return g.___nativeDecodeURIComponent(s); },
+        encodeURIComponent: function(s) { return g.___nativeEncodeURIComponent(s); },
+        parseInt: function(s,r) { return g.___nativeInt(s, r||10); },
+        parseFloat: function(s) { return g.___nativeFloat(s); },
+        isNaN: function(v) { return g.___nativeNaN(v); },
+        isFinite: function(v) { return g.___nativeFinite(v); },
         atob: function(s) { return __ipc('atob', JSON.stringify([s||''])); },
         btoa: function(s) { return __ipc('btoa', JSON.stringify([s||''])); },
         _fetch: function(url, opts, resolveId, rejectId) {
@@ -344,8 +345,6 @@
         createXMLHttpRequest: function() { return __ipc('createXHR', '[]'); },
         createURL: function(url,base) { return __ipc('createURL', JSON.stringify([url||'',base||''])); },
         createURLSearchParams: function(q) { return __ipc('createURLSearchParams', JSON.stringify([q||''])); },
-        innerWidth: function() { return parseInt(__ipc('innerWidth', '[]')); },
-        innerHeight: function() { return parseInt(__ipc('innerHeight', '[]')); },
         devicePixelRatio: function() { return 1; },
         scrollX: function() { return 0; },
         scrollY: function() { return 0; }
@@ -365,23 +364,23 @@
     };
     g.requestAnimationFrame = function(fn) { return g.setTimeout(fn, 16); };
     g.cancelAnimationFrame = function(id) { g.clearTimeout(id); };
-    g.decodeURI = function(s) { try { return decodeURI(s); } catch(e) { return s; } };
-    g.encodeURI = function(s) { try { return encodeURI(s); } catch(e) { return s; } };
-    g.decodeURIComponent = function(s) { try { return decodeURIComponent(s); } catch(e) { return s; } };
-    g.encodeURIComponent = function(s) { try { return encodeURIComponent(s); } catch(e) { return s; } };
-    g.parseInt = function(s,r) { return parseInt(s, r||10); };
-    g.parseFloat = function(s) { return parseFloat(s); };
-    g.isNaN = function(v) { return isNaN(v); };
-    g.isFinite = function(v) { return isFinite(v); };
+    g.decodeURI = function(s) { try { return g.___nativeDecodeURI(s); } catch(e) { return s; } };
+    g.encodeURI = function(s) { try { return g.___nativeEncodeURI(s); } catch(e) { return s; } };
+    g.decodeURIComponent = function(s) { try { return g.___nativeDecodeURIComponent(s); } catch(e) { return s; } };
+    g.encodeURIComponent = function(s) { try { return g.___nativeEncodeURIComponent(s); } catch(e) { return s; } };
+    g.parseInt = function(s,r) { return g.___nativeInt(s, r||10); };
+    g.parseFloat = function(s) { return g.___nativeFloat(s); };
+    g.isNaN = function(v) { return g.___nativeNaN(v); };
+    g.isFinite = function(v) { return g.___nativeFinite(v); };
     g.atob = function(s) { return __ipc('atob', JSON.stringify([s||''])); };
     g.btoa = function(s) { return __ipc('btoa', JSON.stringify([s||''])); };
-    try { g.Object.defineProperty(g, 'innerWidth', { configurable: true, get: function() { return parseInt(__ipc('innerWidth', '[]')); } }); } catch(e) {}
-    try { g.Object.defineProperty(g, 'innerHeight', { configurable: true, get: function() { return parseInt(__ipc('innerHeight', '[]')); } }); } catch(e) {}
+    try { g.Object.defineProperty(g, 'innerWidth', { configurable: true, get: function() { return g.___nativeInt(__ipc('innerWidth', '[]')); } }); } catch(e) {}
+    try { g.Object.defineProperty(g, 'innerHeight', { configurable: true, get: function() { return g.___nativeInt(__ipc('innerHeight', '[]')); } }); } catch(e) {}
 
     g.__win = {
         alert: g.alert, confirm: g.confirm, prompt: g.prompt,
-        innerWidth: function() { return parseInt(__ipc('innerWidth', '[]')); },
-        innerHeight: function() { return parseInt(__ipc('innerHeight', '[]')); },
+        innerWidth: function() { return g.___nativeInt(__ipc('innerWidth', '[]')); },
+        innerHeight: function() { return g.___nativeInt(__ipc('innerHeight', '[]')); },
         scrollTo: function(x,y) { __ipc('scrollTo', JSON.stringify([x||0,y||0])); },
         scrollBy: function(x,y) { __ipc('scrollBy', JSON.stringify([x||0,y||0])); }
     };

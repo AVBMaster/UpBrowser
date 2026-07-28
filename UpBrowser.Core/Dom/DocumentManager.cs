@@ -78,6 +78,9 @@ public class DocumentManager
 
     public static string DefaultHtml => _defaultHtml;
 
+    private static string? _testCssFeatureHtml;
+    public static string TestCssFeatureHtml => _testCssFeatureHtml ??= LoadEmbeddedResource("Html.test-css-features.html");
+
     private static string? _jsTestHtml;
     public static string JsTestHtml => _jsTestHtml ??= LoadEmbeddedResource("Html.js-test.html");
 

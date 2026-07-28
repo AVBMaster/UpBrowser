@@ -741,7 +741,8 @@ namespace UpBrowser;
         // ---- Initialize the performance layer ----
         InitializePerformanceHub();
 
-        _currentHtml = File.ReadAllText(@"D:\Master\code\UpBrowser\test_css_features.html");
+        //Load test_css_feature.html in UpBrowser.Core.Resources
+        _currentHtml = DocumentManager.TestCssFeatureHtml;
         var initialLoad = await _docManager.LoadHtmlAsync(_currentHtml);
         _currentLoad = initialLoad;
 
