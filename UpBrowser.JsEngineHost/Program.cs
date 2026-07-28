@@ -220,7 +220,6 @@ class EngineManager
     private string SendToMain(string method, string argsJson)
     {
         var requestId = Interlocked.Increment(ref _nextRequestId);
-        Console.WriteLine($"[JsEngineHost] SendToMain START method={method} reqId={requestId}");
         var tcs = new TaskCompletionSource<IpcResponse>(TaskCreationOptions.RunContinuationsAsynchronously);
 
         lock (_lock)
@@ -238,42 +237,27 @@ class EngineManager
         try
         {
             var data = ProtocolSerializer.Serialize(request);
-            Console.WriteLine($"[JsEngineHost] SendToMain calling SendAsync");
             _transport!.SendAsync(data).Wait();
-            Console.WriteLine($"[JsEngineHost] SendAsync returned, waiting for DomCall response");
-            var waitStart = DateTime.UtcNow;
-            while (!tcs.Task.IsCompleted)
-            {
-                Thread.Sleep(50);
-                if ((DateTime.UtcNow - waitStart).TotalMilliseconds > 1000)
-                {
-                    Console.WriteLine($"[JsEngineHost] SendToMain waiting for response (elapsed={(DateTime.UtcNow - waitStart).TotalMilliseconds:F0}ms)");
-                    waitStart = DateTime.UtcNow;
-                }
-            }
 
             if (!tcs.Task.Wait(10000))
             {
                 lock (_lock) _pending.Remove(requestId);
-                Console.WriteLine($"[JsEngineHost] SendToMain TIMEOUT for requestId={requestId} method={method}");
                 return "{\"error\":\"timeout\"}";
             }
 
             var response = tcs.Task.Result;
-            Console.WriteLine($"[JsEngineHost] SendToMain DONE reqId={requestId} success={response.Success} resultLen={response.Result?.Length ?? 0}");
             return response.Result ?? "null";
         }
         catch (Exception ex)
         {
             lock (_lock) _pending.Remove(requestId);
-            Console.WriteLine($"[JsEngineHost] SendToMain ERROR method={method} err={ex.Message}");
+            Console.WriteLine($"[JsEngineHost] SendToMain error: {ex.Message}");
             return $"{{\"error\":\"{ex.Message}\"}}";
         }
     }
 
     private async Task ReceiveLoop(CancellationToken ct)
     {
-        Console.WriteLine("[JsEngineHost] ReceiveLoop START");
         while (!ct.IsCancellationRequested && _transport != null)
         {
         try
@@ -282,15 +266,6 @@ class EngineManager
             var msg = ProtocolSerializer.DeserializeAny(data);
             if (msg.Request != null)
             {
-                Console.WriteLine($"[JsEngineHost] ReceiveLoop got REQUEST type={msg.Request.Type} reqId={msg.Request.RequestId}");
-                // Dispatch request processing to a threadpool thread.
-                // CRITICAL: ReceiveLoop must stay free to read parent responses.
-                // __ipc (called from JS inside ProcessRequest) calls SendToMain which
-                // blocks waiting for the parent's DomCall response.  If we process on
-                // the ReceiveLoop thread, ReceiveLoop can never read that response,
-                // causing a deadlock:
-                //   child  → blocked in SendToMain waiting for parent response
-                //   parent → blocked in SendAsync waiting for child to set StateIdle
                 var reqCopy = msg.Request;
                 _ = Task.Run(async () =>
                 {
@@ -318,7 +293,6 @@ class EngineManager
 
             if (msg.Response != null)
             {
-                Console.WriteLine($"[JsEngineHost] ReceiveLoop got RESPONSE reqId={msg.Response.RequestId} success={msg.Response.Success}");
                 TaskCompletionSource<IpcResponse>? tcs;
                 lock (_lock)
                 {
@@ -343,10 +317,9 @@ class EngineManager
 
     private async Task<IpcResponse> ProcessRequest(IpcRequest request)
     {
-        Console.WriteLine($"[JsEngineHost] ProcessRequest START type={request.Type} reqId={request.RequestId}");
         try
         {
-            var result = request.Type switch
+            return request.Type switch
             {
                 RequestType.Execute => HandleExecute(request),
                 RequestType.Evaluate => HandleEvaluate(request),
@@ -357,12 +330,9 @@ class EngineManager
                 RequestType.DomCall => HandleDomCall(request),
                 _ => new IpcResponse { RequestId = request.RequestId, Success = false, Error = $"Unknown: {request.Type}" }
             };
-            Console.WriteLine($"[JsEngineHost] ProcessRequest DONE reqId={request.RequestId} success={result.Success}");
-            return result;
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[JsEngineHost] ProcessRequest ERROR reqId={request.RequestId} err={ex.Message}");
             return new IpcResponse { RequestId = request.RequestId, Success = false, Error = ex.Message };
         }
     }
@@ -379,43 +349,37 @@ class EngineManager
             var method = payload[..sep];
             var argsJson = payload[(sep + 1)..];
 
-            Console.WriteLine($"[JsEngineHost] HandleDomCall START method={method}");
             var result = SendToMain(method, argsJson);
-            Console.WriteLine($"[JsEngineHost] HandleDomCall DONE method={method} resultLen={result.Length}");
             return new IpcResponse { RequestId = request.RequestId, Success = true, Result = result };
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[JsEngineHost] HandleDomCall ERROR err={ex.Message}");
+            Console.WriteLine($"[JsEngineHost] HandleDomCall ERROR: {ex.Message}");
             return new IpcResponse { RequestId = request.RequestId, Success = false, Error = ex.Message };
         }
     }
 
     private IpcResponse HandleExecute(IpcRequest request)
     {
-        Console.WriteLine($"[JsEngineHost] HandleExecute START reqId={request.RequestId}");
         _engineLock.Wait();
         try
         {
             var code = request.Payload ?? "";
-            Console.WriteLine($"[JsEngineHost] HandleExecute acq lock, executing {code.Length} chars");
             try
             {
                 _engine.Execute(code);
-                Console.WriteLine($"[JsEngineHost] HandleExecute done success");
                 return new IpcResponse { RequestId = request.RequestId, Success = true };
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[JsEngineHost] Execute error: {ex.Message}");
-                Console.WriteLine($"[JsEngineHost] Code: {code[..Math.Min(500, code.Length)]}");
+                Console.Error.WriteLine($"[JsEngineHost] Execute error: {ex.Message}");
+                Console.Error.WriteLine($"[JsEngineHost] Code: {code[..Math.Min(500, code.Length)]}");
                 throw;
             }
         }
         finally
         {
             _engineLock.Release();
-            Console.WriteLine($"[JsEngineHost] HandleExecute release lock");
         }
     }
 
@@ -427,7 +391,6 @@ class EngineManager
             var code = request.Payload ?? "";
             try
             {
-                Console.WriteLine($"[JsEngineHost] Evaluate({code.Length} chars): {code[..Math.Min(200, code.Length)]}");
                 var result = _engine.Evaluate(code);
                 return new IpcResponse
                 {

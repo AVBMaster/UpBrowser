@@ -172,11 +172,14 @@
 
 <script>
 (function(){
+  var dumpEl = document.getElementById && document.getElementById("dump");
+  if (!dumpEl) { setTimeout(function(){ dumpEl = document.getElementById("dump"); if (dumpEl) dumpEl.textContent = "Waiting for DOM..."; }, 100); }
+
   var lines = [];
   lines.push("========== FULL ELEMENT DUMP ==========");
   lines.push("URL: " + location.href);
   lines.push("Title: " + document.title);
-  lines.push("Doc size: " + document.documentElement.scrollWidth + "x" + document.documentElement.scrollHeight);
+  try { lines.push("Doc size: " + document.documentElement.scrollWidth + "x" + document.documentElement.scrollHeight); } catch(e) {}
   lines.push("Window size: " + window.innerWidth + "x" + window.innerHeight);
   lines.push("");
 
@@ -186,80 +189,86 @@
     try {
       var tag = el.tagName;
       var id = el.id ? "#" + el.id : "";
-      var cls = (typeof el.className === "string" && el.className) ? "." + el.className.trim().split(/\s+/).join(".") : "";
+      var cls = "";
+      if (typeof el.className === "string" && el.className) { cls = "." + el.className.trim().split(/\s+/).join("."); }
       var txt = "";
-      if (el.childNodes.length === 1 && el.childNodes[0].nodeType === 3) {
-        txt = ' "' + el.childNodes[0].textContent.substring(0, 30) + '"';
-      }
+      try {
+        if (el.childNodes && el.childNodes.length === 1 && el.childNodes[0] && el.childNodes[0].nodeType === 3) {
+          txt = ' "' + (el.childNodes[0].textContent || "").substring(0, 30) + '"';
+        }
+      } catch(e) {}
       lines.push("[" + i + "] <" + tag + id + cls + ">" + txt);
 
-      // offset / client / scroll
-      lines.push("  offset:  W=" + el.offsetWidth + " H=" + el.offsetHeight);
-      lines.push("  client:  W=" + el.clientWidth + " H=" + el.clientHeight + " L=" + el.clientLeft + " T=" + el.clientTop);
-      lines.push("  scroll:  W=" + el.scrollWidth + " H=" + el.scrollHeight + " X=" + el.scrollLeft + " Y=" + el.scrollTop);
-      lines.push("  offsetParent: " + (el.offsetParent ? el.offsetParent.tagName + (el.offsetParent.id ? "#" + el.offsetParent.id : "") : "null"));
-      lines.push("  offsetPos: top=" + el.offsetTop + " left=" + el.offsetLeft);
+      try { lines.push("  offset:  W=" + el.offsetWidth + " H=" + el.offsetHeight); } catch(e) { lines.push("  offset:  N/A"); }
+      try { lines.push("  client:  W=" + el.clientWidth + " H=" + el.clientHeight + " L=" + el.clientLeft + " T=" + el.clientTop); } catch(e) { lines.push("  client:  N/A"); }
+      try { lines.push("  scroll:  W=" + el.scrollWidth + " H=" + el.scrollHeight + " X=" + el.scrollLeft + " Y=" + el.scrollTop); } catch(e) { lines.push("  scroll:  N/A"); }
+      try { lines.push("  offsetParent: " + (el.offsetParent ? (el.offsetParent.tagName + (el.offsetParent.id ? "#" + el.offsetParent.id : "")) : "null")); } catch(e) {}
+      try { lines.push("  offsetPos: top=" + el.offsetTop + " left=" + el.offsetLeft); } catch(e) {}
 
-      // bounding rect
-      var r = el.getBoundingClientRect();
-      lines.push("  rect:    top=" + r.top.toFixed(1) + " left=" + r.left.toFixed(1) + " right=" + r.right.toFixed(1) + " bottom=" + r.bottom.toFixed(1) + " w=" + r.width.toFixed(1) + " h=" + r.height.toFixed(1));
-
-      // computed styles
-      var cs = window.getComputedStyle(el);
-      var props = [
-        "display", "position", "float", "clear",
-        "width", "height", "minWidth", "maxWidth", "minHeight", "maxHeight",
-        "margin-top", "margin-right", "margin-bottom", "margin-left",
-        "padding-top", "padding-right", "padding-bottom", "padding-left",
-        "border-top-width", "border-right-width", "border-bottom-width", "border-left-width",
-        "border-top-style", "border-right-style", "border-bottom-style", "border-left-style",
-        "border-top-color", "border-right-color", "border-bottom-color", "border-left-color",
-        "border-radius",
-        "box-sizing",
-        "fontSize", "fontWeight", "fontStyle", "fontFamily", "lineHeight",
-        "color", "backgroundColor", "opacity",
-        "textAlign", "textDecoration", "textDecorationLine", "textDecorationStyle",
-        "textTransform", "letterSpacing", "wordSpacing",
-        "verticalAlign", "whiteSpace", "overflow", "overflowX", "overflowY",
-        "zIndex", "visibility", "cursor",
-        "flexDirection", "flexWrap", "justifyContent", "alignItems", "alignSelf",
-        "gridTemplateColumns", "gridTemplateRows"
-      ];
-      var styleParts = [];
-      for (var p = 0; p < props.length; p++) {
-        var v = cs[props[p]];
-        if (v && v !== "none" && v !== "normal" && v !== "auto" && v !== "visible" && v !== "static" && v !== "" && v !== "0px" && v !== "rgba(0, 0, 0, 0)" && v !== "0" && v !== "start" && v !== "stretch") {
-          styleParts.push(props[p] + "=" + v);
+      try {
+        var r = el.getBoundingClientRect && el.getBoundingClientRect();
+        if (r) {
+          var rt = r.top, rl = r.left, rr = r.right, rb = r.bottom, rw = r.width, rh = r.height;
+          var fmt = function(v) { return (v === undefined || v === null || v !== v) ? "N/A" : v.toFixed(1); };
+          lines.push("  rect:    top=" + fmt(rt) + " left=" + fmt(rl) + " right=" + fmt(rr) + " bottom=" + fmt(rb) + " w=" + fmt(rw) + " h=" + fmt(rh));
         }
-      }
-      if (styleParts.length > 0) {
-        lines.push("  style:   " + styleParts.join(" | "));
-      }
+      } catch(e) { lines.push("  rect:    N/A"); }
 
-      // form elements
+      try {
+        var cs = window.getComputedStyle && window.getComputedStyle(el);
+        if (cs) {
+          var props = [
+            "display", "position", "float", "clear",
+            "width", "height", "minWidth", "maxWidth", "minHeight", "maxHeight",
+            "margin-top", "margin-right", "margin-bottom", "margin-left",
+            "padding-top", "padding-right", "padding-bottom", "padding-left",
+            "border-top-width", "border-right-width", "border-bottom-width", "border-left-width",
+            "border-top-style", "border-right-style", "border-bottom-style", "border-left-style",
+            "border-top-color", "border-right-color", "border-bottom-color", "border-left-color",
+            "border-radius",
+            "box-sizing",
+            "fontSize", "fontWeight", "fontStyle", "fontFamily", "lineHeight",
+            "color", "backgroundColor", "opacity",
+            "textAlign", "textDecoration", "textDecorationLine", "textDecorationStyle",
+            "textTransform", "letterSpacing", "wordSpacing",
+            "verticalAlign", "whiteSpace", "overflow", "overflowX", "overflowY",
+            "zIndex", "visibility", "cursor",
+            "flexDirection", "flexWrap", "justifyContent", "alignItems", "alignSelf",
+            "gridTemplateColumns", "gridTemplateRows"
+          ];
+          var styleParts = [];
+          for (var p = 0; p < props.length; p++) {
+            var v = cs[props[p]];
+            if (v && typeof v === "string" && v !== "none" && v !== "normal" && v !== "auto" && v !== "visible" && v !== "static" && v !== "" && v !== "0px" && v !== "rgba(0, 0, 0, 0)" && v !== "0" && v !== "start" && v !== "stretch") {
+              styleParts.push(props[p] + "=" + v);
+            }
+          }
+          if (styleParts.length > 0) {
+            lines.push("  style:   " + styleParts.join(" | "));
+          }
+        }
+      } catch(e) {}
+
       if (tag === "INPUT") {
-        lines.push("  input:   type=" + el.type + " value=" + el.value + " checked=" + el.checked + " disabled=" + el.disabled + " readOnly=" + el.readOnly + " placeholder=" + el.placeholder);
+        try { lines.push("  input:   type=" + el.type + " value=" + el.value + " checked=" + el.checked + " disabled=" + el.disabled + " readOnly=" + el.readOnly + " placeholder=" + el.placeholder); } catch(e) {}
       }
       if (tag === "SELECT") {
-        var selIdx = el.selectedIndex;
-        lines.push("  select:  selectedIndex=" + selIdx + " value=" + el.value + " options=" + el.options.length);
+        try { lines.push("  select:  selectedIndex=" + el.selectedIndex + " value=" + el.value + " options=" + el.options.length); } catch(e) {}
       }
       if (tag === "TEXTAREA") {
-        var taVal = el.value || "";
-        lines.push("  textarea: value=" + taVal.substring(0, 50) + " rows=" + el.rows + " cols=" + el.cols);
+        try { lines.push("  textarea: value=" + (el.value || "").substring(0, 50) + " rows=" + el.rows + " cols=" + el.cols); } catch(e) {}
       }
       if (tag === "BUTTON") {
-        lines.push("  button:  type=" + el.type + " disabled=" + el.disabled + " text=" + el.textContent.substring(0, 30));
+        try { lines.push("  button:  type=" + el.type + " disabled=" + el.disabled + " text=" + (el.textContent || "").substring(0, 30)); } catch(e) {}
       }
       if (tag === "A") {
-        lines.push("  link:    href=" + el.href);
+        try { lines.push("  link:    href=" + el.href); } catch(e) {}
       }
       if (tag === "IMG") {
-        lines.push("  img:     src=" + el.src + " alt=" + el.alt + " naturalW=" + el.naturalWidth + " naturalH=" + el.naturalHeight);
+        try { lines.push("  img:     src=" + el.src + " alt=" + el.alt + " naturalW=" + el.naturalWidth + " naturalH=" + el.naturalHeight); } catch(e) {}
       }
 
-      // children / parent
-      lines.push("  tree:    parent=" + (el.parentElement ? el.parentElement.tagName : "null") + " children=" + el.children.length + " childNodes=" + el.childNodes.length);
+      try { lines.push("  tree:    parent=" + (el.parentElement ? el.parentElement.tagName : "null") + " children=" + el.children.length + " childNodes=" + el.childNodes.length); } catch(e) {}
 
       lines.push("");
     } catch(e) {
@@ -273,7 +282,7 @@
 
   var output = lines.join("\n");
   console.log(output);
-  document.getElementById("dump").textContent = output;
+  if (dumpEl) { dumpEl.textContent = output; }
 })();
 </script>
 
