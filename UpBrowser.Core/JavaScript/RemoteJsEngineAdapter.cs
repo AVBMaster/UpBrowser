@@ -231,24 +231,35 @@ var console = __ipc_console;
 
         _receiveCts?.Cancel();
 
-        // 1. Kill host process FIRST, wait for it to fully exit
-        // 2. THEN dispose transport (shared memory) to prevent stale sections
-        if (_hostProcess != null && !_hostProcess.HasExited)
+        // 保存局部引用，避免 Exited 事件处理程序在异步线程中将其置为 null
+        var process = _hostProcess;
+        if (process != null && !process.HasExited)
         {
             try
             {
-                _hostProcess.Kill(entireProcessTree: true);
-                if (!_hostProcess.WaitForExit(3000))
-                    _hostProcess.Kill();
+                process.Kill(entireProcessTree: true);
             }
             catch { }
-            // Force wait for process to truly terminate
-            try { _hostProcess.WaitForExit(3000); } catch { }
-            _hostProcess.Dispose();
+            try
+            {
+                process.WaitForExit(3000);
+            }
+            catch { }
+            try
+            {
+                process.Dispose();
+            }
+            catch { }
             _hostProcess = null;
         }
 
-        // Now safe to dispose shared memory — host is dead
+        // 如果 Exited 事件处理程序已经 Dispose 并置为 null，这里确保清理
+        if (_hostProcess != null)
+        {
+            try { _hostProcess.Dispose(); } catch { }
+            _hostProcess = null;
+        }
+
         _transport?.Dispose();
     }
 

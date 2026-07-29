@@ -51,13 +51,14 @@ class Program
                         }
                         parent.Dispose();
                     }
-                    catch (InvalidOperationException)
+                    catch
                     {
-                        Console.WriteLine("[JsEngineHost] Parent process not found, exiting");
+                        // 任何异常（进程不存在、句柄不可访问等）都认为父进程已消失
+                        Console.WriteLine("[JsEngineHost] Parent process check failed, exiting");
                         parentWatchCts.Cancel();
                         return;
                     }
-                    Thread.Sleep(500);
+                    Thread.Sleep(200);
                 }
             });
         }
