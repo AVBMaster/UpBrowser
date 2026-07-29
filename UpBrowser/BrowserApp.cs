@@ -904,9 +904,37 @@ namespace UpBrowser;
 
                 if (_currentLoad != null)
                 {
-                    _jsEngine.LoadDocument(_currentLoad.Document);
-                    _devTools.SetDocument(_currentLoad.Document, _currentHtml);
-                    BuildDisplayList(_lastWindowWidth, _lastWindowHeight);
+                    // JS 引擎初始化和文档关联放到后台线程，避免阻塞 UI
+                    // 渲染立即进行：从进程获取 DisplayList，若不存在则重建
+                    _ = Task.Run(() =>
+                    {
+                        try
+                        {
+                            _jsEngine.LoadDocument(_currentLoad.Document);
+                            _eventLoop.PostTask(() =>
+                            {
+                                _devTools.SetDocument(_currentLoad?.Document, _currentHtml);
+                            });
+                        }
+                        catch (Exception ex)
+                        {
+                            Console.WriteLine($"[TabSwitch] LoadDocument error: {ex.Message}");
+                        }
+                    });
+
+                    // 优先使用进程缓存的 DisplayList；若已存在则不重复设置
+                    if (_displayList == null || _displayList.Count == 0)
+                    {
+                        var tabDl = _processManager.GetDisplayList(currentTabIndex);
+                        if (tabDl != null && tabDl.Count > 0)
+                        {
+                            _displayList = tabDl;
+                        }
+                        else
+                        {
+                            BuildDisplayList(_lastWindowWidth, _lastWindowHeight);
+                        }
+                    }
                 }
             }
             else

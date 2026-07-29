@@ -7,6 +7,9 @@
     <Nullable>enable</Nullable>
     <IsTrimmable>false</IsTrimmable>
     <PublishAot>false</PublishAot>
+    <PublishSingleFile>true</PublishSingleFile>
+    <SelfContained>true</SelfContained>
+    <IncludeAllContentForSelfExtract>true</IncludeAllContentForSelfExtract>
   </PropertyGroup>
 
   <ItemGroup>

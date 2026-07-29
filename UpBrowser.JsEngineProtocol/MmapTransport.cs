@@ -169,6 +169,7 @@ public class MmapTransport : IDisposable
         return Path.Combine(Path.GetTempPath(), $"upbrowser_mmap_{_channelName}_{suffix}.bin");
     }
 
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Interoperability", "CA1416:Validate platform compatibility", Justification = "Call is guarded by runtime OS check (IsWindows) and an alternative implementation exists for non-Windows platforms.")]
     private SharedMmap CreateOrOpen(string key, int capacity)
     {
         if (IsWindows)
@@ -176,6 +177,7 @@ public class MmapTransport : IDisposable
         return OpenFileMmap(key, capacity);
     }
 
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Interoperability", "CA1416:Validate platform compatibility", Justification = "Call is guarded by runtime OS check (IsWindows) and an alternative implementation exists for non-Windows platforms.")]
     private static SharedMmap OpenMmap(string key)
     {
         if (IsWindows)
@@ -237,6 +239,11 @@ public class MmapTransport : IDisposable
     /// </summary>
     public async Task SendAsyncNoWait(byte[] data)
     {
+        await SendAsyncNoWaitImpl(data);
+    }
+
+    private async Task SendAsyncNoWaitImpl(byte[] data)
+    {
         if (_disposed || _outView == null) return;
         var len = data.Length;
         if (len > MaxMsgSize) return;
@@ -249,6 +256,47 @@ public class MmapTransport : IDisposable
             _outView.ReadArray<byte>(SyncOffset, sync, 0, 4);
             if (BitConverter.ToInt32(sync, 0) == StateIdle) break;
             await Task.Delay(1);
+        }
+
+        // 超时则强制重置通道，确保不卡死
+        ResetSyncToIdle(_outView);
+
+        var header = BitConverter.GetBytes(len);
+        var writing = BitConverter.GetBytes(StateWriting);
+        _outView.WriteArray<byte>(SyncOffset, writing, 0, 4);
+        _outView.WriteArray<byte>(HeaderOffset, header, 0, HeaderSize);
+        if (len > 0)
+            _outView.WriteArray<byte>(DataOffset, data, 0, len);
+
+        var ready = BitConverter.GetBytes(StateReady);
+        _outView.WriteArray<byte>(SyncOffset, ready, 0, 4);
+    }
+
+    /// <summary>
+    /// 纯同步"发后即忘"发送——无 await、无 Task、无上下文切换。
+    /// 内联自旋等待（最多 100ms），超时后强制重置通道。
+    /// 适用于 UI 线程高频调用（如页面加载时的批量 Execute）。
+    /// </summary>
+    public void SendFireAndForget(byte[] data)
+    {
+        if (_disposed || _outView == null) return;
+        var len = data.Length;
+        if (len > MaxMsgSize) return;
+
+        // 内联自旋：先快速轮询 10 次（约几微秒），再降速到 Thread.Sleep
+        var deadline = DateTime.UtcNow + TimeSpan.FromMilliseconds(100);
+        var pollCount = 0;
+        while (DateTime.UtcNow < deadline)
+        {
+            var sync = new byte[4];
+            _outView.ReadArray<byte>(SyncOffset, sync, 0, 4);
+            if (BitConverter.ToInt32(sync, 0) == StateIdle) break;
+            pollCount++;
+            if (pollCount > 20)
+            {
+                Thread.Sleep(1);
+                pollCount = 0;
+            }
         }
 
         // 超时则强制重置通道，确保不卡死

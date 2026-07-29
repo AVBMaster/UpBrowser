@@ -1336,6 +1336,7 @@ public class ChromeRenderer : IImeSupport
             else
             {
                 if (index < 0 || index >= _tabs.Count) return;
+
                 _tabs.RemoveAt(index);
 
                 if (index == _activeTabIndex)
@@ -1352,6 +1353,10 @@ public class ChromeRenderer : IImeSupport
             }
         }
         finally { _tabRwLock.ExitWriteLock(); }
+
+        // 在锁外调用事件，避免与 OnCloseTab 中读取 _chrome.ActiveTabIndex 时发生死锁
+        OnCloseTab?.Invoke(index);
+
         if (newUrl != null) OnTabChanged?.Invoke(newUrl);
     }
 

@@ -1805,8 +1805,8 @@ var console = __ipc_console;
                 Payload = code,
             };
             var data = ProtocolSerializer.Serialize(request);
-            // 使用无等待发送，避免阻塞
-            _transport.SendAsyncNoWait(data).GetAwaiter().GetResult();
+            // 纯同步发后即忘：无 await、无上下文切换、不阻塞
+            _transport.SendFireAndForget(data);
         }
         catch (Exception ex)
         {
@@ -1976,13 +1976,13 @@ var console = __ipc_console;
         try
         {
             var data = ProtocolSerializer.Serialize(request);
-            _transport.SendAsync(data).GetAwaiter().GetResult();
+            // 同步发送，无 await、无上下文切换
+            _transport.SendFireAndForget(data);
 
-            // 500ms 超时：避免 UI 线程长时间阻塞
-            if (!tcs.Task.Wait(500))
+            // 100ms 超时：快速失败，避免 UI 线程长时间等待
+            if (!tcs.Task.Wait(100))
             {
                 lock (_lock) _pending.Remove(request.RequestId);
-                Console.WriteLine($"[RemoteJsEngine] IPC request {request.RequestId} timed out");
                 return new IpcResponse
                 {
                     RequestId = request.RequestId,
@@ -1996,7 +1996,6 @@ var console = __ipc_console;
         catch (Exception ex)
         {
             lock (_lock) _pending.Remove(request.RequestId);
-            Console.WriteLine($"[RemoteJsEngine] SendRequest error: {ex.Message}");
             throw;
         }
     }
