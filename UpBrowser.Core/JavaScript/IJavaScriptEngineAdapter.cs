@@ -23,4 +23,7 @@ public interface IJavaScriptEngineAdapter : IDisposable
     bool SupportsHostObjects { get; }
     bool SupportsES6Proxy { get; }
     object? InnerEngine { get; }
+
+    /// <summary>JS console output: (method like "console.log", message)</summary>
+    event Action<string, string>? OnConsoleLog;
 }

@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using UpBrowser.Core.EventLoop;
+using UpBrowser.Core.JavaScript;
 using UpBrowser.Core.Process;
 using UpBrowser.Rendering;
 
@@ -61,6 +62,7 @@ public class ProcessManager : IDisposable
         {
             proc.OnUpdated -= OnProcessUpdated;
             proc.Dispose();
+            EngineProcessManager.Release(tabIndex);
         }
     }
 

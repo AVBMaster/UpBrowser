@@ -154,7 +154,7 @@ namespace UpBrowser;
             _renderingSettings.JsEngine = "Jint";
         }
         JsEngineConfig.DefaultEngineType = engineType;
-        _jsEngine = new JavaScriptEngine();
+        _jsEngine = new JavaScriptEngine(-1);
         _eventLoop = new EventLoop();
         _devTools = new DevToolsPanel();
         _pageInputImeHost = new PageInputImeHost(this);
@@ -207,7 +207,6 @@ namespace UpBrowser;
             // 不在这里使页面缓存失效，避免每次鼠标悬停都重绘网页
         };
 
-        _renderingSettingsPage.OnEngineApplied += type =>
         _renderingSettingsPage.OnEngineApplied += type =>
         {
             JsEngineConfig.DefaultEngineType = type;
@@ -574,6 +573,10 @@ namespace UpBrowser;
                 jsInt.MicrotaskQueue.DrainMicrotasks();
             };
         }
+
+        // Wire JS console output from the remote engine
+        _jsEngine.Adapter?.OnConsoleLog += (method, message) =>
+            Console.WriteLine($"[JS {method}] {message}");
 
         // Performance hub must be live before anything else uses the heavy
         // subsystems, so the first layout/style pass is already instrumented.
@@ -3823,7 +3826,6 @@ namespace UpBrowser;
     public void Dispose()
     {
         ShutdownPerformanceHub();
-        EngineProcessManager.ReleaseAll();
         _processManager.Dispose();
         if (_currentLoad != null)
         {
@@ -3833,6 +3835,7 @@ namespace UpBrowser;
         _skiaRenderer.Dispose();
         _window.Dispose();
         _jsEngine.Dispose();
+        EngineProcessManager.Release(-1);
         _eventLoop.Stop();
         if (_renderingSettings != null)
             _skiaRenderer.Settings = null;

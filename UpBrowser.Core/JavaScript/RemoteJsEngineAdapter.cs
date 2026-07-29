@@ -32,12 +32,20 @@ public class RemoteJsEngineAdapter : IJavaScriptEngineAdapter, IDisposable
     public Action<int, int>? OnScrollBy { get; set; }
     public string? OnFetch { get; set; } // JSON 格式的 fetch 结果
 
+    /// <summary>JS console 输出事件，参数: (method, message)</summary>
+    public event Action<string, string>? OnConsoleLog;
+
     public DomProxyStore? DomStore { get; set; }
 
     public JsEngineType EngineType => JsEngineType.Jint;
     public object? InnerEngine => null;
     public bool SupportsHostObjects => true;
     public bool SupportsES6Proxy => true;
+
+    /// <summary>
+    /// JS 引擎是否已就绪（进程启动、IPC 连接成功）。
+    /// </summary>
+    public bool IsReady { get; private set; }
 
     public RemoteJsEngineAdapter(string channelName, string engineType, int tabIndex)
     {
@@ -62,12 +70,13 @@ public class RemoteJsEngineAdapter : IJavaScriptEngineAdapter, IDisposable
             throw new InvalidOperationException("JsEngineHost.exe not found");
 
         var isDll = hostPath.EndsWith(".dll", StringComparison.OrdinalIgnoreCase);
+        var parentPid = System.Diagnostics.Process.GetCurrentProcess().Id;
         var startInfo = new ProcessStartInfo
         {
             FileName = isDll ? "dotnet" : hostPath,
             Arguments = isDll
-                ? $"\"{hostPath}\" --channel={_channelName} --engine={_engineType} --tab={_tabIndex}"
-                : $"--channel={_channelName} --engine={_engineType} --tab={_tabIndex}",
+                ? $"\"{hostPath}\" --channel={_channelName} --engine={_engineType} --tab={_tabIndex} --parent={parentPid}"
+                : $"--channel={_channelName} --engine={_engineType} --tab={_tabIndex} --parent={parentPid}",
             UseShellExecute = false,
             CreateNoWindow = true,
             RedirectStandardError = true,
@@ -84,14 +93,29 @@ public class RemoteJsEngineAdapter : IJavaScriptEngineAdapter, IDisposable
         };
         _hostProcess.BeginErrorReadLine();
 
-        System.Threading.Thread.Sleep(500);
+        // Wait for child process to create bootstrap file (signals it's ready)
+        var escaped = _channelName.Replace("\\", "_").Replace("/", "_").Replace(":", "_");
+        var bootstrapPath = Path.Combine(Path.GetTempPath(), $"upbrowser_mmap_{escaped}.bootstrap");
+        var deadline = DateTime.UtcNow.AddSeconds(5);
+        while (DateTime.UtcNow < deadline)
+        {
+            if (File.Exists(bootstrapPath)) break;
+            if (_hostProcess.HasExited)
+            {
+                var exitCode = _hostProcess.ExitCode;
+                _hostProcess.Dispose();
+                _hostProcess = null;
+                throw new InvalidOperationException($"JsEngineHost exited immediately (code {exitCode}). " +
+                    "Check that all dependencies are available in the output directory.");
+            }
+            await Task.Delay(20);
+        }
         if (_hostProcess.HasExited)
         {
             var exitCode = _hostProcess.ExitCode;
             _hostProcess.Dispose();
             _hostProcess = null;
-            throw new InvalidOperationException($"JsEngineHost exited immediately (code {exitCode}). " +
-                "Check that all dependencies are available in the output directory.");
+            throw new InvalidOperationException($"JsEngineHost failed to start (exit code {exitCode}).");
         }
 
         _hostProcess.EnableRaisingEvents = true;
@@ -102,12 +126,13 @@ public class RemoteJsEngineAdapter : IJavaScriptEngineAdapter, IDisposable
             _hostProcess = null;
         };
 
-        AppDomain.CurrentDomain.ProcessExit += (_, _) => Cleanup();
-        Console.CancelKeyPress += (_, _) => Cleanup();
-
-        // 连接内存映射 IPC
+        // 连接内存映射 IPC — 不注册 AppDomain 全局退出事件，避免跨标签页误触发
         _transport = new MmapTransport(_channelName);
         await _transport.ConnectClientAsync();
+
+        // 标记引擎已就绪
+        IsReady = true;
+        Console.WriteLine($"[RemoteJsEngine] tab={_tabIndex} IPC connected, engine ready");
 
         // 启动后台线程接收远程引擎的 DomCall 请求
         _receiveCts = new CancellationTokenSource();
@@ -205,8 +230,9 @@ var console = __ipc_console;
         _disposed = true;
 
         _receiveCts?.Cancel();
-        _transport?.Dispose();
 
+        // 1. Kill host process FIRST, wait for it to fully exit
+        // 2. THEN dispose transport (shared memory) to prevent stale sections
         if (_hostProcess != null && !_hostProcess.HasExited)
         {
             try
@@ -216,21 +242,27 @@ var console = __ipc_console;
                     _hostProcess.Kill();
             }
             catch { }
+            // Force wait for process to truly terminate
+            try { _hostProcess.WaitForExit(3000); } catch { }
             _hostProcess.Dispose();
             _hostProcess = null;
         }
+
+        // Now safe to dispose shared memory — host is dead
+        _transport?.Dispose();
     }
 
     private async Task ReceiveLoop(CancellationToken ct)
     {
         while (!ct.IsCancellationRequested && _transport != null)
         {
-        try
-        {
-            var data = await _transport.ReceiveAsync();
-            var bytes = data;
+            try
+            {
+                var (success, bytes) = await _transport.ReceiveAsyncNoThrow(ct);
+                if (!success) continue;
+                if (bytes.Length == 0) continue;
 
-            var msg = ProtocolSerializer.DeserializeAny(bytes);
+                var msg = ProtocolSerializer.DeserializeAny(bytes);
             if (msg.Request != null)
             {
                 if (msg.Request.Type == RequestType.DomCall)
@@ -454,6 +486,7 @@ var console = __ipc_console;
     private IpcResponse HandleConsoleLog(string method, string argsJson)
     {
         Console.WriteLine($"[{method}] {argsJson}");
+        OnConsoleLog?.Invoke(method, argsJson);
         return RespondOk(new IpcRequest { RequestId = 0 });
     }
 
@@ -1750,48 +1783,73 @@ var console = __ipc_console;
 
     public void Execute(string code)
     {
-        var request = new IpcRequest
+        // 发后即忘：不等待响应，不阻塞 UI 线程
+        if (_disposed || _transport == null || string.IsNullOrEmpty(code)) return;
+        try
         {
-            RequestId = Interlocked.Increment(ref _nextRequestId),
-            Type = RequestType.Execute,
-            Payload = code,
-        };
-        var response = SendRequest(request);
-        if (!response.Success)
-            throw new Exception(response.Error ?? "JS execution failed");
+            var request = new IpcRequest
+            {
+                RequestId = Interlocked.Increment(ref _nextRequestId),
+                Type = RequestType.Execute,
+                Payload = code,
+            };
+            var data = ProtocolSerializer.Serialize(request);
+            // 使用无等待发送，避免阻塞
+            _transport.SendAsyncNoWait(data).GetAwaiter().GetResult();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[RemoteJsEngine] Execute failed (non-blocking): {ex.Message}");
+        }
     }
 
     public object? Evaluate(string expression)
     {
-        var request = new IpcRequest
+        try
         {
-            RequestId = Interlocked.Increment(ref _nextRequestId),
-            Type = RequestType.Evaluate,
-            Payload = expression,
-        };
-        var response = SendRequest(request);
-        if (!response.Success)
-            throw new Exception(response.Error ?? "JS evaluation failed");
-        return response.Result;
+            var request = new IpcRequest
+            {
+                RequestId = Interlocked.Increment(ref _nextRequestId),
+                Type = RequestType.Evaluate,
+                Payload = expression,
+            };
+            var response = SendRequest(request);
+            if (!response.Success)
+                Console.WriteLine($"[RemoteJsEngine] Evaluate failed: {response.Error}");
+            return response.Result;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[RemoteJsEngine] Evaluate exception: {ex.Message}");
+            return null;
+        }
     }
 
     public object? CallFunction(string functionName, params object?[] args)
     {
-        var argStrings = new List<string> { functionName };
-        foreach (var arg in args)
-            argStrings.Add(arg?.ToString() ?? "");
-        var payload = System.Text.Json.JsonSerializer.Serialize(argStrings);
-
-        var request = new IpcRequest
+        try
         {
-            RequestId = Interlocked.Increment(ref _nextRequestId),
-            Type = RequestType.CallFunction,
-            Payload = payload,
-        };
-        var response = SendRequest(request);
-        if (!response.Success)
-            throw new Exception(response.Error ?? "JS function call failed");
-        return response.Result;
+            var argStrings = new List<string> { functionName };
+            foreach (var arg in args)
+                argStrings.Add(arg?.ToString() ?? "");
+            var payload = System.Text.Json.JsonSerializer.Serialize(argStrings);
+
+            var request = new IpcRequest
+            {
+                RequestId = Interlocked.Increment(ref _nextRequestId),
+                Type = RequestType.CallFunction,
+                Payload = payload,
+            };
+            var response = SendRequest(request);
+            if (!response.Success)
+                Console.WriteLine($"[RemoteJsEngine] CallFunction failed: {response.Error}");
+            return response.Result;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[RemoteJsEngine] CallFunction exception: {ex.Message}");
+            return null;
+        }
     }
 
     public void EmbedHostObject(string name, object? value) => SetGlobal(name, value);
@@ -1825,36 +1883,57 @@ var console = __ipc_console;
 
     public void InvokeCallback(int id)
     {
-        var request = new IpcRequest
+        try
         {
-            RequestId = Interlocked.Increment(ref _nextRequestId),
-            Type = RequestType.InvokeCallback,
-            CallbackId = id,
-        };
-        SendRequest(request);
+            var request = new IpcRequest
+            {
+                RequestId = Interlocked.Increment(ref _nextRequestId),
+                Type = RequestType.InvokeCallback,
+                CallbackId = id,
+            };
+            SendRequest(request);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[RemoteJsEngine] InvokeCallback exception: {ex.Message}");
+        }
     }
 
     public void InvokeCallbackWith(int id, object? arg)
     {
-        var request = new IpcRequest
+        try
         {
-            RequestId = Interlocked.Increment(ref _nextRequestId),
-            Type = RequestType.InvokeCallback,
-            CallbackId = id,
-            Payload = arg?.ToString(),
-        };
-        SendRequest(request);
+            var request = new IpcRequest
+            {
+                RequestId = Interlocked.Increment(ref _nextRequestId),
+                Type = RequestType.InvokeCallback,
+                CallbackId = id,
+                Payload = arg?.ToString(),
+            };
+            SendRequest(request);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[RemoteJsEngine] InvokeCallbackWith exception: {ex.Message}");
+        }
     }
 
     public void RemoveCallback(int id)
     {
-        var request = new IpcRequest
+        try
         {
-            RequestId = Interlocked.Increment(ref _nextRequestId),
-            Type = RequestType.RemoveCallback,
-            CallbackId = id,
-        };
-        SendRequest(request);
+            var request = new IpcRequest
+            {
+                RequestId = Interlocked.Increment(ref _nextRequestId),
+                Type = RequestType.RemoveCallback,
+                CallbackId = id,
+            };
+            SendRequest(request);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[RemoteJsEngine] RemoveCallback exception: {ex.Message}");
+        }
     }
 
     public void ClearCallbacks()
@@ -1888,18 +1967,25 @@ var console = __ipc_console;
             var data = ProtocolSerializer.Serialize(request);
             _transport.SendAsync(data).GetAwaiter().GetResult();
 
-            if (!tcs.Task.Wait(10000))
+            // 500ms 超时：避免 UI 线程长时间阻塞
+            if (!tcs.Task.Wait(500))
             {
                 lock (_lock) _pending.Remove(request.RequestId);
-                var procStatus = _hostProcess?.HasExited == true ? $" (host process {_hostProcess?.Id} has exited)" : "";
-                throw new TimeoutException($"IPC request {request.RequestId} timed out{procStatus}");
+                Console.WriteLine($"[RemoteJsEngine] IPC request {request.RequestId} timed out");
+                return new IpcResponse
+                {
+                    RequestId = request.RequestId,
+                    Success = false,
+                    Error = $"IPC request {request.RequestId} timed out"
+                };
             }
 
             return tcs.Task.Result;
         }
-        catch (Exception)
+        catch (Exception ex)
         {
             lock (_lock) _pending.Remove(request.RequestId);
+            Console.WriteLine($"[RemoteJsEngine] SendRequest error: {ex.Message}");
             throw;
         }
     }

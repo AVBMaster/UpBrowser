@@ -54,7 +54,7 @@ public class JavaScriptEngine : IDisposable
 
     internal object? InnerEngine => _adapter?.InnerEngine;
 
-    public JavaScriptEngine() : this(CreateDefaultAdapter())
+    public JavaScriptEngine(int tabIndex = -1) : this(CreateDefaultAdapter(tabIndex))
     {
     }
 
@@ -83,25 +83,25 @@ public class JavaScriptEngine : IDisposable
     private int _pendingScrollX;
     private int _pendingScrollY;
 
-    private static IJavaScriptEngineAdapter CreateDefaultAdapter()
+    private static IJavaScriptEngineAdapter CreateDefaultAdapter(int tabIndex)
     {
         var effectiveType = JsEngineConfig.EffectiveEngineType;
 
-        // 始终使用远程 JS 引擎（通过 IPC 与 JsEngineHost 进程通信）
-        if (TryCreateRemoteAdapter(effectiveType, out var remoteAdapter))
+        // 尝试使用远程 JS 引擎（通过 IPC 与 JsEngineHost 进程通信）
+        if (TryCreateRemoteAdapter(effectiveType, tabIndex, out var remoteAdapter))
             return remoteAdapter;
 
-        // 如果远程引擎不可用，抛出异常（不再回退到本地引擎）
-        throw new InvalidOperationException(
-            "There are something errors happened in JavaScript engine initialization.");
+        // 远程引擎不可用时，使用 NullAdapter 兜底，避免 UI 进程因 JS 问题崩溃
+        Console.WriteLine("[JS] Remote engine unavailable, using NullAdapter (graceful degradation)");
+        return NullJsEngineAdapter.Instance;
     }
 
-    private static bool TryCreateRemoteAdapter(JsEngineType type, out IJavaScriptEngineAdapter adapter)
+    private static bool TryCreateRemoteAdapter(JsEngineType type, int tabIndex, out IJavaScriptEngineAdapter adapter)
     {
         adapter = null!;
         try
         {
-            Console.WriteLine($"[JS] TryCreateRemoteAdapter: BaseDirectory={AppContext.BaseDirectory}");
+            Console.WriteLine($"[JS] TryCreateRemoteAdapter tab={tabIndex}: BaseDirectory={AppContext.BaseDirectory}");
             var hostExe = FindHostExe();
             if (hostExe == null)
             {
@@ -115,15 +115,16 @@ public class JavaScriptEngine : IDisposable
                 return false;
             }
 
-            Console.WriteLine($"[JS] Starting remote engine: {hostExe}");
-            var remote = EngineProcessManager.GetOrCreate(0);
+            Console.WriteLine($"[JS] Starting remote engine for tab={tabIndex}: {hostExe}");
+            var engineTypeStr = type.ToString();
+            var remote = EngineProcessManager.GetOrCreate(tabIndex, engineTypeStr);
             adapter = remote;
-            Console.WriteLine("[JS] Remote engine started successfully");
+            Console.WriteLine($"[JS] Remote engine started successfully for tab={tabIndex}");
             return true;
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[JS] Remote engine failed: {ex.Message}");
+            Console.WriteLine($"[JS] Remote engine failed for tab={tabIndex}: {ex.Message}");
             return false;
         }
     }

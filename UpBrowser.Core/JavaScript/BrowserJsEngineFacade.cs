@@ -42,10 +42,12 @@ public class BrowserJsEngineFacade : IDisposable
     public JsEngineType EngineType => _adapter.EngineType;
 
     public event Action<BrowserJsException>? OnScriptError;
+    public event Action<string, string>? OnConsoleLog;
 
     public BrowserJsEngineFacade(IJavaScriptEngineAdapter adapter)
     {
         _adapter = adapter;
+        _adapter.OnConsoleLog += OnConsoleLog;
     }
 
     public void SetGlobalObject(string name, object? hostObject)
@@ -62,6 +64,9 @@ public class BrowserJsEngineFacade : IDisposable
     public void Execute(string code, string? sourceUrl = null, int lineOffset = 0)
     {
         if (_disposed || string.IsNullOrEmpty(code)) return;
+        // 远程引擎未就绪时跳过执行，避免阻塞 UI
+        if (_adapter is RemoteJsEngineAdapter remote && !remote.IsReady)
+            return;
         Current = _adapter;
         try
         {
@@ -72,7 +77,7 @@ public class BrowserJsEngineFacade : IDisposable
         {
             var browserEx = new BrowserJsException(ex.Message, sourceUrl ?? "", lineOffset, 0, ex.StackTrace ?? "");
             OnScriptError?.Invoke(browserEx);
-            throw browserEx;
+            Console.WriteLine($"[JS Error] {browserEx.Message} at {browserEx.SourceUrl}:{browserEx.LineNumber}:{browserEx.ColumnNumber}");
         }
         finally
         {
@@ -83,6 +88,7 @@ public class BrowserJsEngineFacade : IDisposable
     public object? Evaluate(string expression, string? sourceUrl = null)
     {
         if (_disposed || string.IsNullOrEmpty(expression)) return null;
+        if (_adapter is RemoteJsEngineAdapter remote && !remote.IsReady) return null;
         Current = _adapter;
         try
         {
@@ -103,6 +109,7 @@ public class BrowserJsEngineFacade : IDisposable
     public object? CallFunction(string functionName, params object?[] args)
     {
         if (_disposed) return null;
+        if (_adapter is RemoteJsEngineAdapter remote && !remote.IsReady) return null;
         Current = _adapter;
         try
         {
@@ -128,6 +135,7 @@ public class BrowserJsEngineFacade : IDisposable
     public void InvokeJsFunction(int callbackId, params object?[] args)
     {
         if (_disposed) return;
+        if (_adapter is RemoteJsEngineAdapter remote && !remote.IsReady) return;
         Current = _adapter;
         try
         {

@@ -45,7 +45,7 @@ public class MmapTransport : IDisposable
         _bootstrapPath = Path.Combine(Path.GetTempPath(), $"upbrowser_mmap_{escaped}.bootstrap");
     }
 
-    public async Task StartServerAsync()
+    public async Task StartServerAsync(CancellationToken ct = default)
     {
         var outName = MmapKey("child_to_main");
         var inName = MmapKey("main_to_child");
@@ -53,16 +53,27 @@ public class MmapTransport : IDisposable
         _outMmap = CreateOrOpen(outName, PageSize);
         _inMmap = CreateOrOpen(inName, PageSize);
 
+        // Reset sync state to Idle to clear any stale state left by a previously
+        // killed peer process sharing the same memory-mapped section name.
+        try
+        {
+            var resetView = _inMmap.Shm.CreateViewAccessor(0, PageSize, MemoryMappedFileAccess.ReadWrite);
+            resetView.WriteArray<byte>(SyncOffset, BitConverter.GetBytes(StateIdle), 0, 4);
+            resetView.Dispose();
+        }
+        catch { }
+
         File.WriteAllText(_bootstrapPath, $"{_outMmap.Key}\n{_inMmap.Key}");
 
-        int retryCount = 0;
-        while (retryCount < 100)
+        var deadline = DateTime.UtcNow.AddSeconds(10);
+        while (DateTime.UtcNow < deadline && !ct.IsCancellationRequested)
         {
             if (CheckChildReady()) break;
-            await Task.Delay(50);
-            retryCount++;
+            await Task.Delay(50, ct);
         }
-        if (retryCount >= 100)
+        if (ct.IsCancellationRequested)
+            throw new OperationCanceledException("[MmapTransport] Cancelled during StartServerAsync");
+        if (DateTime.UtcNow >= deadline)
             throw new TimeoutException("Mmap connect timeout — child did not become ready");
 
         var idle = BitConverter.GetBytes(StateIdle);
@@ -180,12 +191,17 @@ public class MmapTransport : IDisposable
 
     public async Task SendAsync(byte[] data)
     {
+        await SendAsync(data, TimeSpan.FromSeconds(2));
+    }
+
+    private async Task SendAsync(byte[] data, TimeSpan timeout)
+    {
         if (_disposed || _outView == null) return;
         var len = data.Length;
         if (len > MaxMsgSize)
             throw new InvalidOperationException($"Message too large: {len}");
 
-        var deadline = DateTime.UtcNow.AddSeconds(10);
+        var deadline = DateTime.UtcNow + timeout;
 
         while (DateTime.UtcNow < deadline)
         {
@@ -196,6 +212,8 @@ public class MmapTransport : IDisposable
         }
         if (DateTime.UtcNow >= deadline)
         {
+            // 超时：强制重置为空闲状态，避免后续操作卡死
+            ResetSyncToIdle(_outView);
             var sync = new byte[4];
             _outView.ReadArray<byte>(SyncOffset, sync, 0, 4);
             var finalState = BitConverter.ToInt32(sync, 0);
@@ -211,7 +229,20 @@ public class MmapTransport : IDisposable
 
         var ready = BitConverter.GetBytes(StateReady);
         _outView.WriteArray<byte>(SyncOffset, ready, 0, 4);
+    }
 
+    /// <summary>
+    /// 异步发送消息，无需等待，不阻塞。适用于"发后即忘"场景（如 Execute 调用）。
+    /// 如果通道未空闲，先强制重置，再发送。
+    /// </summary>
+    public async Task SendAsyncNoWait(byte[] data)
+    {
+        if (_disposed || _outView == null) return;
+        var len = data.Length;
+        if (len > MaxMsgSize) return;
+
+        // 检查通道状态，如果不是空闲，等待短暂时间（最多 100ms）
+        var deadline = DateTime.UtcNow + TimeSpan.FromMilliseconds(100);
         while (DateTime.UtcNow < deadline)
         {
             var sync = new byte[4];
@@ -219,35 +250,53 @@ public class MmapTransport : IDisposable
             if (BitConverter.ToInt32(sync, 0) == StateIdle) break;
             await Task.Delay(1);
         }
-        if (DateTime.UtcNow >= deadline)
-        {
-            var sync = new byte[4];
-            _outView.ReadArray<byte>(SyncOffset, sync, 0, 4);
-            var finalState = BitConverter.ToInt32(sync, 0);
-            throw new TimeoutException($"SendAsync: timeout waiting for peer to acknowledge message (final_state={finalState})");
-        }
+
+        // 超时则强制重置通道，确保不卡死
+        ResetSyncToIdle(_outView);
+
+        var header = BitConverter.GetBytes(len);
+        var writing = BitConverter.GetBytes(StateWriting);
+        _outView.WriteArray<byte>(SyncOffset, writing, 0, 4);
+        _outView.WriteArray<byte>(HeaderOffset, header, 0, HeaderSize);
+        if (len > 0)
+            _outView.WriteArray<byte>(DataOffset, data, 0, len);
+
+        var ready = BitConverter.GetBytes(StateReady);
+        _outView.WriteArray<byte>(SyncOffset, ready, 0, 4);
     }
 
-    public async Task<byte[]> ReceiveAsync()
+    private void ResetSyncToIdle(MemoryMappedViewAccessor view)
+    {
+        try
+        {
+            view.WriteArray<byte>(SyncOffset, BitConverter.GetBytes(StateIdle), 0, 4);
+        }
+        catch { }
+    }
+
+    public async Task<byte[]> ReceiveAsync(CancellationToken ct = default)
     {
         if (_disposed || _inView == null)
             return Array.Empty<byte>();
 
         var deadline = DateTime.UtcNow.AddSeconds(10);
-        while (DateTime.UtcNow < deadline)
+        while (DateTime.UtcNow < deadline && !ct.IsCancellationRequested)
         {
             var sync = new byte[4];
             _inView.ReadArray<byte>(SyncOffset, sync, 0, 4);
             if (BitConverter.ToInt32(sync, 0) == StateReady) break;
-            await Task.Delay(1);
+            await Task.Delay(1, ct);
         }
-        if (DateTime.UtcNow >= deadline)
-        {
-            var sync = new byte[4];
-            _inView.ReadArray<byte>(SyncOffset, sync, 0, 4);
-            var finalState = BitConverter.ToInt32(sync, 0);
-            throw new TimeoutException($"ReceiveAsync: timeout waiting for Ready (final_state={finalState})");
-        }
+    if (ct.IsCancellationRequested)
+        throw new OperationCanceledException("[MmapTransport] Cancelled during ReceiveAsync");
+    if (DateTime.UtcNow >= deadline)
+    {
+        ResetSyncToIdle(_inView);
+        var sync = new byte[4];
+        _inView.ReadArray<byte>(SyncOffset, sync, 0, 4);
+        var finalState = BitConverter.ToInt32(sync, 0);
+        throw new TimeoutException($"ReceiveAsync: timeout waiting for Ready (final_state={finalState})");
+    }
 
         var header = new byte[HeaderSize];
         int? len = null;
@@ -279,6 +328,64 @@ public class MmapTransport : IDisposable
         _inView.WriteArray<byte>(SyncOffset, idle, 0, 4);
 
         return data;
+    }
+
+    /// <summary>
+    /// 接收消息（用于接收循环），超时时间较长且不抛出异常。
+    /// 返回 (成功, 数据)：成功=false 表示超时，可安全重试。
+    /// </summary>
+    public async Task<(bool Success, byte[] Data)> ReceiveAsyncNoThrow(CancellationToken ct, int timeoutSeconds = 30)
+    {
+        if (_disposed || _inView == null)
+            return (false, Array.Empty<byte>());
+
+        var deadline = DateTime.UtcNow.AddSeconds(timeoutSeconds);
+        while (DateTime.UtcNow < deadline && !ct.IsCancellationRequested)
+        {
+            var sync = new byte[4];
+            _inView.ReadArray<byte>(SyncOffset, sync, 0, 4);
+            if (BitConverter.ToInt32(sync, 0) == StateReady) break;
+            await Task.Delay(1, ct);
+        }
+    if (ct.IsCancellationRequested)
+        return (false, Array.Empty<byte>());
+    if (DateTime.UtcNow >= deadline)
+    {
+        // 超时（空闲）：重置同步标志，避免后续 SendAsync 卡死
+        ResetSyncToIdle(_inView);
+        return (false, Array.Empty<byte>());
+    }
+
+        var header = new byte[HeaderSize];
+        int? len = null;
+        for (int i = 0; i < 10; i++)
+        {
+            _inView.ReadArray<byte>(HeaderOffset, header, 0, HeaderSize);
+            var l = BitConverter.ToInt32(header, 0);
+            var h2 = new byte[HeaderSize];
+            _inView.ReadArray<byte>(HeaderOffset, h2, 0, HeaderSize);
+            if (BitConverter.ToInt32(h2, 0) == l) { len = l; break; }
+            await Task.Delay(1);
+        }
+        if (len == null)
+            return (false, Array.Empty<byte>());
+
+        var finalLen = (int)len;
+        if (finalLen < 0 || finalLen > MaxMsgSize)
+            return (false, Array.Empty<byte>());
+        if (finalLen == 0)
+        {
+            _inView.WriteArray<byte>(SyncOffset, BitConverter.GetBytes(StateIdle), 0, 4);
+            return (true, Array.Empty<byte>());
+        }
+
+        var data = new byte[finalLen];
+        _inView.ReadArray<byte>(DataOffset, data, 0, finalLen);
+
+        var idle = BitConverter.GetBytes(StateIdle);
+        _inView.WriteArray<byte>(SyncOffset, idle, 0, 4);
+
+        return (true, data);
     }
 
     public void Dispose()

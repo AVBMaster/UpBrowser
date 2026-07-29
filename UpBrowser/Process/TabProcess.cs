@@ -87,7 +87,7 @@ public class TabProcess : IDisposable
         {
             _docManager = new DocumentManager();
             _layoutEngine = new LayoutEngine();
-            _jsEngine = new JavaScriptEngine();
+            _jsEngine = new JavaScriptEngine(_tabIndex);
             _typefaceCache = new Dictionary<string, SKTypeface>();
             _imageCache = new ImageCache();
 

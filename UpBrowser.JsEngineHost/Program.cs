@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text.Json;
 using JavaScriptEngineSwitcher.Core;
 using JavaScriptEngineSwitcher.Jint;
@@ -12,11 +13,13 @@ class Program
         var channelName = "";
         var engineType = "Jint";
         var tabIndex = 0;
+        int parentPid = 0;
         foreach (var arg in args)
         {
             if (arg.StartsWith("--channel=")) channelName = arg[10..];
             else if (arg.StartsWith("--engine=")) engineType = arg[9..];
             else if (arg.StartsWith("--tab=")) tabIndex = int.Parse(arg[6..]);
+            else if (arg.StartsWith("--parent=")) parentPid = int.Parse(arg[9..]);
         }
 
         if (string.IsNullOrEmpty(channelName))
@@ -26,24 +29,57 @@ class Program
             return;
         }
 
-        Console.WriteLine($"[JsEngineHost] Starting channel={channelName} engine={engineType} tab={tabIndex}");
+        Console.WriteLine($"[JsEngineHost] Starting channel={channelName} engine={engineType} tab={tabIndex} parent={parentPid}");
 
-        JsEngineSwitcher.Current.EngineFactories.AddJint(s =>
+        using var parentWatchCts = new CancellationTokenSource();
+
+        if (parentPid > 0)
+        {
+            Task.Run(() =>
+            {
+                while (!parentWatchCts.Token.IsCancellationRequested)
+                {
+                    try
+                    {
+                        var parent = Process.GetProcessById(parentPid);
+                        if (parent.HasExited)
+                        {
+                            parent.Dispose();
+                            Console.WriteLine("[JsEngineHost] Parent process died, exiting");
+                            parentWatchCts.Cancel();
+                            return;
+                        }
+                        parent.Dispose();
+                    }
+                    catch (InvalidOperationException)
+                    {
+                        Console.WriteLine("[JsEngineHost] Parent process not found, exiting");
+                        parentWatchCts.Cancel();
+                        return;
+                    }
+                    Thread.Sleep(500);
+                }
+            });
+        }
+
+        var switcher = new JsEngineSwitcher();
+        switcher.EngineFactories.AddJint(s =>
         {
             s.MaxRecursionDepth = 500;
         });
-        JsEngineSwitcher.Current.DefaultEngineName = JsEngineSwitcher.Current.EngineFactories.First().EngineName;
-        using var engine = JsEngineSwitcher.Current.CreateDefaultEngine();
+        switcher.DefaultEngineName = switcher.EngineFactories.First().EngineName;
+        using var engine = switcher.CreateDefaultEngine();
         var manager = new EngineManager(engine, tabIndex);
 
         using var transport = new MmapTransport(channelName);
         try
         {
-            await transport.StartServerAsync();
+            await transport.StartServerAsync(parentWatchCts.Token);
             Console.WriteLine("[JsEngineHost] MMAP connected");
             Console.WriteLine("[JsEngineHost] Setup completed");
-            await manager.RunAsync(transport);
+            await manager.RunAsync(transport, parentWatchCts.Token);
         }
+        catch (OperationCanceledException) { }
         catch (Exception ex)
         {
             Console.Error.WriteLine($"[JsEngineHost] Fatal: {ex.Message}");
@@ -89,13 +125,15 @@ class EngineManager
         }));
     }
 
-    public async Task RunAsync(MmapTransport transport)
+    public async Task RunAsync(MmapTransport transport, CancellationToken ct = default)
     {
         _transport = transport;
         _cts = new CancellationTokenSource();
-        _ = Task.Run(() => ReceiveLoop(_cts.Token));
-        try { await Task.Delay(-1, _cts.Token); }
+        var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, _cts.Token);
+        _ = Task.Run(() => ReceiveLoop(linked.Token));
+        try { await Task.Delay(-1, linked.Token); }
         catch (OperationCanceledException) { }
+        finally { _cts.Cancel(); }
     }
 
     public void ExecuteSetup()
@@ -103,12 +141,11 @@ class EngineManager
         var setup = @"
 (function() {
     var g = typeof globalThis !== 'undefined' ? globalThis : this;
-    g.__g_cbid = 0; g.__g_cbs = {}; g.__g_fnMap = typeof WeakMap !== 'undefined' ? new WeakMap() : {};
+    g.__g_cbid = 0; g.__g_cbs = {};
     g.__g_store = function(fn) {
-        var id = g.__g_fnMap.get ? g.__g_fnMap.get(fn) : undefined;
-        if (id !== undefined) return id;
-        id = ++g.__g_cbid; g.__g_cbs[id] = fn;
-        if (g.__g_fnMap.set) g.__g_fnMap.set(fn, id);
+        if (typeof fn !== 'function') return -1;
+        var id = ++g.__g_cbid;
+        g.__g_cbs[id] = fn;
         return id;
     };
     g.__g_invoke = function(id, arg) {
@@ -128,11 +165,11 @@ class EngineManager
     g.___nativeEncodeURIComponent = encodeURIComponent;
 
     g.console = {
-        log: function() { print('[JS Log] ' + Array.prototype.slice.call(arguments).join(' ')); },
-        error: function() { print('[JS Error] ' + Array.prototype.slice.call(arguments).join(' ')); },
-        warn: function() { print('[JS Warn] ' + Array.prototype.slice.call(arguments).join(' ')); },
-        info: function() { print('[JS Info] ' + Array.prototype.slice.call(arguments).join(' ')); },
-        debug: function() { print('[JS Debug] ' + Array.prototype.slice.call(arguments).join(' ')); }
+        log: function() { __ipc('console.log', JSON.stringify(Array.prototype.slice.call(arguments))); },
+        error: function() { __ipc('console.error', JSON.stringify(Array.prototype.slice.call(arguments))); },
+        warn: function() { __ipc('console.warn', JSON.stringify(Array.prototype.slice.call(arguments))); },
+        info: function() { __ipc('console.info', JSON.stringify(Array.prototype.slice.call(arguments))); },
+        debug: function() { __ipc('console.debug', JSON.stringify(Array.prototype.slice.call(arguments))); }
     };
 
     g.setTimeout = function(fn, ms) { return __ipc('setTimeout', JSON.stringify([__g_store(fn), ms||0])); };
@@ -239,7 +276,8 @@ class EngineManager
             var data = ProtocolSerializer.Serialize(request);
             _transport!.SendAsync(data).Wait();
 
-            if (!tcs.Task.Wait(10000))
+            // 1 秒超时：避免 JS 引擎阻塞等待主进程响应
+            if (!tcs.Task.Wait(1000))
             {
                 lock (_lock) _pending.Remove(requestId);
                 return "{\"error\":\"timeout\"}";
@@ -260,10 +298,13 @@ class EngineManager
     {
         while (!ct.IsCancellationRequested && _transport != null)
         {
-        try
-        {
-            var data = await _transport.ReceiveAsync();
-            var msg = ProtocolSerializer.DeserializeAny(data);
+            try
+            {
+                var (success, data) = await _transport.ReceiveAsyncNoThrow(ct);
+                if (!success) continue;
+                if (data.Length == 0) continue;
+
+                var msg = ProtocolSerializer.DeserializeAny(data);
             if (msg.Request != null)
             {
                 var reqCopy = msg.Request;

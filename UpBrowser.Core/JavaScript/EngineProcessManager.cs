@@ -8,21 +8,39 @@ public static class EngineProcessManager
     private static readonly Dictionary<int, RemoteJsEngineAdapter> _engines = new();
     private static readonly object _lock = new();
     private static int _nextChannelId;
+    private static readonly string _pidSuffix = System.Diagnostics.Process.GetCurrentProcess().Id.ToString("x8");
 
     /// <summary>
     /// 获取或创建指定标签页的远程 JS 引擎适配器。
+    /// 非阻塞：JS 引擎在后台启动，返回适配器可能尚未就绪，调用方应使用 IsReady 检查。
     /// </summary>
-    public static RemoteJsEngineAdapter GetOrCreate(int tabIndex)
+    public static RemoteJsEngineAdapter GetOrCreate(int tabIndex, string engineType)
     {
         lock (_lock)
         {
             if (_engines.TryGetValue(tabIndex, out var existing))
+            {
+                if (existing.IsReady)
+                    return existing;
+                // 已存在但尚未就绪，返回等待（已启动后台任务）
                 return existing;
+            }
 
             var channelId = Interlocked.Increment(ref _nextChannelId);
-            var channelName = $"UpBrowser_JS_{channelId}";
-            var adapter = new RemoteJsEngineAdapter(channelName, "Jint", tabIndex);
-            adapter.StartAsync().Wait();
+            var channelName = $"UpBrowser_JS_{_pidSuffix}_{tabIndex}_{channelId}";
+            var adapter = new RemoteJsEngineAdapter(channelName, engineType, tabIndex);
+            // 在后台启动，不阻塞 UI 线程
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await adapter.StartAsync();
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[EngineProcessManager] Failed to start JS engine for tab={tabIndex}: {ex.Message}");
+                }
+            });
             _engines[tabIndex] = adapter;
             return adapter;
         }

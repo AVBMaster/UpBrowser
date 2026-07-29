@@ -1,11 +1,12 @@
 (function() {
     var g = typeof globalThis !== 'undefined' ? globalThis : this;
-    g.__g_cbid = 0; g.__g_cbs = {}; g.__g_fnMap = typeof WeakMap !== 'undefined' ? new WeakMap() : {};
+    g.__g_cbid = 0; g.__g_cbs = {};
+    // Use plain object for callback storage; WeakMap requires object keys,
+    // and JS engine host objects passed via IPC can be primitives (numbers).
     g.__g_store = function(fn) {
-        var id = g.__g_fnMap.get ? g.__g_fnMap.get(fn) : undefined;
-        if (id !== undefined) return id;
-        id = ++g.__g_cbid; g.__g_cbs[id] = fn;
-        if (g.__g_fnMap.set) g.__g_fnMap.set(fn, id);
+        if (typeof fn !== 'function') return -1;
+        var id = ++g.__g_cbid;
+        g.__g_cbs[id] = fn;
         return id;
     };
     g.__g_invoke = function(id, arg) {
@@ -302,11 +303,11 @@
 
     // === console ===
     g.console = {
-        log: function() { print('[JS Log] ' + Array.prototype.slice.call(arguments).join(' ')); },
-        error: function() { print('[JS Error] ' + Array.prototype.slice.call(arguments).join(' ')); },
-        warn: function() { print('[JS Warn] ' + Array.prototype.slice.call(arguments).join(' ')); },
-        info: function() { print('[JS Info] ' + Array.prototype.slice.call(arguments).join(' ')); },
-        debug: function() { print('[JS Debug] ' + Array.prototype.slice.call(arguments).join(' ')); }
+        log: function() { __ipc('console.log', JSON.stringify(Array.prototype.slice.call(arguments))); },
+        error: function() { __ipc('console.error', JSON.stringify(Array.prototype.slice.call(arguments))); },
+        warn: function() { __ipc('console.warn', JSON.stringify(Array.prototype.slice.call(arguments))); },
+        info: function() { __ipc('console.info', JSON.stringify(Array.prototype.slice.call(arguments))); },
+        debug: function() { __ipc('console.debug', JSON.stringify(Array.prototype.slice.call(arguments))); }
     };
 
     // === timers ===
