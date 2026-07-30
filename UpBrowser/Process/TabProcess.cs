@@ -104,7 +104,6 @@ public class TabProcess : IDisposable
                 if (_cts.Token.IsCancellationRequested) break;
                 try { cmd(); }
                 catch (OperationCanceledException) { break; }
-                catch (ThreadInterruptedException) { break; }
                 catch (Exception ex)
                 {
                     Console.WriteLine($"[TabProc-{_tabIndex}] Error: {ex.Message}");
@@ -241,16 +240,29 @@ public class TabProcess : IDisposable
 
     public void Dispose()
     {
-        _cts.Cancel();
-        _commandQueue.CompleteAdding();
+        if (_cts?.IsCancellationRequested == true)
+            return;
+
+        // 1. 标记取消
+        _cts?.Cancel();
+
+        // 2. 停止添加新命令
+        _commandQueue?.CompleteAdding();
+
+        // 3. 发送哨兵命令唤醒阻塞在 GetConsumingEnumerable 的线程
+        //    （NativeAOT 不支持 Thread.Interrupt，需用此方式唤醒）
+        try { _commandQueue?.Add(() => { }); } catch { }
+
         if (_workerThread?.IsAlive == true)
         {
-            _workerThread.Interrupt();
-            if (!_workerThread.Join(2000))
-                Console.WriteLine($"[TabProc-{_tabIndex}] Force abort");
+            if (!_workerThread.Join(3000))
+            {
+                Console.WriteLine($"[TabProc-{_tabIndex}] Worker thread did not exit in time");
+            }
         }
-        _cts.Dispose();
-        _commandQueue.Dispose();
+
+        _cts?.Dispose();
+        _commandQueue?.Dispose();
     }
 
     private void RunPageScripts(DocumentManager.DocumentLoadResult loadResult, string? baseUrl)

@@ -983,24 +983,40 @@ namespace UpBrowser;
         _chrome.OnCloseTab = (index) =>
         {
             Console.WriteLine($"Close tab {index} requested");
-            _processManager.DestroyProcess(index);
-            // Clean up tab state to free memory
-            if (_tabStates.TryRemove(index, out var oldState) && oldState.LoadResult != null)
+
+            // 所有重清理操作放到后台线程，绝不阻塞 UI 线程
+            _ = Task.Run(() =>
             {
-                try { oldState.LoadResult.AngleSharpDoc?.Dispose(); }
-                catch (Exception ex) { Console.WriteLine($"[Dispose] Tab state doc error: {ex.Message}"); }
-            }
-            // If closing the active tab, clear current load
-            if (_currentLoad != null && _chrome.ActiveTabIndex == index)
-            {
-                try { _currentLoad.AngleSharpDoc?.Dispose(); }
-                catch (Exception ex) { Console.WriteLine($"[Dispose] Current doc error: {ex.Message}"); }
-                _currentLoad = null;
-            }
-            // Force GC to release managed memory back to the OS
-            GC.Collect(GC.MaxGeneration, GCCollectionMode.Aggressive, blocking: true);
-            GC.WaitForPendingFinalizers();
-            _input.NeedsRedraw = true;
+                try
+                {
+                    _processManager.DestroyProcess(index);
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[CloseTab] DestroyProcess error: {ex.Message}");
+                }
+
+                // 清除标签页状态
+                if (_tabStates.TryRemove(index, out var oldState) && oldState.LoadResult != null)
+                {
+                    try { oldState.LoadResult.AngleSharpDoc?.Dispose(); }
+                    catch (Exception ex) { Console.WriteLine($"[Dispose] Tab state doc error: {ex.Message}"); }
+                }
+
+                // 如果关闭的是当前活动标签页，清除当前加载
+                _eventLoop.PostTask(() =>
+                {
+                    if (_currentLoad != null && _chrome.ActiveTabIndex == index)
+                    {
+                        try { _currentLoad.AngleSharpDoc?.Dispose(); }
+                        catch (Exception ex) { Console.WriteLine($"[Dispose] Current doc error: {ex.Message}"); }
+                        _currentLoad = null;
+                    }
+                });
+
+                // 后台 GC，不阻塞 UI
+                GC.Collect(GC.MaxGeneration, GCCollectionMode.Optimized, blocking: false);
+            });
         };
     }
 
