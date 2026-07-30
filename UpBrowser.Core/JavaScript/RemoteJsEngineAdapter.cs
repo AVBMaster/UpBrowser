@@ -361,6 +361,7 @@ var console = __ipc_console;
                 "dom_getProperty" => HandleDomGetProperty(request, argsJson),
                 "dom_setProperty" => HandleDomSetProperty(request, argsJson),
                 "dom_createElement" => HandleDomCreateElement(request, argsJson),
+                "dom_createElementBatch" => HandleDomCreateElementBatch(request, argsJson),
                 "dom_appendChild" => HandleDomAppendChild(request, argsJson),
                 "dom_insertBefore" => HandleDomInsertBefore(request, argsJson),
                 "dom_removeChild" => HandleDomRemoveChild(request, argsJson),
@@ -425,6 +426,8 @@ var console = __ipc_console;
                 "dom_getElementsByClassName" => HandleDomGetElementsByClassName(request, argsJson),
                 "dom_getElementsByName" => HandleDomGetElementsByName(request, argsJson),
                 "dom_getElementById" => HandleDomGetElementById(request, argsJson),
+                "dom_getPropertyBatch" => HandleDomGetPropertyBatch(request, argsJson),
+                "dom_setPropertyBatch" => HandleDomSetPropertyBatch(request, argsJson),
                 "dom_setTitle" => HandleDomSetTitle(request, argsJson),
                 "dom_getUrl" => HandleDomGetUrl(request, argsJson),
                 "dom_getReadyState" => JsonResult(request, "complete"),
@@ -640,6 +643,81 @@ var console = __ipc_console;
         }
     }
 
+    private IpcResponse HandleDomGetPropertyBatch(IpcRequest request, string argsJson)
+    {
+        try
+        {
+            var parsed = System.Text.Json.JsonSerializer.Deserialize<string[]>(argsJson);
+            if (parsed == null || parsed.Length < 2)
+                return new IpcResponse { RequestId = request.RequestId, Success = false, Error = "Invalid args" };
+
+            var el = GetDomElement(argsJson);
+            if (el == null)
+                return new IpcResponse { RequestId = request.RequestId, Success = false, Error = "Element not found" };
+
+            var propsJson = parsed[1];
+            var propNames = System.Text.Json.JsonSerializer.Deserialize<string[]>(propsJson);
+            if (propNames == null || propNames.Length == 0)
+                return JsonResult(request, "{}");
+
+            var results = new Dictionary<string, string?>();
+            foreach (var p in propNames)
+            {
+                string? r = p switch
+                {
+                    "tagName" => el.tagName, "nodeName" => el.nodeName, "localName" => el.localName,
+                    "nodeType" => el.nodeType.ToString(), "className" => el.className, "id" => el.id,
+                    "textContent" => el.textContent, "innerHTML" => el.innerHTML, "outerHTML" => el.outerHTML,
+                    "value" => el.value, "hidden" => el.hidden ? "true" : "false",
+                    "draggable" => el.draggable ? "true" : "false", "disabled" => el.disabled ? "true" : "false",
+                    "readOnly" => el.readOnly ? "true" : "false", "required" => el.required ? "true" : "false",
+                    "checked" => el.@checked ? "true" : "false", "isConnected" => el.isConnected ? "true" : "false",
+                    "offsetWidth" => el.offsetWidth.ToString(), "offsetHeight" => el.offsetHeight.ToString(),
+                    "clientWidth" => el.clientWidth.ToString(), "clientHeight" => el.clientHeight.ToString(),
+                    "scrollTop" => el.scrollTop.ToString(), "scrollLeft" => el.scrollLeft.ToString(),
+                    "offsetTop" => el.offsetTop.ToString(), "offsetLeft" => el.offsetLeft.ToString(),
+                    "type" => el.type, "placeholder" => el.placeholder, "href" => el.href,
+                    "rel" => el.rel, "target" => el.target, "src" => el.src, "lang" => el.lang,
+                    "dir" => el.dir, "title" => el.title, "tabIndex" => el.tabIndex.ToString(),
+                    "nodeValue" => el.nodeValue, "hasAttributes" => el.hasAttributes() ? "true" : "false",
+                    "childElementCount" => el.childElementCount.ToString(),
+                    _ => "null"
+                };
+                results[p] = r;
+            }
+
+            return JsonResult(request, System.Text.Json.JsonSerializer.Serialize(results));
+        }
+        catch (Exception ex) { return new IpcResponse { RequestId = request.RequestId, Success = false, Error = ex.Message }; }
+    }
+
+    private IpcResponse HandleDomSetPropertyBatch(IpcRequest request, string argsJson)
+    {
+        try
+        {
+            var parsed = System.Text.Json.JsonSerializer.Deserialize<string[]>(argsJson);
+            if (parsed == null || parsed.Length < 2)
+                return new IpcResponse { RequestId = request.RequestId, Success = false, Error = "Invalid args" };
+
+            var el = GetDomElement(argsJson);
+            if (el == null)
+                return new IpcResponse { RequestId = request.RequestId, Success = false, Error = "Element not found" };
+
+            var pairsJson = parsed[1];
+            var pairs = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(pairsJson);
+            if (pairs == null || pairs.Count == 0)
+                return RespondOk(request);
+
+            foreach (var (p, v) in pairs)
+                SetElProp(el, p, v ?? "");
+
+            // Single batched MarkDirty instead of per-property
+            MarkDirty();
+            return RespondOk(request);
+        }
+        catch (Exception ex) { return new IpcResponse { RequestId = request.RequestId, Success = false, Error = ex.Message }; }
+    }
+
     #region DOM Helpers
 
     private static int GetIntArg(string argsJson, int idx)
@@ -763,6 +841,31 @@ var console = __ipc_console;
     #endregion
 
     #region DOM Element Creation & Manipulation
+
+    private IpcResponse HandleDomCreateElementBatch(IpcRequest request, string argsJson)
+    {
+        try
+        {
+            var tags = System.Text.Json.JsonSerializer.Deserialize<string[]>(argsJson);
+            var doc = DomStore?.Document;
+            if (doc == null || tags == null)
+                return new IpcResponse { RequestId = request.RequestId, Success = false, Error = "No document" };
+
+            var ids = new List<string>();
+            var elements = new ElementHost[tags.Length];
+            for (int i = 0; i < tags.Length; i++)
+            {
+                var el = doc.createElement(tags[i] ?? "div");
+                elements[i] = el;
+                ids.Add((DomStore?.RegisterElement(el) ?? 0).ToString());
+            }
+
+            // Single batched MarkDirty for all creations
+            MarkDirty();
+            return JsonResult(request, System.Text.Json.JsonSerializer.Serialize(ids));
+        }
+        catch (Exception ex) { return new IpcResponse { RequestId = request.RequestId, Success = false, Error = ex.Message }; }
+    }
 
     private IpcResponse HandleDomCreateElement(IpcRequest request, string argsJson)
     {
@@ -1094,7 +1197,7 @@ var console = __ipc_console;
             var el = GetDomElement(argsJson);
             if (el != null)
             {
-                var ids = el.GetChildHosts().Select(e => (DomStore?.RegisterElement(e) ?? 0).ToString()).ToArray();
+                var ids = DomStore?.RegisterElements(el.GetChildHosts()).Select(i => i.ToString()).ToArray() ?? Array.Empty<string>();
                 return JsonResult(request, System.Text.Json.JsonSerializer.Serialize(ids));
             }
             return JsonResult(request, "[]");
@@ -1222,11 +1325,8 @@ var console = __ipc_console;
             if (el != null)
             {
                 var results = el.querySelectorAll(GetStringArg(argsJson, 1) ?? "");
-                var ids = new List<string>();
-                foreach (var item in results)
-                {
-                    if (item is ElementHost h) ids.Add((DomStore?.RegisterElement(h) ?? 0).ToString());
-                }
+                var hosts = results.OfType<ElementHost>().ToList();
+                var ids = DomStore?.RegisterElements(hosts).Select(i => i.ToString()).ToArray() ?? Array.Empty<string>();
                 return JsonResult(request, System.Text.Json.JsonSerializer.Serialize(ids));
             }
             return JsonResult(request, "[]");
@@ -1257,11 +1357,8 @@ var console = __ipc_console;
             if (el != null)
             {
                 var coll = el.getElementsByTagName(GetStringArg(argsJson, 1) ?? "");
-                var ids = new List<string>();
-                foreach (var item in coll)
-                {
-                    if (item is ElementHost h) ids.Add((DomStore?.RegisterElement(h) ?? 0).ToString());
-                }
+                var hosts = coll.OfType<ElementHost>().ToList();
+                var ids = DomStore?.RegisterElements(hosts).Select(i => i.ToString()).ToArray() ?? Array.Empty<string>();
                 return JsonResult(request, System.Text.Json.JsonSerializer.Serialize(ids));
             }
             return JsonResult(request, "[]");
@@ -1277,11 +1374,8 @@ var console = __ipc_console;
             if (el != null)
             {
                 var coll = el.getElementsByClassName(GetStringArg(argsJson, 1) ?? "");
-                var ids = new List<string>();
-                foreach (var item in coll)
-                {
-                    if (item is ElementHost h) ids.Add((DomStore?.RegisterElement(h) ?? 0).ToString());
-                }
+                var hosts = coll.OfType<ElementHost>().ToList();
+                var ids = DomStore?.RegisterElements(hosts).Select(i => i.ToString()).ToArray() ?? Array.Empty<string>();
                 return JsonResult(request, System.Text.Json.JsonSerializer.Serialize(ids));
             }
             return JsonResult(request, "[]");
@@ -1496,7 +1590,8 @@ var console = __ipc_console;
             var doc = DomStore?.Document;
             if (doc != null)
             {
-                var ids = doc.forms.Select(f => (DomStore?.RegisterElement(f as ElementHost) ?? 0).ToString()).ToArray();
+                var hosts = doc.forms.OfType<ElementHost>().ToList();
+                var ids = DomStore?.RegisterElements(hosts).Select(i => i.ToString()).ToArray() ?? Array.Empty<string>();
                 return JsonResult(request, System.Text.Json.JsonSerializer.Serialize(ids));
             }
             return JsonResult(request, "[]");
@@ -1511,7 +1606,8 @@ var console = __ipc_console;
             var doc = DomStore?.Document;
             if (doc != null)
             {
-                var ids = doc.images.Select(f => (DomStore?.RegisterElement(f as ElementHost) ?? 0).ToString()).ToArray();
+                var hosts = doc.images.OfType<ElementHost>().ToList();
+                var ids = DomStore?.RegisterElements(hosts).Select(i => i.ToString()).ToArray() ?? Array.Empty<string>();
                 return JsonResult(request, System.Text.Json.JsonSerializer.Serialize(ids));
             }
             return JsonResult(request, "[]");
@@ -1526,7 +1622,8 @@ var console = __ipc_console;
             var doc = DomStore?.Document;
             if (doc != null)
             {
-                var ids = doc.links.Select(f => (DomStore?.RegisterElement(f as ElementHost) ?? 0).ToString()).ToArray();
+                var hosts = doc.links.OfType<ElementHost>().ToList();
+                var ids = DomStore?.RegisterElements(hosts).Select(i => i.ToString()).ToArray() ?? Array.Empty<string>();
                 return JsonResult(request, System.Text.Json.JsonSerializer.Serialize(ids));
             }
             return JsonResult(request, "[]");
@@ -1541,7 +1638,8 @@ var console = __ipc_console;
             var doc = DomStore?.Document;
             if (doc != null)
             {
-                var ids = doc.scripts.Select(f => (DomStore?.RegisterElement(f as ElementHost) ?? 0).ToString()).ToArray();
+                var hosts = doc.scripts.OfType<ElementHost>().ToList();
+                var ids = DomStore?.RegisterElements(hosts).Select(i => i.ToString()).ToArray() ?? Array.Empty<string>();
                 return JsonResult(request, System.Text.Json.JsonSerializer.Serialize(ids));
             }
             return JsonResult(request, "[]");
@@ -1556,7 +1654,8 @@ var console = __ipc_console;
             var doc = DomStore?.Document;
             if (doc != null)
             {
-                var ids = doc.anchors.Select(f => (DomStore?.RegisterElement(f as ElementHost) ?? 0).ToString()).ToArray();
+                var hosts = doc.anchors.OfType<ElementHost>().ToList();
+                var ids = DomStore?.RegisterElements(hosts).Select(i => i.ToString()).ToArray() ?? Array.Empty<string>();
                 return JsonResult(request, System.Text.Json.JsonSerializer.Serialize(ids));
             }
             return JsonResult(request, "[]");
@@ -2048,6 +2147,21 @@ public class DomProxyStore
             var id = _nextElementId++;
             _elements[id] = el;
             return id;
+        }
+    }
+
+    public int[] RegisterElements(IEnumerable<ElementHost> els)
+    {
+        lock (_lock)
+        {
+            var ids = new List<int>();
+            foreach (var el in els)
+            {
+                var id = _nextElementId++;
+                _elements[id] = el;
+                ids.Add(id);
+            }
+            return ids.ToArray();
         }
     }
 

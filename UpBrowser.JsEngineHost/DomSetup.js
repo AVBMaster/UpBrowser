@@ -15,13 +15,23 @@
     };
     g.__g_remove = function(id) { delete g.__g_cbs[id]; };
 
+    // === Batched DOM operations (reduce IPC round-trips) ===
+    // __getPropertyBatch(elId, ["prop1","prop2",...]) -> '{"prop1":"val","prop2":"val2"}'
+    // __setPropertyBatch(elId, {"prop1":"val","prop2":"val2"}) -> ok
+    g.__getPropertyBatch = function(elId, propNames) {
+        return __ipc('dom_getPropertyBatch', JSON.stringify([elId, JSON.stringify(propNames)]));
+    };
+    g.__setPropertyBatch = function(elId, propMap) {
+        __ipc('dom_setPropertyBatch', JSON.stringify([elId, JSON.stringify(propMap)]));
+    };
+
     // === DOM Element Proxy ===
     g.__createEl = function(id) {
         return {
             __id: id, __type: 'Element',
-            get className() { return __ipc('dom_getPropertyValue', JSON.stringify([this.__id, 'className'])); },
+            get className() { return __ipc('dom_getProperty', JSON.stringify([this.__id, 'className'])); },
             set className(v) { __ipc('dom_setProperty', JSON.stringify([this.__id, 'className', v])); },
-            get id() { return __ipc('dom_getPropertyValue', JSON.stringify([this.__id, 'id'])); },
+            get id() { return __ipc('dom_getProperty', JSON.stringify([this.__id, 'id'])); },
             set id(v) { __ipc('dom_setProperty', JSON.stringify([this.__id, 'id', v])); },
             get tagName() { return __ipc('dom_getTag', JSON.stringify([this.__id])); },
             get textContent() { return __ipc('dom_getTextContent', JSON.stringify([this.__id])); },
@@ -110,8 +120,8 @@
             focus: function() { __ipc('dom_focus', JSON.stringify([this.__id])); },
             blur: function() { __ipc('dom_blur', JSON.stringify([this.__id])); },
             scrollIntoView: function(align) { __ipc('dom_scrollIntoView', JSON.stringify([this.__id, align ? 'true' : 'false'])); },
-            getBoundingClientRect: function() { return JSON.parse(__ipc('dom_getBoundingClientRect', JSON.stringify([this.__id]))); },
-            addEventListener: function(type, cb) { var id = __g_store(cb); __ipc('dom_addEventListener', JSON.stringify([this.__id, type, id])); },
+            getBoundingClientRect: function() { var b = g.__getPropertyBatch(this.__id, ['offsetWidth','offsetHeight','offsetTop','offsetLeft','clientWidth','clientHeight']); return JSON.parse(b); },
+            addEventListener: function(type, cb) { /* server-side stub — no-op */ },
             dispatchEvent: function(evt) { __ipc('dom_dispatchEvent', JSON.stringify([this.__id, evt.type || ''])); }
         };
     };
@@ -208,13 +218,14 @@
         getElementsByClassName: function(cls) { var ids = JSON.parse(__ipc('dom_getElementsByClassName', JSON.stringify([-1, cls]))); return ids.map(function(i) { return g.__getEl(i); }); },
         getElementsByName: function(name) { var ids = JSON.parse(__ipc('dom_getElementsByName', JSON.stringify([-1, name]))); return ids.map(function(i) { return g.__getEl(i); }); },
         createElement: function(tag) { var r = __ipc('dom_createElement', JSON.stringify([tag])); return g.__getEl(parseInt(r)); },
+        createElementBatch: function(tags) { var ids = JSON.parse(__ipc('dom_createElementBatch', JSON.stringify(tags))); return ids.map(function(i) { return g.__getEl(parseInt(i)); }); },
         createElementNS: function(ns, tag) { var r = __ipc('dom_createElement', JSON.stringify([tag])); return g.__getEl(parseInt(r)); },
         createTextNode: function(text) { return { nodeType: 3, textContent: text, nodeValue: text }; },
         createComment: function(text) { return { nodeType: 8, textContent: text, nodeValue: text }; },
         write: function(text) { __ipc('dom_write', JSON.stringify([text])); },
         writeln: function(text) { __ipc('dom_write', JSON.stringify([text + '\n'])); },
-        addEventListener: function(type, cb) { var id = __g_store(cb); __ipc('dom_addEventListener', JSON.stringify([-1, type, id])); },
-        removeEventListener: function(type) { __ipc('dom_removeEventListener', JSON.stringify([-1, type])); },
+        addEventListener: function(type, cb) { /* server-side stub — no-op */ },
+        removeEventListener: function(type) { /* server-side stub — no-op */ },
         dispatchEvent: function(evt) { __ipc('dom_dispatchEvent', JSON.stringify([-1, evt.type || ''])); },
         getComputedStyle: function(el) { return new DOMComputedStyleHost(el.__id); },
         getElementByClassName: function(cls) { var r = __ipc('dom_getElementsByClassName', JSON.stringify([-1, cls])); return r === 'null' ? null : g.__getEl(parseInt(r)); },
@@ -261,33 +272,42 @@
         plugins: []
     };
 
-    // === localStorage ===
-    g.localStorage = {
-        getItem: function(k) { return __ipc('dom_localStorage_get', JSON.stringify([k])); },
-        setItem: function(k, v) { __ipc('dom_localStorage_set', JSON.stringify([k, v])); },
-        removeItem: function(k) { __ipc('dom_localStorage_remove', JSON.stringify([k])); },
-        clear: function() { __ipc('dom_localStorage_clear', '[]'); },
-        get length() { return 0; }, key: function(i) { return null; }
-    };
+    // === localStorage (in-memory — server-side stubs return constant empty, no IPC needed) ===
+    (function() {
+        var store = {};
+        g.localStorage = {
+            getItem: function(k) { return store[k] || null; },
+            setItem: function(k, v) { store[k] = String(v ?? ''); },
+            removeItem: function(k) { delete store[k]; },
+            clear: function() { for (var k in store) delete store[k]; },
+            get length() { var c = 0; for (var k in store) if (Object.prototype.hasOwnProperty.call(store, k)) c++; return c; },
+            key: function(i) { var idx = 0; for (var k in store) if (Object.prototype.hasOwnProperty.call(store, k)) { if (idx === i) return k; idx++; } return null; }
+        };
+    })();
 
-    // === sessionStorage ===
-    g.sessionStorage = {
-        getItem: function(k) { return __ipc('dom_sessionStorage_get', JSON.stringify([k])); },
-        setItem: function(k, v) { __ipc('dom_sessionStorage_set', JSON.stringify([k, v])); },
-        removeItem: function(k) { __ipc('dom_sessionStorage_remove', JSON.stringify([k])); },
-        clear: function() { __ipc('dom_sessionStorage_clear', '[]'); },
-        get length() { return 0; }, key: function(i) { return null; }
-    };
+    // === sessionStorage (in-memory — server-side stubs return constant empty, no IPC needed) ===
+    (function() {
+        var store = {};
+        g.sessionStorage = {
+            getItem: function(k) { return store[k] || null; },
+            setItem: function(k, v) { store[k] = String(v ?? ''); },
+            removeItem: function(k) { delete store[k]; },
+            clear: function() { for (var k in store) delete store[k]; },
+            get length() { var c = 0; for (var k in store) if (Object.prototype.hasOwnProperty.call(store, k)) c++; return c; },
+            key: function(i) { var idx = 0; for (var k in store) if (Object.prototype.hasOwnProperty.call(store, k)) { if (idx === i) return k; idx++; } return null; }
+        };
+    })();
 
-    // === history ===
+    // === history (in-memory stub — no IPC needed) ===
     g.history = {
-        get length() { return parseInt(__ipc('dom_history_getLength', '[]')); },
-        pushState: function(state, title, url) { __ipc('dom_history_pushState', JSON.stringify([JSON.stringify(state || {}), title || '', url || ''])); },
-        replaceState: function(state, title, url) { __ipc('dom_history_replaceState', JSON.stringify([JSON.stringify(state || {}), title || '', url || ''])); },
-        back: function() { __ipc('dom_history_back', '[]'); },
-        forward: function() { __ipc('dom_history_forward', '[]'); },
-        go: function(steps) { __ipc('dom_history_go', JSON.stringify([steps || 0])); },
-        getState: function() { var r = __ipc('dom_history_getState', '[]'); try { return JSON.parse(r); } catch(e) { return r; } }
+        _len: 1, _state: {},
+        get length() { return this._len; },
+        pushState: function(state, title, url) { this._state = state || {}; this._len++; },
+        replaceState: function(state, title, url) { this._state = state || {}; },
+        back: function() { if (this._len > 1) this._len--; },
+        forward: function() { this._len++; },
+        go: function(steps) { this._len = Math.max(1, this._len + (steps || 0)); },
+        getState: function() { try { return JSON.parse(JSON.stringify(this._state)); } catch(e) { return this._state; } }
     };
 
     // === screen ===
