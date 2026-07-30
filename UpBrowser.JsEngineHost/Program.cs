@@ -234,24 +234,60 @@ class EngineManager
 })();
 ";
         _engine.Execute(setup);
-        // Load DOM setup from external JS file
-        var domSetupPath = Path.Combine(AppContext.BaseDirectory, "DomSetup.js");
-        if (File.Exists(domSetupPath))
+        // Load DOM setup from embedded resource (preferred) or external JS file (fallback)
+        try
         {
-            try
+            var asm = typeof(Program).Assembly;
+            var resourceNames = asm.GetManifestResourceNames();
+            Console.WriteLine("[JsEngineHost] Embedded resources: " + string.Join(", ", resourceNames));
+            string? domSetup = null;
+            // Prefer any resource that ends with DomSetup.js
+            var resourceName = resourceNames.FirstOrDefault(n => n.EndsWith(".DomSetup.js", StringComparison.OrdinalIgnoreCase));
+            if (resourceName != null)
             {
-                var domSetup = File.ReadAllText(domSetupPath);
-                _engine.Execute(domSetup);
-                Console.WriteLine("[JsEngineHost] DOM setup loaded from file");
+                using var rs = asm.GetManifestResourceStream(resourceName);
+                if (rs != null)
+                {
+                    using var sr = new StreamReader(rs);
+                    domSetup = sr.ReadToEnd();
+                    try
+                    {
+                        _engine.Execute(domSetup);
+                        Console.WriteLine($"[JsEngineHost] DOM setup loaded from embedded resource '{resourceName}'");
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"[JsEngineHost] Failed to execute embedded DOM setup: {ex.Message}");
+                        domSetup = null;
+                    }
+                }
             }
-            catch (Exception ex)
+
+            if (domSetup == null)
             {
-                Console.WriteLine($"[JsEngineHost] Failed to load DOM setup: {ex.Message}");
+                var domSetupPath = Path.Combine(AppContext.BaseDirectory, "DomSetup.js");
+                if (File.Exists(domSetupPath))
+                {
+                    try
+                    {
+                        domSetup = File.ReadAllText(domSetupPath);
+                        _engine.Execute(domSetup);
+                        Console.WriteLine("[JsEngineHost] DOM setup loaded from file");
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"[JsEngineHost] Failed to load DOM setup from file: {ex.Message}");
+                    }
+                }
+                else
+                {
+                    Console.WriteLine("[JsEngineHost] DomSetup.js not found (embedded resource missing and file not present)");
+                }
             }
         }
-        else
+        catch (Exception ex)
         {
-            Console.WriteLine("[JsEngineHost] DomSetup.js not found at " + domSetupPath);
+            Console.WriteLine($"[JsEngineHost] Failed to load DOM setup: {ex.Message}");
         }
     }
 

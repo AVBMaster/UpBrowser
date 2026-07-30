@@ -23,20 +23,26 @@
     <ProjectReference Include="..\UpBrowser.Rendering\UpBrowser.Rendering.csproj" />
     <ProjectReference Include="..\UpBrowser.Core\UpBrowser.Core.csproj" />
     <ProjectReference Include="..\UpBrowser.Input\UpBrowser.Input.csproj" />
-    <!-- JsEngineHost 以独立进程运行，不作为程序集引用 -->
-    <!-- 发布时通过 PublishJsEngineHost 目标编译并复制到输出目录 -->
+    <!-- JsEngineHost 以独立进程运行，不作为程序集引用，也不加 ProjectReference（避免 AOT/SelfContained 冲突） -->
   </ItemGroup>
 
-  <!-- 开发时复制 JsEngineHost 输出文件到主项目输出目录 -->
-  <Target Name="CopyJsEngineHostOutput" AfterTargets="Build" Condition="'$(RuntimeIdentifier)' == ''">
-    <MSBuild Projects="..\UpBrowser.JsEngineHost\UpBrowser.JsEngineHost.csproj"
-             Targets="Build"
-             Properties="Configuration=$(Configuration);TargetFramework=net10.0" />
+  <!-- 构建时确保 JsEngineHost 已编译，并复制到输出目录 -->
+  <Target Name="EnsureJsEngineHostBuilt" BeforeTargets="CopyJsEngineHostOutput">
+    <Exec Command="dotnet restore &quot;..\UpBrowser.JsEngineHost\UpBrowser.JsEngineHost.csproj&quot;" />
+    <Exec Command="dotnet build &quot;..\UpBrowser.JsEngineHost\UpBrowser.JsEngineHost.csproj&quot; -c $(Configuration) -f net10.0" />
+  </Target>
+
+  <Target Name="CopyJsEngineHostOutput" AfterTargets="Build" DependsOnTargets="EnsureJsEngineHostBuilt">
+    <PropertyGroup>
+      <JsEngineHostOutDir>$(MSBuildThisFileDirectory)..\UpBrowser.JsEngineHost\bin\$(Configuration)\net10.0\</JsEngineHostOutDir>
+    </PropertyGroup>
     <ItemGroup>
-      <JsEngineHostFiles Include="..\UpBrowser.JsEngineHost\bin\$(Configuration)\net10.0\UpBrowser.JsEngineHost.*" />
-      <JsEngineHostFiles Include="..\UpBrowser.JsEngineHost\bin\$(Configuration)\net10.0\*.dll" />
+      <JsEngineHostFiles Include="$(JsEngineHostOutDir)UpBrowser.JsEngineHost.*" />
+      <JsEngineHostFiles Include="$(JsEngineHostOutDir)*.dll" />
     </ItemGroup>
-    <Copy SourceFiles="@(JsEngineHostFiles)" DestinationFolder="$(TargetDir)" />
+    <Copy SourceFiles="@(JsEngineHostFiles)" DestinationFolder="$(TargetDir)"
+          OverwriteReadOnlyFiles="true" />
+    <Message Text="Copied @(JsEngineHostFiles->Count()) JsEngineHost files from $(JsEngineHostOutDir) to $(TargetDir)" Importance="high" />
   </Target>
 
   <!-- 发布时自动编译 JsEngineHost 并复制到输出目录 -->

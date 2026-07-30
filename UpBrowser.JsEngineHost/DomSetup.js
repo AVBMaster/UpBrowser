@@ -331,8 +331,14 @@
     };
 
     // === timers ===
-    g.setTimeout = function(fn, ms) { return __ipc('setTimeout', JSON.stringify([__g_store(fn), ms||0])); };
-    g.setInterval = function(fn, ms) { return __ipc('setInterval', JSON.stringify([__g_store(fn), ms||0])); };
+    g.setTimeout = function(arg1, ms) {
+        var id = typeof arg1 === 'function' ? __g_store(arg1) : arg1;
+        return __ipc('setTimeout', JSON.stringify([id, ms||0]));
+    };
+    g.setInterval = function(arg1, ms) {
+        var id = typeof arg1 === 'function' ? __g_store(arg1) : arg1;
+        return __ipc('setInterval', JSON.stringify([id, ms||0]));
+    };
     g.clearTimeout = function(id) { try { __ipc('clearTimeout', JSON.stringify([id])); } catch(e) {} };
     g.clearInterval = function(id) { try { __ipc('clearInterval', JSON.stringify([id])); } catch(e) {} };
 
@@ -368,7 +374,9 @@
         createURLSearchParams: function(q) { return __ipc('createURLSearchParams', JSON.stringify([q||''])); },
         devicePixelRatio: function() { return 1; },
         scrollX: function() { return 0; },
-        scrollY: function() { return 0; }
+        scrollY: function() { return 0; },
+        escape: function(s) { return encodeURIComponent(s); },
+        unescape: function(s) { return decodeURIComponent(s); }
     };
 
     // === window ===

@@ -166,6 +166,12 @@ public class JavaScriptEngine : IDisposable
 
         _adapter.Execute(JsCallbackStore.JsSetup);
 
+        if (_adapter is RemoteJsEngineAdapter)
+        {
+            _adapter.Execute(GetSetupScript());
+            return;
+        }
+
         var consoleHost = new ConsoleHost();
         consoleHost.DevToolsConsole = new JsDevToolsConsole();
         _adapter.SetGlobal("console", consoleHost);
@@ -201,7 +207,8 @@ public class JavaScriptEngine : IDisposable
             remoteAdapter?.DomStore?.SetDocument(_documentHost);
             _integrationService?.LoadDocument(document);
             ReapplyGlobals();
-            _adapter.SetGlobal("document", _documentHost);
+            if (_adapter is not RemoteJsEngineAdapter)
+                _adapter.SetGlobal("document", _documentHost);
         }
 
         MarkDirty();
@@ -212,6 +219,13 @@ public class JavaScriptEngine : IDisposable
         if (_adapter == null) return;
 
         _adapter.Execute(JsCallbackStore.JsSetup);
+
+        if (_adapter is RemoteJsEngineAdapter)
+        {
+            _adapter.Execute(GetSetupScript());
+            return;
+        }
+
         if (_builtins != null)
             _adapter.SetGlobal("__upbrowser", _builtins);
         _adapter.SetGlobal("__win", new WindowHost(this));

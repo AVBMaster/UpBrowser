@@ -170,60 +170,6 @@ public class RemoteJsEngineAdapter : IJavaScriptEngineAdapter, IDisposable
         return null;
     }
 
-    private void ExecuteSetupScript()
-    {
-        // 设置 JS 引擎的全局对象
-        // 这些对象在远程引擎中作为 JS 对象存在，方法调用通过 IPC 转发到主进程
-        var setupCode = @"
-var __ipc_console = {
-    log: function() { },
-    error: function() { },
-    warn: function() { },
-    info: function() { },
-    debug: function() { }
-};
-var console = __ipc_console;
-
-(function() {
-    var g = typeof globalThis !== 'undefined' ? globalThis : this;
-    g.__g_cbid = 0;
-    g.__g_cbs = {};
-    g.__g_fnMap = typeof WeakMap !== 'undefined' ? new WeakMap() : {};
-    
-    g.__g_store = function(fn) {
-        var id = g.__g_fnMap.get ? g.__g_fnMap.get(fn) : undefined;
-        if (id !== undefined) return id;
-        id = ++g.__g_cbid;
-        g.__g_cbs[id] = fn;
-        if (g.__g_fnMap.set) g.__g_fnMap.set(fn, id);
-        return id;
-    };
-    
-    g.__g_invoke = function(id, arg) {
-        var fn = g.__g_cbs[id];
-        if (fn) {
-            if (arg !== undefined) return fn(arg);
-            return fn();
-        }
-    };
-    
-    g.__g_remove = function(id) {
-        delete g.__g_cbs[id];
-    };
-})();
-";
-        // 直接执行 Execute 请求来设置全局
-        var request = new IpcRequest
-        {
-            RequestId = Interlocked.Increment(ref _nextRequestId),
-            Type = RequestType.Execute,
-            Payload = setupCode,
-        };
-        var response = SendRequest(request);
-        if (!response.Success)
-            Console.WriteLine($"[JsEngineHost] Setup script failed: {response.Error}");
-    }
-
     private void Cleanup()
     {
         if (_disposed) return;

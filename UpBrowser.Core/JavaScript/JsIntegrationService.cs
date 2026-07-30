@@ -106,13 +106,21 @@ namespace UpBrowser.Core.JavaScript;
             _prototypeSystem.RegisterBuiltinConstructors();
 
             var docHost = new DocumentHost(document);
-            _facade.SetGlobalObject("document", docHost);
+            // 远程引擎已在 DomSetup.js 中定义 document，无需通过 SetGlobal 发送 .NET 对象
+            if (_facade.Adapter is not RemoteJsEngineAdapter)
+            {
+                _facade.SetGlobalObject("document", docHost);
+            }
 
-            _facade.Execute("window.document = document;");
-            _facade.Execute("window.__fixProto(document);");
+            // 远程引擎的 document 已在 JsEngineHost 的 DomSetup.js 中定义，
+            // 无需执行 window.document = document 和原型修复
+            if (_facade.Adapter is not RemoteJsEngineAdapter)
+            {
+                _facade.Execute("window.document = document;");
+                _facade.Execute("window.__fixProto(document);");
 
-            // Post-load fixup: fix prototypes on all elements reachable from document
-            _facade.Execute(@"
+                // Post-load fixup: fix prototypes on all elements reachable from document
+                _facade.Execute(@"
 (function() {
     function fixTree(el) {
         window.__fixProto(el);
@@ -128,6 +136,7 @@ namespace UpBrowser.Core.JavaScript;
     if (document.head) window.__fixProto(document.head);
 })();
 ");
+            }
         }
         finally
         {
