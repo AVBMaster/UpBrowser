@@ -1341,10 +1341,10 @@ namespace UpBrowser;
         _jsEngine.LoadDocument(_currentLoad.Document);
         _devTools.SetDocument(_currentLoad.Document, html);
 
-        RunPageScripts(_currentBaseUrl);
-
         BuildDisplayList(ww, wh);
         _scroll.ScrollTo(0, 0);
+
+        RunPageScripts(_currentBaseUrl);
 
         // Update layout debug report on every page load
         try

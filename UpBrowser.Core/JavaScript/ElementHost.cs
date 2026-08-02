@@ -428,12 +428,19 @@ public class ElementHost
     public float clientLeft => 0;
     public float clientTop => 0;
 
-    public ElementHost? offsetParent
+    public ElementHost offsetParent
     {
         get
         {
             var op = _element.OffsetParent;
-            return op != null ? WrapWithCache(op) : null;
+            if (op != null)
+                return WrapWithCache(op);
+            var doc = _element.OwnerDocument;
+            if (doc?.Body != null)
+                return WrapWithCache(doc.Body) ?? new ElementHost(doc.Body);
+            if (doc?.DocumentElement != null)
+                return WrapWithCache(doc.DocumentElement) ?? new ElementHost(doc.DocumentElement);
+            return new ElementHost(_element);
         }
     }
 
@@ -712,6 +719,8 @@ public class ElementHost
     private static bool MatchesSelector(Element el, string selector)
     {
         selector = selector.Trim();
+        if (selector == "*")
+            return true;
         if (selector.StartsWith('#'))
             return el.Id == selector[1..];
         if (selector.StartsWith('.'))

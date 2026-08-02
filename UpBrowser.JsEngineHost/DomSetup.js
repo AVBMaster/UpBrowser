@@ -15,6 +15,13 @@
     };
     g.__g_remove = function(id) { delete g.__g_cbs[id]; };
 
+    // Safe array map — uses Array.prototype via call/apply to bypass poisoned
+    // Array.prototype (e.g. Jint/remote-engine environments where .map may
+    // be shadowed by an engine object).  Accepts array-like or real arrays.
+    g.__mapElIds = function(ids) {
+        return Array.prototype.map.call(ids, function(i) { return g.__getEl(i); });
+    };
+
     // === Batched DOM operations (reduce IPC round-trips) ===
     // __getPropertyBatch(elId, ["prop1","prop2",...]) -> '{"prop1":"val","prop2":"val2"}'
     // __setPropertyBatch(elId, {"prop1":"val","prop2":"val2"}) -> ok
@@ -53,9 +60,11 @@
             set scrollTop(v) { __ipc('dom_setProperty', JSON.stringify([this.__id, 'scrollTop', v])); },
             get scrollLeft() { return parseFloat(__ipc('dom_getScrollLeft', JSON.stringify([this.__id]))); },
             set scrollLeft(v) { __ipc('dom_setProperty', JSON.stringify([this.__id, 'scrollLeft', v])); },
+            get scrollWidth() { return parseFloat(__ipc('dom_getScrollWidth', JSON.stringify([this.__id]))); },
+            get scrollHeight() { return parseFloat(__ipc('dom_getScrollHeight', JSON.stringify([this.__id]))); },
             get childElementCount() { return parseInt(__ipc('dom_getChildElementCount', JSON.stringify([this.__id]))); },
-            get children() { var ids = JSON.parse(__ipc('dom_getChildren', JSON.stringify([this.__id]))); return ids.map(function(i) { return g.__getEl(i); }); },
-            get childNodes() { var ids = JSON.parse(__ipc('dom_getChildNodes', JSON.stringify([this.__id]))); return ids.map(function(i) { return g.__getEl(i); }); },
+            get children() { var ids = JSON.parse(__ipc('dom_getChildren', JSON.stringify([this.__id]))); return g.__mapElIds(ids); },
+            get childNodes() { var ids = JSON.parse(__ipc('dom_getChildNodes', JSON.stringify([this.__id]))); return g.__mapElIds(ids); },
             get parentElement() { var r = __ipc('dom_getParent', JSON.stringify([this.__id])); return r === 'null' ? null : g.__getEl(parseInt(r)); },
             get previousElementSibling() { var r = __ipc('dom_previousSibling', JSON.stringify([this.__id])); return r === 'null' ? null : g.__getEl(parseInt(r)); },
             get nextElementSibling() { var r = __ipc('dom_nextSibling', JSON.stringify([this.__id])); return r === 'null' ? null : g.__getEl(parseInt(r)); },
@@ -110,9 +119,9 @@
             cloneNode: function(deep) { var r = __ipc('dom_cloneNode', JSON.stringify([this.__id, deep ? 'true' : 'false'])); return r === 'null' ? null : g.__getEl(parseInt(r)); },
             insertAdjacentHTML: function(position, html) { __ipc('dom_insertAdjacentHTML', JSON.stringify([this.__id, position, html])); },
             querySelector: function(sel) { var r = __ipc('dom_querySelector', JSON.stringify([this.__id, sel])); return r === 'null' ? null : g.__getEl(parseInt(r)); },
-            querySelectorAll: function(sel) { var ids = JSON.parse(__ipc('dom_querySelectorAll', JSON.stringify([this.__id, sel]))); return ids.map(function(i) { return g.__getEl(i); }); },
-            getElementsByTagName: function(tag) { var ids = JSON.parse(__ipc('dom_getElementsByTagName', JSON.stringify([this.__id, tag]))); return ids.map(function(i) { return g.__getEl(i); }); },
-            getElementsByClassName: function(cls) { var ids = JSON.parse(__ipc('dom_getElementsByClassName', JSON.stringify([this.__id, cls]))); return ids.map(function(i) { return g.__getEl(i); }); },
+            querySelectorAll: function(sel) { var ids = JSON.parse(__ipc('dom_querySelectorAll', JSON.stringify([this.__id, sel]))); return g.__mapElIds(ids); },
+            getElementsByTagName: function(tag) { var ids = JSON.parse(__ipc('dom_getElementsByTagName', JSON.stringify([this.__id, tag]))); return g.__mapElIds(ids); },
+            getElementsByClassName: function(cls) { var ids = JSON.parse(__ipc('dom_getElementsByClassName', JSON.stringify([this.__id, cls]))); return g.__mapElIds(ids); },
             contains: function(other) { return __ipc('dom_contains', JSON.stringify([this.__id, other ? other.__id : -1])) === 'true'; },
             matches: function(sel) { return __ipc('dom_matches', JSON.stringify([this.__id, sel])) === 'true'; },
             closest: function(sel) { var r = __ipc('dom_closest', JSON.stringify([this.__id, sel])); return r === 'null' ? null : g.__getEl(parseInt(r)); },
@@ -120,7 +129,7 @@
             focus: function() { __ipc('dom_focus', JSON.stringify([this.__id])); },
             blur: function() { __ipc('dom_blur', JSON.stringify([this.__id])); },
             scrollIntoView: function(align) { __ipc('dom_scrollIntoView', JSON.stringify([this.__id, align ? 'true' : 'false'])); },
-            getBoundingClientRect: function() { var b = g.__getPropertyBatch(this.__id, ['offsetWidth','offsetHeight','offsetTop','offsetLeft','clientWidth','clientHeight']); return JSON.parse(b); },
+            getBoundingClientRect: function() { var r = __ipc('dom_getBoundingClientRect', JSON.stringify([this.__id])); try { return JSON.parse(r); } catch(e) { return {x:0,y:0,width:0,height:0,top:0,right:0,bottom:0,left:0}; } },
             addEventListener: function(type, cb) { /* server-side stub — no-op */ },
             dispatchEvent: function(evt) { __ipc('dom_dispatchEvent', JSON.stringify([this.__id, evt.type || ''])); }
         };
@@ -206,19 +215,19 @@
         set body(el) { __ipc('dom_setProperty', JSON.stringify([-1, 'body', el ? el.__id : -1])); },
         get head() { var r = __ipc('dom_getHead', '[]'); return r === 'null' ? null : g.__getEl(parseInt(r)); },
         get activeElement() { var r = __ipc('dom_getActiveElement', '[]'); return r === 'null' ? null : g.__getEl(parseInt(r)); },
-        get forms() { var ids = JSON.parse(__ipc('dom_getForms', '[]')); return ids.map(function(i) { return g.__getEl(i); }); },
-        get images() { var ids = JSON.parse(__ipc('dom_getImages', '[]')); return ids.map(function(i) { return g.__getEl(i); }); },
-        get links() { var ids = JSON.parse(__ipc('dom_getLinks', '[]')); return ids.map(function(i) { return g.__getEl(i); }); },
-        get scripts() { var ids = JSON.parse(__ipc('dom_getScripts', '[]')); return ids.map(function(i) { return g.__getEl(i); }); },
-        get anchors() { var ids = JSON.parse(__ipc('dom_getAnchors', '[]')); return ids.map(function(i) { return g.__getEl(i); }); },
+        get forms() { var ids = JSON.parse(__ipc('dom_getForms', '[]')); return g.__mapElIds(ids); },
+        get images() { var ids = JSON.parse(__ipc('dom_getImages', '[]')); return g.__mapElIds(ids); },
+        get links() { var ids = JSON.parse(__ipc('dom_getLinks', '[]')); return g.__mapElIds(ids); },
+        get scripts() { var ids = JSON.parse(__ipc('dom_getScripts', '[]')); return g.__mapElIds(ids); },
+        get anchors() { var ids = JSON.parse(__ipc('dom_getAnchors', '[]')); return g.__mapElIds(ids); },
         getElementById: function(id) { var r = __ipc('dom_getElementById', JSON.stringify([id])); return r === 'null' ? null : g.__getEl(parseInt(r)); },
         querySelector: function(sel) { var r = __ipc('dom_querySelector', JSON.stringify([-1, sel])); return r === 'null' ? null : g.__getEl(parseInt(r)); },
-        querySelectorAll: function(sel) { var ids = JSON.parse(__ipc('dom_querySelectorAll', JSON.stringify([-1, sel]))); return ids.map(function(i) { return g.__getEl(i); }); },
-        getElementsByTagName: function(tag) { var ids = JSON.parse(__ipc('dom_getElementsByTagName', JSON.stringify([-1, tag]))); return ids.map(function(i) { return g.__getEl(i); }); },
-        getElementsByClassName: function(cls) { var ids = JSON.parse(__ipc('dom_getElementsByClassName', JSON.stringify([-1, cls]))); return ids.map(function(i) { return g.__getEl(i); }); },
-        getElementsByName: function(name) { var ids = JSON.parse(__ipc('dom_getElementsByName', JSON.stringify([-1, name]))); return ids.map(function(i) { return g.__getEl(i); }); },
+        querySelectorAll: function(sel) { var ids = JSON.parse(__ipc('dom_querySelectorAll', JSON.stringify([-1, sel]))); return g.__mapElIds(ids); },
+        getElementsByTagName: function(tag) { var ids = JSON.parse(__ipc('dom_getElementsByTagName', JSON.stringify([-1, tag]))); return g.__mapElIds(ids); },
+        getElementsByClassName: function(cls) { var ids = JSON.parse(__ipc('dom_getElementsByClassName', JSON.stringify([-1, cls]))); return g.__mapElIds(ids); },
+        getElementsByName: function(name) { var ids = JSON.parse(__ipc('dom_getElementsByName', JSON.stringify([-1, name]))); return g.__mapElIds(ids); },
         createElement: function(tag) { var r = __ipc('dom_createElement', JSON.stringify([tag])); return g.__getEl(parseInt(r)); },
-        createElementBatch: function(tags) { var ids = JSON.parse(__ipc('dom_createElementBatch', JSON.stringify(tags))); return ids.map(function(i) { return g.__getEl(parseInt(i)); }); },
+        createElementBatch: function(tags) { var ids = JSON.parse(__ipc('dom_createElementBatch', JSON.stringify(tags))); return Array.prototype.map.call(ids, function(i) { return g.__getEl(parseInt(i)); }); },
         createElementNS: function(ns, tag) { var r = __ipc('dom_createElement', JSON.stringify([tag])); return g.__getEl(parseInt(r)); },
         createTextNode: function(text) { return { nodeType: 3, textContent: text, nodeValue: text }; },
         createComment: function(text) { return { nodeType: 8, textContent: text, nodeValue: text }; },
@@ -240,6 +249,10 @@
         exitFullscreen: function() { return false; },
         currentScript: null, styleSheets: null, fonts: null,
         doctype: null, implementation: {},
+        get scrollWidth() { return parseFloat(__ipc('dom_getScrollWidth', JSON.stringify([-1]))); },
+        get scrollHeight() { return parseFloat(__ipc('dom_getScrollHeight', JSON.stringify([-1]))); },
+        get scrollTop() { return 0; },
+        get scrollLeft() { return 0; },
         get URL() { return __ipc('dom_getUrl', '[]'); },
         get documentURI() { return __ipc('dom_getUrl', '[]'); },
         get baseURI() { return __ipc('dom_getUrl', '[]'); },
@@ -251,7 +264,7 @@
     // === location ===
     g.location = {
         __id: -1,
-        get href() { return __ipc('dom_getProperty', JSON.stringify([-1, 'href'])); },
+        get href() { return __ipc('dom_getUrl', '[]'); },
         set href(v) { __ipc('dom_setWindowLocation', JSON.stringify([v])); },
         get protocol() { return 'http:'; }, get hostname() { return ''; },
         get port() { return ''; }, get pathname() { return '/'; },
@@ -372,6 +385,10 @@
         createXMLHttpRequest: function() { return __ipc('createXHR', '[]'); },
         createURL: function(url,base) { return __ipc('createURL', JSON.stringify([url||'',base||''])); },
         createURLSearchParams: function(q) { return __ipc('createURLSearchParams', JSON.stringify([q||''])); },
+        engineGetStatus: function() { return __ipc('engineGetStatus', '[]'); },
+        engineDownload: function(name) { return __ipc('engineDownload', JSON.stringify([name||''])); },
+        engineBrowse: function(name) { return __ipc('engineBrowse', JSON.stringify([name||''])); },
+        engineApply: function(name) { return __ipc('engineApply', JSON.stringify([name||''])); },
         devicePixelRatio: function() { return 1; },
         scrollX: function() { return 0; },
         scrollY: function() { return 0; },

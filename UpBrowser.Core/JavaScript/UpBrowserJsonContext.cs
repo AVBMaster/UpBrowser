@@ -7,6 +7,7 @@ namespace UpBrowser.Core.JavaScript;
 [JsonSerializable(typeof(Dictionary<string, string>))]
 [JsonSerializable(typeof(object[]))]
 [JsonSerializable(typeof(string[]))]
+[JsonSerializable(typeof(int[]))]
 internal partial class UpBrowserJsonContext : JsonSerializerContext
 {
 }

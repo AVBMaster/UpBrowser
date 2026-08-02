@@ -281,6 +281,37 @@ public class DocumentHost
 
     public string readyState => "complete";
 
+    public float scrollWidth
+    {
+        get
+        {
+            var el = _document.DocumentElement;
+            if (el != null && el.LayoutBox != null)
+                return Math.Max(el.ScrollWidth, 0f);
+            var body = _document.Body;
+            if (body != null && body.LayoutBox != null)
+                return Math.Max(body.ScrollWidth, 0f);
+            return 0f;
+        }
+    }
+
+    public float scrollHeight
+    {
+        get
+        {
+            var el = _document.DocumentElement;
+            if (el != null && el.LayoutBox != null)
+                return Math.Max(el.ScrollHeight, 0f);
+            var body = _document.Body;
+            if (body != null && body.LayoutBox != null)
+                return Math.Max(body.ScrollHeight, 0f);
+            return 0f;
+        }
+    }
+
+    public float scrollTop => 0f;
+    public float scrollLeft => 0f;
+
     public string domain
     {
         get => _document.Url;

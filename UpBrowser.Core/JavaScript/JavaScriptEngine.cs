@@ -73,6 +73,12 @@ public class JavaScriptEngine : IDisposable
             remote.OnGetInnerHeight = () => _windowHeight;
             remote.OnScrollTo = (x, y) => { _pendingScrollX = x; _pendingScrollY = y; };
             remote.OnScrollBy = (x, y) => { _pendingScrollX += x; _pendingScrollY += y; };
+            remote.OnEngineAction = (action, name) =>
+            {
+                return _builtins?.EngineAction?.Invoke(action, name)
+                    ?? UpBrowserBuiltins.GlobalEngineAction?.Invoke(action, name)
+                    ?? "{\"success\":false,\"error\":\"no handler\"}";
+            };
         }
 
         SetupGlobals();
@@ -201,10 +207,13 @@ public class JavaScriptEngine : IDisposable
         {
             ClearState();
             var remoteAdapter = _adapter as RemoteJsEngineAdapter;
-            remoteAdapter?.DomStore?.Clear();
-            if (remoteAdapter != null && remoteAdapter.DomStore == null)
-                remoteAdapter.DomStore = new DomProxyStore();
-            remoteAdapter?.DomStore?.SetDocument(_documentHost);
+            if (remoteAdapter != null)
+            {
+                if (remoteAdapter.DomStore == null)
+                    remoteAdapter.DomStore = new DomProxyStore();
+                remoteAdapter.DomStore.Clear();
+                remoteAdapter.DomStore.SetDocument(_documentHost);
+            }
             _integrationService?.LoadDocument(document);
             ReapplyGlobals();
             if (_adapter is not RemoteJsEngineAdapter)
@@ -217,6 +226,9 @@ public class JavaScriptEngine : IDisposable
     private void ReapplyGlobals()
     {
         if (_adapter == null) return;
+
+        // 清除 JS 端的元素缓存，避免旧页面的代理对象残留
+        _adapter.Execute("if (typeof globalThis !== 'undefined') { globalThis.__elCache = {}; }");
 
         _adapter.Execute(JsCallbackStore.JsSetup);
 
@@ -891,7 +903,7 @@ public class UpBrowserBuiltins
                 var engType = JsEngineConfig.GetEngineTypeByName(engName);
                 bool isBuiltIn = engType == JsEngineType.Jint;
                 bool isDownloaded = isBuiltIn || JsEngineDownloader.IsEngineDownloaded(engType!.Value);
-                bool isActive = engName == activeName;
+                bool isActive = engName.ToLowerInvariant() == activeName;
                 // JSON requires lowercase true/false — convert bool to lowercase string
                 string activeStr = isActive ? "true" : "false";
                 string downloadedStr = isDownloaded ? "true" : "false";

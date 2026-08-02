@@ -20,10 +20,20 @@ public static class EngineProcessManager
         {
             if (_engines.TryGetValue(tabIndex, out var existing))
             {
-                if (existing.IsReady)
+                if (existing.IsReady && existing.EngineType == (JsEngineConfig.GetEngineTypeByName(engineType) ?? JsEngineType.Jint))
                     return existing;
-                // 已存在但尚未就绪，返回等待（已启动后台任务）
-                return existing;
+                if (existing.IsReady)
+                {
+                    // Engine type changed — dispose old engine so a new one is created
+                    Console.WriteLine($"[EngineProcessManager] Tab {tabIndex} engine type changed from {existing.EngineType} to {engineType}, disposing old engine");
+                    existing.Dispose();
+                    _engines.Remove(tabIndex);
+                }
+                else
+                {
+                    // 已存在但尚未就绪，返回等待（已启动后台任务）
+                    return existing;
+                }
             }
 
             var channelId = Interlocked.Increment(ref _nextChannelId);

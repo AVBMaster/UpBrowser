@@ -5,8 +5,8 @@ using UpBrowser.JsEngineProtocol;
 namespace UpBrowser.Core.JavaScript;
 
 /// <summary>
-/// 远程 JS 引擎适配器，通过 IPC 与 UpBrowser.JsEngineHost 进程通信。
-/// JsEngineHost 进程不进行 AOT 编译，因此可以正常使用反射。
+/// 远程 JS 引擎适配器，通过 IPC �?UpBrowser.JsEngineHost 进程通信�?
+/// JsEngineHost 进程不进�?AOT 编译，因此可以正常使用反射�?
 /// </summary>
 public class RemoteJsEngineAdapter : IJavaScriptEngineAdapter, IDisposable
 {
@@ -22,7 +22,7 @@ public class RemoteJsEngineAdapter : IJavaScriptEngineAdapter, IDisposable
     private readonly Dictionary<long, TaskCompletionSource<IpcResponse>> _pending = new();
     private readonly object _lock = new();
 
-    /// <summary>浏览器回调，由 BrowserApp 设置</summary>
+    /// <summary>浏览器回调，�?BrowserApp 设置</summary>
     public Action<string>? OnAlert { get; set; }
     public Func<string, bool>? OnConfirm { get; set; }
     public Func<string, string, string?>? OnPrompt { get; set; }
@@ -30,20 +30,26 @@ public class RemoteJsEngineAdapter : IJavaScriptEngineAdapter, IDisposable
     public Func<int>? OnGetInnerHeight { get; set; }
     public Action<int, int>? OnScrollTo { get; set; }
     public Action<int, int>? OnScrollBy { get; set; }
-    public string? OnFetch { get; set; } // JSON 格式的 fetch 结果
+    public string? OnFetch { get; set; } // JSON 格式�?fetch 结果
+    public Func<string, string, string>? OnEngineAction { get; set; } // 引擎管理回调
 
-    /// <summary>JS console 输出事件，参数: (method, message)</summary>
+    /// <summary>JS console 输出事件，参�? (method, message)</summary>
     public event Action<string, string>? OnConsoleLog;
 
     public DomProxyStore? DomStore { get; set; }
 
-    public JsEngineType EngineType => JsEngineType.Jint;
+    public JsEngineType EngineType => _engineType switch
+    {
+        "V8" => JsEngineType.V8,
+        "Jurassic" => JsEngineType.Jurassic,
+        _ => JsEngineType.Jint
+    };
     public object? InnerEngine => null;
     public bool SupportsHostObjects => true;
     public bool SupportsES6Proxy => true;
 
     /// <summary>
-    /// JS 引擎是否已就绪（进程启动、IPC 连接成功）。
+    /// JS 引擎是否已就绪（进程启动、IPC 连接成功）�?
     /// </summary>
     public bool IsReady { get; private set; }
 
@@ -55,7 +61,7 @@ public class RemoteJsEngineAdapter : IJavaScriptEngineAdapter, IDisposable
     }
 
     /// <summary>
-    /// 同步启动（供 EngineProcessManager 调用）。
+    /// 同步启动（供 EngineProcessManager 调用）�?
     /// </summary>
     public void Start()
     {
@@ -126,41 +132,41 @@ public class RemoteJsEngineAdapter : IJavaScriptEngineAdapter, IDisposable
             _hostProcess = null;
         };
 
-        // 连接内存映射 IPC — 不注册 AppDomain 全局退出事件，避免跨标签页误触发
+        // 连接内存映射 IPC �?不注�?AppDomain 全局退出事件，避免跨标签页误触�?
         _transport = new MmapTransport(_channelName);
         await _transport.ConnectClientAsync();
 
-        // 标记引擎已就绪
+        // 标记引擎已就�?
         IsReady = true;
         Console.WriteLine($"[RemoteJsEngine] tab={_tabIndex} IPC connected, engine ready");
 
-        // 启动后台线程接收远程引擎的 DomCall 请求
+        // 启动后台线程接收远程引擎�?DomCall 请求
         _receiveCts = new CancellationTokenSource();
         _receiveTask = Task.Run(() => ReceiveLoop(_receiveCts.Token));
     }
 
     private static string? FindHostExe()
     {
-        // 1. 当前目录（发布后）
+        // 1. 当前目录（发布后�?
         var exe = Path.Combine(AppContext.BaseDirectory, "UpBrowser.JsEngineHost.exe");
         if (File.Exists(exe)) return exe;
         var dll = Path.Combine(AppContext.BaseDirectory, "UpBrowser.JsEngineHost.dll");
         if (File.Exists(dll)) return dll;
 
-        // 2. 开发环境：从项目输出目录查找
+        // 2. 开发环境：从项目输出目录查�?
         var baseDir = AppContext.BaseDirectory;
         for (int i = 0; i < 5; i++)
         {
             baseDir = Path.GetDirectoryName(baseDir);
             if (baseDir == null) break;
 
-            // DLL（无 RuntimeIdentifier 的 build 输出）
+            // DLL（无 RuntimeIdentifier �?build 输出�?
             var devDll = Path.Combine(baseDir, "UpBrowser.JsEngineHost", "bin", "Debug", "net10.0", "UpBrowser.JsEngineHost.dll");
             if (File.Exists(devDll)) return devDll;
             var releaseDll = Path.Combine(baseDir, "UpBrowser.JsEngineHost", "bin", "Release", "net10.0", "UpBrowser.JsEngineHost.dll");
             if (File.Exists(releaseDll)) return releaseDll;
 
-            // EXE（带 RuntimeIdentifier 的 build 输出）
+            // EXE（带 RuntimeIdentifier �?build 输出�?
             var ridExe = Path.Combine(baseDir, "UpBrowser.JsEngineHost", "bin", "Debug", "net10.0", "win-x64", "UpBrowser.JsEngineHost.exe");
             if (File.Exists(ridExe)) return ridExe;
             var ridReleaseExe = Path.Combine(baseDir, "UpBrowser.JsEngineHost", "bin", "Release", "net10.0", "win-x64", "UpBrowser.JsEngineHost.exe");
@@ -199,7 +205,7 @@ public class RemoteJsEngineAdapter : IJavaScriptEngineAdapter, IDisposable
             _hostProcess = null;
         }
 
-        // 如果 Exited 事件处理程序已经 Dispose 并置为 null，这里确保清理
+        // 如果 Exited 事件处理程序已经 Dispose 并置�?null，这里确保清�?
         if (_hostProcess != null)
         {
             try { _hostProcess.Dispose(); } catch { }
@@ -225,29 +231,26 @@ public class RemoteJsEngineAdapter : IJavaScriptEngineAdapter, IDisposable
                 if (msg.Request.Type == RequestType.DomCall)
                 {
                     var reqCopy = msg.Request;
-                    _ = Task.Run(() =>
+                    try
                     {
-                        try
+                        var result = HandleDomCall(reqCopy);
+                        var responseData = ProtocolSerializer.Serialize(result);
+                        if (_transport != null)
+                            _transport.SendAsync(responseData).GetAwaiter().GetResult();
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"[RemoteJsEngine] DomCall ERROR reqId={reqCopy.RequestId}: {ex.Message}");
+                        var errorResponse = new IpcResponse
                         {
-                            var result = HandleDomCall(reqCopy);
-                            var responseData = ProtocolSerializer.Serialize(result);
-                            if (_transport != null)
-                                _transport.SendAsync(responseData).GetAwaiter().GetResult();
-                        }
-                        catch (Exception ex)
-                        {
-                            Console.WriteLine($"[RemoteJsEngine] DomCall ERROR reqId={reqCopy.RequestId}: {ex.Message}");
-                            var errorResponse = new IpcResponse
-                            {
-                                RequestId = reqCopy.RequestId,
-                                Success = false,
-                                Error = ex.Message
-                            };
-                            var errorData = ProtocolSerializer.Serialize(errorResponse);
-                            if (_transport != null)
-                                _transport.SendAsync(errorData).GetAwaiter().GetResult();
-                        }
-                    });
+                            RequestId = reqCopy.RequestId,
+                            Success = false,
+                            Error = ex.Message
+                        };
+                        var errorData = ProtocolSerializer.Serialize(errorResponse);
+                        if (_transport != null)
+                            _transport.SendAsync(errorData).GetAwaiter().GetResult();
+                    }
                 }
                 continue;
             }
@@ -286,8 +289,24 @@ public class RemoteJsEngineAdapter : IJavaScriptEngineAdapter, IDisposable
             var method = payload[..sep];
             var argsJson = payload[(sep + 1)..];
 
-            return method switch
-            {
+            return HandleDomCallInner(method, argsJson, request);
+        }
+        catch (Exception ex)
+        {
+            return new IpcResponse { RequestId = request.RequestId, Success = false, Error = ex.Message };
+        }
+    }
+
+    private static string? Truncate(string? s, int max)
+    {
+        if (s == null) return "null";
+        return s.Length <= max ? s : s[..max] + "...";
+    }
+
+    private IpcResponse HandleDomCallInner(string method, string argsJson, IpcRequest request)
+    {
+        return method switch
+        {
                 "console.log" or "console.error" or "console.warn"
                     or "console.info" or "console.debug" => HandleConsoleLog(method, argsJson),
                 "setTimeout" => HandleSetTimeout(request, argsJson),
@@ -351,6 +370,8 @@ public class RemoteJsEngineAdapter : IJavaScriptEngineAdapter, IDisposable
                 "dom_getClientHeight" => HandleDomGetClientHeight(request, argsJson),
                 "dom_getScrollTop" => HandleDomGetScrollTop(request, argsJson),
                 "dom_getScrollLeft" => HandleDomGetScrollLeft(request, argsJson),
+                "dom_getScrollWidth" => HandleDomGetScrollWidth(request, argsJson),
+                "dom_getScrollHeight" => HandleDomGetScrollHeight(request, argsJson),
                 "dom_setScrollTop" => HandleDomSetScrollTop(request, argsJson),
                 "dom_setScrollLeft" => HandleDomSetScrollLeft(request, argsJson),
                 "dom_getOffsetTop" => HandleDomGetOffsetTop(request, argsJson),
@@ -407,13 +428,12 @@ public class RemoteJsEngineAdapter : IJavaScriptEngineAdapter, IDisposable
                 "dom_history_getLength" => HandleDomHistoryGetLength(request),
                 "dom_getFirstChild" => HandleDomGetFirstChild(request, argsJson),
                 "dom_getLastChild" => HandleDomGetLastChild(request, argsJson),
+                "engineGetStatus" => HandleEngineGetStatus(request),
+                "engineDownload" => HandleEngineDownload(request, argsJson),
+                "engineBrowse" => HandleEngineBrowse(request, argsJson),
+                "engineApply" => HandleEngineApply(request, argsJson),
                 _ => new IpcResponse { RequestId = request.RequestId, Success = false, Error = $"Unknown: {method}" }
-            };
-        }
-        catch (Exception ex)
-        {
-            return new IpcResponse { RequestId = request.RequestId, Success = false, Error = ex.Message };
-        }
+        };
     }
 
     private IpcResponse RespondOk(IpcRequest request) =>
@@ -422,11 +442,33 @@ public class RemoteJsEngineAdapter : IJavaScriptEngineAdapter, IDisposable
     private IpcResponse JsonResult(IpcRequest request, string value) =>
         new() { RequestId = request.RequestId, Success = true, Result = value };
 
+    private static string[]? DeserializeArgs(string argsJson)
+    {
+        using var doc = System.Text.Json.JsonDocument.Parse(argsJson);
+        var root = doc.RootElement;
+        if (root.ValueKind != System.Text.Json.JsonValueKind.Array) return null;
+        var arr = new string[root.GetArrayLength()];
+        int i = 0;
+        foreach (var el in root.EnumerateArray())
+        {
+            arr[i++] = el.ValueKind switch
+            {
+                System.Text.Json.JsonValueKind.String => el.GetString() ?? "",
+                System.Text.Json.JsonValueKind.Number => el.GetRawText(),
+                System.Text.Json.JsonValueKind.True => "true",
+                System.Text.Json.JsonValueKind.False => "false",
+                System.Text.Json.JsonValueKind.Null => "",
+                _ => el.GetRawText()
+            };
+        }
+        return arr;
+    }
+
     private static string? GetStringArg(string argsJson, int index)
     {
         try
         {
-            var arr = System.Text.Json.JsonSerializer.Deserialize<string[]>(argsJson);
+            var arr = DeserializeArgs(argsJson);
             return arr != null && index < arr.Length ? arr[index] : null;
         }
         catch { return null; }
@@ -454,7 +496,7 @@ public class RemoteJsEngineAdapter : IJavaScriptEngineAdapter, IDisposable
     {
         try
         {
-            var args = System.Text.Json.JsonSerializer.Deserialize<int[]>(argsJson);
+            var args = System.Text.Json.JsonSerializer.Deserialize(argsJson, UpBrowserJsonContext.Default.Int32Array);
             if (args != null) action(args);
             return RespondOk(request);
         }
@@ -465,7 +507,7 @@ public class RemoteJsEngineAdapter : IJavaScriptEngineAdapter, IDisposable
     {
         try
         {
-            var args = System.Text.Json.JsonSerializer.Deserialize<string[]>(argsJson);
+            var args = System.Text.Json.JsonSerializer.Deserialize(argsJson, UpBrowserJsonContext.Default.StringArray);
             if (args != null && args.Length > 0) OnAlert?.Invoke(args[0] ?? "");
             return RespondOk(request);
         }
@@ -476,7 +518,7 @@ public class RemoteJsEngineAdapter : IJavaScriptEngineAdapter, IDisposable
     {
         try
         {
-            var args = System.Text.Json.JsonSerializer.Deserialize<int[]>(argsJson);
+            var args = System.Text.Json.JsonSerializer.Deserialize(argsJson, UpBrowserJsonContext.Default.Int32Array);
             if (args == null || args.Length < 2)
                 return new IpcResponse { RequestId = request.RequestId, Success = false, Error = "Invalid args" };
 
@@ -505,7 +547,7 @@ public class RemoteJsEngineAdapter : IJavaScriptEngineAdapter, IDisposable
     {
         try
         {
-            var args = System.Text.Json.JsonSerializer.Deserialize<int[]>(argsJson);
+            var args = System.Text.Json.JsonSerializer.Deserialize(argsJson, UpBrowserJsonContext.Default.Int32Array);
             if (args == null || args.Length < 2)
                 return new IpcResponse { RequestId = request.RequestId, Success = false, Error = "Invalid args" };
 
@@ -537,7 +579,7 @@ public class RemoteJsEngineAdapter : IJavaScriptEngineAdapter, IDisposable
     {
         try
         {
-            var args = System.Text.Json.JsonSerializer.Deserialize<object[]>(argsJson);
+            var args = System.Text.Json.JsonSerializer.Deserialize(argsJson, UpBrowserJsonContext.Default.ObjectArray);
             if (args == null || args.Length < 4)
                 return new IpcResponse { RequestId = request.RequestId, Success = false, Error = "Invalid args" };
 
@@ -552,7 +594,7 @@ public class RemoteJsEngineAdapter : IJavaScriptEngineAdapter, IDisposable
                 {
                     using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
                     var options = string.IsNullOrEmpty(optsJson) ? null :
-                        System.Text.Json.JsonSerializer.Deserialize<FetchOptions>(optsJson);
+                        System.Text.Json.JsonSerializer.Deserialize(optsJson, UpBrowserJsonContext.Default.FetchOptions);
                     var method = options?.Method ?? "GET";
                     var req = new HttpRequestMessage(new HttpMethod(method), url);
 
@@ -570,13 +612,13 @@ public class RemoteJsEngineAdapter : IJavaScriptEngineAdapter, IDisposable
                         StatusText = response.ReasonPhrase ?? ""
                     };
 
-                    var resultJson = System.Text.Json.JsonSerializer.Serialize(result);
+                    var resultJson = System.Text.Json.JsonSerializer.Serialize(result, UpBrowserJsonContext.Default.FetchResult);
                     InvokeCallbackWith(resolveId, resultJson);
                 }
                 catch (Exception ex)
                 {
                     var error = new FetchResult { Success = false, Error = ex.Message };
-                    var errorJson = System.Text.Json.JsonSerializer.Serialize(error);
+                    var errorJson = System.Text.Json.JsonSerializer.Serialize(error, UpBrowserJsonContext.Default.FetchResult);
                     InvokeCallbackWith(rejectId, errorJson);
                 }
             });
@@ -593,46 +635,58 @@ public class RemoteJsEngineAdapter : IJavaScriptEngineAdapter, IDisposable
     {
         try
         {
-            var parsed = System.Text.Json.JsonSerializer.Deserialize<string[]>(argsJson);
+            var parsed = DeserializeArgs(argsJson);
             if (parsed == null || parsed.Length < 2)
                 return new IpcResponse { RequestId = request.RequestId, Success = false, Error = "Invalid args" };
 
-            var el = GetDomElement(argsJson);
-            if (el == null)
+            var obj = GetDomObject(argsJson);
+            var doc = obj as DocumentHost;
+            var el = obj as ElementHost;
+            if (doc == null && el == null)
                 return new IpcResponse { RequestId = request.RequestId, Success = false, Error = "Element not found" };
 
             var propsJson = parsed[1];
-            var propNames = System.Text.Json.JsonSerializer.Deserialize<string[]>(propsJson);
+            var propNames = System.Text.Json.JsonSerializer.Deserialize(propsJson, UpBrowserJsonContext.Default.StringArray);
             if (propNames == null || propNames.Length == 0)
                 return JsonResult(request, "{}");
 
             var results = new Dictionary<string, string?>();
             foreach (var p in propNames)
             {
-                string? r = p switch
-                {
-                    "tagName" => el.tagName, "nodeName" => el.nodeName, "localName" => el.localName,
-                    "nodeType" => el.nodeType.ToString(), "className" => el.className, "id" => el.id,
-                    "textContent" => el.textContent, "innerHTML" => el.innerHTML, "outerHTML" => el.outerHTML,
-                    "value" => el.value, "hidden" => el.hidden ? "true" : "false",
-                    "draggable" => el.draggable ? "true" : "false", "disabled" => el.disabled ? "true" : "false",
-                    "readOnly" => el.readOnly ? "true" : "false", "required" => el.required ? "true" : "false",
-                    "checked" => el.@checked ? "true" : "false", "isConnected" => el.isConnected ? "true" : "false",
-                    "offsetWidth" => el.offsetWidth.ToString(), "offsetHeight" => el.offsetHeight.ToString(),
-                    "clientWidth" => el.clientWidth.ToString(), "clientHeight" => el.clientHeight.ToString(),
-                    "scrollTop" => el.scrollTop.ToString(), "scrollLeft" => el.scrollLeft.ToString(),
-                    "offsetTop" => el.offsetTop.ToString(), "offsetLeft" => el.offsetLeft.ToString(),
-                    "type" => el.type, "placeholder" => el.placeholder, "href" => el.href,
-                    "rel" => el.rel, "target" => el.target, "src" => el.src, "lang" => el.lang,
-                    "dir" => el.dir, "title" => el.title, "tabIndex" => el.tabIndex.ToString(),
-                    "nodeValue" => el.nodeValue, "hasAttributes" => el.hasAttributes() ? "true" : "false",
-                    "childElementCount" => el.childElementCount.ToString(),
-                    _ => "null"
-                };
+                string? r = doc != null
+                    ? p switch
+                    {
+                        "title" => doc.title, "scrollWidth" => doc.scrollWidth.ToString(),
+                        "scrollHeight" => doc.scrollHeight.ToString(), "scrollTop" => doc.scrollTop.ToString(),
+                        "scrollLeft" => doc.scrollLeft.ToString(), "URL" => doc.URL,
+                        _ => "null"
+                    }
+                    : el != null
+                    ? p switch
+                    {
+                        "tagName" => el.tagName, "nodeName" => el.nodeName, "localName" => el.localName,
+                        "nodeType" => el.nodeType.ToString(), "className" => el.className, "id" => el.id,
+                        "textContent" => el.textContent, "innerHTML" => el.innerHTML, "outerHTML" => el.outerHTML,
+                        "value" => el.value, "hidden" => el.hidden ? "true" : "false",
+                        "draggable" => el.draggable ? "true" : "false", "disabled" => el.disabled ? "true" : "false",
+                        "readOnly" => el.readOnly ? "true" : "false", "required" => el.required ? "true" : "false",
+                        "checked" => el.@checked ? "true" : "false", "isConnected" => el.isConnected ? "true" : "false",
+                        "offsetWidth" => el.offsetWidth.ToString(), "offsetHeight" => el.offsetHeight.ToString(),
+                        "clientWidth" => el.clientWidth.ToString(), "clientHeight" => el.clientHeight.ToString(),
+                        "scrollTop" => el.scrollTop.ToString(), "scrollLeft" => el.scrollLeft.ToString(),
+                        "offsetTop" => el.offsetTop.ToString(), "offsetLeft" => el.offsetLeft.ToString(),
+                        "type" => el.type, "placeholder" => el.placeholder, "href" => el.href,
+                        "rel" => el.rel, "target" => el.target, "src" => el.src, "lang" => el.lang,
+                        "dir" => el.dir, "title" => el.title, "tabIndex" => el.tabIndex.ToString(),
+                        "nodeValue" => el.nodeValue, "hasAttributes" => el.hasAttributes() ? "true" : "false",
+                        "childElementCount" => el.childElementCount.ToString(),
+                        _ => "null"
+                    }
+                    : "null";
                 results[p] = r;
             }
 
-            return JsonResult(request, System.Text.Json.JsonSerializer.Serialize(results));
+            return JsonResult(request, System.Text.Json.JsonSerializer.Serialize(results, UpBrowserJsonContext.Default.DictionaryStringString));
         }
         catch (Exception ex) { return new IpcResponse { RequestId = request.RequestId, Success = false, Error = ex.Message }; }
     }
@@ -641,21 +695,32 @@ public class RemoteJsEngineAdapter : IJavaScriptEngineAdapter, IDisposable
     {
         try
         {
-            var parsed = System.Text.Json.JsonSerializer.Deserialize<string[]>(argsJson);
+            var parsed = DeserializeArgs(argsJson);
             if (parsed == null || parsed.Length < 2)
                 return new IpcResponse { RequestId = request.RequestId, Success = false, Error = "Invalid args" };
 
-            var el = GetDomElement(argsJson);
-            if (el == null)
+            var obj = GetDomObject(argsJson);
+            var doc = obj as DocumentHost;
+            var el = obj as ElementHost;
+            if (doc == null && el == null)
                 return new IpcResponse { RequestId = request.RequestId, Success = false, Error = "Element not found" };
 
             var pairsJson = parsed[1];
-            var pairs = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(pairsJson);
+            var pairs = System.Text.Json.JsonSerializer.Deserialize(pairsJson, UpBrowserJsonContext.Default.DictionaryStringString);
             if (pairs == null || pairs.Count == 0)
                 return RespondOk(request);
 
             foreach (var (p, v) in pairs)
-                SetElProp(el, p, v ?? "");
+            {
+                if (doc != null)
+                {
+                    if (p == "title") doc.title = v ?? "";
+                }
+                else if (el != null)
+                {
+                    SetElProp(el, p, v ?? "");
+                }
+            }
 
             // Single batched MarkDirty instead of per-property
             MarkDirty();
@@ -670,22 +735,22 @@ public class RemoteJsEngineAdapter : IJavaScriptEngineAdapter, IDisposable
     {
         try
         {
-            var arr = System.Text.Json.JsonSerializer.Deserialize<string[]>(argsJson);
+            var arr = DeserializeArgs(argsJson);
             return arr != null && idx < arr.Length ? int.Parse(arr[idx]) : 0;
         }
         catch { return 0; }
     }
 
-    private ElementHost? GetDomElement(string argsJson)
+    private object? GetDomObject(string argsJson)
     {
         var id = GetIntArg(argsJson, 0);
-        if (id == -1) return DomStore?.Document?.documentElement;
+        if (id == -1) return DomStore?.Document;
         return DomStore?.GetElement(id);
     }
 
     private IpcResponse OkElement(IpcRequest request, ElementHost? el)
     {
-        if (el == null) return new IpcResponse { RequestId = request.RequestId, Success = true, Result = "null" };
+        if (el == null) return new IpcResponse { RequestId = request.RequestId, Success = true, Result = "null", NewElementId = 0 };
         var id = DomStore?.RegisterElement(el) ?? 0;
         return new IpcResponse { RequestId = request.RequestId, Success = true, Result = id.ToString(), NewElementId = id };
     }
@@ -707,25 +772,38 @@ public class RemoteJsEngineAdapter : IJavaScriptEngineAdapter, IDisposable
     {
         try
         {
-            var el = GetDomElement(argsJson);
-            if (el == null) return new IpcResponse { RequestId = request.RequestId, Success = false, Error = "Element not found" };
+            var obj = GetDomObject(argsJson);
+            var doc = obj as DocumentHost;
+            var el = obj as ElementHost;
+            if (doc == null && el == null) return new IpcResponse { RequestId = request.RequestId, Success = false, Error = "Element not found" };
             var p = GetStringArg(argsJson, 1) ?? "";
-            string? r = p switch
-            {
-                "tagName" => el.tagName, "nodeName" => el.nodeName, "localName" => el.localName,
-                "nodeType" => el.nodeType.ToString(), "className" => el.className, "id" => el.id,
-                "textContent" => el.textContent, "innerHTML" => el.innerHTML, "outerHTML" => el.outerHTML,
-                "value" => el.value, "hidden" => el.hidden ? "true" : "false",
-                "draggable" => el.draggable ? "true" : "false", "disabled" => el.disabled ? "true" : "false",
-                "readOnly" => el.readOnly ? "true" : "false", "required" => el.required ? "true" : "false",
-                "checked" => el.@checked ? "true" : "false", "isConnected" => el.isConnected ? "true" : "false",
-                "offsetWidth" => el.offsetWidth.ToString(), "offsetHeight" => el.offsetHeight.ToString(),
-                "clientWidth" => el.clientWidth.ToString(), "clientHeight" => el.clientHeight.ToString(),
-                "scrollTop" => el.scrollTop.ToString(), "scrollLeft" => el.scrollLeft.ToString(),
-                "type" => el.type, "placeholder" => el.placeholder, "href" => el.href,
-                "rel" => el.rel, "target" => el.target, "src" => el.src, "lang" => el.lang,
-                "dir" => el.dir, "title" => el.title, "tabIndex" => el.tabIndex.ToString(),
-                "nodeValue" => el.nodeValue, "hasAttributes" => el.hasAttributes() ? "true" : "false",
+            string? r = doc != null
+                ? p switch
+                {
+                    "title" => doc.title, "scrollWidth" => doc.scrollWidth.ToString(),
+                    "scrollHeight" => doc.scrollHeight.ToString(), "scrollTop" => "0",
+                    "scrollLeft" => "0", "URL" => doc.URL,
+                    "href" => doc.URL, "documentURI" => doc.documentURI,
+                    "baseURI" => doc.baseURI ?? "",
+                    _ => "null"
+                }
+                : p switch
+                {
+                    "tagName" => el!.tagName, "nodeName" => el.nodeName, "localName" => el.localName,
+                    "nodeType" => el.nodeType.ToString(), "className" => el.className, "id" => el.id,
+                    "textContent" => el.textContent, "innerHTML" => el.innerHTML, "outerHTML" => el.outerHTML,
+                    "value" => el.value, "hidden" => el.hidden ? "true" : "false",
+                    "draggable" => el.draggable ? "true" : "false", "disabled" => el.disabled ? "true" : "false",
+                    "readOnly" => el.readOnly ? "true" : "false", "required" => el.required ? "true" : "false",
+                    "checked" => el.@checked ? "true" : "false", "isConnected" => el.isConnected ? "true" : "false",
+                    "offsetWidth" => el.offsetWidth.ToString(), "offsetHeight" => el.offsetHeight.ToString(),
+                    "clientWidth" => el.clientWidth.ToString(), "clientHeight" => el.clientHeight.ToString(),
+                    "scrollTop" => el.scrollTop.ToString(), "scrollLeft" => el.scrollLeft.ToString(),
+                    "offsetTop" => el.offsetTop.ToString(), "offsetLeft" => el.offsetLeft.ToString(),
+                    "type" => el.type, "placeholder" => el.placeholder, "href" => el.href,
+                    "rel" => el.rel, "target" => el.target, "src" => el.src, "lang" => el.lang,
+                    "dir" => el.dir, "title" => el.title, "tabIndex" => el.tabIndex.ToString(),
+                    "nodeValue" => el.nodeValue, "hasAttributes" => el.hasAttributes() ? "true" : "false",
                 "childElementCount" => el.childElementCount.ToString(),
                 _ => null
             };
@@ -743,13 +821,38 @@ public class RemoteJsEngineAdapter : IJavaScriptEngineAdapter, IDisposable
     {
         try
         {
-            var el = GetDomElement(argsJson);
-            if (el == null) return new IpcResponse { RequestId = request.RequestId, Success = false, Error = "Element not found" };
+            var obj = GetDomObject(argsJson);
+            var el = obj as ElementHost;
             var p = GetStringArg(argsJson, 1) ?? "";
             var v = GetStringArg(argsJson, 2) ?? "";
-            SetElProp(el, p, v);
-            MarkDirty();
-            return RespondOk(request);
+            if (el != null)
+            {
+                SetElProp(el, p, v);
+                MarkDirty();
+                return RespondOk(request);
+            }
+            var doc = obj as DocumentHost;
+            if (doc != null)
+            {
+                switch (p)
+                {
+                    case "body":
+                        var bodyId = GetIntArg(argsJson, 2);
+                        if (bodyId >= 0)
+                        {
+                            var bodyEl = DomStore?.GetElement(bodyId);
+                            if (bodyEl != null)
+                                doc.body = bodyEl;
+                        }
+                        break;
+                    case "title":
+                        doc.title = v;
+                        break;
+                }
+                MarkDirty();
+                return RespondOk(request);
+            }
+            return new IpcResponse { RequestId = request.RequestId, Success = false, Error = "Object not found" };
         }
         catch (Exception ex) { return new IpcResponse { RequestId = request.RequestId, Success = false, Error = ex.Message }; }
     }
@@ -792,7 +895,7 @@ public class RemoteJsEngineAdapter : IJavaScriptEngineAdapter, IDisposable
     {
         try
         {
-            var tags = System.Text.Json.JsonSerializer.Deserialize<string[]>(argsJson);
+            var tags = System.Text.Json.JsonSerializer.Deserialize(argsJson, UpBrowserJsonContext.Default.StringArray);
             var doc = DomStore?.Document;
             if (doc == null || tags == null)
                 return new IpcResponse { RequestId = request.RequestId, Success = false, Error = "No document" };
@@ -808,7 +911,7 @@ public class RemoteJsEngineAdapter : IJavaScriptEngineAdapter, IDisposable
 
             // Single batched MarkDirty for all creations
             MarkDirty();
-            return JsonResult(request, System.Text.Json.JsonSerializer.Serialize(ids));
+            return JsonResult(request, System.Text.Json.JsonSerializer.Serialize(ids.ToArray(), UpBrowserJsonContext.Default.StringArray));
         }
         catch (Exception ex) { return new IpcResponse { RequestId = request.RequestId, Success = false, Error = ex.Message }; }
     }
@@ -833,7 +936,7 @@ public class RemoteJsEngineAdapter : IJavaScriptEngineAdapter, IDisposable
     {
         try
         {
-            var parent = GetDomElement(argsJson);
+            var parent = GetDomObject(argsJson) as ElementHost;
             var childId = GetIntArg(argsJson, 1);
             var child = DomStore?.GetElement(childId);
             if (parent != null && child != null) parent.appendChild(child);
@@ -847,7 +950,7 @@ public class RemoteJsEngineAdapter : IJavaScriptEngineAdapter, IDisposable
     {
         try
         {
-            var parent = GetDomElement(argsJson);
+            var parent = GetDomObject(argsJson) as ElementHost;
             var childId = GetIntArg(argsJson, 1);
             var refId = GetIntArg(argsJson, 2);
             var child = DomStore?.GetElement(childId);
@@ -863,7 +966,7 @@ public class RemoteJsEngineAdapter : IJavaScriptEngineAdapter, IDisposable
     {
         try
         {
-            var parent = GetDomElement(argsJson);
+            var parent = GetDomObject(argsJson) as ElementHost;
             var childId = GetIntArg(argsJson, 1);
             var child = DomStore?.GetElement(childId);
             if (parent != null && child != null) parent.removeChild(child);
@@ -877,7 +980,7 @@ public class RemoteJsEngineAdapter : IJavaScriptEngineAdapter, IDisposable
     {
         try
         {
-            var el = GetDomElement(argsJson);
+            var el = GetDomObject(argsJson) as ElementHost;
             if (el != null) el.remove();
             MarkDirty();
             return RespondOk(request);
@@ -889,7 +992,7 @@ public class RemoteJsEngineAdapter : IJavaScriptEngineAdapter, IDisposable
     {
         try
         {
-            var el = GetDomElement(argsJson);
+            var el = GetDomObject(argsJson) as ElementHost;
             if (el != null) el.insertAdjacentHTML(GetStringArg(argsJson, 1) ?? "beforeend", GetStringArg(argsJson, 2) ?? "");
             MarkDirty();
             return RespondOk(request);
@@ -940,7 +1043,7 @@ public class RemoteJsEngineAdapter : IJavaScriptEngineAdapter, IDisposable
     {
         try
         {
-            var el = GetDomElement(argsJson);
+            var el = GetDomObject(argsJson) as ElementHost;
             if (el != null)
             {
                 var clone = el.cloneNode(GetStringArg(argsJson, 1) == "true");
@@ -960,7 +1063,7 @@ public class RemoteJsEngineAdapter : IJavaScriptEngineAdapter, IDisposable
     {
         try
         {
-            var el = GetDomElement(argsJson);
+            var el = GetDomObject(argsJson) as ElementHost;
             if (el != null) el.setAttribute(GetStringArg(argsJson, 1) ?? "", GetStringArg(argsJson, 2) ?? "");
             MarkDirty();
             return RespondOk(request);
@@ -972,7 +1075,7 @@ public class RemoteJsEngineAdapter : IJavaScriptEngineAdapter, IDisposable
     {
         try
         {
-            var el = GetDomElement(argsJson);
+            var el = GetDomObject(argsJson) as ElementHost;
             if (el != null)
             {
                 var v = el.getAttribute(GetStringArg(argsJson, 1) ?? "");
@@ -987,7 +1090,7 @@ public class RemoteJsEngineAdapter : IJavaScriptEngineAdapter, IDisposable
     {
         try
         {
-            var el = GetDomElement(argsJson);
+            var el = GetDomObject(argsJson) as ElementHost;
             if (el != null) el.removeAttribute(GetStringArg(argsJson, 1) ?? "");
             MarkDirty();
             return RespondOk(request);
@@ -999,7 +1102,7 @@ public class RemoteJsEngineAdapter : IJavaScriptEngineAdapter, IDisposable
     {
         try
         {
-            var el = GetDomElement(argsJson);
+            var el = GetDomObject(argsJson) as ElementHost;
             if (el != null) el.toggleAttribute(GetStringArg(argsJson, 1) ?? "");
             MarkDirty();
             return RespondOk(request);
@@ -1011,7 +1114,7 @@ public class RemoteJsEngineAdapter : IJavaScriptEngineAdapter, IDisposable
     {
         try
         {
-            var el = GetDomElement(argsJson);
+            var el = GetDomObject(argsJson) as ElementHost;
             if (el != null) return OkBool(request, el.hasAttribute(GetStringArg(argsJson, 1) ?? ""));
             return OkBool(request, false);
         }
@@ -1026,7 +1129,7 @@ public class RemoteJsEngineAdapter : IJavaScriptEngineAdapter, IDisposable
     {
         try
         {
-            var el = GetDomElement(argsJson);
+            var el = GetDomObject(argsJson) as ElementHost;
             if (el != null) el.className = GetStringArg(argsJson, 1) ?? "";
             MarkDirty();
             return RespondOk(request);
@@ -1038,7 +1141,7 @@ public class RemoteJsEngineAdapter : IJavaScriptEngineAdapter, IDisposable
     {
         try
         {
-            var el = GetDomElement(argsJson);
+            var el = GetDomObject(argsJson) as ElementHost;
             if (el != null) el.id = GetStringArg(argsJson, 1) ?? "";
             MarkDirty();
             return RespondOk(request);
@@ -1050,7 +1153,7 @@ public class RemoteJsEngineAdapter : IJavaScriptEngineAdapter, IDisposable
     {
         try
         {
-            var el = GetDomElement(argsJson);
+            var el = GetDomObject(argsJson) as ElementHost;
             if (el != null) el.value = GetStringArg(argsJson, 1);
             MarkDirty();
             return RespondOk(request);
@@ -1062,7 +1165,7 @@ public class RemoteJsEngineAdapter : IJavaScriptEngineAdapter, IDisposable
     {
         try
         {
-            var el = GetDomElement(argsJson);
+            var el = GetDomObject(argsJson) as ElementHost;
             if (el != null) el.textContent = GetStringArg(argsJson, 1);
             MarkDirty();
             return RespondOk(request);
@@ -1074,7 +1177,7 @@ public class RemoteJsEngineAdapter : IJavaScriptEngineAdapter, IDisposable
     {
         try
         {
-            var el = GetDomElement(argsJson);
+            var el = GetDomObject(argsJson) as ElementHost;
             if (el != null) el.innerHTML = GetStringArg(argsJson, 1);
             MarkDirty();
             return RespondOk(request);
@@ -1086,7 +1189,7 @@ public class RemoteJsEngineAdapter : IJavaScriptEngineAdapter, IDisposable
     {
         try
         {
-            var el = GetDomElement(argsJson);
+            var el = GetDomObject(argsJson) as ElementHost;
             if (el != null) el.scrollTop = double.Parse(GetStringArg(argsJson, 1) ?? "0");
             return RespondOk(request);
         }
@@ -1097,7 +1200,7 @@ public class RemoteJsEngineAdapter : IJavaScriptEngineAdapter, IDisposable
     {
         try
         {
-            var el = GetDomElement(argsJson);
+            var el = GetDomObject(argsJson) as ElementHost;
             if (el != null) el.scrollLeft = double.Parse(GetStringArg(argsJson, 1) ?? "0");
             return RespondOk(request);
         }
@@ -1112,13 +1215,14 @@ public class RemoteJsEngineAdapter : IJavaScriptEngineAdapter, IDisposable
     {
         try
         {
-            var el = GetDomElement(argsJson);
+            var el = GetDomObject(argsJson) as ElementHost;
             if (el != null)
             {
                 var rect = el.getBoundingClientRect();
-                return JsonResult(request, System.Text.Json.JsonSerializer.Serialize(new { x = rect.x, y = rect.y, width = rect.width, height = rect.height }));
+                string F(double v) => v.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture);
+                return JsonResult(request, $"{{\"x\":{F(rect.x)},\"y\":{F(rect.y)},\"width\":{F(rect.width)},\"height\":{F(rect.height)},\"top\":{F(rect.top)},\"right\":{F(rect.right)},\"bottom\":{F(rect.bottom)},\"left\":{F(rect.left)}}}");
             }
-            return JsonResult(request, "{\"x\":0,\"y\":0,\"width\":0,\"height\":0}");
+            return JsonResult(request, "{\"x\":0,\"y\":0,\"width\":0,\"height\":0,\"top\":0,\"right\":0,\"bottom\":0,\"left\":0}");
         }
         catch (Exception ex) { return new IpcResponse { RequestId = request.RequestId, Success = false, Error = ex.Message }; }
     }
@@ -1140,11 +1244,11 @@ public class RemoteJsEngineAdapter : IJavaScriptEngineAdapter, IDisposable
     {
         try
         {
-            var el = GetDomElement(argsJson);
+            var el = GetDomObject(argsJson) as ElementHost;
             if (el != null)
             {
                 var ids = DomStore?.RegisterElements(el.GetChildHosts()).Select(i => i.ToString()).ToArray() ?? Array.Empty<string>();
-                return JsonResult(request, System.Text.Json.JsonSerializer.Serialize(ids));
+                return JsonResult(request, System.Text.Json.JsonSerializer.Serialize(ids, UpBrowserJsonContext.Default.StringArray));
             }
             return JsonResult(request, "[]");
         }
@@ -1160,7 +1264,7 @@ public class RemoteJsEngineAdapter : IJavaScriptEngineAdapter, IDisposable
     {
         try
         {
-            var el = GetDomElement(argsJson);
+            var el = GetDomObject(argsJson) as ElementHost;
             if (el != null) return OkElement(request, el.parentElement);
             return new IpcResponse { RequestId = request.RequestId, Success = true, Result = "null" };
         }
@@ -1171,7 +1275,7 @@ public class RemoteJsEngineAdapter : IJavaScriptEngineAdapter, IDisposable
     {
         try
         {
-            var el = GetDomElement(argsJson);
+            var el = GetDomObject(argsJson) as ElementHost;
             if (el != null) return OkElement(request, el.nextElementSibling as ElementHost);
             return new IpcResponse { RequestId = request.RequestId, Success = true, Result = "null" };
         }
@@ -1182,7 +1286,7 @@ public class RemoteJsEngineAdapter : IJavaScriptEngineAdapter, IDisposable
     {
         try
         {
-            var el = GetDomElement(argsJson);
+            var el = GetDomObject(argsJson) as ElementHost;
             if (el != null) return OkElement(request, el.previousElementSibling as ElementHost);
             return new IpcResponse { RequestId = request.RequestId, Success = true, Result = "null" };
         }
@@ -1193,7 +1297,7 @@ public class RemoteJsEngineAdapter : IJavaScriptEngineAdapter, IDisposable
     {
         try
         {
-            var el = GetDomElement(argsJson);
+            var el = GetDomObject(argsJson) as ElementHost;
             if (el != null) return OkElement(request, el.firstChild as ElementHost);
             return new IpcResponse { RequestId = request.RequestId, Success = true, Result = "null" };
         }
@@ -1204,7 +1308,7 @@ public class RemoteJsEngineAdapter : IJavaScriptEngineAdapter, IDisposable
     {
         try
         {
-            var el = GetDomElement(argsJson);
+            var el = GetDomObject(argsJson) as ElementHost;
             if (el != null) return OkElement(request, el.lastChild as ElementHost);
             return new IpcResponse { RequestId = request.RequestId, Success = true, Result = "null" };
         }
@@ -1215,7 +1319,7 @@ public class RemoteJsEngineAdapter : IJavaScriptEngineAdapter, IDisposable
     {
         try
         {
-            var el = GetDomElement(argsJson);
+            var el = GetDomObject(argsJson) as ElementHost;
             if (el != null) return OkElement(request, el.firstElementChild);
             return new IpcResponse { RequestId = request.RequestId, Success = true, Result = "null" };
         }
@@ -1226,7 +1330,7 @@ public class RemoteJsEngineAdapter : IJavaScriptEngineAdapter, IDisposable
     {
         try
         {
-            var el = GetDomElement(argsJson);
+            var el = GetDomObject(argsJson) as ElementHost;
             if (el != null) return OkElement(request, el.lastElementChild);
             return new IpcResponse { RequestId = request.RequestId, Success = true, Result = "null" };
         }
@@ -1237,7 +1341,7 @@ public class RemoteJsEngineAdapter : IJavaScriptEngineAdapter, IDisposable
     {
         try
         {
-            var el = GetDomElement(argsJson);
+            var el = GetDomObject(argsJson) as ElementHost;
             if (el != null) return JsonResult(request, el.childElementCount.ToString());
             return JsonResult(request, "0");
         }
@@ -1252,12 +1356,12 @@ public class RemoteJsEngineAdapter : IJavaScriptEngineAdapter, IDisposable
     {
         try
         {
-            var el = GetDomElement(argsJson);
-            if (el != null)
-            {
-                var result = el.querySelector(GetStringArg(argsJson, 1) ?? "");
-                return OkElement(request, result as ElementHost);
-            }
+            var obj = GetDomObject(argsJson);
+            var selector = GetStringArg(argsJson, 1) ?? "";
+            if (obj is ElementHost el)
+                return OkElement(request, el.querySelector(selector) as ElementHost);
+            if (obj is DocumentHost doc)
+                return OkElement(request, doc.querySelector(selector) as ElementHost);
             return new IpcResponse { RequestId = request.RequestId, Success = false, Error = "Element not found" };
         }
         catch (Exception ex) { return new IpcResponse { RequestId = request.RequestId, Success = false, Error = ex.Message }; }
@@ -1267,13 +1371,17 @@ public class RemoteJsEngineAdapter : IJavaScriptEngineAdapter, IDisposable
     {
         try
         {
-            var el = GetDomElement(argsJson);
-            if (el != null)
+            var obj = GetDomObject(argsJson);
+            var selector = GetStringArg(argsJson, 1) ?? "";
+            List<ElementHost>? hosts = null;
+            if (obj is ElementHost el)
+                hosts = el.querySelectorAll(selector).OfType<ElementHost>().ToList();
+            else if (obj is DocumentHost doc)
+                hosts = ((System.Collections.IEnumerable)doc.querySelectorAll(selector)).OfType<ElementHost>().ToList();
+            if (hosts != null)
             {
-                var results = el.querySelectorAll(GetStringArg(argsJson, 1) ?? "");
-                var hosts = results.OfType<ElementHost>().ToList();
                 var ids = DomStore?.RegisterElements(hosts).Select(i => i.ToString()).ToArray() ?? Array.Empty<string>();
-                return JsonResult(request, System.Text.Json.JsonSerializer.Serialize(ids));
+                return JsonResult(request, System.Text.Json.JsonSerializer.Serialize(ids, UpBrowserJsonContext.Default.StringArray));
             }
             return JsonResult(request, "[]");
         }
@@ -1290,7 +1398,7 @@ public class RemoteJsEngineAdapter : IJavaScriptEngineAdapter, IDisposable
                 var result = doc.getElementById(GetStringArg(argsJson, 0) ?? "");
                 return OkElement(request, result);
             }
-            return new IpcResponse { RequestId = request.RequestId, Success = false, Error = "No document" };
+            return JsonResult(request, "null");
         }
         catch (Exception ex) { return new IpcResponse { RequestId = request.RequestId, Success = false, Error = ex.Message }; }
     }
@@ -1299,13 +1407,16 @@ public class RemoteJsEngineAdapter : IJavaScriptEngineAdapter, IDisposable
     {
         try
         {
-            var el = GetDomElement(argsJson);
-            if (el != null)
+            var obj = GetDomObject(argsJson);
+            System.Collections.IEnumerable? coll = null;
+            var name = GetStringArg(argsJson, 1) ?? "";
+            if (obj is ElementHost el) coll = el.getElementsByTagName(name);
+            else if (obj is DocumentHost doc) coll = doc.getElementsByTagName(name) as System.Collections.IEnumerable;
+            if (coll != null)
             {
-                var coll = el.getElementsByTagName(GetStringArg(argsJson, 1) ?? "");
                 var hosts = coll.OfType<ElementHost>().ToList();
                 var ids = DomStore?.RegisterElements(hosts).Select(i => i.ToString()).ToArray() ?? Array.Empty<string>();
-                return JsonResult(request, System.Text.Json.JsonSerializer.Serialize(ids));
+                return JsonResult(request, System.Text.Json.JsonSerializer.Serialize(ids, UpBrowserJsonContext.Default.StringArray));
             }
             return JsonResult(request, "[]");
         }
@@ -1316,13 +1427,16 @@ public class RemoteJsEngineAdapter : IJavaScriptEngineAdapter, IDisposable
     {
         try
         {
-            var el = GetDomElement(argsJson);
-            if (el != null)
+            var obj = GetDomObject(argsJson);
+            System.Collections.IEnumerable? coll = null;
+            var name = GetStringArg(argsJson, 1) ?? "";
+            if (obj is ElementHost el) coll = el.getElementsByClassName(name);
+            else if (obj is DocumentHost doc) coll = doc.getElementsByClassName(name) as System.Collections.IEnumerable;
+            if (coll != null)
             {
-                var coll = el.getElementsByClassName(GetStringArg(argsJson, 1) ?? "");
                 var hosts = coll.OfType<ElementHost>().ToList();
                 var ids = DomStore?.RegisterElements(hosts).Select(i => i.ToString()).ToArray() ?? Array.Empty<string>();
-                return JsonResult(request, System.Text.Json.JsonSerializer.Serialize(ids));
+                return JsonResult(request, System.Text.Json.JsonSerializer.Serialize(ids, UpBrowserJsonContext.Default.StringArray));
             }
             return JsonResult(request, "[]");
         }
@@ -1338,7 +1452,7 @@ public class RemoteJsEngineAdapter : IJavaScriptEngineAdapter, IDisposable
     {
         try
         {
-            var el = GetDomElement(argsJson);
+            var el = GetDomObject(argsJson) as ElementHost;
             if (el != null) return OkBool(request, el.matches(GetStringArg(argsJson, 1) ?? ""));
             return OkBool(request, false);
         }
@@ -1349,7 +1463,7 @@ public class RemoteJsEngineAdapter : IJavaScriptEngineAdapter, IDisposable
     {
         try
         {
-            var el = GetDomElement(argsJson);
+            var el = GetDomObject(argsJson) as ElementHost;
             if (el != null)
             {
                 var result = el.closest(GetStringArg(argsJson, 1) ?? "");
@@ -1364,7 +1478,7 @@ public class RemoteJsEngineAdapter : IJavaScriptEngineAdapter, IDisposable
     {
         try
         {
-            var el = GetDomElement(argsJson);
+            var el = GetDomObject(argsJson) as ElementHost;
             if (el != null)
             {
                 var other = DomStore?.GetElement(GetIntArg(argsJson, 1));
@@ -1383,7 +1497,7 @@ public class RemoteJsEngineAdapter : IJavaScriptEngineAdapter, IDisposable
     {
         try
         {
-            var el = GetDomElement(argsJson);
+            var el = GetDomObject(argsJson) as ElementHost;
             if (el != null) el.click();
             return RespondOk(request);
         }
@@ -1394,7 +1508,7 @@ public class RemoteJsEngineAdapter : IJavaScriptEngineAdapter, IDisposable
     {
         try
         {
-            var el = GetDomElement(argsJson);
+            var el = GetDomObject(argsJson) as ElementHost;
             if (el != null) el.focus();
             return RespondOk(request);
         }
@@ -1405,7 +1519,7 @@ public class RemoteJsEngineAdapter : IJavaScriptEngineAdapter, IDisposable
     {
         try
         {
-            var el = GetDomElement(argsJson);
+            var el = GetDomObject(argsJson) as ElementHost;
             if (el != null) el.blur();
             return RespondOk(request);
         }
@@ -1416,7 +1530,7 @@ public class RemoteJsEngineAdapter : IJavaScriptEngineAdapter, IDisposable
     {
         try
         {
-            var el = GetDomElement(argsJson);
+            var el = GetDomObject(argsJson) as ElementHost;
             if (el != null) el.scrollIntoView(GetStringArg(argsJson, 1) == "true");
             return RespondOk(request);
         }
@@ -1427,11 +1541,17 @@ public class RemoteJsEngineAdapter : IJavaScriptEngineAdapter, IDisposable
     {
         try
         {
-            var el = GetDomElement(argsJson);
+            var obj = GetDomObject(argsJson);
+            var el = obj as ElementHost;
+            var doc = obj as DocumentHost;
+            var evt = new ScriptEvent(GetStringArg(argsJson, 1) ?? "", el);
             if (el != null)
             {
-                var evt = new ScriptEvent(GetStringArg(argsJson, 1) ?? "", el);
                 el.dispatchEvent(evt);
+            }
+            else if (doc != null)
+            {
+                doc.dispatchEvent(evt);
             }
             return RespondOk(request);
         }
@@ -1538,7 +1658,7 @@ public class RemoteJsEngineAdapter : IJavaScriptEngineAdapter, IDisposable
             {
                 var hosts = doc.forms.OfType<ElementHost>().ToList();
                 var ids = DomStore?.RegisterElements(hosts).Select(i => i.ToString()).ToArray() ?? Array.Empty<string>();
-                return JsonResult(request, System.Text.Json.JsonSerializer.Serialize(ids));
+                return JsonResult(request, System.Text.Json.JsonSerializer.Serialize(ids, UpBrowserJsonContext.Default.StringArray));
             }
             return JsonResult(request, "[]");
         }
@@ -1554,7 +1674,7 @@ public class RemoteJsEngineAdapter : IJavaScriptEngineAdapter, IDisposable
             {
                 var hosts = doc.images.OfType<ElementHost>().ToList();
                 var ids = DomStore?.RegisterElements(hosts).Select(i => i.ToString()).ToArray() ?? Array.Empty<string>();
-                return JsonResult(request, System.Text.Json.JsonSerializer.Serialize(ids));
+                return JsonResult(request, System.Text.Json.JsonSerializer.Serialize(ids, UpBrowserJsonContext.Default.StringArray));
             }
             return JsonResult(request, "[]");
         }
@@ -1570,7 +1690,7 @@ public class RemoteJsEngineAdapter : IJavaScriptEngineAdapter, IDisposable
             {
                 var hosts = doc.links.OfType<ElementHost>().ToList();
                 var ids = DomStore?.RegisterElements(hosts).Select(i => i.ToString()).ToArray() ?? Array.Empty<string>();
-                return JsonResult(request, System.Text.Json.JsonSerializer.Serialize(ids));
+                return JsonResult(request, System.Text.Json.JsonSerializer.Serialize(ids, UpBrowserJsonContext.Default.StringArray));
             }
             return JsonResult(request, "[]");
         }
@@ -1586,7 +1706,7 @@ public class RemoteJsEngineAdapter : IJavaScriptEngineAdapter, IDisposable
             {
                 var hosts = doc.scripts.OfType<ElementHost>().ToList();
                 var ids = DomStore?.RegisterElements(hosts).Select(i => i.ToString()).ToArray() ?? Array.Empty<string>();
-                return JsonResult(request, System.Text.Json.JsonSerializer.Serialize(ids));
+                return JsonResult(request, System.Text.Json.JsonSerializer.Serialize(ids, UpBrowserJsonContext.Default.StringArray));
             }
             return JsonResult(request, "[]");
         }
@@ -1602,7 +1722,7 @@ public class RemoteJsEngineAdapter : IJavaScriptEngineAdapter, IDisposable
             {
                 var hosts = doc.anchors.OfType<ElementHost>().ToList();
                 var ids = DomStore?.RegisterElements(hosts).Select(i => i.ToString()).ToArray() ?? Array.Empty<string>();
-                return JsonResult(request, System.Text.Json.JsonSerializer.Serialize(ids));
+                return JsonResult(request, System.Text.Json.JsonSerializer.Serialize(ids, UpBrowserJsonContext.Default.StringArray));
             }
             return JsonResult(request, "[]");
         }
@@ -1615,91 +1735,103 @@ public class RemoteJsEngineAdapter : IJavaScriptEngineAdapter, IDisposable
 
     private IpcResponse HandleDomGetTag(IpcRequest request, string argsJson)
     {
-        try { var el = GetDomElement(argsJson); return el != null ? JsonResult(request, el.tagName) : JsonResult(request, ""); }
+        try { var el = GetDomObject(argsJson) as ElementHost; return el != null ? JsonResult(request, el.tagName) : JsonResult(request, ""); }
         catch (Exception ex) { return new IpcResponse { RequestId = request.RequestId, Success = false, Error = ex.Message }; }
     }
 
     private IpcResponse HandleDomGetClassName(IpcRequest request, string argsJson)
     {
-        try { var el = GetDomElement(argsJson); return el != null ? JsonResult(request, el.className) : JsonResult(request, ""); }
+        try { var el = GetDomObject(argsJson) as ElementHost; return el != null ? JsonResult(request, el.className) : JsonResult(request, ""); }
         catch (Exception ex) { return new IpcResponse { RequestId = request.RequestId, Success = false, Error = ex.Message }; }
     }
 
     private IpcResponse HandleDomGetId(IpcRequest request, string argsJson)
     {
-        try { var el = GetDomElement(argsJson); return el != null ? JsonResult(request, el.id) : JsonResult(request, ""); }
+        try { var el = GetDomObject(argsJson) as ElementHost; return el != null ? JsonResult(request, el.id) : JsonResult(request, ""); }
         catch (Exception ex) { return new IpcResponse { RequestId = request.RequestId, Success = false, Error = ex.Message }; }
     }
 
     private IpcResponse HandleDomGetValue(IpcRequest request, string argsJson)
     {
-        try { var el = GetDomElement(argsJson); return el != null ? JsonResult(request, el.value ?? "") : JsonResult(request, "null"); }
+        try { var el = GetDomObject(argsJson) as ElementHost; return el != null ? JsonResult(request, el.value ?? "") : JsonResult(request, "null"); }
         catch (Exception ex) { return new IpcResponse { RequestId = request.RequestId, Success = false, Error = ex.Message }; }
     }
 
     private IpcResponse HandleDomGetTextContent(IpcRequest request, string argsJson)
     {
-        try { var el = GetDomElement(argsJson); return el != null ? JsonResult(request, el.textContent ?? "") : JsonResult(request, "null"); }
+        try { var el = GetDomObject(argsJson) as ElementHost; return el != null ? JsonResult(request, el.textContent ?? "") : JsonResult(request, "null"); }
         catch (Exception ex) { return new IpcResponse { RequestId = request.RequestId, Success = false, Error = ex.Message }; }
     }
 
     private IpcResponse HandleDomGetInnerHTML(IpcRequest request, string argsJson)
     {
-        try { var el = GetDomElement(argsJson); return el != null ? JsonResult(request, el.innerHTML ?? "") : JsonResult(request, "null"); }
+        try { var el = GetDomObject(argsJson) as ElementHost; return el != null ? JsonResult(request, el.innerHTML ?? "") : JsonResult(request, "null"); }
         catch (Exception ex) { return new IpcResponse { RequestId = request.RequestId, Success = false, Error = ex.Message }; }
     }
 
     private IpcResponse HandleDomGetNodeType(IpcRequest request, string argsJson)
     {
-        try { var el = GetDomElement(argsJson); return el != null ? JsonResult(request, el.nodeType.ToString()) : JsonResult(request, "0"); }
+        try { var el = GetDomObject(argsJson) as ElementHost; return el != null ? JsonResult(request, el.nodeType.ToString()) : JsonResult(request, "0"); }
         catch (Exception ex) { return new IpcResponse { RequestId = request.RequestId, Success = false, Error = ex.Message }; }
     }
 
     private IpcResponse HandleDomGetOffsetWidth(IpcRequest request, string argsJson)
     {
-        try { var el = GetDomElement(argsJson); return el != null ? JsonResult(request, el.offsetWidth.ToString()) : JsonResult(request, "0"); }
+        try { var el = GetDomObject(argsJson) as ElementHost; return el != null ? JsonResult(request, el.offsetWidth.ToString()) : JsonResult(request, "0"); }
         catch (Exception ex) { return new IpcResponse { RequestId = request.RequestId, Success = false, Error = ex.Message }; }
     }
 
     private IpcResponse HandleDomGetOffsetHeight(IpcRequest request, string argsJson)
     {
-        try { var el = GetDomElement(argsJson); return el != null ? JsonResult(request, el.offsetHeight.ToString()) : JsonResult(request, "0"); }
+        try { var el = GetDomObject(argsJson) as ElementHost; return el != null ? JsonResult(request, el.offsetHeight.ToString()) : JsonResult(request, "0"); }
         catch (Exception ex) { return new IpcResponse { RequestId = request.RequestId, Success = false, Error = ex.Message }; }
     }
 
     private IpcResponse HandleDomGetClientWidth(IpcRequest request, string argsJson)
     {
-        try { var el = GetDomElement(argsJson); return el != null ? JsonResult(request, el.clientWidth.ToString()) : JsonResult(request, "0"); }
+        try { var el = GetDomObject(argsJson) as ElementHost; return el != null ? JsonResult(request, el.clientWidth.ToString()) : JsonResult(request, "0"); }
         catch (Exception ex) { return new IpcResponse { RequestId = request.RequestId, Success = false, Error = ex.Message }; }
     }
 
     private IpcResponse HandleDomGetClientHeight(IpcRequest request, string argsJson)
     {
-        try { var el = GetDomElement(argsJson); return el != null ? JsonResult(request, el.clientHeight.ToString()) : JsonResult(request, "0"); }
+        try { var el = GetDomObject(argsJson) as ElementHost; return el != null ? JsonResult(request, el.clientHeight.ToString()) : JsonResult(request, "0"); }
         catch (Exception ex) { return new IpcResponse { RequestId = request.RequestId, Success = false, Error = ex.Message }; }
     }
 
     private IpcResponse HandleDomGetScrollTop(IpcRequest request, string argsJson)
     {
-        try { var el = GetDomElement(argsJson); return el != null ? JsonResult(request, el.scrollTop.ToString()) : JsonResult(request, "0"); }
+        try { var obj = GetDomObject(argsJson); var doc = obj as DocumentHost; var el = obj as ElementHost; return doc != null ? JsonResult(request, doc.scrollTop.ToString()) : el != null ? JsonResult(request, el.scrollTop.ToString()) : JsonResult(request, "0"); }
         catch (Exception ex) { return new IpcResponse { RequestId = request.RequestId, Success = false, Error = ex.Message }; }
     }
 
     private IpcResponse HandleDomGetScrollLeft(IpcRequest request, string argsJson)
     {
-        try { var el = GetDomElement(argsJson); return el != null ? JsonResult(request, el.scrollLeft.ToString()) : JsonResult(request, "0"); }
+        try { var obj = GetDomObject(argsJson); var doc = obj as DocumentHost; var el = obj as ElementHost; return doc != null ? JsonResult(request, doc.scrollLeft.ToString()) : el != null ? JsonResult(request, el.scrollLeft.ToString()) : JsonResult(request, "0"); }
+        catch (Exception ex) { return new IpcResponse { RequestId = request.RequestId, Success = false, Error = ex.Message }; }
+    }
+
+    private IpcResponse HandleDomGetScrollWidth(IpcRequest request, string argsJson)
+    {
+        try { var obj = GetDomObject(argsJson); var doc = obj as DocumentHost; var el = obj as ElementHost; return doc != null ? JsonResult(request, doc.scrollWidth.ToString()) : el != null ? JsonResult(request, el.scrollWidth.ToString()) : JsonResult(request, "0"); }
+        catch (Exception ex) { return new IpcResponse { RequestId = request.RequestId, Success = false, Error = ex.Message }; }
+    }
+
+    private IpcResponse HandleDomGetScrollHeight(IpcRequest request, string argsJson)
+    {
+        try { var obj = GetDomObject(argsJson); var doc = obj as DocumentHost; var el = obj as ElementHost; return doc != null ? JsonResult(request, doc.scrollHeight.ToString()) : el != null ? JsonResult(request, el.scrollHeight.ToString()) : JsonResult(request, "0"); }
         catch (Exception ex) { return new IpcResponse { RequestId = request.RequestId, Success = false, Error = ex.Message }; }
     }
 
     private IpcResponse HandleDomGetOffsetTop(IpcRequest request, string argsJson)
     {
-        try { var el = GetDomElement(argsJson); return el != null ? JsonResult(request, el.offsetTop.ToString()) : JsonResult(request, "0"); }
+        try { var el = GetDomObject(argsJson) as ElementHost; return el != null ? JsonResult(request, el.offsetTop.ToString()) : JsonResult(request, "0"); }
         catch (Exception ex) { return new IpcResponse { RequestId = request.RequestId, Success = false, Error = ex.Message }; }
     }
 
     private IpcResponse HandleDomGetOffsetLeft(IpcRequest request, string argsJson)
     {
-        try { var el = GetDomElement(argsJson); return el != null ? JsonResult(request, el.offsetLeft.ToString()) : JsonResult(request, "0"); }
+        try { var el = GetDomObject(argsJson) as ElementHost; return el != null ? JsonResult(request, el.offsetLeft.ToString()) : JsonResult(request, "0"); }
         catch (Exception ex) { return new IpcResponse { RequestId = request.RequestId, Success = false, Error = ex.Message }; }
     }
 
@@ -1707,9 +1839,9 @@ public class RemoteJsEngineAdapter : IJavaScriptEngineAdapter, IDisposable
     {
         try
         {
-            var el = GetDomElement(argsJson);
+            var el = GetDomObject(argsJson) as ElementHost;
             if (el != null)
-                return JsonResult(request, System.Text.Json.JsonSerializer.Serialize(el.classListValues));
+                return JsonResult(request, System.Text.Json.JsonSerializer.Serialize(el.classListValues, UpBrowserJsonContext.Default.ObjectArray));
             return JsonResult(request, "[]");
         }
         catch (Exception ex) { return new IpcResponse { RequestId = request.RequestId, Success = false, Error = ex.Message }; }
@@ -1719,7 +1851,7 @@ public class RemoteJsEngineAdapter : IJavaScriptEngineAdapter, IDisposable
     {
         try
         {
-            var el = GetDomElement(argsJson);
+            var el = GetDomObject(argsJson) as ElementHost;
             if (el != null) el.normalize();
             return RespondOk(request);
         }
@@ -1732,7 +1864,17 @@ public class RemoteJsEngineAdapter : IJavaScriptEngineAdapter, IDisposable
 
     private IpcResponse HandleDomSetWindowLocation(IpcRequest request, string argsJson)
     {
-        return RespondOk(request);
+        try
+        {
+            var url = GetStringArg(argsJson, 0) ?? "";
+            var doc = DomStore?.Document;
+            if (doc != null)
+            {
+                doc.NativeDocument.Url = url;
+            }
+            return RespondOk(request);
+        }
+        catch (Exception ex) { return new IpcResponse { RequestId = request.RequestId, Success = false, Error = ex.Message }; }
     }
 
     private IpcResponse HandleDomLocalStorageGet(IpcRequest request, string argsJson)
@@ -1822,6 +1964,58 @@ public class RemoteJsEngineAdapter : IJavaScriptEngineAdapter, IDisposable
 
     #endregion
 
+    #region Engine Management
+
+    private IpcResponse HandleEngineGetStatus(IpcRequest request)
+    {
+        try
+        {
+            return JsonResult(request, new UpBrowserBuiltins(null!).engineGetStatus());
+        }
+        catch (Exception ex) { return new IpcResponse { RequestId = request.RequestId, Success = false, Error = ex.Message }; }
+    }
+
+    private IpcResponse HandleEngineDownload(IpcRequest request, string argsJson)
+    {
+        try
+        {
+            var name = GetStringArg(argsJson, 0) ?? "";
+            var result = OnEngineAction?.Invoke("download", name)
+                ?? UpBrowserBuiltins.GlobalEngineAction?.Invoke("download", name)
+                ?? "{\"success\":false,\"error\":\"no handler\"}";
+            return JsonResult(request, result);
+        }
+        catch (Exception ex) { return new IpcResponse { RequestId = request.RequestId, Success = false, Error = ex.Message }; }
+    }
+
+    private IpcResponse HandleEngineBrowse(IpcRequest request, string argsJson)
+    {
+        try
+        {
+            var name = GetStringArg(argsJson, 0) ?? "";
+            var result = OnEngineAction?.Invoke("browse", name)
+                ?? UpBrowserBuiltins.GlobalEngineAction?.Invoke("browse", name)
+                ?? "{\"success\":false,\"error\":\"no handler\"}";
+            return JsonResult(request, result);
+        }
+        catch (Exception ex) { return new IpcResponse { RequestId = request.RequestId, Success = false, Error = ex.Message }; }
+    }
+
+    private IpcResponse HandleEngineApply(IpcRequest request, string argsJson)
+    {
+        try
+        {
+            var name = GetStringArg(argsJson, 0) ?? "";
+            var result = OnEngineAction?.Invoke("apply", name)
+                ?? UpBrowserBuiltins.GlobalEngineAction?.Invoke("apply", name)
+                ?? "{\"success\":false,\"error\":\"no handler\"}";
+            return JsonResult(request, result);
+        }
+        catch (Exception ex) { return new IpcResponse { RequestId = request.RequestId, Success = false, Error = ex.Message }; }
+    }
+
+    #endregion
+
     private class FetchOptions
     {
         public string? Method { get; set; }
@@ -1839,7 +2033,6 @@ public class RemoteJsEngineAdapter : IJavaScriptEngineAdapter, IDisposable
 
     public void Execute(string code)
     {
-        // 发后即忘：不等待响应，不阻塞 UI 线程
         if (_disposed || _transport == null || string.IsNullOrEmpty(code)) return;
         try
         {
@@ -1849,13 +2042,11 @@ public class RemoteJsEngineAdapter : IJavaScriptEngineAdapter, IDisposable
                 Type = RequestType.Execute,
                 Payload = code,
             };
-            var data = ProtocolSerializer.Serialize(request);
-            // 纯同步发后即忘：无 await、无上下文切换、不阻塞
-            _transport.SendFireAndForget(data);
+            SendRequest(request);
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[RemoteJsEngine] Execute failed (non-blocking): {ex.Message}");
+            Console.WriteLine($"[RemoteJsEngine] Execute failed (blocking): {ex.Message}");
         }
     }
 
@@ -1888,7 +2079,7 @@ public class RemoteJsEngineAdapter : IJavaScriptEngineAdapter, IDisposable
             var argStrings = new List<string> { functionName };
             foreach (var arg in args)
                 argStrings.Add(arg?.ToString() ?? "");
-            var payload = System.Text.Json.JsonSerializer.Serialize(argStrings);
+            var payload = System.Text.Json.JsonSerializer.Serialize(argStrings.ToArray(), UpBrowserJsonContext.Default.StringArray);
 
             var request = new IpcRequest
             {
@@ -1913,8 +2104,8 @@ public class RemoteJsEngineAdapter : IJavaScriptEngineAdapter, IDisposable
     public void SetGlobal(string name, object? value)
     {
         // 远程引擎的初始化脚本已经定义了所有全局对象（console, __upbrowser 等）
-        // 不需要再发送 .NET 对象到远程引擎
-        // 只有简单值（字符串、数字）才需要设置
+        // 不需要再发�?.NET 对象到远程引�?
+        // 只有简单值（字符串、数字）才需要设�?
         if (value is string strValue)
         {
             var escaped = strValue.Replace("\\", "\\\\").Replace("'", "\\'").Replace("\n", "\\n");
@@ -1928,12 +2119,12 @@ public class RemoteJsEngineAdapter : IJavaScriptEngineAdapter, IDisposable
         {
             Execute($"var {name} = {(b ? "true" : "false")};");
         }
-        // 复杂对象（ConsoleHost, DocumentHost 等）已在远程引擎的初始化脚本中定义
+        // 复杂对象（ConsoleHost, DocumentHost 等）已在远程引擎的初始化脚本中定�?
     }
 
     public int StoreCallback(object callback)
     {
-        // 回调在远程引擎中注册，返回 ID
+        // 回调在远程引擎中注册，返�?ID
         return 0;
     }
 
@@ -2021,10 +2212,10 @@ public class RemoteJsEngineAdapter : IJavaScriptEngineAdapter, IDisposable
         try
         {
             var data = ProtocolSerializer.Serialize(request);
-            // 同步发送，无 await、无上下文切换
+            // 同步发送，�?await、无上下文切�?
             _transport.SendFireAndForget(data);
 
-            // 100ms 超时：快速失败，避免 UI 线程长时间等待
+            // 100ms 超时：快速失败，避免 UI 线程长时间等�?
             if (!tcs.Task.Wait(100))
             {
                 lock (_lock) _pending.Remove(request.RequestId);
@@ -2050,7 +2241,7 @@ public class RemoteJsEngineAdapter : IJavaScriptEngineAdapter, IDisposable
         Cleanup();
     }
 
-    // IJavaScriptEngineAdapter 必需的其他方法
+    // IJavaScriptEngineAdapter 必需的其他方�?
     public int CaptureFunction(string globalName)
     {
         // 远程引擎不支持直接捕获函数，返回 0
@@ -2076,9 +2267,11 @@ public class DomProxyStore
 
     public DocumentHost? Document => _document;
 
+    public long Version { get; private set; }
+
     public void SetDocument(DocumentHost doc)
     {
-        lock (_lock) _document = doc;
+        lock (_lock) { _document = doc; Version++; }
     }
 
     public ElementHost? GetElement(int id)
@@ -2118,6 +2311,7 @@ public class DomProxyStore
             _elements.Clear();
             _nextElementId = 1;
             _document = null;
+            Version++;
         }
     }
 }

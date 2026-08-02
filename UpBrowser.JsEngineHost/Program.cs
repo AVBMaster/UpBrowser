@@ -203,7 +203,11 @@ class EngineManager
         },
         createXMLHttpRequest: function() { return __ipc('createXHR', '[]'); },
         createURL: function(url,base) { return __ipc('createURL', JSON.stringify([url||'',base||''])); },
-        createURLSearchParams: function(q) { return __ipc('createURLSearchParams', JSON.stringify([q||''])); }
+        createURLSearchParams: function(q) { return __ipc('createURLSearchParams', JSON.stringify([q||''])); },
+        engineGetStatus: function() { return __ipc('engineGetStatus', '[]'); },
+        engineDownload: function(name) { return __ipc('engineDownload', JSON.stringify([name||''])); },
+        engineBrowse: function(name) { return __ipc('engineBrowse', JSON.stringify([name||''])); },
+        engineApply: function(name) { return __ipc('engineApply', JSON.stringify([name||''])); }
     };
 
     g.window = g;
