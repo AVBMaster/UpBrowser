@@ -1,10 +1,12 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <IsTrimmable>true</IsTrimmable>
   </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="VC-LTL" Version="5.3.1" />
+  </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\UpBrowser.Core\UpBrowser.Core.csproj" />

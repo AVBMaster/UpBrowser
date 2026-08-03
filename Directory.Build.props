@@ -1,0 +1,10 @@
+<Project>
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <UseLocalSkiaSharp Condition="'$(UseLocalSkiaSharp)' == ''">false</UseLocalSkiaSharp>
+    <_OsVersionMajor>$([System.Environment]::OSVersion.Version.Major)</_OsVersionMajor>
+  </PropertyGroup>
+  <PropertyGroup Condition="$([MSBuild]::IsOSPlatform('Windows'))">
+    <TargetFramework>net10.0-windows</TargetFramework>
+  </PropertyGroup>
+</Project>

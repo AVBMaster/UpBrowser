@@ -1,6 +1,5 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <IsPackable>false</IsPackable>
@@ -11,6 +10,16 @@
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.7.0" />
     <PackageReference Include="xunit" Version="*" />
     <PackageReference Include="xunit.runner.visualstudio" Version="*" />
+  </ItemGroup>
+
+  <PropertyGroup Condition="$([MSBuild]::IsOSPlatform('Windows'))">
+    <SupportedOSPlatformVersion>5.1</SupportedOSPlatformVersion>
+    <SupportWinXP>true</SupportWinXP>
+  </PropertyGroup>
+
+  <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Windows'))">
+    <PackageReference Include="YY-Thunks" Version="1.2.2" />
+    <PackageReference Include="VC-LTL" Version="5.3.1" />
   </ItemGroup>
 
   <ItemGroup>
