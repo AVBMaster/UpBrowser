@@ -63,7 +63,7 @@ class Program
             });
         }
 
-        using var engine = new Engine();
+        var engine = new Engine();
         var manager = new EngineManager(engine, tabIndex);
 
         using var transport = new MmapTransport(channelName);
@@ -81,6 +81,7 @@ class Program
             Console.Error.WriteLine(ex.StackTrace);
             try { File.WriteAllText("JsEngineHost_error.log", $"{ex}\n{ex.StackTrace}"); } catch { }
         }
+        finally { engine.Dispose(); }
         Console.WriteLine("[JsEngineHost] Exiting");
     }
 }
@@ -106,18 +107,59 @@ class EngineManager
 
     private void DefineIpcFunction()
     {
-        // 注册 __ipc 函数，JS 调用时同步发送 IPC 请求到主进程
+        // 注册 __ipc 函数，JS 调用时在独立线程上异步执行，避免阻塞引擎线程
         _engine.SetValue("__ipc", (Func<string, string, string>)((method, argsJson) =>
         {
             try
             {
-                return SendToMain(method, argsJson);
+                return Task.Run(() => SendToMainAsync(method, argsJson)).GetAwaiter().GetResult();
             }
             catch (Exception ex)
             {
                 return $"{{\"error\":\"{ex.Message}\"}}";
             }
         }));
+    }
+
+    private async Task<string> SendToMainAsync(string method, string argsJson)
+    {
+        var requestId = Interlocked.Increment(ref _nextRequestId);
+        var tcs = new TaskCompletionSource<IpcResponse>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        lock (_lock)
+        {
+            _pending[requestId] = tcs;
+        }
+
+        var request = new IpcRequest
+        {
+            RequestId = requestId,
+            Type = RequestType.DomCall,
+            Payload = $"{method}|{argsJson}",
+        };
+
+        try
+        {
+            var data = ProtocolSerializer.Serialize(request);
+            await _transport!.SendAsync(data).ConfigureAwait(false);
+
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(1));
+            var completed = await Task.WhenAny(tcs.Task, Task.Delay(1000, cts.Token));
+            if (completed != tcs.Task)
+            {
+                lock (_lock) _pending.Remove(requestId);
+                return "{\"error\":\"timeout\"}";
+            }
+
+            var response = await tcs.Task;
+            return response.Result ?? "null";
+        }
+        catch (Exception ex)
+        {
+            lock (_lock) _pending.Remove(requestId);
+            Console.WriteLine($"[JsEngineHost] SendToMain error: {ex.Message}");
+            return $"{{\"error\":\"{ex.Message}\"}}";
+        }
     }
 
     public async Task RunAsync(MmapTransport transport, CancellationToken ct = default)

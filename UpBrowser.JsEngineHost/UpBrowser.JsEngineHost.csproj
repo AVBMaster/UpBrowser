@@ -5,6 +5,8 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <PublishSingleFile>true</PublishSingleFile>
+	<PublishReadyToRun>true</PublishReadyToRun>
+    <SelfContained>true</SelfContained>
     <PublishAot>true</PublishAot>
     <IsTrimmable>true</IsTrimmable>
     <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
@@ -36,5 +38,22 @@
       <LogicalName>UpBrowser.JsEngineHost.DomSetup.js</LogicalName>
     </EmbeddedResource>
   </ItemGroup>
+
+  <!-- Shim DLL copy during build/publish (stays with JsEngineHost output) -->
+  <Target Name="CopyKnownFolderShim" AfterTargets="Build" Condition="$([MSBuild]::IsOSPlatform('Windows'))">
+    <PropertyGroup>
+      <ShimSrc>$(MSBuildThisFileDirectory)..\UpBrowser.Native\shim\KnownFolderShim.dll</ShimSrc>
+    </PropertyGroup>
+    <Copy SourceFiles="$(ShimSrc)" DestinationFolder="$(TargetDir)" OverwriteReadOnlyFiles="true"
+          Condition="Exists('$(ShimSrc)')" />
+  </Target>
+
+  <Target Name="PublishKnownFolderShim" AfterTargets="Publish" Condition="$([MSBuild]::IsOSPlatform('Windows'))">
+    <PropertyGroup>
+      <ShimSrc>$(MSBuildThisFileDirectory)..\UpBrowser.Native\shim\KnownFolderShim.dll</ShimSrc>
+    </PropertyGroup>
+    <Copy SourceFiles="$(ShimSrc)" DestinationFolder="$(PublishDir)" OverwriteReadOnlyFiles="false"
+          Condition="Exists('$(ShimSrc)')" />
+  </Target>
 
 </Project>

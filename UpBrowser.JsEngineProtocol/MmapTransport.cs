@@ -150,7 +150,7 @@ public class MmapTransport : IDisposable
         {
             try { return OpenMmap(key); }
             catch { }
-            Task.Delay(20).Wait();
+            Thread.Sleep(20);
         }
         throw new TimeoutException($"Mmap connect timeout — mapped file '{key}' not found");
     }
@@ -204,17 +204,16 @@ public class MmapTransport : IDisposable
             throw new InvalidOperationException($"Message too large: {len}");
 
         var deadline = DateTime.UtcNow + timeout;
-
+        var sw = new SpinWait();
         while (DateTime.UtcNow < deadline)
         {
             var sync = new byte[4];
             _outView.ReadArray<byte>(SyncOffset, sync, 0, 4);
             if (BitConverter.ToInt32(sync, 0) == StateIdle) break;
-            await Task.Delay(1);
+            sw.SpinOnce();
         }
         if (DateTime.UtcNow >= deadline)
         {
-            // 超时：强制重置为空闲状态，避免后续操作卡死
             ResetSyncToIdle(_outView);
             var sync = new byte[4];
             _outView.ReadArray<byte>(SyncOffset, sync, 0, 4);
@@ -248,17 +247,16 @@ public class MmapTransport : IDisposable
         var len = data.Length;
         if (len > MaxMsgSize) return;
 
-        // 检查通道状态，如果不是空闲，等待短暂时间（最多 100ms）
         var deadline = DateTime.UtcNow + TimeSpan.FromMilliseconds(100);
+        var sw = new SpinWait();
         while (DateTime.UtcNow < deadline)
         {
             var sync = new byte[4];
             _outView.ReadArray<byte>(SyncOffset, sync, 0, 4);
             if (BitConverter.ToInt32(sync, 0) == StateIdle) break;
-            await Task.Delay(1);
+            sw.SpinOnce();
         }
 
-        // 超时则强制重置通道，确保不卡死
         ResetSyncToIdle(_outView);
 
         var header = BitConverter.GetBytes(len);
@@ -328,12 +326,13 @@ public class MmapTransport : IDisposable
             return Array.Empty<byte>();
 
         var deadline = DateTime.UtcNow.AddSeconds(10);
+        var sw = new SpinWait();
         while (DateTime.UtcNow < deadline && !ct.IsCancellationRequested)
         {
             var sync = new byte[4];
             _inView.ReadArray<byte>(SyncOffset, sync, 0, 4);
             if (BitConverter.ToInt32(sync, 0) == StateReady) break;
-            await Task.Delay(1, ct);
+            sw.SpinOnce();
         }
     if (ct.IsCancellationRequested)
         throw new OperationCanceledException("[MmapTransport] Cancelled during ReceiveAsync");
@@ -348,6 +347,7 @@ public class MmapTransport : IDisposable
 
         var header = new byte[HeaderSize];
         int? len = null;
+        var headerSw = new SpinWait();
         for (int i = 0; i < 10; i++)
         {
             _inView.ReadArray<byte>(HeaderOffset, header, 0, HeaderSize);
@@ -355,7 +355,7 @@ public class MmapTransport : IDisposable
             var h2 = new byte[HeaderSize];
             _inView.ReadArray<byte>(HeaderOffset, h2, 0, HeaderSize);
             if (BitConverter.ToInt32(h2, 0) == l) { len = l; break; }
-            await Task.Delay(1);
+            headerSw.SpinOnce();
         }
         if (len == null)
             throw new InvalidOperationException("Header inconsistent — connection closed");
@@ -388,12 +388,13 @@ public class MmapTransport : IDisposable
             return (false, Array.Empty<byte>());
 
         var deadline = DateTime.UtcNow.AddSeconds(timeoutSeconds);
+        var sw = new SpinWait();
         while (DateTime.UtcNow < deadline && !ct.IsCancellationRequested)
         {
             var sync = new byte[4];
             _inView.ReadArray<byte>(SyncOffset, sync, 0, 4);
             if (BitConverter.ToInt32(sync, 0) == StateReady) break;
-            await Task.Delay(1, ct);
+            sw.SpinOnce();
         }
     if (ct.IsCancellationRequested)
         return (false, Array.Empty<byte>());
@@ -406,6 +407,7 @@ public class MmapTransport : IDisposable
 
         var header = new byte[HeaderSize];
         int? len = null;
+        var headerSw = new SpinWait();
         for (int i = 0; i < 10; i++)
         {
             _inView.ReadArray<byte>(HeaderOffset, header, 0, HeaderSize);
@@ -413,7 +415,7 @@ public class MmapTransport : IDisposable
             var h2 = new byte[HeaderSize];
             _inView.ReadArray<byte>(HeaderOffset, h2, 0, HeaderSize);
             if (BitConverter.ToInt32(h2, 0) == l) { len = l; break; }
-            await Task.Delay(1);
+            headerSw.SpinOnce();
         }
         if (len == null)
             return (false, Array.Empty<byte>());

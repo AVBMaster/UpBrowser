@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using UpBrowser.Core;
 
 namespace UpBrowser.Rendering;
 
@@ -9,7 +10,12 @@ public static class RenderingSettingsConfig
 {
     private static string GetConfigPath()
     {
-        var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+        string appData;
+#if WINDOWS
+        appData = WindowsFolderProvider.GetAppDataPath();
+#else
+        appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+#endif
         var dir = Path.Combine(appData, "UpBrowser");
         Directory.CreateDirectory(dir);
         return Path.Combine(dir, "settings.json");

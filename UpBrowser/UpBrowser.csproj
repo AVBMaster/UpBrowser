@@ -13,9 +13,11 @@
 	</PropertyGroup>
 
  	<PropertyGroup Condition="$([MSBuild]::IsOSPlatform('Windows'))">
- 		<SupportedOSPlatformVersion>5.1</SupportedOSPlatformVersion>
-		<SupportWinXP>true</SupportWinXP>
- 	</PropertyGroup>
+  		<SupportedOSPlatformVersion>5.1</SupportedOSPlatformVersion>
+ 		<SupportWinXP>true</SupportWinXP>
+  	</PropertyGroup>
+
+ 	
 
  	<ItemGroup Condition="$([MSBuild]::IsOSPlatform('Windows'))">
  		<PackageReference Include="YY-Thunks" Version="1.2.2" />
