@@ -59,7 +59,7 @@ public static class PlatformFactory
         {
             try
             {
-                SetProcessDPIAware();
+                SetProcessDPIAware();//required for Windows Vista and later
             }
             catch
             {
