@@ -57,7 +57,13 @@ public static class PlatformFactory
         }
         catch
         {
-            SetProcessDPIAware();
+            try
+            {
+                SetProcessDPIAware();
+            }
+            catch
+            {
+            }
         }
 
         IntPtr hdc = GetDC(IntPtr.Zero);

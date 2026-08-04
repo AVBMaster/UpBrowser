@@ -4,12 +4,20 @@
     <OutputType>Exe</OutputType>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
- 	<PublishSingleFile>true</PublishSingleFile>
+    <PublishSingleFile>true</PublishSingleFile>
+    <PublishAot>true</PublishAot>
+    <IsTrimmable>true</IsTrimmable>
+    <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
+    <NoWarn>$(NoWarn);IL2026;IL2111</NoWarn>
   </PropertyGroup>
 
   <PropertyGroup Condition="$([MSBuild]::IsOSPlatform('Windows'))">
+    <TargetFramework>net10.0-windows</TargetFramework>
     <SupportedOSPlatformVersion>5.1</SupportedOSPlatformVersion>
     <SupportWinXP>true</SupportWinXP>
+  </PropertyGroup>
+  <PropertyGroup Condition="!$([MSBuild]::IsOSPlatform('Windows'))">
+    <TargetFramework>net10.0</TargetFramework>
   </PropertyGroup>
 
   <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Windows'))">
@@ -18,13 +26,9 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\third_party\jint\Jint\Jint.csproj" />
     <ProjectReference Include="..\UpBrowser.JsEngineProtocol\UpBrowser.JsEngineProtocol.csproj" />
-    <ProjectReference Include="..\UpBrowser.Core\UpBrowser.Core.csproj" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <PackageReference Include="JavaScriptEngineSwitcher.Core" Version="*" />
-    <PackageReference Include="JavaScriptEngineSwitcher.Jint" Version="*" />
+    <TrimmerRootAssembly Include="Jint" />
   </ItemGroup>
 
   <ItemGroup>

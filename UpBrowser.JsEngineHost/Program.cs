@@ -1,7 +1,7 @@
 using System.Diagnostics;
 using System.Text.Json;
-using JavaScriptEngineSwitcher.Core;
-using JavaScriptEngineSwitcher.Jint;
+using Jint;
+using Jint.Native;
 using UpBrowser.JsEngineProtocol;
 
 namespace UpBrowser.JsEngineHost;
@@ -63,13 +63,7 @@ class Program
             });
         }
 
-        var switcher = new JsEngineSwitcher();
-        switcher.EngineFactories.AddJint(s =>
-        {
-            s.MaxRecursionDepth = 500;
-        });
-        switcher.DefaultEngineName = switcher.EngineFactories.First().EngineName;
-        using var engine = switcher.CreateDefaultEngine();
+        using var engine = new Engine();
         var manager = new EngineManager(engine, tabIndex);
 
         using var transport = new MmapTransport(channelName);
@@ -93,7 +87,7 @@ class Program
 
 class EngineManager
 {
-    private readonly IJsEngine _engine;
+    private readonly Engine _engine;
     private readonly int _tabIndex;
     private MmapTransport? _transport;
     private readonly Dictionary<long, TaskCompletionSource<IpcResponse>> _pending = new();
@@ -102,7 +96,7 @@ class EngineManager
     private CancellationTokenSource? _cts;
     private readonly SemaphoreSlim _engineLock = new(1, 1);
 
-    public EngineManager(IJsEngine engine, int tabIndex)
+    public EngineManager(Engine engine, int tabIndex)
     {
         _engine = engine;
         _tabIndex = tabIndex;
@@ -113,7 +107,7 @@ class EngineManager
     private void DefineIpcFunction()
     {
         // 注册 __ipc 函数，JS 调用时同步发送 IPC 请求到主进程
-        _engine.EmbedHostObject("__ipc", new Func<string, string, string>((method, argsJson) =>
+        _engine.SetValue("__ipc", (Func<string, string, string>)((method, argsJson) =>
         {
             try
             {
@@ -501,12 +495,22 @@ class EngineManager
         {
             if (request.Payload != null)
             {
-                var parts = JsonSerializer.Deserialize<string[]>(request.Payload);
+                var parts = ParseJsonStringArray(request.Payload);
                 if (parts != null && parts.Length >= 1)
                 {
-                    var args = parts.Length > 1 ? parts.Skip(1).Cast<object>().ToArray() : Array.Empty<object>();
-                    var result = _engine.CallFunction(parts[0], args);
-                    return new IpcResponse { RequestId = request.RequestId, Success = true, Result = result?.ToString() };
+                    var globalObj = _engine.GetValue("globalThis");
+                    var fn = _engine.GetValue(parts[0]);
+                    if (parts.Length > 1)
+                    {
+                        var jsArgs = parts.Skip(1).Select<string, JsValue>(a => (JsValue)a).ToArray();
+                        var result = fn.Call(globalObj, jsArgs);
+                        return new IpcResponse { RequestId = request.RequestId, Success = true, Result = result?.ToString() };
+                    }
+                    else
+                    {
+                        var result = fn.Call(globalObj);
+                        return new IpcResponse { RequestId = request.RequestId, Success = true, Result = result?.ToString() };
+                    }
                 }
             }
             return new IpcResponse { RequestId = request.RequestId, Success = false, Error = "Invalid call" };
@@ -517,12 +521,31 @@ class EngineManager
         }
     }
 
+    private static string[]? ParseJsonStringArray(string json)
+    {
+        using var doc = JsonDocument.Parse(json);
+        var root = doc.RootElement;
+        if (root.ValueKind != JsonValueKind.Array) return null;
+        var arr = new string[root.GetArrayLength()];
+        var i = 0;
+        foreach (var el in root.EnumerateArray())
+        {
+            if (el.ValueKind == JsonValueKind.String)
+                arr[i++] = el.GetString() ?? "";
+            else
+                arr[i++] = el.GetRawText();
+        }
+        return arr;
+    }
+
     private IpcResponse HandleInvokeCallback(IpcRequest request)
     {
         _engineLock.Wait();
         try
         {
-            var code = $"__g_invoke({request.CallbackId}, {JsonSerializer.Serialize(request.Payload)})";
+            var payload = request.Payload ?? "";
+            var payloadJson = JsonEncodedText.Encode(payload).ToString();
+            var code = $"__g_invoke({request.CallbackId}, {payloadJson})";
             _engine.Evaluate(code);
             return new IpcResponse { RequestId = request.RequestId, Success = true, Type = ResponseType.CallbackInvoked };
         }
