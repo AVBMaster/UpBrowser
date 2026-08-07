@@ -688,6 +688,7 @@ public class CascadeResolver
                 var cs = value.ToLowerInvariant();
                 style.ColorScheme = cs switch { "light" => "light", "dark" => "dark", "light dark" => "light dark", _ => "normal" };
                 break;
+            case "appearance": case "-webkit-appearance": style.Appearance = value.ToLowerInvariant(); break;
             case "forced-color-adjust": style.ForcedColorAdjust = value.ToLowerInvariant() == "none" ? ForcedColorAdjustType.None : ForcedColorAdjustType.Auto; break;
             case "background": ParseBackgroundShorthand(value, style); break;
             case "background-color": style.BackgroundColor = ColorParser.Parse(value); break;

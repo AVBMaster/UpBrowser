@@ -641,6 +641,7 @@ public class ComputedStyle
     public SKColor? AccentColor { get; set; }
     public SKColor? CaretColor { get; set; }
     public string ColorScheme { get; set; } = "normal";
+    public string Appearance { get; set; } = "auto";
     public ForcedColorAdjustType ForcedColorAdjust { get; set; } = ForcedColorAdjustType.Auto;
     public ImageRenderingType ImageRendering { get; set; } = ImageRenderingType.Auto;
     public IsolationType Isolation { get; set; } = IsolationType.Auto;
@@ -784,7 +785,7 @@ public class ComputedStyle
             ScrollBehavior = ScrollBehavior, OverscrollBehavior = OverscrollBehavior,
             OverscrollBehaviorX = OverscrollBehaviorX, OverscrollBehaviorY = OverscrollBehaviorY,
             OverflowAnchor = OverflowAnchor, Contain = Contain, ContentVisibility = ContentVisibility,
-            WillChange = WillChange, AccentColor = AccentColor, CaretColor = CaretColor,
+            WillChange = WillChange, Appearance = Appearance, AccentColor = AccentColor, CaretColor = CaretColor,
             ColorScheme = ColorScheme, ForcedColorAdjust = ForcedColorAdjust,
             ImageRendering = ImageRendering, Isolation = Isolation, MixBlendMode = MixBlendMode,
             Filter = Filter, BackdropFilter = BackdropFilter, ClipPath = ClipPath,

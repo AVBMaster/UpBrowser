@@ -939,11 +939,16 @@ public class PaintVisitor
 
     private void DrawElementBorder(Element element, LayoutBox box, ComputedStyle style, SKRect borderRect)
     {
-        // 按钮不绘制边框（已在 FormElements 中设为零，此处再确保一下）
         if (element.TagName.Equals("BUTTON", StringComparison.OrdinalIgnoreCase))
             return;
         if (style.BorderTopWidth <= 0 && style.BorderRightWidth <= 0 && style.BorderBottomWidth <= 0 && style.BorderLeftWidth <= 0)
             return;
+
+        if (element.TagName.Equals("FIELDSET", StringComparison.OrdinalIgnoreCase))
+        {
+            DrawFieldsetBorder(borderRect, style);
+            return;
+        }
 
         float tl = style.BorderTopLeftRadius, tr = style.BorderTopRightRadius, br = style.BorderBottomRightRadius, bl = style.BorderBottomLeftRadius;
         if (tl > 0 || tr > 0 || br > 0 || bl > 0)
@@ -968,6 +973,53 @@ public class PaintVisitor
         op.BorderLeftStyle = style.BorderLeftStyle;
         op.Bounds = borderRect;
         _displayList.Add(op);
+    }
+
+    private void DrawFieldsetBorder(SKRect borderRect, ComputedStyle style)
+    {
+        float borderWidth = Math.Max(2, style.BorderTopWidth);
+        var path = new SKPath();
+        path.AddRect(borderRect);
+        var op = PaintOpPool.GetDrawPathOp();
+        op.Path = path;
+        op.StrokePaint = new SKPaint
+        {
+            Color = style.BorderTopColor,
+            Style = SKPaintStyle.Stroke,
+            StrokeWidth = borderWidth,
+            IsAntialias = true
+        };
+        op.Bounds = borderRect;
+        _displayList.Add(op);
+
+        float borderWidth2 = borderWidth * 0.5f;
+        var innerPath = new SKPath();
+        innerPath.AddRect(new SKRect(borderRect.Left + borderWidth2, borderRect.Top + borderWidth2,
+            borderRect.Right - borderWidth2, borderRect.Bottom - borderWidth2));
+        var innerOp = PaintOpPool.GetDrawPathOp();
+        innerOp.Path = innerPath;
+        innerOp.StrokePaint = new SKPaint
+        {
+            Color = new SKColor(240, 240, 240),
+            Style = SKPaintStyle.Stroke,
+            StrokeWidth = borderWidth2,
+            IsAntialias = true
+        };
+        innerOp.Bounds = borderRect;
+        _displayList.Add(innerOp);
+    }
+
+    private void DrawFocusRing(Element element, LayoutBox box, DisplayList? target = null)
+    {
+        if (_focusedElement != element) return;
+        var borderBox = box.BorderBox;
+        var ringRect = new SKRect(borderBox.Left - 1, borderBox.Top - 1 + TotalOffsetY,
+            borderBox.Right + 1, borderBox.Bottom + 1 + TotalOffsetY);
+        var ringOp = PaintOpPool.GetDrawPathOp();
+        ringOp.Path = CreateRoundedRectPath(ringRect, 4);
+        ringOp.StrokePaint = new SKPaint { Color = new SKColor(0x1A, 0x73, 0xE8), Style = SKPaintStyle.Stroke, StrokeWidth = 2, IsAntialias = true };
+        ringOp.Bounds = ringRect;
+        (target ?? _displayList).Add(ringOp);
     }
 
     private void DrawElementOutline(Element element, LayoutBox box, ComputedStyle style, SKRect borderRect)
@@ -1326,6 +1378,16 @@ public class PaintVisitor
                 DrawColorInputElement(element, box, style);
                 return;
             }
+            if (inputType == "file")
+            {
+                DrawFileInputElement(element, box, style);
+                return;
+            }
+            if (inputType is "date" or "datetime-local" or "month" or "time" or "week")
+            {
+                DrawDateInputElement(element, box, style, inputType);
+                return;
+            }
             DrawInputElement(element, box, style);
             return;
         }
@@ -1427,8 +1489,26 @@ public class PaintVisitor
             borderBox.Bottom + TotalOffsetY
         );
 
-        SKColor btnBgColor = style.BackgroundColor.HasValue && style.BackgroundColor.Value.Alpha > 0 ? style.BackgroundColor.Value : SKColor.Parse("#2196F3");
-        SKColor btnBorderColor = style.BorderTopColor.Alpha > 0 ? style.BorderTopColor : btnBgColor;
+        bool isDisabled = element.HasAttribute("disabled");
+        bool isFocused = _focusedElement == element;
+        SKColor btnBgColor = style.BackgroundColor.HasValue && style.BackgroundColor.Value.Alpha > 0 ? style.BackgroundColor.Value : SKColor.Parse("#E1E1E1");
+        SKColor btnBorderColor = style.BorderTopColor.Alpha > 0 ? style.BorderTopColor : new SKColor(0x80, 0x80, 0x80);
+        SKColor textColor = style.Color.Alpha > 0 ? style.Color : SKColors.Black;
+        if (isDisabled)
+        {
+            btnBgColor = new SKColor(240, 240, 240);
+            textColor = new SKColor(160, 160, 160);
+            btnBorderColor = new SKColor(200, 200, 200);
+        }
+        else if (isFocused)
+        {
+            btnBorderColor = new SKColor(0x1A, 0x73, 0xE8);
+            borderTopWidth = Math.Max(2, style.BorderTopWidth);
+            borderBottomWidth = Math.Max(2, style.BorderBottomWidth);
+            borderLeftWidth = Math.Max(2, style.BorderLeftWidth);
+            borderRightWidth = Math.Max(2, style.BorderRightWidth);
+        }
+
         float borderRadius = Math.Max(style.BorderTopLeftRadius, Math.Max(style.BorderTopRightRadius,
             Math.Max(style.BorderBottomLeftRadius, style.BorderBottomRightRadius)));
         if (borderRadius <= 0) borderRadius = 4;
@@ -1493,16 +1573,13 @@ public class PaintVisitor
         textX = Math.Max(contentLeft, Math.Min(textX, contentRight - textWidth));
         textY = Math.Max(contentTop, Math.Min(textY, contentBottom));
 
-        SKColor textColor = style.Color.Alpha > 0 ? style.Color : SKColors.Black;
-        if (textColor.Alpha == 0) textColor = SKColors.Black;
-
         var textOp = PaintOpPool.GetDrawTextOp();
         textOp.Text = buttonText;
         textOp.X = textX;
         textOp.Y = textY;
         textOp.Color = textColor;
         textOp.FontSize = btnFontSize;
-        textOp.FontFamily = style.FontFamily ?? "Arial, sans-serif";
+        textOp.FontFamily = style.FontFamily ?? "Segoe UI, Arial, sans-serif";
         textOp.FontWeight = style.FontWeight;
         textOp.Italic = style.FontStyle == FontStyleType.Italic || style.FontStyle == FontStyleType.Oblique;
         textOp.TextAlign = TextAlignType.Left;
@@ -1548,10 +1625,10 @@ public class PaintVisitor
         {
             var clipOp = PaintOpPool.GetPushClipOp();
             clipOp.ClipRect = clipRect;
-            _displayList.Add(clipOp);
+            targetList.Add(clipOp);
             // When skipContent is active, the overlay list is rendered separately outside
             // the main display list's clip stack. Add the same clip to the overlay list.
-            if (skipContent)
+            if (skipContent && !ReferenceEquals(targetList, _overlayList))
             {
                 var overlayClip = PaintOpPool.GetPushClipOp();
                 overlayClip.ClipRect = clipRect;
@@ -1722,9 +1799,64 @@ public class PaintVisitor
         // Pop clip(s)
         if (clipRect.Width > 0 && clipRect.Height > 0)
         {
-            _displayList.Add(PaintOpPool.GetPopClipOp());
-            if (skipContent)
+            targetList.Add(PaintOpPool.GetPopClipOp());
+            if (skipContent && !ReferenceEquals(targetList, _overlayList))
                 _overlayList.Add(PaintOpPool.GetPopClipOp());
+        }
+
+        // Search input clear button (Blink: shown on focus/hover when there is a value)
+        if (inputType == "search" && isFocused && !isDisabled && !string.IsNullOrEmpty(value))
+        {
+            var clearX = contentBox.Right - 14;
+            var clearY = contentBox.Top + contentBox.Height / 2 + TotalOffsetY;
+            var clearBg = PaintOpPool.GetDrawPathOp();
+            clearBg.Path = new SKPath();
+            clearBg.Path.AddCircle(clearX, clearY, 6);
+            clearBg.FillPaint = new SKPaint { Color = new SKColor(150, 150, 150), Style = SKPaintStyle.Fill, IsAntialias = true };
+            clearBg.Bounds = new SKRect(clearX - 6, clearY - 6, clearX + 6, clearY + 6);
+            targetList.Add(clearBg);
+
+            var xPath = new SKPath();
+            xPath.MoveTo(clearX - 2.5f, clearY - 2.5f);
+            xPath.LineTo(clearX + 2.5f, clearY + 2.5f);
+            xPath.MoveTo(clearX + 2.5f, clearY - 2.5f);
+            xPath.LineTo(clearX - 2.5f, clearY + 2.5f);
+            var xOp = PaintOpPool.GetDrawPathOp();
+            xOp.Path = xPath;
+            xOp.StrokePaint = new SKPaint { Color = SKColors.White, Style = SKPaintStyle.Stroke, StrokeWidth = 1.5f, IsAntialias = true, StrokeCap = SKStrokeCap.Round };
+            xOp.Bounds = new SKRect(clearX - 6, clearY - 6, clearX + 6, clearY + 6);
+            targetList.Add(xOp);
+        }
+
+        // Number spin buttons (Blink: shown on focus/hover)
+        if (inputType == "number" && isFocused && !isDisabled)
+        {
+            var spinX = contentBox.Right - 10;
+            var spinCy = contentBox.Top + contentBox.Height / 2 + TotalOffsetY;
+            float arrowW = 5;
+            float arrowH = 3.5f;
+
+            var upPath = new SKPath();
+            upPath.MoveTo(spinX - arrowW / 2, spinCy - 1);
+            upPath.LineTo(spinX + arrowW / 2, spinCy - 1);
+            upPath.LineTo(spinX, spinCy - 1 - arrowH);
+            upPath.Close();
+            var upOp = PaintOpPool.GetDrawPathOp();
+            upOp.Path = upPath;
+            upOp.FillPaint = new SKPaint { Color = new SKColor(100, 100, 100), Style = SKPaintStyle.Fill, IsAntialias = true };
+            upOp.Bounds = new SKRect(spinX - arrowW, spinCy - arrowH - 1, spinX + arrowW, spinCy);
+            targetList.Add(upOp);
+
+            var downPath = new SKPath();
+            downPath.MoveTo(spinX - arrowW / 2, spinCy + 1);
+            downPath.LineTo(spinX + arrowW / 2, spinCy + 1);
+            downPath.LineTo(spinX, spinCy + 1 + arrowH);
+            downPath.Close();
+            var downOp = PaintOpPool.GetDrawPathOp();
+            downOp.Path = downPath;
+            downOp.FillPaint = new SKPaint { Color = new SKColor(100, 100, 100), Style = SKPaintStyle.Fill, IsAntialias = true };
+            downOp.Bounds = new SKRect(spinX - arrowW, spinCy + 1, spinX + arrowW, spinCy + 1 + arrowH);
+            targetList.Add(downOp);
         }
 
         // Disabled overlay drawn outside clip so it covers the entire border area
@@ -1735,7 +1867,11 @@ public class PaintVisitor
             disableOp.FillColor = new SKColor(200, 200, 200, 100);
             disableOp.Rect = new SKRect(borderBox.Left, borderBox.Top + TotalOffsetY,
                 borderBox.Right, borderBox.Bottom + TotalOffsetY);
-            _displayList.Add(disableOp);
+            targetList.Add(disableOp);
+        }
+        else if (isFocused)
+        {
+            DrawFocusRing(element, box, targetList);
         }
     }
 
@@ -1776,13 +1912,14 @@ public class PaintVisitor
         float fontSize = style.FontSize > 0 ? style.FontSize : 14;
         float textWidth = MeasureTextWidth(displayText, fontSize, style.FontFamily);
         var contentBox = box.ContentBox;
+        bool isDisabled = element.HasAttribute("disabled");
         float textX = contentBox.Left + 4;
         float textY = contentBox.Top + fontSize * 0.85f;
         var op = PaintOpPool.GetDrawTextOp();
         op.Text = displayText;
         op.X = textX;
         op.Y = textY + TotalOffsetY;
-        op.Color = style.Color.Alpha > 0 ? style.Color : SKColors.Black;
+        op.Color = isDisabled ? new SKColor(160, 160, 160) : (style.Color.Alpha > 0 ? style.Color : SKColors.Black);
         op.FontSize = fontSize;
         op.FontFamily = style.FontFamily ?? "Arial";
         op.Bounds = new SKRect(textX, contentBox.Top + TotalOffsetY, textX + textWidth, contentBox.Bottom + TotalOffsetY);
@@ -1791,6 +1928,7 @@ public class PaintVisitor
         float arrowSize = 6;
         float arrowX = contentBox.Right - 16;
         float arrowY = contentBox.Top + (contentBox.Height - arrowSize) / 2 + TotalOffsetY;
+        SKColor arrowColor = isDisabled ? new SKColor(180, 180, 180) : new SKColor(120, 120, 120);
         var arrowPath = new SKPath();
         arrowPath.MoveTo(arrowX, arrowY);
         arrowPath.LineTo(arrowX + arrowSize, arrowY);
@@ -1798,9 +1936,23 @@ public class PaintVisitor
         arrowPath.Close();
         var arrowOp = PaintOpPool.GetDrawPathOp();
         arrowOp.Path = arrowPath;
-        arrowOp.FillPaint = new SKPaint { Color = new SKColor(120, 120, 120), Style = SKPaintStyle.Fill, IsAntialias = true };
+        arrowOp.FillPaint = new SKPaint { Color = arrowColor, Style = SKPaintStyle.Fill, IsAntialias = true };
         arrowOp.Bounds = new SKRect(arrowX, arrowY, arrowX + arrowSize, arrowY + arrowSize);
         _displayList.Add(arrowOp);
+
+        if (isDisabled)
+        {
+            var borderBox = box.BorderBox;
+            var disableOp = PaintOpPool.GetDrawRectOp();
+            disableOp.FillColor = new SKColor(230, 230, 230, 120);
+            disableOp.Rect = new SKRect(borderBox.Left, borderBox.Top + TotalOffsetY,
+                borderBox.Right, borderBox.Bottom + TotalOffsetY);
+            _displayList.Add(disableOp);
+        }
+        else if (_focusedElement == element)
+        {
+            DrawFocusRing(element, box);
+        }
     }
 
     private float MeasureTextWidth(string text, float fontSize, string? fontFamily)
@@ -1815,6 +1967,7 @@ public class PaintVisitor
     private void DrawCheckRadioElement(Element element, LayoutBox box, ComputedStyle style, string inputType)
     {
         bool isChecked = element.HasAttribute("checked");
+        bool isDisabled = element.HasAttribute("disabled");
         var contentBox = box.ContentBox;
         float size = Math.Min(contentBox.Width, contentBox.Height);
         float cx = contentBox.Left + contentBox.Width / 2;
@@ -1822,8 +1975,16 @@ public class PaintVisitor
         float boxSize = Math.Min(size, 16);
         float halfBox = boxSize / 2;
 
-        SKColor borderColor = new SKColor(120, 120, 120);
-        SKColor fillColor = isChecked ? new SKColor(0x1A, 0x73, 0xE8) : SKColors.White;
+        SKColor accentColor = style.AccentColor ?? new SKColor(0x1A, 0x73, 0xE8);
+        SKColor borderColor = isDisabled ? new SKColor(180, 180, 180) : new SKColor(120, 120, 120);
+        SKColor fillColor = isChecked ? accentColor : SKColors.White;
+        if (isDisabled)
+        {
+            if (isChecked)
+                fillColor = new SKColor(180, 180, 180);
+            else
+                fillColor = new SKColor(230, 230, 230);
+        }
 
         if (inputType == "checkbox")
         {
@@ -1835,19 +1996,22 @@ public class PaintVisitor
             bgOp.Bounds = rect;
             _displayList.Add(bgOp);
 
-            if (isChecked)
-            {
-                var checkPath = new SKPath();
-                checkPath.MoveTo(cx - halfBox * 0.5f, cy);
-                checkPath.LineTo(cx - halfBox * 0.1f, cy + halfBox * 0.4f);
-                checkPath.LineTo(cx + halfBox * 0.5f, cy - halfBox * 0.35f);
-                var checkOp = PaintOpPool.GetDrawPathOp();
-                checkOp.Path = checkPath;
-                checkOp.StrokePaint = new SKPaint { Color = SKColors.White, Style = SKPaintStyle.Stroke, StrokeWidth = 2f, IsAntialias = true, StrokeCap = SKStrokeCap.Round, StrokeJoin = SKStrokeJoin.Round };
-                checkOp.Bounds = rect;
-                _displayList.Add(checkOp);
-            }
+        if (isChecked)
+        {
+            var checkPath = new SKPath();
+            checkPath.MoveTo(cx - halfBox * 0.5f, cy);
+            checkPath.LineTo(cx - halfBox * 0.1f, cy + halfBox * 0.4f);
+            checkPath.LineTo(cx + halfBox * 0.5f, cy - halfBox * 0.35f);
+            var checkOp = PaintOpPool.GetDrawPathOp();
+            checkOp.Path = checkPath;
+            SKColor checkColor = isDisabled ? SKColors.White : SKColors.White;
+            checkOp.StrokePaint = new SKPaint { Color = checkColor, Style = SKPaintStyle.Stroke, StrokeWidth = 2f, IsAntialias = true, StrokeCap = SKStrokeCap.Round, StrokeJoin = SKStrokeJoin.Round };
+            checkOp.Bounds = rect;
+            _displayList.Add(checkOp);
         }
+        if (!isDisabled && _focusedElement == element)
+            DrawFocusRing(element, box);
+    }
         else // radio
         {
             var bgOp = PaintOpPool.GetDrawPathOp();
@@ -1860,29 +2024,37 @@ public class PaintVisitor
 
             if (isChecked)
             {
+                SKColor dotColor = isDisabled ? new SKColor(150, 150, 150) : accentColor;
                 var dotOp = PaintOpPool.GetDrawPathOp();
                 dotOp.Path = new SKPath();
                 dotOp.Path.AddCircle(cx, cy, halfBox * 0.45f);
-                dotOp.FillPaint = new SKPaint { Color = new SKColor(0x1A, 0x73, 0xE8), Style = SKPaintStyle.Fill, IsAntialias = true };
+                dotOp.FillPaint = new SKPaint { Color = dotColor, Style = SKPaintStyle.Fill, IsAntialias = true };
                 dotOp.Bounds = new SKRect(cx - halfBox, cy - halfBox, cx + halfBox, cy + halfBox);
                 _displayList.Add(dotOp);
             }
+            if (!isDisabled && _focusedElement == element)
+                DrawFocusRing(element, box);
         }
     }
 
     private void DrawRangeElement(Element element, LayoutBox box, ComputedStyle style)
     {
         var contentBox = box.ContentBox;
+        bool isDisabled = element.HasAttribute("disabled");
         float trackY = contentBox.Top + contentBox.Height / 2 + TotalOffsetY;
         float trackLeft = contentBox.Left + 4;
         float trackRight = contentBox.Right - 4;
+
+        SKColor trackColor = isDisabled ? new SKColor(230, 230, 230) : new SKColor(200, 200, 200);
+        SKColor accentColor = style.AccentColor ?? new SKColor(0x1A, 0x73, 0xE8);
+        if (isDisabled) accentColor = new SKColor(200, 200, 200);
 
         var trackOp = PaintOpPool.GetDrawLineOp();
         trackOp.X1 = trackLeft;
         trackOp.Y1 = trackY;
         trackOp.X2 = trackRight;
         trackOp.Y2 = trackY;
-        trackOp.Color = new SKColor(200, 200, 200);
+        trackOp.Color = trackColor;
         trackOp.StrokeWidth = 4;
         trackOp.Bounds = new SKRect(trackLeft, trackY - 2, trackRight, trackY + 2);
         _displayList.Add(trackOp);
@@ -1899,7 +2071,7 @@ public class PaintVisitor
         filledOp.Y1 = trackY;
         filledOp.X2 = thumbX;
         filledOp.Y2 = trackY;
-        filledOp.Color = new SKColor(0x1A, 0x73, 0xE8);
+        filledOp.Color = accentColor;
         filledOp.StrokeWidth = 4;
         filledOp.Bounds = new SKRect(trackLeft, trackY - 2, thumbX, trackY + 2);
         _displayList.Add(filledOp);
@@ -1909,9 +2081,12 @@ public class PaintVisitor
         thumbOp.Path = new SKPath();
         thumbOp.Path.AddCircle(thumbX, trackY, thumbRadius);
         thumbOp.FillPaint = new SKPaint { Color = SKColors.White, Style = SKPaintStyle.Fill, IsAntialias = true };
-        thumbOp.StrokePaint = new SKPaint { Color = new SKColor(0x1A, 0x73, 0xE8), Style = SKPaintStyle.Stroke, StrokeWidth = 2, IsAntialias = true };
+        thumbOp.StrokePaint = new SKPaint { Color = accentColor, Style = SKPaintStyle.Stroke, StrokeWidth = 2, IsAntialias = true };
         thumbOp.Bounds = new SKRect(thumbX - thumbRadius, trackY - thumbRadius, thumbX + thumbRadius, trackY + thumbRadius);
         _displayList.Add(thumbOp);
+
+        if (!isDisabled && _focusedElement == element)
+            DrawFocusRing(element, box);
     }
 
     private void DrawColorInputElement(Element element, LayoutBox box, ComputedStyle style)
@@ -1936,6 +2111,134 @@ public class PaintVisitor
         fillOp.FillPaint = new SKPaint { Color = color, Style = SKPaintStyle.Fill, IsAntialias = true };
         fillOp.Bounds = new SKRect(x, y, x + swatchSize, y + swatchSize);
         _displayList.Add(fillOp);
+    }
+
+    private void DrawFileInputElement(Element element, LayoutBox box, ComputedStyle style)
+    {
+        bool isDisabled = element.HasAttribute("disabled");
+        var borderBox = box.BorderBox;
+        float fontSize = style.FontSize > 0 ? style.FontSize : 14;
+        var contentBox = box.ContentBox;
+
+        float btnW = 90;
+        float btnH = contentBox.Height;
+        var btnRect = new SKRect(contentBox.Left, contentBox.Top + TotalOffsetY,
+            contentBox.Left + btnW, contentBox.Top + btnH + TotalOffsetY);
+        if (btnH < 18) btnH = 18;
+
+        SKColor btnBg = isDisabled ? new SKColor(239, 239, 239) : SKColor.Parse("#E1E1E1");
+        SKColor btnBorder = isDisabled ? new SKColor(200, 200, 200) : new SKColor(0x80, 0x80, 0x80);
+        var btnOp = PaintOpPool.GetDrawRectOp();
+        btnOp.Rect = btnRect;
+        btnOp.FillColor = btnBg;
+        btnOp.BorderTopWidth = 2;
+        btnOp.BorderBottomWidth = 2;
+        btnOp.BorderLeftWidth = 2;
+        btnOp.BorderRightWidth = 2;
+        btnOp.BorderTopColor = btnBorder;
+        btnOp.BorderBottomColor = btnBorder;
+        btnOp.BorderLeftColor = btnBorder;
+        btnOp.BorderRightColor = btnBorder;
+        btnOp.Bounds = btnRect;
+        _displayList.Add(btnOp);
+
+        string btnLabel = "Choose File";
+        var labelOp = PaintOpPool.GetDrawTextOp();
+        labelOp.Text = btnLabel;
+        labelOp.X = btnRect.Left + 6;
+        labelOp.Y = btnRect.Top + (btnH - fontSize) / 2 + fontSize * 0.8f;
+        labelOp.Color = isDisabled ? new SKColor(160, 160, 160) : SKColors.Black;
+        labelOp.FontSize = fontSize;
+        labelOp.FontFamily = style.FontFamily ?? "Segoe UI, Arial, sans-serif";
+        labelOp.Bounds = new SKRect(btnRect.Left, btnRect.Top, btnRect.Right, btnRect.Bottom);
+        _displayList.Add(labelOp);
+
+        string fileName = element.GetAttribute("value") ?? "";
+        if (string.IsNullOrEmpty(fileName))
+            fileName = "No file chosen";
+        var fileOp = PaintOpPool.GetDrawTextOp();
+        fileOp.Text = fileName;
+        fileOp.X = btnRect.Right + 6;
+        fileOp.Y = btnRect.Top + (btnH - fontSize) / 2 + fontSize * 0.8f;
+        fileOp.Color = isDisabled ? new SKColor(160, 160, 160) : new SKColor(80, 80, 80);
+        fileOp.FontSize = fontSize;
+        fileOp.FontFamily = style.FontFamily ?? "Segoe UI, Arial, sans-serif";
+        fileOp.Bounds = new SKRect(btnRect.Right, btnRect.Top, borderBox.Right, btnRect.Bottom);
+        _displayList.Add(fileOp);
+    }
+
+    private void DrawDateInputElement(Element element, LayoutBox box, ComputedStyle style, string inputType)
+    {
+        string? value = element.GetAttribute("value");
+        bool isDisabled = element.HasAttribute("disabled");
+        bool isFocused = _focusedElement == element;
+        string displayText;
+        if (!string.IsNullOrEmpty(value))
+        {
+            displayText = value;
+            if (inputType == "date" && value.Length >= 10)
+                displayText = $"{value[8..10]}/{value[5..7]}/{value[..4]}";
+            else if (inputType == "month" && value.Length >= 7)
+                displayText = $"{value[5..7]}/{value[..4]}";
+        }
+        else if (isFocused)
+            displayText = "";
+        else
+        {
+            string ph = inputType switch
+            {
+                "date" => "yyyy/mm/dd",
+                "datetime-local" => "yyyy/mm/dd --:--",
+                "month" => "yyyy/mm",
+                "time" => "--:--",
+                "week" => "yyyy-Www",
+                _ => ""
+            };
+            displayText = ph;
+        }
+
+        float fontSize = style.FontSize > 0 ? style.FontSize : 14;
+        var contentBox = box.ContentBox;
+        float textY = contentBox.Top + fontSize * 0.85f;
+        SKColor textColor = string.IsNullOrEmpty(value) ? new SKColor(160, 160, 160) : (style.Color.Alpha > 0 ? style.Color : SKColors.Black);
+        if (isDisabled)
+            textColor = new SKColor(160, 160, 160);
+        float textX = contentBox.Left + 2;
+
+        var clipRect = new SKRect(contentBox.Left, contentBox.Top + TotalOffsetY,
+            contentBox.Right, contentBox.Bottom + TotalOffsetY);
+        if (clipRect.Width > 0 && clipRect.Height > 0)
+            _displayList.Add(PaintOpPool.GetPushClipOp());
+
+        var textOp = PaintOpPool.GetDrawTextOp();
+        textOp.Text = displayText;
+        textOp.X = textX;
+        textOp.Y = textY + TotalOffsetY;
+        textOp.Color = textColor;
+        textOp.FontSize = fontSize;
+        textOp.FontFamily = style.FontFamily ?? "Segoe UI, Arial, sans-serif";
+        textOp.Bounds = new SKRect(textX, contentBox.Top + TotalOffsetY, contentBox.Right, contentBox.Bottom + TotalOffsetY);
+        _displayList.Add(textOp);
+
+        if (clipRect.Width > 0 && clipRect.Height > 0)
+            _displayList.Add(PaintOpPool.GetPopClipOp());
+
+        // Date picker calendar indicator on the right
+        var calX = contentBox.Right - 16;
+        var calY = contentBox.Top + contentBox.Height / 2 + TotalOffsetY;
+        var calOp = PaintOpPool.GetDrawPathOp();
+        calOp.Path = CreateRoundedRectPath(new SKRect(calX - 5, calY - 5, calX + 5, calY + 5), 1);
+        calOp.StrokePaint = new SKPaint { Color = new SKColor(120, 120, 120), Style = SKPaintStyle.Stroke, StrokeWidth = 1, IsAntialias = true };
+        calOp.Bounds = new SKRect(calX - 5, calY - 5, calX + 5, calY + 5);
+        _displayList.Add(calOp);
+        var calLine1 = PaintOpPool.GetDrawLineOp();
+        calLine1.X1 = calX - 5; calLine1.Y1 = calY - 2.5f; calLine1.X2 = calX + 5; calLine1.Y2 = calY - 2.5f;
+        calLine1.Color = new SKColor(120, 120, 120); calLine1.StrokeWidth = 1;
+        calLine1.Bounds = new SKRect(calX - 5, calY - 3, calX + 5, calY - 2);
+        _displayList.Add(calLine1);
+
+        if (!isDisabled && isFocused)
+            DrawFocusRing(element, box);
     }
 
     private void DrawProgressElement(Element element, LayoutBox box, ComputedStyle style)
