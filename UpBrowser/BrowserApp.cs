@@ -1367,6 +1367,9 @@ namespace UpBrowser;
         _hasSelection = false;
         _isSelecting = false;
         _hoveredElement = null;
+        _activeSelect = null;
+        _selectOptionRects.Clear();
+        _selectHoverIndex = -1;
 
         // 显示加载进度条（仅当尚未加载时，避免覆盖 HTTP 加载的进度）
         if (!_chrome.IsLoading)
@@ -1574,7 +1577,12 @@ namespace UpBrowser;
         _cachedPaintVisitor = new PaintVisitor(_contentOffset, _sharedTypefaceCache, _sharedImageCache, _fontFamilies, _currentBaseUrl);
         _cachedPaintVisitor.SetFocusedElement(_focusedElement);
         _cachedPaintVisitor.SetSkipInputTextOverlay(true);
-        if (_focusedElement != null && _focusedElement.IsFormElement)
+        _cachedPaintVisitor.SetPasswordRevealed(_passwordRevealed);
+        var (mx, my) = _input.GetMousePosition();
+        _cachedPaintVisitor.SetMouseState(mx + _scroll.ScrollX, my - _contentOffset + _scroll.ScrollY,
+            _input.IsMouseDown(), _pressedInputControl);
+        _cachedPaintVisitor.SetPressedButton(_pressedButton);
+        if (_focusedElement != null && _focusedElement.IsTextEditable)
         {
             _cachedPaintVisitor.SetInputState(_inputCursorPos, _inputSelStart, _inputShowCursor,
                 _inputImeComposing, _inputImeCompositionStr, _inputImeCursorPos);
@@ -1781,7 +1789,21 @@ namespace UpBrowser;
             // Input-only change: avoid O(n) DOM walk + display list rebuild.
             // Only rebuild the overlay (input text/cursor/selection — ~O(1)).
             _cachedPaintVisitor.SetFocusedElement(_focusedElement);
-            if (_focusedElement != null && _focusedElement.IsFormElement)
+            _cachedPaintVisitor.SetPasswordRevealed(_passwordRevealed);
+            var (hmx, hmy) = _input.GetMousePosition();
+            _cachedPaintVisitor.SetMouseState(hmx + _scroll.ScrollX, hmy - _contentOffset + _scroll.ScrollY,
+                _input.IsMouseDown(), _pressedInputControl);
+            _cachedPaintVisitor.SetPressedButton(_pressedButton);
+            if (_activeSelect != null)
+            {
+                ComputeSelectDropdownGeometry();
+                _cachedPaintVisitor.SetSelectDropdown(_activeSelect, _selectDropdownRect, _selectOptionRects, _selectHoverIndex);
+            }
+            else
+            {
+                _cachedPaintVisitor.SetSelectDropdown(null, default, null, -1);
+            }
+            if (_focusedElement != null && _focusedElement.IsTextEditable)
             {
                 _cachedPaintVisitor.SetInputState(_inputCursorPos, _inputSelStart, _inputShowCursor,
                     _inputImeComposing, _inputImeCompositionStr, _inputImeCursorPos);
@@ -1791,7 +1813,7 @@ namespace UpBrowser;
             _cachedPaintVisitor.RebuildOverlay();
         }
 
-        if (_focusedElement != null && _focusedElement.IsFormElement)
+        if (_focusedElement != null && _focusedElement.IsTextEditable)
         {
             _window.UpdateImeCompositionWindow();
         }
@@ -2033,7 +2055,7 @@ namespace UpBrowser;
             var ime = _devTools.GetActiveImeSupport();
             _window.SetImeTarget(ime);
         }
-        else if (_focusedElement != null && _focusedElement.IsFormElement)
+        else if (_focusedElement != null && _focusedElement.IsTextEditable)
         {
             _devToolsFocused = false;
             // Block IME for password fields to prevent pinyin composition
@@ -2046,7 +2068,8 @@ namespace UpBrowser;
         else
         {
             _devToolsFocused = false;
-            _focusedElement = null;
+            if (_activeSelect == null)
+                _focusedElement = null;
             _window.SetImeTarget(null);
         }
     }
@@ -2148,9 +2171,135 @@ namespace UpBrowser;
         return false;
     }
 
+    private void ComputeSelectDropdownGeometry()
+    {
+        _selectOptionRects.Clear();
+        if (_activeSelect == null || _activeSelect.LayoutBox == null)
+        {
+            _selectDropdownRect = default;
+            return;
+        }
+        var cb = _activeSelect.LayoutBox.ContentBox;
+        float fontSize = _activeSelect.ComputedStyle?.FontSize > 0 ? _activeSelect.ComputedStyle.FontSize : 14;
+        float rowHeight = Math.Max(22, fontSize + 8);
+
+        int optionCount = _activeSelect.Children.Count(o => o is Core.Dom.Element ce && ce.TagName == "OPTION");
+        if (optionCount == 0)
+        {
+            _selectDropdownRect = default;
+            return;
+        }
+
+        float maxTextWidth = cb.Width - 8;
+        foreach (var child in _activeSelect.Children)
+        {
+            if (child is Core.Dom.Element ce && ce.TagName == "OPTION")
+            {
+                string optText = ce.TextContent?.Trim() ?? "";
+                float tw = Core.Layout.TextMeasurer.Instance?.MeasureText(optText, "Segoe UI, Arial, sans-serif", fontSize)
+                           ?? optText.Length * fontSize * 0.55f;
+                if (tw > maxTextWidth) maxTextWidth = tw;
+            }
+        }
+        float dropW = maxTextWidth + 24;
+        float dropH = optionCount * rowHeight;
+
+        float dropX = cb.Left;
+        float dropY = cb.Bottom;
+        float viewportH = _lastWindowHeight - _contentOffset - _chrome.GetStatusBarHeight() -
+                          (_devTools.Visible ? _devTools.PanelHeight : 0);
+        float viewportBottom = _contentOffset + viewportH;
+        if (dropY + dropH > viewportBottom)
+            dropY = Math.Max(cb.Top - dropH, 0);
+        if (dropX + dropW > _lastWindowWidth)
+            dropX = Math.Max(0, _lastWindowWidth - dropW);
+
+        _selectDropdownRect = new SKRect(dropX, dropY, dropX + dropW, dropY + dropH);
+
+        int i = 0;
+        foreach (var child in _activeSelect.Children)
+        {
+            if (child is Core.Dom.Element ce && ce.TagName == "OPTION")
+            {
+                float rowTop = dropY + i * rowHeight;
+                _selectOptionRects.Add((ce, new SKRect(dropX, rowTop, dropX + dropW, rowTop + rowHeight)));
+                i++;
+            }
+        }
+        _selectHoverIndex = -1;
+    }
+
+    private void CloseSelectDropdown()
+    {
+        _activeSelect = null;
+        _selectOptionRects.Clear();
+        _selectHoverIndex = -1;
+        _pendingRelayout = true;
+    }
+
+    private bool HandleSelectDropdownClick(float x, float y)
+    {
+        if (_selectDropdownRect.Width <= 0)
+        {
+            CloseSelectDropdown();
+            return false;
+        }
+        float docX = x + _scroll.ScrollX;
+        float docY = y - _contentOffset + _scroll.ScrollY;
+
+        // Clicking the select element itself while open closes it
+        if (_activeSelect?.LayoutBox != null)
+        {
+            var sb = _activeSelect.LayoutBox.BorderBox;
+            if (docX >= sb.Left && docX <= sb.Right && docY >= sb.Top && docY <= sb.Bottom)
+            {
+                CloseSelectDropdown();
+                return true;
+            }
+        }
+
+        if (docX >= _selectDropdownRect.Left && docX <= _selectDropdownRect.Right &&
+            docY >= _selectDropdownRect.Top && docY <= _selectDropdownRect.Bottom)
+        {
+            foreach (var (opt, rect) in _selectOptionRects)
+            {
+                if (docX >= rect.Left && docX <= rect.Right && docY >= rect.Top && docY <= rect.Bottom)
+                {
+                    foreach (var child in _activeSelect!.Children)
+                    {
+                        if (child is Core.Dom.Element ce && ce.TagName == "OPTION")
+                        {
+                            if (ce == opt) ce.SetAttribute("selected", "");
+                            else ce.RemoveAttribute("selected");
+                        }
+                    }
+                    _jsEngine.DispatchEvent(opt, "change");
+                    _jsEngine.DispatchEvent(_activeSelect, "change");
+                    _jsEngine.DispatchEvent(_activeSelect, "input");
+                    CloseSelectDropdown();
+                    _input.NeedsRedraw = true;
+                    return true;
+                }
+            }
+            // Click in dropdown padding: keep open
+            return true;
+        }
+
+        // Click outside: close and continue with normal click handling
+        CloseSelectDropdown();
+        return false;
+    }
+
     private void HandleDomClick(float x, float y)
     {
         if (_currentLoad == null) return;
+
+        // If a select dropdown is open, clicks either pick an option or close it.
+        if (_activeSelect != null)
+        {
+            if (HandleSelectDropdownClick(x, y))
+                return;
+        }
 
         // Check element scrollbar first
         if (HitTestElementScrollbar(x, y, out var sbBox, out bool isVert))
@@ -2185,6 +2334,26 @@ namespace UpBrowser;
 
             bool shouldProceed = _jsEngine.DispatchEvent(element, "click");
 
+            // Toggle <select> dropdown before generic form-element handling
+            if (element.TagName == "SELECT" && !element.HasAttribute("disabled"))
+            {
+                if (_activeSelect == element)
+                {
+                    CloseSelectDropdown();
+                }
+                else
+                {
+                    if (_focusedElement != null && _focusedElement != element)
+                        _jsEngine.DispatchEvent(_focusedElement, "blur");
+                    _focusedElement = element;
+                    _jsEngine.DispatchEvent(element, "focus");
+                    _pendingRelayout = true;
+                    _activeSelect = element;
+                    ComputeSelectDropdownGeometry();
+                }
+                return;
+            }
+
             // Dispatch focus/blur when focused element changes
             if (element.IsFormElement)
             {
@@ -2194,6 +2363,9 @@ namespace UpBrowser;
                     if (_focusedElement != null)
                         _jsEngine.DispatchEvent(_focusedElement, "blur");
                     _focusedElement = element;
+                    // Full rebuild so the previously focused input's text returns to the
+                    // main display list (it was in the overlay) and the new one goes to overlay.
+                    _pendingRelayout = true;
                     _jsEngine.DispatchEvent(element, "focus");
                     _window.UpdateImeCompositionWindow();
                     _hasSelection = false;
@@ -2207,6 +2379,76 @@ namespace UpBrowser;
                 bool isTextInput = inputType == null || inputType == "text" || inputType == "password" ||
                                    inputType == "email" || inputType == "search" || inputType == "tel" ||
                                    inputType == "url" || inputType == "number";
+
+                // Handle internal control buttons (search clear, number spin, password reveal)
+                // before cursor placement. Hit areas mirror the drawing in PaintVisitor.DrawInputElement.
+                if (inputType == "search" && !string.IsNullOrEmpty(val) &&
+                    !element.HasAttribute("disabled") && element.LayoutBox != null)
+                {
+                    var cb = element.LayoutBox.ContentBox;
+                    float clearX = cb.Right - 14;
+                    float clearY = cb.Top + cb.Height / 2;
+                    if (Math.Abs(docX - clearX) <= 7 && Math.Abs(adjustedY - clearY) <= 7)
+                    {
+                        _pressedInputControl = "search-clear";
+                        element.Value = "";
+                        _inputCursorPos = 0;
+                        _inputSelStart = -1;
+                        _inputShowCursor = true;
+                        _inputLastCursorBlinkTick = Environment.TickCount64;
+                        _inputDragging = false;
+                        _jsEngine.DispatchEvent(element, "input");
+                        _pendingRelayout = true;
+                        _input.NeedsRedraw = true;
+                        return;
+                    }
+                }
+                else if (inputType == "number" && !element.HasAttribute("disabled") && element.LayoutBox != null)
+                {
+                    var cb = element.LayoutBox.ContentBox;
+                    float spinLeft = cb.Right - 20;
+                    float spinRight = cb.Right - 1;
+                    float spinTop = cb.Top + 1;
+                    float spinBottom = cb.Bottom - 1;
+                    if (docX >= spinLeft && docX <= spinRight && adjustedY >= spinTop && adjustedY <= spinBottom)
+                    {
+                        bool up = adjustedY < (spinTop + spinBottom) / 2;
+                        _pressedInputControl = up ? "number-up" : "number-down";
+                        double cur = 0;
+                        double.TryParse(element.Value, out cur);
+                        string? stepStr = element.GetAttribute("step");
+                        double step = stepStr != null && double.TryParse(stepStr, out double sp) && sp > 0 ? sp : 1;
+                        double newVal = up ? cur + step : cur - step;
+                        if (double.TryParse(element.GetAttribute("min"), out double mn)) newVal = Math.Max(mn, newVal);
+                        if (double.TryParse(element.GetAttribute("max"), out double mx)) newVal = Math.Min(mx, newVal);
+                        element.Value = newVal.ToString("0.############");
+                        _inputCursorPos = element.Value?.Length ?? 0;
+                        _inputSelStart = -1;
+                        _inputShowCursor = true;
+                        _inputLastCursorBlinkTick = Environment.TickCount64;
+                        _inputDragging = false;
+                        _jsEngine.DispatchEvent(element, "input");
+                        _pendingRelayout = true;
+                        _input.NeedsRedraw = true;
+                        return;
+                    }
+                }
+                else if (inputType == "password" && !element.HasAttribute("disabled") && element.LayoutBox != null)
+                {
+                    var cb = element.LayoutBox.ContentBox;
+                    float eyeX = cb.Right - 14;
+                    float eyeY = cb.Top + cb.Height / 2;
+                    if (Math.Abs(docX - eyeX) <= 10 && Math.Abs(adjustedY - eyeY) <= 10)
+                    {
+                        _pressedInputControl = "password-reveal";
+                        _passwordRevealed = !_passwordRevealed;
+                        _inputDragging = false;
+                        _pendingRelayout = true;
+                        _input.NeedsRedraw = true;
+                        return;
+                    }
+                }
+
                 if (isTextInput && !string.IsNullOrEmpty(val) && element.ComputedStyle != null && element.LayoutBox != null)
                 {
                     float cbLeft = element.LayoutBox.ContentBox.Left;
@@ -2266,12 +2508,16 @@ namespace UpBrowser;
                 // Submit button handling
                 if (inputType == "submit" || inputType == "image")
                 {
+                    _pressedButton = element;
+                    _pendingRelayout = true;
                     var form = FindParentForm(element);
                     if (form != null)
                         form.Submit();
                 }
                 else if (inputType == "reset")
                 {
+                    _pressedButton = element;
+                    _pendingRelayout = true;
                     var form = FindParentForm(element);
                     if (form != null)
                         form.Reset();
@@ -2282,6 +2528,8 @@ namespace UpBrowser;
                 // Check if clicking a BUTTON element (for submit type)
                 if (element.TagName == "BUTTON")
                 {
+                    _pressedButton = element;
+                    _pendingRelayout = true;
                     string? btnType = element.GetAttribute("type")?.ToLowerInvariant();
                     if (btnType == "submit" || btnType == null)
                     {
@@ -2426,6 +2674,13 @@ namespace UpBrowser;
     #region DOM Event Handlers
 
     private Core.Dom.Element? _hoveredElement;
+    private bool _passwordRevealed;
+    private string? _pressedInputControl;
+    private Core.Dom.Element? _pressedButton;
+    private Core.Dom.Element? _activeSelect;
+    private SKRect _selectDropdownRect;
+    private readonly List<(Core.Dom.Element Option, SKRect Rect)> _selectOptionRects = new();
+    private int _selectHoverIndex = -1;
 
     private void HandleDomKeyDown(char charCode, Key key, bool repeat)
     {
@@ -2508,7 +2763,7 @@ namespace UpBrowser;
 
     private bool HandleFormInputKey(char charCode, Key key, bool shift)
     {
-        if (_focusedElement == null || !_focusedElement.IsFormElement)
+        if (_focusedElement == null || !_focusedElement.IsTextEditable)
             return false;
 
         string? inputType = _focusedElement.InputType?.ToLowerInvariant();
@@ -2653,8 +2908,6 @@ namespace UpBrowser;
             var form = FindParentForm(_focusedElement);
             if (form != null)
                 form.Submit();
-            else
-                BlurFocusedElement();
             _input.NeedsRedraw = true;
             return true;
         }
@@ -2770,6 +3023,9 @@ namespace UpBrowser;
         {
             _jsEngine.DispatchEvent(_focusedElement, "blur");
             _focusedElement = null;
+            // Full rebuild so the blurred input's text (which lived in the overlay)
+            // is painted back into the main display list.
+            _pendingRelayout = true;
         }
         _inputSelStart = -1;
         _inputCursorPos = 0;
@@ -3049,7 +3305,7 @@ namespace UpBrowser;
         }
 
         // Form input drag selection
-        if (_inputDragging && _focusedElement != null && _focusedElement.IsFormElement)
+        if (_inputDragging && _focusedElement != null && _focusedElement.IsTextEditable)
         {
             string val = _focusedElement.Value ?? "";
             string? inputType = _focusedElement.InputType?.ToLowerInvariant();
@@ -3124,6 +3380,28 @@ namespace UpBrowser;
             _pendingRelayout = true;
         }
 
+        // Update select dropdown option hover highlight
+        if (_activeSelect != null)
+        {
+            float ddX = x + _scroll.ScrollX;
+            float ddY = y - _contentOffset + _scroll.ScrollY;
+            int newHover = -1;
+            for (int i = 0; i < _selectOptionRects.Count; i++)
+            {
+                var r = _selectOptionRects[i].Rect;
+                if (ddX >= r.Left && ddX <= r.Right && ddY >= r.Top && ddY <= r.Bottom)
+                {
+                    newHover = i;
+                    break;
+                }
+            }
+            if (newHover != _selectHoverIndex)
+            {
+                _selectHoverIndex = newHover;
+                _pendingRelayout = true;
+            }
+        }
+
         if (element != null)
         {
             var moveHost = _jsEngine.GetElementHost(element);
@@ -3142,6 +3420,11 @@ namespace UpBrowser;
     {
         // Element scrollbar drag release
         _elemScrollDragBox = null;
+        bool hadControlPress = _pressedInputControl != null || _pressedButton != null;
+        _pressedInputControl = null;
+        _pressedButton = null;
+        if (hadControlPress)
+            _pendingRelayout = true;
 
         if (_isSelecting)
         {
@@ -3409,7 +3692,7 @@ namespace UpBrowser;
 
     private void UpdateFormInputCursorBlink()
     {
-        if (_focusedElement == null || !_focusedElement.IsFormElement)
+        if (_focusedElement == null || !_focusedElement.IsTextEditable)
             return;
         long now = Environment.TickCount64;
         if (now - _inputLastCursorBlinkTick >= 500)
@@ -3446,7 +3729,7 @@ namespace UpBrowser;
             }
         }
 
-        if (_focusedElement != null && _focusedElement.IsFormElement)
+        if (_focusedElement != null && _focusedElement.IsTextEditable)
         {
             // Insert IME character into the form input value
             string value = _focusedElement.Value ?? "";
@@ -3488,7 +3771,7 @@ namespace UpBrowser;
                     Clipboard.SetText(url);
             }
         }
-        else if (_focusedElement != null && _focusedElement.IsFormElement)
+        else if (_focusedElement != null && _focusedElement.IsTextEditable)
         {
             string value = _focusedElement.Value ?? "";
             if (_inputSelStart >= 0 && _inputSelStart != _inputCursorPos)
@@ -3522,7 +3805,7 @@ namespace UpBrowser;
             foreach (char c in text)
                 HandleImeChar(c);
         }
-        else if (_focusedElement != null && _focusedElement.IsFormElement)
+        else if (_focusedElement != null && _focusedElement.IsTextEditable)
         {
             string value = _focusedElement.Value ?? "";
             string? inputType = _focusedElement.InputType?.ToLowerInvariant();
@@ -3581,7 +3864,7 @@ namespace UpBrowser;
         }
         else if (_chrome.IsUrlBarFocused() && _chrome.UrlBarSelectedText != null)
             _chrome.HandleKeyPress('\0', SKKey.Backspace);
-        else if (_focusedElement != null && _focusedElement.IsFormElement &&
+        else if (_focusedElement != null && _focusedElement.IsTextEditable &&
                  _inputSelStart >= 0 && _inputSelStart != _inputCursorPos)
         {
             string value = _focusedElement.Value ?? "";
@@ -3606,7 +3889,7 @@ namespace UpBrowser;
         {
             _devTools.SelectAllInActiveTab();
         }
-        else if (_focusedElement != null && _focusedElement.IsFormElement)
+        else if (_focusedElement != null && _focusedElement.IsTextEditable)
         {
             string value = _focusedElement.Value ?? "";
             _inputSelStart = 0;
@@ -3692,7 +3975,7 @@ namespace UpBrowser;
             _app._inputImeCompositionStr = "";
             _app._inputImeCursorPos = 0;
 
-            if (string.IsNullOrEmpty(resultString) || _app._focusedElement == null || !_app._focusedElement.IsFormElement)
+            if (string.IsNullOrEmpty(resultString) || _app._focusedElement == null || !_app._focusedElement.IsTextEditable)
                 return;
 
             string value = _app._focusedElement.Value ?? "";

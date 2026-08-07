@@ -33,6 +33,16 @@ public class PaintVisitor
     private bool _hasSelection;
     private bool _selStartIsAnchor;
     private bool _skipInputTextOverlay;
+    private bool _passwordRevealed;
+    private float _mouseX = float.MinValue;
+    private float _mouseY = float.MinValue;
+    private bool _mouseDown;
+    private string? _pressedControl;
+    private Core.Dom.Element? _pressedButton;
+    private Core.Dom.Element? _activeSelect;
+    private SKRect _selectDropdownRect;
+    private List<(Core.Dom.Element Option, SKRect Rect)>? _selectOptionRects;
+    private int _selectHoverIndex = -1;
 
     public PaintVisitor(float contentOffsetY = 0,
         Dictionary<string, SKTypeface>? sharedTypefaceCache = null,
@@ -50,6 +60,24 @@ public class PaintVisitor
 
     public void SetFocusedElement(Core.Dom.Element? element) => _focusedElement = element;
     public void SetSkipInputTextOverlay(bool skip) => _skipInputTextOverlay = skip;
+    public void SetPasswordRevealed(bool revealed) => _passwordRevealed = revealed;
+    public void SetMouseState(float x, float y, bool isDown, string? pressedControl = null)
+    {
+        _mouseX = x;
+        _mouseY = y;
+        _mouseDown = isDown;
+        _pressedControl = pressedControl;
+    }
+    public void SetPressedButton(Core.Dom.Element? element) => _pressedButton = element;
+
+    public void SetSelectDropdown(Core.Dom.Element? select, SKRect dropdownRect,
+        List<(Core.Dom.Element Option, SKRect Rect)>? optionRects, int hoverIndex)
+    {
+        _activeSelect = select;
+        _selectDropdownRect = dropdownRect;
+        _selectOptionRects = optionRects;
+        _selectHoverIndex = hoverIndex;
+    }
 
     public void SetInputState(int cursorPos, int selStart, bool showCursor,
         bool isImeComposing, string imeComposition, int imeCursor)
@@ -211,7 +239,7 @@ public class PaintVisitor
         // Cheap: clear overlay list and rebuild only the focused input's text/cursor/selection ops.
         // This is ~O(1) — a single element — vs the O(n) DOM walk of a full BuildDisplayList.
         _overlayList.Clear();
-        if (_focusedElement == null || !_focusedElement.IsFormElement) return;
+        if (_focusedElement == null || !_focusedElement.IsTextEditable) return;
         if (_focusedElement.LayoutBox == null) return;
         var style = _focusedElement.ComputedStyle;
         if (style == null) return;
@@ -257,6 +285,10 @@ public class PaintVisitor
         foreach (var child in root.Children)
             if (child is Element element)
                 VisitElement(element);
+
+        // Select dropdown draws last so it appears above all page content.
+        if (_activeSelect != null)
+            DrawSelectDropdown();
     }
 
     private void VisitElement(Element element)
@@ -1463,6 +1495,14 @@ public class PaintVisitor
         return !string.IsNullOrEmpty(valueAttr) ? valueAttr : "Button";
     }
 
+    private static SKColor DarkenColor(SKColor c, float factor)
+    {
+        return new SKColor((byte)Math.Min(255, c.Red * factor),
+            (byte)Math.Min(255, c.Green * factor),
+            (byte)Math.Min(255, c.Blue * factor),
+            c.Alpha);
+    }
+
     private void DrawButtonElement(Element element, LayoutBox box, ComputedStyle style)
     {
         string buttonText = GetButtonText(element);
@@ -1491,6 +1531,7 @@ public class PaintVisitor
 
         bool isDisabled = element.HasAttribute("disabled");
         bool isFocused = _focusedElement == element;
+        bool isPressed = _pressedButton == element;
         SKColor btnBgColor = style.BackgroundColor.HasValue && style.BackgroundColor.Value.Alpha > 0 ? style.BackgroundColor.Value : SKColor.Parse("#E1E1E1");
         SKColor btnBorderColor = style.BorderTopColor.Alpha > 0 ? style.BorderTopColor : new SKColor(0x80, 0x80, 0x80);
         SKColor textColor = style.Color.Alpha > 0 ? style.Color : SKColors.Black;
@@ -1499,6 +1540,15 @@ public class PaintVisitor
             btnBgColor = new SKColor(240, 240, 240);
             textColor = new SKColor(160, 160, 160);
             btnBorderColor = new SKColor(200, 200, 200);
+        }
+        else if (isPressed)
+        {
+            // Pressed: darker background (as if the face is pushed in)
+            if (style.BackgroundColor.HasValue && style.BackgroundColor.Value.Alpha > 0)
+                btnBgColor = DarkenColor(style.BackgroundColor.Value, 0.85f);
+            else
+                btnBgColor = new SKColor(0xC9, 0xC9, 0xC9);
+            btnBorderColor = new SKColor(0x66, 0x66, 0x66);
         }
         else if (isFocused)
         {
@@ -1572,6 +1622,11 @@ public class PaintVisitor
         float textY = contentTop + Math.Max(0, (contentHeight - btnFontSize) / 2) + btnFontSize * 0.8f;
         textX = Math.Max(contentLeft, Math.Min(textX, contentRight - textWidth));
         textY = Math.Max(contentTop, Math.Min(textY, contentBottom));
+        if (isPressed)
+        {
+            // Pressed: shift text down 1px for a tactile feel
+            textY += 1;
+        }
 
         var textOp = PaintOpPool.GetDrawTextOp();
         textOp.Text = buttonText;
@@ -1599,7 +1654,7 @@ public class PaintVisitor
         bool isReadOnly = element.HasAttribute("readonly");
         bool showPlaceholder = false;
         if (!string.IsNullOrEmpty(value))
-            displayText = isPassword ? new string('●', value.Length) : value;
+            displayText = isPassword && !_passwordRevealed ? new string('●', value.Length) : value;
         else if (isFocused)
             displayText = "";
         else if (!string.IsNullOrEmpty(placeholder))
@@ -1658,7 +1713,18 @@ public class PaintVisitor
         if (isDisabled)
             textColor = new SKColor(160, 160, 160);
         float textX = contentBox.Left + 2;
-        float usableWidth = contentBox.Width - 4;
+
+        // Reserve right-side space for internal controls (clear button, spin buttons,
+        // password reveal) so typed/displayed text never overlaps them.
+        bool hasClearButton = inputType == "search" && isFocused && !isDisabled && !string.IsNullOrEmpty(value);
+        bool hasSpinButtons = inputType == "number" && isFocused && !isDisabled;
+        bool hasRevealButton = isPassword && isFocused && !isDisabled;
+        float reservedRight = 0;
+        if (hasClearButton) reservedRight = 24;
+        else if (hasSpinButtons) reservedRight = 22;
+        else if (hasRevealButton) reservedRight = 22;
+
+        float usableWidth = contentBox.Width - 4 - reservedRight;
 
         // Text and cursor rendering (always rendered; when overlay is active, goes to overlay list)
         // Determine the effective text to display and cursor/selection positions
@@ -1805,15 +1871,19 @@ public class PaintVisitor
         }
 
         // Search input clear button (Blink: shown on focus/hover when there is a value)
-        if (inputType == "search" && isFocused && !isDisabled && !string.IsNullOrEmpty(value))
+        if (hasClearButton)
         {
             var clearX = contentBox.Right - 14;
             var clearY = contentBox.Top + contentBox.Height / 2 + TotalOffsetY;
+            bool hover = Math.Abs(_mouseX - (contentBox.Right - 14)) <= 8 &&
+                         Math.Abs(_mouseY - (contentBox.Top + contentBox.Height / 2)) <= 8;
+            bool pressed = _pressedControl == "search-clear";
+            SKColor bgColor = pressed ? new SKColor(120, 120, 120) : hover ? new SKColor(120, 120, 120) : new SKColor(170, 170, 170);
             var clearBg = PaintOpPool.GetDrawPathOp();
             clearBg.Path = new SKPath();
-            clearBg.Path.AddCircle(clearX, clearY, 6);
-            clearBg.FillPaint = new SKPaint { Color = new SKColor(150, 150, 150), Style = SKPaintStyle.Fill, IsAntialias = true };
-            clearBg.Bounds = new SKRect(clearX - 6, clearY - 6, clearX + 6, clearY + 6);
+            clearBg.Path.AddCircle(clearX, clearY, 7);
+            clearBg.FillPaint = new SKPaint { Color = bgColor, Style = SKPaintStyle.Fill, IsAntialias = true };
+            clearBg.Bounds = new SKRect(clearX - 7, clearY - 7, clearX + 7, clearY + 7);
             targetList.Add(clearBg);
 
             var xPath = new SKPath();
@@ -1823,40 +1893,127 @@ public class PaintVisitor
             xPath.LineTo(clearX - 2.5f, clearY + 2.5f);
             var xOp = PaintOpPool.GetDrawPathOp();
             xOp.Path = xPath;
-            xOp.StrokePaint = new SKPaint { Color = SKColors.White, Style = SKPaintStyle.Stroke, StrokeWidth = 1.5f, IsAntialias = true, StrokeCap = SKStrokeCap.Round };
-            xOp.Bounds = new SKRect(clearX - 6, clearY - 6, clearX + 6, clearY + 6);
+            xOp.StrokePaint = new SKPaint { Color = SKColors.White, Style = SKPaintStyle.Stroke, StrokeWidth = 1.6f, IsAntialias = true, StrokeCap = SKStrokeCap.Round };
+            xOp.Bounds = new SKRect(clearX - 7, clearY - 7, clearX + 7, clearY + 7);
             targetList.Add(xOp);
         }
 
-        // Number spin buttons (Blink: shown on focus/hover)
-        if (inputType == "number" && isFocused && !isDisabled)
+        // Number spin buttons (Blink: shown on focus/hover). Each half is a press target.
+        if (hasSpinButtons)
         {
-            var spinX = contentBox.Right - 10;
-            var spinCy = contentBox.Top + contentBox.Height / 2 + TotalOffsetY;
-            float arrowW = 5;
-            float arrowH = 3.5f;
+            // Draw coords include the chrome/content Y offset; hit coords are in doc space.
+            float spinLeft = contentBox.Right - 20;
+            float spinRight = contentBox.Right - 1;
+            float spinTopDraw = contentBox.Top + TotalOffsetY + 1;
+            float spinBottomDraw = contentBox.Bottom + TotalOffsetY - 1;
+            float midYDraw = (spinTopDraw + spinBottomDraw) / 2;
+            float spinTopHit = contentBox.Top + 1;
+            float spinBottomHit = contentBox.Bottom - 1;
+            float midYHit = (spinTopHit + spinBottomHit) / 2;
+            bool hoverUp = _mouseX >= spinLeft - 1 && _mouseX <= spinRight + 1 &&
+                           _mouseY >= spinTopHit && _mouseY < midYHit;
+            bool hoverDown = _mouseX >= spinLeft - 1 && _mouseX <= spinRight + 1 &&
+                             _mouseY >= midYHit && _mouseY <= spinBottomHit;
+            bool pressedUp = _pressedControl == "number-up";
+            bool pressedDown = _pressedControl == "number-down";
 
+            // Spin button background (visible on hover/press for interactivity feedback)
+            if (hoverUp || hoverDown || pressedUp || pressedDown)
+            {
+                var spinBg = PaintOpPool.GetDrawRectOp();
+                spinBg.FillColor = new SKColor(0, 0, 0, (byte)(hoverUp || hoverDown ? 8 : 0));
+                spinBg.Rect = new SKRect(spinLeft, spinTopDraw, spinRight, spinBottomDraw);
+                spinBg.Bounds = spinBg.Rect;
+                targetList.Add(spinBg);
+            }
+
+            float spinX = (spinLeft + spinRight) / 2;
+            float arrowW = 7;
+            float arrowH = 4.5f;
+            float upC = spinTopDraw + (midYDraw - spinTopDraw) * 0.5f;
+            float downC = midYDraw + (spinBottomDraw - midYDraw) * 0.5f;
+
+            // Up arrow
             var upPath = new SKPath();
-            upPath.MoveTo(spinX - arrowW / 2, spinCy - 1);
-            upPath.LineTo(spinX + arrowW / 2, spinCy - 1);
-            upPath.LineTo(spinX, spinCy - 1 - arrowH);
+            upPath.MoveTo(spinX - arrowW / 2, upC + 1);
+            upPath.LineTo(spinX + arrowW / 2, upC + 1);
+            upPath.LineTo(spinX, upC - arrowH);
             upPath.Close();
             var upOp = PaintOpPool.GetDrawPathOp();
             upOp.Path = upPath;
-            upOp.FillPaint = new SKPaint { Color = new SKColor(100, 100, 100), Style = SKPaintStyle.Fill, IsAntialias = true };
-            upOp.Bounds = new SKRect(spinX - arrowW, spinCy - arrowH - 1, spinX + arrowW, spinCy);
+            SKColor upColor = pressedUp ? new SKColor(0, 0, 255) : hoverUp ? new SKColor(60, 60, 60) : new SKColor(110, 110, 110);
+            upOp.FillPaint = new SKPaint { Color = upColor, Style = SKPaintStyle.Fill, IsAntialias = true };
+            upOp.Bounds = new SKRect(spinX - arrowW, upC - arrowH, spinX + arrowW, upC + 1);
             targetList.Add(upOp);
 
+            // Down arrow
             var downPath = new SKPath();
-            downPath.MoveTo(spinX - arrowW / 2, spinCy + 1);
-            downPath.LineTo(spinX + arrowW / 2, spinCy + 1);
-            downPath.LineTo(spinX, spinCy + 1 + arrowH);
+            downPath.MoveTo(spinX - arrowW / 2, downC - 1);
+            downPath.LineTo(spinX + arrowW / 2, downC - 1);
+            downPath.LineTo(spinX, downC + arrowH);
             downPath.Close();
             var downOp = PaintOpPool.GetDrawPathOp();
             downOp.Path = downPath;
-            downOp.FillPaint = new SKPaint { Color = new SKColor(100, 100, 100), Style = SKPaintStyle.Fill, IsAntialias = true };
-            downOp.Bounds = new SKRect(spinX - arrowW, spinCy + 1, spinX + arrowW, spinCy + 1 + arrowH);
+            SKColor downColor = pressedDown ? new SKColor(0, 0, 255) : hoverDown ? new SKColor(60, 60, 60) : new SKColor(110, 110, 110);
+            downOp.FillPaint = new SKPaint { Color = downColor, Style = SKPaintStyle.Fill, IsAntialias = true };
+            downOp.Bounds = new SKRect(spinX - arrowW, downC - 1, spinX + arrowW, downC + arrowH);
             targetList.Add(downOp);
+
+            // Separator line between up/down
+            var sepOp = PaintOpPool.GetDrawLineOp();
+            sepOp.X1 = spinLeft;
+            sepOp.Y1 = midYDraw;
+            sepOp.X2 = spinRight;
+            sepOp.Y2 = midYDraw;
+            sepOp.Color = new SKColor(0, 0, 0, 25);
+            sepOp.StrokeWidth = 1;
+            sepOp.Bounds = new SKRect(spinLeft, midYDraw - 1, spinRight, midYDraw + 1);
+            targetList.Add(sepOp);
+        }
+
+        // Password reveal toggle (Blink: eye icon shown on focus)
+        if (hasRevealButton)
+        {
+            float eyeX = contentBox.Right - 14;
+            float eyeCy = contentBox.Top + contentBox.Height / 2 + TotalOffsetY;
+            bool hover = Math.Abs(_mouseX - (contentBox.Right - 14)) <= 10 &&
+                         Math.Abs(_mouseY - (contentBox.Top + contentBox.Height / 2)) <= 10;
+            bool pressed = _pressedControl == "password-reveal";
+
+            // Eye outline: a rounded eye lens + pupil; slashed when revealed
+            SKColor eyeColor = pressed ? new SKColor(0x1A, 0x73, 0xE8) : hover ? new SKColor(0x1A, 0x73, 0xE8) : new SKColor(110, 110, 110);
+            var lensPath = new SKPath();
+            float r = 5.5f;
+            lensPath.MoveTo(eyeX - r, eyeCy);
+            lensPath.CubicTo(eyeX - r, eyeCy - r * 1.35f, eyeX + r, eyeCy - r * 1.35f, eyeX + r, eyeCy);
+            lensPath.CubicTo(eyeX + r, eyeCy + r * 1.35f, eyeX - r, eyeCy + r * 1.35f, eyeX - r, eyeCy);
+            lensPath.Close();
+            var lensOp = PaintOpPool.GetDrawPathOp();
+            lensOp.Path = lensPath;
+            lensOp.StrokePaint = new SKPaint { Color = eyeColor, Style = SKPaintStyle.Stroke, StrokeWidth = 1.4f, IsAntialias = true };
+            lensOp.Bounds = new SKRect(eyeX - r, eyeCy - r - 1, eyeX + r, eyeCy + r + 1);
+            targetList.Add(lensOp);
+
+            var pupilOp = PaintOpPool.GetDrawPathOp();
+            pupilOp.Path = new SKPath();
+            pupilOp.Path.AddCircle(eyeX, eyeCy, 2);
+            pupilOp.FillPaint = new SKPaint { Color = eyeColor, Style = SKPaintStyle.Fill, IsAntialias = true };
+            pupilOp.Bounds = new SKRect(eyeX - 3, eyeCy - 3, eyeX + 3, eyeCy + 3);
+            targetList.Add(pupilOp);
+
+            if (_passwordRevealed)
+            {
+                // Slash through the eye when password is shown in plain text
+                var slashOp = PaintOpPool.GetDrawLineOp();
+                slashOp.X1 = eyeX - r - 1;
+                slashOp.Y1 = eyeCy + r + 0.5f;
+                slashOp.X2 = eyeX + r + 1;
+                slashOp.Y2 = eyeCy - r - 0.5f;
+                slashOp.Color = eyeColor;
+                slashOp.StrokeWidth = 1.4f;
+                slashOp.Bounds = new SKRect(eyeX - r - 1, eyeCy - r - 1, eyeX + r + 1, eyeCy + r + 1);
+                targetList.Add(slashOp);
+            }
         }
 
         // Disabled overlay drawn outside clip so it covers the entire border area
@@ -1955,6 +2112,65 @@ public class PaintVisitor
         }
     }
 
+    private void DrawSelectDropdown()
+    {
+        var rect = _selectDropdownRect;
+        if (rect.Width <= 0 || rect.Height <= 0) return;
+        float dy = TotalOffsetY;
+        float fontSize = 14;
+
+        var shadowOp = PaintOpPool.GetDrawRectOp();
+        shadowOp.FillColor = new SKColor(0, 0, 0, 40);
+        shadowOp.Rect = new SKRect(rect.Left + 2, rect.Top + dy + 2, rect.Right + 2, rect.Bottom + dy + 2);
+        _displayList.Add(shadowOp);
+
+        var bgOp = PaintOpPool.GetDrawRectOp();
+        bgOp.FillColor = SKColors.White;
+        bgOp.Rect = new SKRect(rect.Left, rect.Top + dy, rect.Right, rect.Bottom + dy);
+        _displayList.Add(bgOp);
+
+        if (_selectOptionRects != null)
+        {
+            for (int i = 0; i < _selectOptionRects.Count; i++)
+            {
+                var (option, orect) = _selectOptionRects[i];
+                bool isSelected = option.HasAttribute("selected");
+                bool isHovered = i == _selectHoverIndex;
+
+                if (isHovered || isSelected)
+                {
+                    var hlOp = PaintOpPool.GetDrawRectOp();
+                    hlOp.FillColor = isSelected ? new SKColor(0x1A, 0x73, 0xE8) : new SKColor(0, 0, 0, 16);
+                    hlOp.Rect = new SKRect(orect.Left, orect.Top + dy, orect.Right, orect.Bottom + dy);
+                    _displayList.Add(hlOp);
+                }
+
+                var textOp = PaintOpPool.GetDrawTextOp();
+                textOp.Text = option.TextContent?.Trim() ?? "";
+                textOp.X = orect.Left + 8;
+                textOp.Y = orect.Top + dy + (orect.Height - fontSize) / 2 + fontSize * 0.8f;
+                textOp.Color = isSelected ? SKColors.White : new SKColor(50, 50, 50);
+                textOp.FontSize = fontSize;
+                textOp.FontFamily = "Segoe UI, Arial, sans-serif";
+                float tw = MeasureTextWidth(textOp.Text, fontSize, textOp.FontFamily);
+                textOp.Bounds = new SKRect(textOp.X, orect.Top + dy, textOp.X + tw, orect.Bottom + dy);
+                _displayList.Add(textOp);
+            }
+        }
+
+        var borderOp = PaintOpPool.GetDrawPathOp();
+        var path = new SKPath();
+        path.MoveTo(rect.Left, rect.Top + dy);
+        path.LineTo(rect.Right, rect.Top + dy);
+        path.LineTo(rect.Right, rect.Bottom + dy);
+        path.LineTo(rect.Left, rect.Bottom + dy);
+        path.Close();
+        borderOp.Path = path;
+        borderOp.StrokePaint = new SKPaint { Color = new SKColor(180, 180, 180), Style = SKPaintStyle.Stroke, StrokeWidth = 1f, IsAntialias = true };
+        borderOp.Bounds = new SKRect(rect.Left, rect.Top + dy, rect.Right, rect.Bottom + dy);
+        _displayList.Add(borderOp);
+    }
+
     private float MeasureTextWidth(string text, float fontSize, string? fontFamily)
     {
         if (string.IsNullOrEmpty(text)) return 0;
@@ -1968,6 +2184,8 @@ public class PaintVisitor
     {
         bool isChecked = element.HasAttribute("checked");
         bool isDisabled = element.HasAttribute("disabled");
+        bool isHovered = element.IsHovered;
+        bool isPressed = _mouseDown && isHovered;
         var contentBox = box.ContentBox;
         float size = Math.Min(contentBox.Width, contentBox.Height);
         float cx = contentBox.Left + contentBox.Width / 2;
@@ -1985,6 +2203,22 @@ public class PaintVisitor
             else
                 fillColor = new SKColor(230, 230, 230);
         }
+        else
+        {
+            // Hover feedback: light tint + darker border
+            if (isHovered)
+            {
+                borderColor = new SKColor(0x1A, 0x73, 0xE8);
+                if (!isChecked)
+                    fillColor = new SKColor(0xE8, 0xF0, 0xFE);
+            }
+            if (isPressed)
+            {
+                borderColor = new SKColor(0x15, 0x5D, 0xC8);
+                if (!isChecked)
+                    fillColor = new SKColor(0xD6, 0xE6, 0xFD);
+            }
+        }
 
         if (inputType == "checkbox")
         {
@@ -1992,7 +2226,7 @@ public class PaintVisitor
             var bgOp = PaintOpPool.GetDrawPathOp();
             bgOp.Path = CreateRoundedRectPath(rect, 3);
             bgOp.FillPaint = new SKPaint { Color = fillColor, Style = SKPaintStyle.Fill, IsAntialias = true };
-            bgOp.StrokePaint = new SKPaint { Color = borderColor, Style = SKPaintStyle.Stroke, StrokeWidth = 1.5f, IsAntialias = true };
+            bgOp.StrokePaint = new SKPaint { Color = borderColor, Style = SKPaintStyle.Stroke, StrokeWidth = isHovered ? 2f : 1.5f, IsAntialias = true };
             bgOp.Bounds = rect;
             _displayList.Add(bgOp);
 
@@ -2018,7 +2252,7 @@ public class PaintVisitor
             bgOp.Path = new SKPath();
             bgOp.Path.AddCircle(cx, cy, halfBox);
             bgOp.FillPaint = new SKPaint { Color = fillColor, Style = SKPaintStyle.Fill, IsAntialias = true };
-            bgOp.StrokePaint = new SKPaint { Color = borderColor, Style = SKPaintStyle.Stroke, StrokeWidth = 1.5f, IsAntialias = true };
+            bgOp.StrokePaint = new SKPaint { Color = borderColor, Style = SKPaintStyle.Stroke, StrokeWidth = isHovered ? 2f : 1.5f, IsAntialias = true };
             bgOp.Bounds = new SKRect(cx - halfBox, cy - halfBox, cx + halfBox, cy + halfBox);
             _displayList.Add(bgOp);
 

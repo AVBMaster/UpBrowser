@@ -142,6 +142,11 @@ public abstract class Element : Node
     public string? InputType => GetAttribute("type");
     public bool IsFormElement => TagName is "INPUT" or "TEXTAREA" or "SELECT" or "BUTTON";
 
+    // True for controls that accept typed text: text-like <input> and <textarea>.
+    public bool IsTextEditable =>
+        TagName == "TEXTAREA" || (TagName == "INPUT" && InputType?.ToLowerInvariant() is
+            null or "text" or "password" or "email" or "search" or "tel" or "url" or "number");
+
     public int SelectionStart { get; set; }
     public int SelectionEnd { get; set; }
     public bool IsFocused { get; set; }
