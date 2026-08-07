@@ -122,50 +122,94 @@ namespace UpBrowser;
 
     public BrowserApp(int logicalWidth, int logicalHeight)
     {
-        // Wire up SkiaSharp-based text measurement for accurate layout
+        LogCtor("SkiaTextMeasurer");
         TextMeasurer.Instance = new Core.Layout.SkiaTextMeasurer();
+        LogCtorDone("SkiaTextMeasurer");
 
-        // Cache font families once at startup (avoids O(SKFontManager enumeration per frame)
+        LogCtor("SKFontManager");
         _fontFamilies ??= SkiaSharp.SKFontManager.Default.FontFamilies.ToArray();
+        LogCtorDone("SKFontManager");
 
+        LogCtor("GetDpiScale");
         _dpiScale = PlatformFactory.GetDpiScale();
         Console.WriteLine($"DPI Scale: {_dpiScale:F2} ({_dpiScale * 100}%)");
+        LogCtorDone("GetDpiScale");
 
         int physicalWidth = (int)(logicalWidth * _dpiScale);
         int physicalHeight = (int)(logicalHeight * _dpiScale);
 
+        LogCtor("CreateWindow");
         _window = PlatformFactory.CreateWindow(physicalWidth, physicalHeight, "UpBrowser");
-        _docManager = new DocumentManager();
-        _chrome = new ChromeRenderer();
-        _scroll = new ScrollManager();
-        _skiaRenderer = new SkiaRenderer();
-        // Load persisted config first to get JS engine choice
-        RenderingSettingsConfig.Load(_renderingSettings);
+        LogCtorDone("CreateWindow");
 
-        // Resolve JS engine: use setting, but DO NOT auto-download without user permission
-        // Just detect what's available and fall back to Jint if configured engine isn't ready.
+        LogCtor("DocumentManager");
+        _docManager = new DocumentManager();
+        LogCtorDone("DocumentManager");
+
+        LogCtor("ChromeRenderer");
+        _chrome = new ChromeRenderer();
+        LogCtorDone("ChromeRenderer");
+
+        LogCtor("ScrollManager");
+        _scroll = new ScrollManager();
+        LogCtorDone("ScrollManager");
+
+        LogCtor("SkiaRenderer");
+        _skiaRenderer = new SkiaRenderer();
+        LogCtorDone("SkiaRenderer");
+
+        LogCtor("LoadSettingsConfig");
+        RenderingSettingsConfig.Load(_renderingSettings);
+        LogCtorDone("LoadSettingsConfig");
+
         var engineType = JsEngineConfig.GetEngineTypeByName(_renderingSettings.JsEngine) ?? JsEngineType.Jint;
         if (engineType != JsEngineType.Jint && !JsEngineDownloader.IsEngineDownloaded(engineType))
         {
-            // Configured engine not downloaded. Inform user, fall back to Jint.
             Console.WriteLine($"[Startup] Engine '{engineType}' is configured but not downloaded. Using Jint (built-in).");
             Console.WriteLine($"[Startup] To use {engineType}, go to Settings → JavaScript Engine and download it first.");
             engineType = JsEngineType.Jint;
             _renderingSettings.JsEngine = "Jint";
         }
         JsEngineConfig.DefaultEngineType = engineType;
+
+        LogCtor("JavaScriptEngine");
         _jsEngine = new JavaScriptEngine(-1);
+        LogCtorDone("JavaScriptEngine");
+
+        LogCtor("EventLoop");
         _eventLoop = new EventLoop();
+        LogCtorDone("EventLoop");
+
+        LogCtor("DevToolsPanel");
         _devTools = new DevToolsPanel();
+        LogCtorDone("DevToolsPanel");
+
+        LogCtor("PageInputImeHost");
         _pageInputImeHost = new PageInputImeHost(this);
+        LogCtorDone("PageInputImeHost");
+
+        LogCtor("TrySetGpu");
         if (!_skiaRenderer.TrySetGpu(_renderingSettings.GpuAcceleration))
             Console.WriteLine("[Startup] GPU init failed, using CPU");
+        LogCtorDone("TrySetGpu");
 
+        LogCtor("RenderingSettingsPage");
         _renderingSettingsPage = new RenderingSettingsPage(_renderingSettings, _dpiScale);
+        LogCtorDone("RenderingSettingsPage");
+
+        LogCtor("TaskManagerPage");
         _taskManagerPage = new TaskManagerPage();
+        LogCtorDone("TaskManagerPage");
+
+        LogCtor("ProcessManager");
         _processManager = new ProcessManager(_fontFamilies!, _eventLoop, _dpiScale, _chrome.GetContentOffset());
+        LogCtorDone("ProcessManager");
+
         _contentOffset = _chrome.GetContentOffset();
+
+        LogCtor("InputHandler");
         _input = new InputHandler(_chrome, _scroll, _window, _dpiScale);
+        LogCtorDone("InputHandler");
         _input.OnDomClick = HandleDomClick;
         _input.OnDevToolsKey = () =>
         {
@@ -740,14 +784,19 @@ namespace UpBrowser;
     public async Task RunAsync()
     {
         Console.WriteLine("UpBrowser - Starting...");
+        LogStart("RunAsync");
 
         // ---- Initialize the performance layer ----
+        LogStart("InitializePerformanceHub");
         InitializePerformanceHub();
+        LogDone("InitializePerformanceHub");
 
         //Load test_css_feature.html in UpBrowser.Core.Resources
+        LogStart("LoadHtmlAsync");
         _currentHtml = DocumentManager.TestCssFeatureHtml;
         var initialLoad = await _docManager.LoadHtmlAsync(_currentHtml);
         _currentLoad = initialLoad;
+        LogDone("LoadHtmlAsync");
 
         var devTool = new LayoutDevTool();
         var debugReport = devTool.GenerateReport(_currentLoad!.Document, 1024, 768);
@@ -755,11 +804,21 @@ namespace UpBrowser;
         Console.WriteLine($"[Debug] Initial report saved ({debugReport.Length} chars)");
         Console.WriteLine(devTool.GenerateQuickReport(_currentLoad.Document));
 
+        LogStart("LoadDocument");
         _jsEngine.LoadDocument(_currentLoad.Document);
-        _devTools.SetDocument(_currentLoad.Document, _currentHtml);
-        RunPageScripts(null);
+        LogDone("LoadDocument");
 
+        LogStart("DevTools.SetDocument");
+        _devTools.SetDocument(_currentLoad.Document, _currentHtml);
+        LogDone("DevTools.SetDocument");
+
+        LogStart("RunPageScripts");
+        RunPageScripts(null);
+        LogDone("RunPageScripts");
+
+        LogStart("BuildDisplayList");
         BuildDisplayList(1024, 768);
+        LogDone("BuildDisplayList");
         _lastLayoutWidth = 1024;
 
         _lastActiveTabIndex = _chrome.ActiveTabIndex;
@@ -772,17 +831,55 @@ namespace UpBrowser;
         };
 
         // Create process for the initial tab
+        LogStart("CreateProcess");
         var initialProc = _processManager.CreateProcess(0, "upbrowser://local");
+        LogDone("CreateProcess");
         initialProc.UpdateTitle(_currentLoad.Document.Title ?? "");
 
         var bodyBox = _currentLoad.Document.Body?.LayoutBox;
         var lastContentHeight = bodyBox?.BorderBox.Height ?? 0;
 
+        LogStart("WireNavigation");
         WireNavigation();
+        LogDone("WireNavigation");
 
-        _window.Run(RenderFrame);
+        LogStart("_window.Run(RenderFrame)");
+        try
+        {
+            _window.Run(RenderFrame);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[CRASH] In _window.Run(RenderFrame): {ex.GetType().FullName}: {ex.Message}");
+            Console.WriteLine(ex.StackTrace);
+            try { File.WriteAllText("upbrowser_crash.log", ex.ToString()); } catch { }
+            throw;
+        }
+        LogDone("_window.Run(RenderFrame)");
 
         Console.WriteLine("UpBrowser closed.");
+    }
+
+    private static void LogStart(string name)
+    {
+        Console.WriteLine($"[Startup] > {name}");
+    }
+
+    private static void LogDone(string name)
+    {
+        Console.WriteLine($"[Startup] < {name} OK");
+    }
+
+    private static void LogCtor(string name)
+    {
+        Console.WriteLine($"[Ctor] > {name}");
+        try { File.AppendAllText("upbrowser_ctor.log", $"[Ctor] > {name}\n"); } catch { }
+    }
+
+    private static void LogCtorDone(string name)
+    {
+        Console.WriteLine($"[Ctor] < {name} OK");
+        try { File.AppendAllText("upbrowser_ctor.log", $"[Ctor] < {name} OK\n"); } catch { }
     }
 
     private void WireNavigation()

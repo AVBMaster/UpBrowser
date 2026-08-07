@@ -514,12 +514,13 @@ public class DrawTextOp : PaintOp
                 if (tf != null) actualTypeface = tf;
             }
         }
-        return new SKFont(actualTypeface, FontSize)
-        {
-            Edging = SKFontEdging.SubpixelAntialias,
-            Subpixel = true,
-            Hinting = SKFontHinting.Normal
-        };
+        var font = new SKFont(actualTypeface, FontSize);
+        #if !SUPPORT_WINXP
+        font.Edging = SKFontEdging.SubpixelAntialias;
+        font.Subpixel = true;
+        font.Hinting = SKFontHinting.Normal;
+        #endif
+        return font;
     }
 
     private SKTypeface GetTypefaceForChar(char c)

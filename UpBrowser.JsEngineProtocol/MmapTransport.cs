@@ -165,7 +165,12 @@ public class MmapTransport : IDisposable
     private string MmapKey(string suffix)
     {
         if (IsWindows)
+        {
+            // Local\ namespace is not available on Windows XP (Vista+)
+            if (Environment.OSVersion.Version.Major < 6)
+                return "UpBrowser_Mmap_" + _channelName + "_" + suffix;
             return "Local\\UpBrowser_Mmap_" + _channelName + "_" + suffix;
+        }
         return Path.Combine(Path.GetTempPath(), $"upbrowser_mmap_{_channelName}_{suffix}.bin");
     }
 

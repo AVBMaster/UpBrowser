@@ -35,9 +35,15 @@ public class DevToolsPanel
 
     public DevToolsPanel()
     {
+        Console.WriteLine("[DevToolsPanel] Creating DevToolsConsole...");
         _console = new DevToolsConsole();
+        Console.WriteLine("[DevToolsPanel] DevToolsConsole OK");
+        Console.WriteLine("[DevToolsPanel] Creating DevToolsElements...");
         _elements = new DevToolsElements();
+        Console.WriteLine("[DevToolsPanel] DevToolsElements OK");
+        Console.WriteLine("[DevToolsPanel] Creating DevToolsSource...");
         _source = new DevToolsSource();
+        Console.WriteLine("[DevToolsPanel] DevToolsSource OK");
     }
 
     public void Toggle()

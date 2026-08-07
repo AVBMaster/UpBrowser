@@ -433,24 +433,39 @@ public class DevToolsSource : IImeSupport
         return false;
     }
 
+    private bool _skiaAvailable = true;
+    private SKFont? _cachedSkFont;
+    private SKPaint? _cachedFont;
+
     public void Render(SKCanvas canvas, float x, float y, float width, float height, DevToolsTheme theme)
     {
+        if (!_skiaAvailable)
+        {
+            Console.WriteLine("[DevToolsSource.Render] SKPaint/SKFont unavailable on this OS, skipping render");
+            return;
+        }
+
         _renderX = x; _renderY = y; _renderW = width; _renderH = height;
         _viewHeight = height;
 
-        using var bg = new SKPaint { Color = theme.PanelBg, Style = SKPaintStyle.Fill };
-        canvas.DrawRect(x, y, width, height, bg);
+        try
+        {
+            using var bg = new SKPaint { Color = theme.PanelBg, Style = SKPaintStyle.Fill };
+            canvas.DrawRect(x, y, width, height, bg);
 
-        using var font = new SKPaint { IsAntialias = true };
-        using var skFont = FontHelper.CreateDevToolsFont(12);
+            using var font = _cachedFont ?? new SKPaint { IsAntialias = true };
+            using var skFont = _cachedSkFont ?? FontHelper.CreateDevToolsFont(12);
 
-        using var tagPaint = new SKPaint { Color = theme.AccentBlue, IsAntialias = true };
-        using var attrPaint = new SKPaint { Color = theme.AccentOrange, IsAntialias = true };
-        using var strPaint = new SKPaint { Color = theme.AccentOrange, IsAntialias = true };
-        using var commentPaint = new SKPaint { Color = theme.AccentGreen, IsAntialias = true };
-        using var defPaint = new SKPaint { Color = theme.TextPrimary, IsAntialias = true };
+            if (_cachedFont == null) _cachedFont = font;
+            if (_cachedSkFont == null) _cachedSkFont = skFont;
 
-        float lh = 18;
+            using var tagPaint = new SKPaint { Color = theme.AccentBlue, IsAntialias = true };
+            using var attrPaint = new SKPaint { Color = theme.AccentOrange, IsAntialias = true };
+            using var strPaint = new SKPaint { Color = theme.AccentOrange, IsAntialias = true };
+            using var commentPaint = new SKPaint { Color = theme.AccentGreen, IsAntialias = true };
+            using var defPaint = new SKPaint { Color = theme.TextPrimary, IsAntialias = true };
+
+            float lh = 18;
         float lnW = 50;
         _contentHeight = _lines.Length * lh;
         float maxScroll = Math.Max(0, _contentHeight - _viewHeight + lh);
@@ -531,6 +546,13 @@ public class DevToolsSource : IImeSupport
             float sy = y + (maxScrollBar > 0 ? (_scrollOffset / maxScrollBar) * (_viewHeight - sh) : 0);
             using var sp = new SKPaint { Color = theme.ScrollbarThumb, Style = SKPaintStyle.Fill };
             canvas.DrawRoundRect(x + width - 6, sy, 4, sh, 2, 2, sp);
+        }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[DevToolsSource.Render] SKPaint/SKFont unavailable on this OS: {ex.GetType().Name}: {ex.Message}");
+            _skiaAvailable = false;
+            return;
         }
     }
 

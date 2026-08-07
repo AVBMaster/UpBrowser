@@ -495,7 +495,21 @@ public class WindowsWindow : IWindow
                 if (dt >= targetDt)
                 {
                     _lastFrameTime = now;
-                    _onFrame(dt);
+                    try
+                    {
+                        _onFrame(dt);
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"[WindowsWindow.Run] _onFrame crashed: {ex.GetType().FullName}: {ex.Message}");
+                        Console.WriteLine(ex.StackTrace);
+                        try
+                        {
+                            File.WriteAllText("upbrowser_frame_crash.log", ex.ToString());
+                        }
+                        catch { }
+                        throw;
+                    }
                 }
                 else if (!hasMessage)
                 {

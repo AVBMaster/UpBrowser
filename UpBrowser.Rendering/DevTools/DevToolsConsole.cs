@@ -25,8 +25,8 @@ public class DevToolsConsole : IImeSupport
     private const float InputHeight = 24;
     private float _renderX, _renderY, _renderW, _renderH;
 
-    private readonly SKPaint _font = new SKPaint { IsAntialias = true };
-    private readonly SKFont _skFont = FontHelper.CreateDevToolsFont(12);
+    private SKPaint _font;
+    private SKFont _skFont;
 
     private bool _thumbDragging;
     private float _thumbDragStartY;
@@ -43,6 +43,21 @@ public class DevToolsConsole : IImeSupport
 
     public DevToolsConsole()
     {
+        try
+        {
+            Console.WriteLine("[DevToolsConsole] Creating SKPaint...");
+            _font = new SKPaint { IsAntialias = true };
+            Console.WriteLine("[DevToolsConsole] SKPaint OK");
+            Console.WriteLine("[DevToolsConsole] Creating SKFont...");
+            _skFont = FontHelper.CreateDevToolsFont(12);
+            Console.WriteLine("[DevToolsConsole] SKFont OK");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[DevToolsConsole] SKPaint/SKFont FAILED: {ex.GetType().Name}: {ex.Message}");
+            _font = null;
+            _skFont = null;
+        }
         _outputLines.Add("UpBrowser DevTools Console v1.0");
         _outputLines.Add("Type JavaScript and press Enter to execute.");
         _outputLines.Add("");
@@ -205,6 +220,12 @@ public class DevToolsConsole : IImeSupport
 
     public void Render(SKCanvas canvas, float x, float y, float width, float height, DevToolsTheme theme)
     {
+        if (_font == null || _skFont == null)
+        {
+            Console.WriteLine("[DevToolsConsole.Render] SKPaint/SKFont unavailable on this OS, skipping render");
+            return;
+        }
+
         _renderX = x; _renderY = y; _renderW = width; _renderH = height;
         _viewHeight = height;
 

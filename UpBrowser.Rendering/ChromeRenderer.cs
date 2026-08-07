@@ -133,12 +133,17 @@ public class ChromeRenderer : IImeSupport
     public void Initialize()
     {
         _chineseTypeface = FontHelper.GetChineseTypeface();
-        _font11 = new SKFont(_chineseTypeface, 11) { Hinting = SKFontHinting.Normal, Edging = SKFontEdging.SubpixelAntialias, Subpixel = true };
-        _font12 = new SKFont(_chineseTypeface, 12) { Hinting = SKFontHinting.Normal, Edging = SKFontEdging.SubpixelAntialias, Subpixel = true };
-        _font13 = new SKFont(_chineseTypeface, 13) { Hinting = SKFontHinting.Normal, Edging = SKFontEdging.SubpixelAntialias, Subpixel = true };
-        _font14 = new SKFont(_chineseTypeface, 14) { Hinting = SKFontHinting.Normal, Edging = SKFontEdging.SubpixelAntialias, Subpixel = true };
-        _font22 = new SKFont(_chineseTypeface, 22) { Hinting = SKFontHinting.Normal, Edging = SKFontEdging.SubpixelAntialias, Subpixel = true };
-        _fontClose = new SKFont(_chineseTypeface ?? SKTypeface.Default, 10) { Hinting = SKFontHinting.Normal, Edging = SKFontEdging.SubpixelAntialias, Subpixel = true };
+        _font11 = FontHelper.CreateChineseFont(11);
+        _font12 = FontHelper.CreateChineseFont(12);
+        _font13 = FontHelper.CreateChineseFont(13);
+        _font14 = FontHelper.CreateChineseFont(14);
+        _font22 = FontHelper.CreateChineseFont(22);
+        _fontClose = new SKFont(_chineseTypeface ?? SKTypeface.Default, 10);
+        #if !SUPPORT_WINXP
+        _fontClose.Hinting = SKFontHinting.Normal;
+        _fontClose.Edging = SKFontEdging.SubpixelAntialias;
+        _fontClose.Subpixel = true;
+        #endif
 
         _tabBgPaint = new SKPaint { Color = SKColor.Parse("#F1F3F4"), Style = SKPaintStyle.Fill };
         _tabActivePaint = new SKPaint { Color = SKColors.White, Style = SKPaintStyle.Fill };

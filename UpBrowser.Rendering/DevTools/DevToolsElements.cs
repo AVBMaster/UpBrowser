@@ -13,8 +13,27 @@ public class DevToolsElements
     private float _viewHeight;
     private float _renderX, _renderY, _renderW, _renderH;
 
-    private readonly SKPaint _font = new SKPaint { IsAntialias = true };
-    private readonly SKFont _skFont = FontHelper.CreateDevToolsFont(12);
+    private SKPaint _font;
+    private SKFont _skFont;
+
+    public DevToolsElements()
+    {
+        try
+        {
+            Console.WriteLine("[DevToolsElements] Creating SKPaint...");
+            _font = new SKPaint { IsAntialias = true };
+            Console.WriteLine("[DevToolsElements] SKPaint OK");
+            Console.WriteLine("[DevToolsElements] Creating SKFont...");
+            _skFont = FontHelper.CreateDevToolsFont(12);
+            Console.WriteLine("[DevToolsElements] SKFont OK");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[DevToolsElements] SKPaint/SKFont FAILED: {ex.GetType().Name}: {ex.Message}");
+            _font = null;
+            _skFont = null;
+        }
+    }
 
     private bool _thumbDragging;
     private float _thumbDragStartY;
@@ -68,6 +87,12 @@ public class DevToolsElements
 
     public void Render(SKCanvas canvas, float x, float y, float width, float height, DevToolsTheme theme)
     {
+        if (_font == null || _skFont == null)
+        {
+            Console.WriteLine("[DevToolsElements.Render] SKPaint/SKFont unavailable on this OS, skipping render");
+            return;
+        }
+
         _renderX = x; _renderY = y; _renderW = width; _renderH = height;
         _viewHeight = height;
 
