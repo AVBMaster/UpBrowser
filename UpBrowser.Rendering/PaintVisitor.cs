@@ -247,7 +247,10 @@ public class PaintVisitor
         // Override skipContent: route directly into overlay list
         bool savedSkip = _skipInputTextOverlay;
         _skipInputTextOverlay = true;
-        DrawInputElement(_focusedElement, box, style);
+        if (_focusedElement.TagName.Equals("TEXTAREA", StringComparison.OrdinalIgnoreCase))
+            DrawTextAreaElement(_focusedElement, box, style);
+        else
+            DrawInputElement(_focusedElement, box, style);
         _skipInputTextOverlay = savedSkip;
     }
 
@@ -1425,7 +1428,7 @@ public class PaintVisitor
         }
         if (element.TagName.Equals("TEXTAREA", StringComparison.OrdinalIgnoreCase))
         {
-            DrawInputElement(element, box, style);
+            DrawTextAreaElement(element, box, style);
             return;
         }
         if (element.TagName.Equals("SELECT", StringComparison.OrdinalIgnoreCase))
@@ -1454,7 +1457,23 @@ public class PaintVisitor
             return;
         }
         if (style.Display == DisplayType.Inline)
+        {
+            // Inline containers that were laid out via LayoutInlineChildren (e.g. a
+            // <label> holding a form control plus text) carry their own line runs;
+            // draw them here. Plain text-only inline elements have no lines and are
+            // drawn by the parent's run list, so this is a no-op for them.
+            if (box.LineRuns != null && box.LineRuns.Count > 0)
+            {
+                DrawInlineRuns(box);
+                return;
+            }
+            if (box.Lines != null && box.Lines.Count > 0)
+            {
+                DrawInlineRuns(box);
+                return;
+            }
             return;
+        }
         if (box.LineRuns != null && box.LineRuns.Count > 0)
         {
             DrawInlineRuns(box);
@@ -1642,6 +1661,235 @@ public class PaintVisitor
         _displayList.Add(textOp);
     }
 
+    private void DrawTextAreaElement(Element element, LayoutBox box, ComputedStyle style)
+    {
+        string? value = element.Value;
+        string? placeholder = element.GetAttribute("placeholder");
+        bool isFocused = _focusedElement == element;
+        bool isDisabled = element.HasAttribute("disabled");
+        bool isReadOnly = element.HasAttribute("readonly");
+
+        string text;
+        bool showPlaceholder = false;
+        if (!string.IsNullOrEmpty(value))
+            text = value;
+        else if (isFocused)
+            text = "";
+        else if (!string.IsNullOrEmpty(placeholder))
+        {
+            text = placeholder;
+            showPlaceholder = true;
+        }
+        else
+            text = "";
+
+        float fontSize = style.FontSize > 0 ? style.FontSize : 14;
+        float lineH = fontSize * (style.LineHeight > 0 ? style.LineHeight : 1.2f);
+        var contentBox = box.ContentBox;
+        float textX = contentBox.Left + 2;
+        float textTop = contentBox.Top + 2;
+        float usableW = Math.Max(1, contentBox.Width - 4);
+        float usableH = Math.Max(1, contentBox.Height - 4);
+
+        bool skipContent = _skipInputTextOverlay && isFocused;
+        var targetList = skipContent ? _overlayList : _displayList;
+
+        var clipRect = new SKRect(contentBox.Left, contentBox.Top + TotalOffsetY,
+            contentBox.Right, contentBox.Bottom + TotalOffsetY);
+        if (clipRect.Width > 0 && clipRect.Height > 0)
+        {
+            var clipOp = PaintOpPool.GetPushClipOp();
+            clipOp.ClipRect = clipRect;
+            targetList.Add(clipOp);
+            if (skipContent)
+            {
+                var overlayClip = PaintOpPool.GetPushClipOp();
+                overlayClip.ClipRect = clipRect;
+                _overlayList.Add(overlayClip);
+            }
+        }
+
+        if (skipContent)
+        {
+            var clearRect = new SKRect(contentBox.Left, contentBox.Top + TotalOffsetY,
+                contentBox.Right, contentBox.Bottom + TotalOffsetY);
+            var bgColor = style.BackgroundColor ?? new SKColor(255, 255, 255);
+            var clearOp = PaintOpPool.GetDrawRectOp();
+            clearOp.Rect = clearRect;
+            clearOp.FillColor = bgColor;
+            clearOp.Bounds = clearRect;
+            _overlayList.Add(clearOp);
+        }
+
+        // Include any IME composition; the caret is drawn at the (line, column)
+        // derived from the flat cursor offset.
+        string effectText = isFocused && _inputImeComposing
+            ? text[..Math.Min(_inputCursorPos, text.Length)] + _inputImeComposition +
+              text[Math.Min(_inputCursorPos, text.Length)..]
+            : text;
+        int caretFlat = isFocused && _inputImeComposing
+            ? Math.Min(_inputCursorPos, text.Length) + Math.Min(_inputImeCursor, _inputImeComposition.Length)
+            : isFocused ? _inputCursorPos : 0;
+
+        var visualLines = Core.Layout.TextWrapHelper.WrapToLines(effectText, style.FontFamily ?? "Arial", fontSize, usableW);
+        if (showPlaceholder && visualLines.Count == 0)
+            visualLines = Core.Layout.TextWrapHelper.WrapToLines(placeholder ?? "", style.FontFamily ?? "Arial", fontSize, usableW);
+
+        float totalH = visualLines.Count * lineH;
+        float maxScrollY = Math.Max(0, totalH - usableH);
+
+        int caretLine = 0;
+        if (isFocused && visualLines.Count > 0)
+            caretLine = Math.Min(Core.Layout.TextWrapHelper.GetLineColumn(visualLines, caretFlat).line, visualLines.Count - 1);
+        float scrollY = 0;
+        if (maxScrollY > 0)
+        {
+            const float margin = 4;
+            float caretLineY = caretLine * lineH;
+            if (caretLineY < scrollY + margin)
+                scrollY = Math.Max(0, caretLineY - margin);
+            else if (caretLineY + lineH > scrollY + usableH - margin)
+                scrollY = Math.Min(maxScrollY, caretLineY + lineH - (usableH - margin));
+        }
+
+        SKColor textColor = showPlaceholder ? new SKColor(160, 160, 160) : (style.Color.Alpha > 0 ? style.Color : SKColors.Black);
+        if (isDisabled)
+            textColor = new SKColor(160, 160, 160);
+
+        int selA = -1, selB = -1;
+        if (isFocused && _inputSelStart >= 0 && _inputSelStart != caretFlat)
+        {
+            selA = Math.Min(_inputSelStart, caretFlat);
+            selB = Math.Max(_inputSelStart, caretFlat);
+        }
+
+        for (int i = 0; i < visualLines.Count; i++)
+        {
+            var ln = visualLines[i];
+            float y = textTop + i * lineH - scrollY;
+            if (y + lineH < textTop || y > contentBox.Bottom) continue;
+
+            int lineStart = ln.Start;
+            int lineEnd = ln.Start + ln.Length;
+            string lineText = effectText.Substring(lineStart, ln.Length);
+
+            // Selection highlight for the portion of this line inside the selection.
+            if (selA >= 0 && selB > lineStart && selA < lineEnd)
+            {
+                int a = Math.Max(selA, lineStart);
+                int b = Math.Min(selB, lineEnd);
+                float selX = textX + MeasureTextWidth(effectText[lineStart..a], fontSize, style.FontFamily);
+                float selW = MeasureTextWidth(effectText[a..b], fontSize, style.FontFamily);
+                var selOp = PaintOpPool.GetDrawRectOp();
+                selOp.Rect = new SKRect(selX, y + TotalOffsetY, selX + selW, y + TotalOffsetY + lineH);
+                selOp.FillColor = new SKColor(0x1A, 0x73, 0xE8);
+                selOp.Bounds = selOp.Rect;
+                targetList.Add(selOp);
+            }
+
+            DrawTextAreaLine(effectText[lineStart..lineEnd], textX, y, fontSize, style, textColor,
+                selA >= 0 ? selA : -1, selB >= 0 ? selB : -1, lineStart, contentBox, targetList);
+        }
+
+        // Caret at the (line, column) of the caret offset.
+        if (isFocused && _inputShowCursor && !_inputImeComposing && !isReadOnly && !isDisabled && visualLines.Count > 0)
+        {
+            var (cline, ccol) = Core.Layout.TextWrapHelper.GetLineColumn(visualLines, caretFlat);
+            cline = Math.Min(cline, visualLines.Count - 1);
+            var cln = visualLines[cline];
+            float caretX = textX + MeasureTextWidth(effectText[cln.Start..(cln.Start + Math.Min(ccol, cln.Length))], fontSize, style.FontFamily);
+            caretX = Math.Clamp(caretX, textX, textX + usableW);
+            float caretY = textTop + cline * lineH - scrollY;
+            var caretColor = style.CaretColor ?? new SKColor(0, 0, 0);
+            var cursorOp = PaintOpPool.GetDrawLineOp();
+            cursorOp.X1 = caretX;
+            cursorOp.Y1 = caretY + 1 + TotalOffsetY;
+            cursorOp.X2 = caretX;
+            cursorOp.Y2 = caretY + lineH - 1 + TotalOffsetY;
+            cursorOp.Color = caretColor;
+            cursorOp.StrokeWidth = 1.5f;
+            cursorOp.Bounds = new SKRect(caretX - 1, cursorOp.Y1, caretX + 1, cursorOp.Y2);
+            targetList.Add(cursorOp);
+        }
+
+        if (clipRect.Width > 0 && clipRect.Height > 0)
+        {
+            targetList.Add(PaintOpPool.GetPopClipOp());
+            if (skipContent) _overlayList.Add(PaintOpPool.GetPopClipOp());
+        }
+
+        // Resize grip at the bottom-right corner (drawn outside the content clip).
+        if (style.Resize != ResizeType.None && !isDisabled)
+        {
+            var bBox = box.BorderBox;
+            float gx = bBox.Right - 8;
+            float gy = bBox.Bottom - 8;
+            bool gripHover = Math.Abs(_mouseX - gx) <= 10 && Math.Abs(_mouseY - gy) <= 10;
+            bool gripPressed = _pressedControl == "textarea-resize";
+            SKColor gColor = gripHover || gripPressed ? new SKColor(0x1A, 0x73, 0xE8) : new SKColor(120, 120, 120);
+            float yOff = TotalOffsetY;
+            var gripPath = new SKPath();
+            gripPath.MoveTo(gx - 8, gy + 3 + yOff);
+            gripPath.LineTo(gx + 3, gy - 8 + yOff);
+            gripPath.MoveTo(gx - 5, gy + 3 + yOff);
+            gripPath.LineTo(gx + 3, gy - 5 + yOff);
+            var gripOp = PaintOpPool.GetDrawPathOp();
+            gripOp.Path = gripPath;
+            gripOp.StrokePaint = new SKPaint { Color = gColor, Style = SKPaintStyle.Stroke, StrokeWidth = 1.5f, IsAntialias = true, StrokeCap = SKStrokeCap.Round };
+            gripOp.Bounds = new SKRect(gx - 10, gy - 10 + yOff, gx + 6, gy + 6 + yOff);
+            targetList.Add(gripOp);
+        }
+    }
+
+    // Draws one textarea line at an explicit baseline Y, splitting it into
+    // selected (white on blue) / unselected segments.
+    private void DrawTextAreaLine(string text, float x, float lineY, float fontSize, ComputedStyle style, SKColor textColor,
+        int selA, int selB, int lineStart, SKRect contentBox, DisplayList targetList)
+    {
+        if (string.IsNullOrEmpty(text)) return;
+        int absStart = lineStart;
+        int absEnd = lineStart + text.Length;
+
+        void Draw(string seg, float segX, SKColor color)
+        {
+            var op = PaintOpPool.GetDrawTextOp();
+            op.Text = seg;
+            op.X = segX;
+            op.Y = lineY + fontSize * 0.85f + TotalOffsetY;
+            op.Color = color;
+            op.FontSize = fontSize;
+            op.FontFamily = style.FontFamily ?? "Arial";
+            op.FontWeight = style.FontWeight;
+            op.Italic = style.FontStyle == FontStyleType.Italic || style.FontStyle == FontStyleType.Oblique;
+            op.Bounds = new SKRect(segX, lineY + TotalOffsetY, segX + MeasureTextWidth(seg, fontSize, style.FontFamily), lineY + TotalOffsetY + fontSize);
+            targetList.Add(op);
+        }
+
+        if (selA < 0 || selB <= absStart || selA >= absEnd)
+        {
+            Draw(text, x, textColor);
+            return;
+        }
+
+        int a = Math.Max(selA, absStart);
+        int b = Math.Min(selB, absEnd);
+        float dx = x;
+        if (a > absStart)
+        {
+            string pre = text[..(a - absStart)];
+            Draw(pre, dx, textColor);
+            dx += MeasureTextWidth(pre, fontSize, style.FontFamily);
+        }
+        if (b > a)
+        {
+            string sel = text[(a - absStart)..(b - absStart)];
+            Draw(sel, dx, SKColors.White);
+            dx += MeasureTextWidth(sel, fontSize, style.FontFamily);
+        }
+        if (b < absEnd)
+            Draw(text[(b - absStart)..], dx, textColor);
+    }
+
     private void DrawInputElement(Element element, LayoutBox box, ComputedStyle style)
     {
         string? value = element.Value;
@@ -1742,13 +1990,15 @@ public class PaintVisitor
         // Measure widths
         float fullTextWidth = MeasureTextWidth(effectText, fontSize, style.FontFamily);
 
-        // Horizontal scroll offset: keep cursor visible (stateless, cursor at ~33% from left)
+        // Horizontal scroll offset: scroll only far enough to keep the caret visible
+        // (matches BrowserApp.UpdateInputScrollOffset), so the caret stays where the
+        // user clicked instead of snapping to a fixed fraction of the usable width.
         float scrollOffset = 0;
         if (isFocused && fullTextWidth > usableWidth)
         {
             float cursorWidth = MeasureTextWidth(effectText[..Math.Min(cursorPos, effectText.Length)], fontSize, style.FontFamily);
-            float desiredOffset = cursorWidth - usableWidth * 0.33f;
-            scrollOffset = Math.Clamp(desiredOffset, 0, Math.Max(0, fullTextWidth - usableWidth));
+            float maxScroll = Math.Max(0, fullTextWidth - usableWidth);
+            scrollOffset = KeepCaretVisibleOffset(cursorWidth, scrollOffset, usableWidth, maxScroll);
         }
 
         // Draw selection background
@@ -2178,6 +2428,20 @@ public class PaintVisitor
             return Core.Layout.TextMeasurer.Instance.MeasureText(text, fontFamily ?? "Arial", fontSize);
         float avgCharWidth = fontSize * 0.55f;
         return text.Length * avgCharWidth;
+    }
+
+    // Scrolls horizontally only far enough to keep the caret visible (with a small
+    // margin) instead of snapping it to a fixed fraction of the width. Must match
+    // BrowserApp.KeepCaretVisibleOffset so click->caret mapping stays consistent.
+    private static float KeepCaretVisibleOffset(float caretWidth, float currentScroll, float usableWidth, float maxScroll)
+    {
+        const float margin = 8;
+        float caretX = caretWidth - currentScroll;
+        if (caretX < margin)
+            return Math.Clamp(caretWidth - margin, 0, maxScroll);
+        if (caretX > usableWidth - margin)
+            return Math.Clamp(caretWidth - (usableWidth - margin), 0, maxScroll);
+        return Math.Clamp(currentScroll, 0, maxScroll);
     }
 
     private void DrawCheckRadioElement(Element element, LayoutBox box, ComputedStyle style, string inputType)

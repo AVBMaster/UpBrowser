@@ -1020,6 +1020,89 @@ public class LayoutEngine
                     float inlineFontSize = childStyle.FontSize > 0 ? childStyle.FontSize : fontSize;
                     float inlineLineHeight = (childStyle.LineHeight > 0 ? childStyle.LineHeight : 1.5f) * inlineFontSize;
 
+                    // Inline container holding nested element children (e.g.
+                    // <label><input type="checkbox"> A</label>). The generic inline path
+                    // below only collects the container's direct text and never lays out
+                    // its element children, so a form control nested inside a <label>/<span>/<a>
+                    // would get no LayoutBox and would never be painted (issue: checkbox/radio
+                    // showing text but no box). Lay the container's content out via
+                    // LayoutInlineChildren instead so nested controls receive boxes.
+                    if (!isFormElement && HasVisibleElementChild(childElement))
+                    {
+                        if (inlineCurrentLine == null)
+                        {
+                            inlineCurrentLine = new LineBox { Y = currentY, Baseline = currentY + inlineLineHeight * 0.85f, Height = inlineLineHeight };
+                            box.Lines ??= new List<LineBox>();
+                            box.Lines.Add(inlineCurrentLine);
+                            inlineCurrentX = x;
+                            inlineMaxHeightInLine = 0;
+                        }
+
+                        if (allowWrapping && inlineCurrentX + 24 > x + availableWidth - 0.01f && inlineCurrentX > x)
+                        {
+                            inlineCurrentLine.Height = inlineMaxHeightInLine > 0 ? inlineMaxHeightInLine : inlineLineHeight;
+                            currentY += inlineCurrentLine.Height;
+                            inlineCurrentLine = new LineBox { Y = currentY, Baseline = currentY + inlineLineHeight * 0.85f, Height = inlineLineHeight };
+                            box.Lines.Add(inlineCurrentLine);
+                            inlineCurrentX = x;
+                            inlineMaxHeightInLine = 0;
+                        }
+
+                        float startX = inlineCurrentX;
+                        float childLineBaseline = inlineCurrentLine.Baseline;
+                        float boxTop = childLineBaseline - inlineLineHeight;
+                        float boxBottom = childLineBaseline;
+
+                        var containerBox = new LayoutBox
+                        {
+                            MarginBox = new SKRect(startX, boxTop, startX + 8, boxBottom),
+                            BorderBox = new SKRect(startX, boxTop, startX + 8, boxBottom),
+                            PaddingBox = new SKRect(startX, boxTop, startX + 8, boxBottom),
+                            ContentBox = new SKRect(startX, boxTop, startX + 8, boxBottom),
+                            LineHeight = inlineLineHeight
+                        };
+                        childElement.LayoutBox = containerBox;
+                        box.Children.Add(containerBox);
+                        containerBox.Parent = box;
+
+                        LayoutInlineChildren(childElement, containerBox, startX, boxTop, availableWidth);
+
+                        float contentWidth = 8;
+                        if (containerBox.Lines != null)
+                        {
+                            foreach (var ln in containerBox.Lines)
+                            {
+                                float lineW = 0;
+                                foreach (var r in ln.Runs) lineW += r.Width;
+                                contentWidth = Math.Max(contentWidth, lineW);
+                            }
+                        }
+                        foreach (var cb in containerBox.Children)
+                            contentWidth = Math.Max(contentWidth, cb.MarginBox.Right - startX);
+                        contentWidth = Math.Max(4, contentWidth);
+
+                        containerBox.MarginBox = new SKRect(startX, boxTop, startX + contentWidth, boxBottom);
+                        containerBox.BorderBox = containerBox.MarginBox;
+                        containerBox.PaddingBox = containerBox.MarginBox;
+                        containerBox.ContentBox = containerBox.MarginBox;
+
+                        inlineCurrentLine.Runs.Add(new InlineRun
+                        {
+                            Text = "",
+                            Width = contentWidth,
+                            Height = inlineLineHeight,
+                            IsText = false,
+                            Node = childElement,
+                            Color = childStyle.Color,
+                            FontSize = inlineFontSize,
+                            FontFamily = childStyle.FontFamily
+                        });
+                        inlineCurrentX += contentWidth;
+                        if (inlineLineHeight > inlineMaxHeightInLine)
+                            inlineMaxHeightInLine = inlineLineHeight;
+                        continue;
+                    }
+
                     float elemWidth = 0;
                     float elemHeight = 0;
 
@@ -2031,6 +2114,17 @@ public class LayoutEngine
         if (style.Width is EmLength em) return em.Value * defaultFontSize;
         if (style.Width is RemLength rem) return rem.Value * _rootFontSize;
         return 50;
+    }
+
+    // True when an inline element has element children that need their own boxes
+    // (e.g. <label><input> text</label>). Such children cannot be reduced to a plain
+    // text run; their content must be laid out via LayoutInlineChildren.
+    private static bool HasVisibleElementChild(Element element)
+    {
+        foreach (var c in element.Children)
+            if (c is Element ce && ce.ComputedStyle != null && ce.ComputedStyle.Display != DisplayType.None)
+                return true;
+        return false;
     }
 
     private void ApplyTextAlign(LayoutBox box, TextAlignType textAlign, float x, float availableWidth)

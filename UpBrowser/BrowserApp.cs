@@ -1582,6 +1582,15 @@ namespace UpBrowser;
         _cachedPaintVisitor.SetMouseState(mx + _scroll.ScrollX, my - _contentOffset + _scroll.ScrollY,
             _input.IsMouseDown(), _pressedInputControl);
         _cachedPaintVisitor.SetPressedButton(_pressedButton);
+        if (_activeSelect != null)
+        {
+            ComputeSelectDropdownGeometry();
+            _cachedPaintVisitor.SetSelectDropdown(_activeSelect, _selectDropdownRect, _selectOptionRects, _selectHoverIndex);
+        }
+        else
+        {
+            _cachedPaintVisitor.SetSelectDropdown(null, default, null, -1);
+        }
         if (_focusedElement != null && _focusedElement.IsTextEditable)
         {
             _cachedPaintVisitor.SetInputState(_inputCursorPos, _inputSelStart, _inputShowCursor,
@@ -2357,6 +2366,13 @@ namespace UpBrowser;
             // Dispatch focus/blur when focused element changes
             if (element.IsFormElement)
             {
+                // Disabled form controls are not focusable and ignore all mouse
+                // interaction (no caret, no checkbox/radio toggle, no button press).
+                if (element.HasAttribute("disabled"))
+                {
+                    _isSelecting = false;
+                    return;
+                }
                 _isSelecting = false;
                 if (_focusedElement != element)
                 {
@@ -2449,16 +2465,44 @@ namespace UpBrowser;
                     }
                 }
 
-                if (isTextInput && !string.IsNullOrEmpty(val) && element.ComputedStyle != null && element.LayoutBox != null)
+                if (element.TagName == "TEXTAREA" && element.ComputedStyle != null && element.LayoutBox != null)
+                {
+                    // Bottom-right corner is a resize grip (matches the grip drawn by
+                    // DrawTextAreaElement). Starting a drag there resizes the textarea.
+                    var tbb = element.LayoutBox.BorderBox;
+                    if (element.ComputedStyle.Resize != ResizeType.None &&
+                        docX >= tbb.Right - 16 && adjustedY >= tbb.Bottom - 16)
+                    {
+                        _textareaResizeElement = element;
+                        _textareaResizeStartX = docX;
+                        _textareaResizeStartY = adjustedY;
+                        _textareaResizeStartW = element.LayoutBox.ContentBox.Width;
+                        _textareaResizeStartH = element.LayoutBox.ContentBox.Height;
+                        _pressedInputControl = "textarea-resize";
+                        _inputDragging = false;
+                        return;
+                    }
+                    // Multi-line textarea: map the click to a visual line/column and
+                    // convert back to a flat character index.
+                    _inputCursorPos = GetTextAreaCharIndex(element, docX, adjustedY);
+                }
+                else if (isTextInput && element.TagName == "INPUT" && !string.IsNullOrEmpty(val) && element.ComputedStyle != null && element.LayoutBox != null)
                 {
                     float cbLeft = element.LayoutBox.ContentBox.Left;
                     float clickX = docX - cbLeft - 2;
                     float fontSize = element.ComputedStyle.FontSize > 0 ? element.ComputedStyle.FontSize : 14;
                     string fontFamily = element.ComputedStyle.FontFamily ?? "Arial";
+                    // Password dots are wider than the real characters, so the caret
+                    // mapping must measure the same masked text the painter draws,
+                    // otherwise clicks drift horizontally.
+                    string displayVal = val;
+                    if (inputType == "password" && !_passwordRevealed)
+                        displayVal = new string('●', val.Length);
                     // Account for horizontal scroll offset so click targeting works
                     // when text inside the input has been scrolled.
                     UpdateInputScrollOffset(element);
-                    _inputCursorPos = GetFormInputCharIndex(val, clickX + _inputScrollOffset, fontSize, fontFamily);
+                    _inputCursorPos = GetFormInputCharIndex(displayVal, clickX + _inputScrollOffset, fontSize, fontFamily);
+                    UpdateInputScrollOffset(element);
                 }
                 else
                 {
@@ -2467,7 +2511,7 @@ namespace UpBrowser;
                 _inputSelStart = -1;
                 _inputShowCursor = true;
                 _inputLastCursorBlinkTick = Environment.TickCount64;
-                _inputDragging = isTextInput;
+                _inputDragging = isTextInput && element.TagName == "INPUT";
 
                 // Checkbox/radio toggle
                 if (inputType == "checkbox")
@@ -2483,30 +2527,39 @@ namespace UpBrowser;
                 {
                     if (!element.HasAttribute("checked"))
                     {
-                        // Uncheck all radios with same name in the same form
-                        string? name = element.GetAttribute("name");
-                        if (!string.IsNullOrEmpty(name))
-                        {
-                            var parentForm = FindParentForm(element);
-                            if (parentForm != null)
-                            {
-                                foreach (var formEl in parentForm.Elements)
-                                {
-                                    if (formEl is Element fe && fe.TagName == "INPUT" &&
-                                        fe.GetAttribute("type") == "radio" &&
-                                        fe.GetAttribute("name") == name)
-                                        fe.RemoveAttribute("checked");
-                                }
-                            }
-                        }
+                        // A radio group is all same-name radios sharing the same
+                        // form owner (radios outside any <form> share the "no form"
+                        // group). Uncheck the whole group so only one can be selected.
+                        UncheckRadioGroup(element);
                         element.SetAttribute("checked", "");
                         _jsEngine.DispatchEvent(element, "change");
                         _input.NeedsRedraw = true;
                     }
                 }
 
-                // Submit button handling
-                if (inputType == "submit" || inputType == "image")
+                // BUTTON element: press feedback + submit/reset based on the type attribute.
+                // Buttons are form elements, so they enter this branch instead of the
+                // generic else-branch below; without this block a <button> (type defaults
+                // to "submit" in HTML, but the attribute may be null) would get no feedback.
+                if (element.TagName == "BUTTON")
+                {
+                    _pressedButton = element;
+                    _pendingRelayout = true;
+                    string? btnType = element.GetAttribute("type")?.ToLowerInvariant();
+                    if (btnType == "submit" || btnType == null)
+                    {
+                        var form = FindParentForm(element);
+                        if (form != null)
+                            form.Submit();
+                    }
+                    else if (btnType == "reset")
+                    {
+                        var form = FindParentForm(element);
+                        if (form != null)
+                            form.Reset();
+                    }
+                }
+                else if (inputType == "submit" || inputType == "image")
                 {
                     _pressedButton = element;
                     _pendingRelayout = true;
@@ -2677,6 +2730,9 @@ namespace UpBrowser;
     private bool _passwordRevealed;
     private string? _pressedInputControl;
     private Core.Dom.Element? _pressedButton;
+    private Core.Dom.Element? _textareaResizeElement;
+    private float _textareaResizeStartX, _textareaResizeStartY;
+    private float _textareaResizeStartW, _textareaResizeStartH;
     private Core.Dom.Element? _activeSelect;
     private SKRect _selectDropdownRect;
     private readonly List<(Core.Dom.Element Option, SKRect Rect)> _selectOptionRects = new();
@@ -2878,6 +2934,47 @@ namespace UpBrowser;
             return true;
         }
 
+        if (key == Key.Up || key == Key.Down)
+        {
+            if (_focusedElement.TagName != "TEXTAREA")
+                return false;
+            string taVal = _focusedElement.Value ?? "";
+            var taStyle = _focusedElement.ComputedStyle;
+            var taBox = _focusedElement.LayoutBox;
+            if (taStyle == null || taBox == null) return true;
+            float fs = taStyle.FontSize > 0 ? taStyle.FontSize : 14;
+            float usableW = Math.Max(1, taBox.ContentBox.Width - 4);
+            string ff = taStyle.FontFamily ?? "Arial";
+            var lines = Core.Layout.TextWrapHelper.WrapToLines(taVal, ff, fs, usableW);
+            if (lines.Count == 0) return true;
+            var (curLine, curCol) = Core.Layout.TextWrapHelper.GetLineColumn(lines, cursorPos);
+            int targetLine = key == Key.Up ? curLine - 1 : curLine + 1;
+            if (targetLine < 0 || targetLine >= lines.Count) return true;
+            var curLn = lines[curLine];
+            var tgtLn = lines[targetLine];
+            string curText = taVal.Substring(curLn.Start, curLn.Length);
+            string tgtText = taVal.Substring(tgtLn.Start, tgtLn.Length);
+            int curColClamped = Math.Min(curCol, curText.Length);
+            float curX = TextMeasurer.Instance?.MeasureText(curText[..curColClamped], ff, fs)
+                         ?? curColClamped * fs * 0.55f;
+            int targetCol = GetFormInputCharIndex(tgtText, curX, fs, ff);
+            int newPos = Core.Layout.TextWrapHelper.GetFlatIndex(lines, targetLine, targetCol);
+            if (shift)
+            {
+                if (selStart < 0) _inputSelStart = cursorPos;
+                _inputCursorPos = newPos;
+            }
+            else
+            {
+                _inputCursorPos = newPos;
+                _inputSelStart = -1;
+            }
+            _inputShowCursor = true;
+            _inputLastCursorBlinkTick = Environment.TickCount64;
+            _input.NeedsRedraw = true;
+            return true;
+        }
+
         if (key == Key.Enter)
         {
             if (_focusedElement.TagName == "TEXTAREA")
@@ -3015,6 +3112,54 @@ namespace UpBrowser;
             el = el.ParentElement;
         }
         return null;
+    }
+
+    // Unchecks every radio that shares the same name AND the same form owner
+    // (radios outside any <form> form a group of their own), leaving the clicked
+    // one as the only selected member of the group.
+    private void UncheckRadioGroup(Core.Dom.Element element)
+    {
+        string? name = element.GetAttribute("name");
+        if (string.IsNullOrEmpty(name)) return;
+        var doc = _currentLoad?.Document;
+        if (doc == null) return;
+        var form = FindParentForm(element);
+        foreach (var el in doc.GetElementsByTagName("input"))
+        {
+            if (ReferenceEquals(el, element)) continue;
+            if (el.GetAttribute("type") == "radio" && el.GetAttribute("name") == name &&
+                ReferenceEquals(FindParentForm(el), form))
+                el.RemoveAttribute("checked");
+        }
+    }
+
+    // Writes width/height in px into the element's inline style, preserving any
+    // other declarations. The engine treats inline style width/height as the
+    // content-box size, so the rendered border-box grows exactly by the drag delta.
+    private static void SetElementInlineSize(Core.Dom.Element element, float width, float height)
+    {
+        string? existing = element.GetAttribute("style");
+        var sb = new System.Text.StringBuilder();
+        if (!string.IsNullOrEmpty(existing))
+        {
+            foreach (var decl in existing.Split(';'))
+            {
+                var trimmed = decl.Trim();
+                if (trimmed.Length == 0) continue;
+                int colon = trimmed.IndexOf(':');
+                if (colon > 0)
+                {
+                    string prop = trimmed[..colon].Trim().ToLowerInvariant();
+                    if (prop == "width" || prop == "height") continue;
+                }
+                sb.Append(trimmed).Append("; ");
+            }
+        }
+        sb.Append("width: ").Append(width.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture)).Append("px; ")
+          .Append("height: ").Append(height.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture)).Append("px;");
+        element.SetAttribute("style", sb.ToString());
+        DirtyState.AddSelf(element, DirtyFlags.AllLayout);
+        DirtyState.AddChildren(element, DirtyFlags.AllLayout);
     }
 
     private void BlurFocusedElement()
@@ -3287,6 +3432,17 @@ namespace UpBrowser;
         float adjustedY = y - _contentOffset + _scroll.ScrollY;
         var element = HitTest(_currentLoad.Document, docX, adjustedY);
 
+        // Textarea resize drag: grow/shrink the element via its inline style.
+        if (_textareaResizeElement != null)
+        {
+            float newW = Math.Max(50, _textareaResizeStartW + (docX - _textareaResizeStartX));
+            float newH = Math.Max(30, _textareaResizeStartH + (adjustedY - _textareaResizeStartY));
+            SetElementInlineSize(_textareaResizeElement, newW, newH);
+            _pendingRelayout = true;
+            _input.NeedsRedraw = true;
+            return;
+        }
+
         // Update text selection during drag
         if (_isSelecting)
         {
@@ -3318,8 +3474,11 @@ namespace UpBrowser;
                 float clickX = docX - cbLeft - 2;
                 float fontSize = _focusedElement.ComputedStyle.FontSize > 0 ? _focusedElement.ComputedStyle.FontSize : 14;
                 string fontFamily = _focusedElement.ComputedStyle.FontFamily ?? "Arial";
+                string displayVal = val;
+                if (inputType == "password" && !_passwordRevealed)
+                    displayVal = new string('●', val.Length);
                 UpdateInputScrollOffset(_focusedElement);
-                int newPos = GetFormInputCharIndex(val, clickX + _inputScrollOffset, fontSize, fontFamily);
+                int newPos = GetFormInputCharIndex(displayVal, clickX + _inputScrollOffset, fontSize, fontFamily);
                 if (newPos != _inputCursorPos)
                 {
                     if (_inputSelStart < 0) _inputSelStart = _inputCursorPos;
@@ -3327,6 +3486,7 @@ namespace UpBrowser;
                     _inputShowCursor = true;
                     _inputLastCursorBlinkTick = Environment.TickCount64;
                     _input.NeedsRedraw = true;
+                    UpdateInputScrollOffset(_focusedElement);
                 }
             }
         }
@@ -3420,6 +3580,7 @@ namespace UpBrowser;
     {
         // Element scrollbar drag release
         _elemScrollDragBox = null;
+        _textareaResizeElement = null;
         bool hadControlPress = _pressedInputControl != null || _pressedButton != null;
         _pressedInputControl = null;
         _pressedButton = null;
@@ -3654,15 +3815,89 @@ namespace UpBrowser;
         if (string.IsNullOrEmpty(value)) return;
         float fontSize = style.FontSize > 0 ? style.FontSize : 14;
         string fontFamily = style.FontFamily ?? "Arial";
-        float fullTextWidth = TextMeasurer.Instance?.MeasureText(value, fontFamily, fontSize) ?? value.Length * fontSize * 0.55f;
-        float usableWidth = element.LayoutBox.ContentBox.Width - 4;
+        // Password dots are wider than the real characters; measure the same masked
+        // text the painter draws so scroll/click mapping stay aligned.
+        string? inputType = element.InputType?.ToLowerInvariant();
+        string measuredValue = inputType == "password" && !_passwordRevealed
+            ? new string('●', value.Length) : value;
+        float fullTextWidth = TextMeasurer.Instance?.MeasureText(measuredValue, fontFamily, fontSize) ?? measuredValue.Length * fontSize * 0.55f;
+        // Keep the scroll range consistent with the painter: the right-side internal
+        // controls (clear button / spin buttons / password reveal) reserve space, so
+        // usable width must match, otherwise click->caret mapping drifts horizontally.
+        float usableWidth = element.LayoutBox.ContentBox.Width - 4 - GetInputReservedRight(element);
         if (fullTextWidth > usableWidth)
         {
-            float cursorWidth = TextMeasurer.Instance?.MeasureText(value[..Math.Min(_inputCursorPos, value.Length)], fontFamily, fontSize)
+            float cursorWidth = TextMeasurer.Instance?.MeasureText(measuredValue[..Math.Min(_inputCursorPos, measuredValue.Length)], fontFamily, fontSize)
                 ?? _inputCursorPos * fontSize * 0.55f;
-            float desiredOffset = cursorWidth - usableWidth * 0.33f;
-            _inputScrollOffset = Math.Clamp(desiredOffset, 0, Math.Max(0, fullTextWidth - usableWidth));
+            float maxScroll = Math.Max(0, fullTextWidth - usableWidth);
+            _inputScrollOffset = KeepCaretVisibleOffset(cursorWidth, _inputScrollOffset, usableWidth, maxScroll);
         }
+    }
+
+    private float GetInputReservedRight(Core.Dom.Element element)
+    {
+        if (element.TagName != "INPUT") return 0;
+        string? inputType = element.InputType?.ToLowerInvariant();
+        bool isFocused = _focusedElement == element;
+        bool isDisabled = element.HasAttribute("disabled");
+        if (inputType == "search" && isFocused && !isDisabled && !string.IsNullOrEmpty(element.Value)) return 24;
+        if (inputType == "number" && isFocused && !isDisabled) return 22;
+        if (inputType == "password" && isFocused && !isDisabled) return 22;
+        return 0;
+    }
+
+    // Scrolls horizontally only far enough to keep the caret visible (with a small
+    // margin) instead of snapping it to a fixed fraction of the width. This keeps the
+    // caret exactly where the user clicked instead of drifting ~33% toward the left.
+    private static float KeepCaretVisibleOffset(float caretWidth, float currentScroll, float usableWidth, float maxScroll)
+    {
+        const float margin = 8;
+        float caretX = caretWidth - currentScroll;
+        if (caretX < margin)
+            return Math.Clamp(caretWidth - margin, 0, maxScroll);
+        if (caretX > usableWidth - margin)
+            return Math.Clamp(caretWidth - (usableWidth - margin), 0, maxScroll);
+        return Math.Clamp(currentScroll, 0, maxScroll);
+    }
+
+    // Maps a click inside a <textarea> (doc coordinates) to a flat character index,
+    // using the same visual-line / vertical-scroll model as PaintVisitor.DrawTextAreaElement.
+    private int GetTextAreaCharIndex(Core.Dom.Element element, float docX, float docY)
+    {
+        var box = element.LayoutBox!;
+        var style = element.ComputedStyle!;
+        float fontSize = style.FontSize > 0 ? style.FontSize : 14;
+        float lineH = fontSize * (style.LineHeight > 0 ? style.LineHeight : 1.2f);
+        var contentBox = box.ContentBox;
+        float textX = contentBox.Left + 2;
+        float textTop = contentBox.Top + 2;
+        float usableW = Math.Max(1, contentBox.Width - 4);
+        float usableH = Math.Max(1, contentBox.Height - 4);
+        string fontFamily = style.FontFamily ?? "Arial";
+        string val = element.Value ?? "";
+
+        var lines = Core.Layout.TextWrapHelper.WrapToLines(val, fontFamily, fontSize, usableW);
+        if (lines.Count == 0) return 0;
+
+        int caretLine = Math.Min(Core.Layout.TextWrapHelper.GetLineColumn(lines, _inputCursorPos).line, lines.Count - 1);
+        float maxScrollY = Math.Max(0, lines.Count * lineH - usableH);
+        float scrollY = 0;
+        if (maxScrollY > 0)
+        {
+            const float margin = 4;
+            float caretLineY = caretLine * lineH;
+            if (caretLineY < scrollY + margin)
+                scrollY = Math.Max(0, caretLineY - margin);
+            else if (caretLineY + lineH > scrollY + usableH - margin)
+                scrollY = Math.Min(maxScrollY, caretLineY + lineH - (usableH - margin));
+        }
+
+        int lineIdx = (int)Math.Floor((docY - textTop + scrollY) / lineH);
+        lineIdx = Math.Clamp(lineIdx, 0, lines.Count - 1);
+        var ln = lines[lineIdx];
+        string lineText = val.Substring(ln.Start, ln.Length);
+        int col = GetFormInputCharIndex(lineText, docX - textX, fontSize, fontFamily);
+        return Core.Layout.TextWrapHelper.GetFlatIndex(lines, lineIdx, col);
     }
 
     private int GetFormInputCharIndex(string text, float clickX, float fontSize, string fontFamily)
