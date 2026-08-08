@@ -43,6 +43,13 @@ public class PaintVisitor
     private SKRect _selectDropdownRect;
     private List<(Core.Dom.Element Option, SKRect Rect)>? _selectOptionRects;
     private int _selectHoverIndex = -1;
+    // Persistent horizontal scroll offset of the focused single-line input and
+    // vertical scroll offset of the focused textarea. They are owned/updated by
+    // BrowserApp so click->caret mapping and the painter always agree; otherwise
+    // the caret drifts increasingly as the text grows.
+    private float _inputScrollOffset;
+    private float _textareaScrollY;
+    private bool _textareaUserScroll;
 
     public PaintVisitor(float contentOffsetY = 0,
         Dictionary<string, SKTypeface>? sharedTypefaceCache = null,
@@ -69,6 +76,9 @@ public class PaintVisitor
         _pressedControl = pressedControl;
     }
     public void SetPressedButton(Core.Dom.Element? element) => _pressedButton = element;
+    public void SetInputScrollOffset(float offset) => _inputScrollOffset = offset;
+    public void SetTextAreaScrollY(float scrollY) => _textareaScrollY = scrollY;
+    public void SetTextAreaUserScroll(bool value) => _textareaUserScroll = value;
 
     public void SetSelectDropdown(Core.Dom.Element? select, SKRect dropdownRect,
         List<(Core.Dom.Element Option, SKRect Rect)>? optionRects, int hoverIndex)
@@ -1741,15 +1751,30 @@ public class PaintVisitor
         int caretLine = 0;
         if (isFocused && visualLines.Count > 0)
             caretLine = Math.Min(Core.Layout.TextWrapHelper.GetLineColumn(visualLines, caretFlat).line, visualLines.Count - 1);
-        float scrollY = 0;
+        // Use the persistent vertical scroll kept by BrowserApp (updated on every
+        // caret move) so clicking a line in a scrolled textarea places the caret
+        // exactly where clicked instead of re-deriving the viewport.
+        float scrollY = isFocused ? _textareaScrollY : 0;
         if (maxScrollY > 0)
         {
-            const float margin = 4;
-            float caretLineY = caretLine * lineH;
-            if (caretLineY < scrollY + margin)
-                scrollY = Math.Max(0, caretLineY - margin);
-            else if (caretLineY + lineH > scrollY + usableH - margin)
-                scrollY = Math.Min(maxScrollY, caretLineY + lineH - (usableH - margin));
+            if (_textareaUserScroll)
+            {
+                // User wheel/thumb scrolled: keep the viewport, only clamp.
+                scrollY = Math.Clamp(scrollY, 0, maxScrollY);
+            }
+            else
+            {
+                const float margin = 4;
+                float caretLineY = caretLine * lineH;
+                if (caretLineY < scrollY + margin)
+                    scrollY = Math.Max(0, caretLineY - margin);
+                else if (caretLineY + lineH > scrollY + usableH - margin)
+                    scrollY = Math.Min(maxScrollY, caretLineY + lineH - (usableH - margin));
+            }
+        }
+        else
+        {
+            scrollY = 0;
         }
 
         SKColor textColor = showPlaceholder ? new SKColor(160, 160, 160) : (style.Color.Alpha > 0 ? style.Color : SKColors.Black);
@@ -1816,6 +1841,27 @@ public class PaintVisitor
         {
             targetList.Add(PaintOpPool.GetPopClipOp());
             if (skipContent) _overlayList.Add(PaintOpPool.GetPopClipOp());
+        }
+
+        // Vertical overlay scrollbar when the content overflows the focused textarea.
+        if (isFocused && maxScrollY > 0)
+        {
+            const float scrollbarWidth = 12f;
+            float trackX = contentBox.Right - scrollbarWidth;
+            float trackY = contentBox.Top;
+            float trackH = contentBox.Height;
+            float thumbHeight = Math.Max(20, trackH * Math.Min(1, usableH / Math.Max(1, totalH)));
+            var trackOp = PaintOpPool.GetDrawRectOp();
+            trackOp.Rect = new SKRect(trackX, trackY + TotalOffsetY, trackX + scrollbarWidth, trackY + trackH + TotalOffsetY);
+            trackOp.FillColor = new SKColor(240, 240, 240);
+            trackOp.Bounds = trackOp.Rect;
+            targetList.Add(trackOp);
+            float thumbY = trackY + (trackH - thumbHeight) * (scrollY / maxScrollY);
+            var thumbOp = PaintOpPool.GetDrawRectOp();
+            thumbOp.Rect = new SKRect(trackX + 2, thumbY + 1 + TotalOffsetY, trackX + scrollbarWidth - 2, thumbY + thumbHeight - 1 + TotalOffsetY);
+            thumbOp.FillColor = new SKColor(180, 180, 180);
+            thumbOp.Bounds = thumbOp.Rect;
+            targetList.Add(thumbOp);
         }
 
         // Resize grip at the bottom-right corner (drawn outside the content clip).
@@ -1993,12 +2039,14 @@ public class PaintVisitor
         // Horizontal scroll offset: scroll only far enough to keep the caret visible
         // (matches BrowserApp.UpdateInputScrollOffset), so the caret stays where the
         // user clicked instead of snapping to a fixed fraction of the usable width.
+        // The current scroll comes from the shared state owned by BrowserApp so the
+        // painter and the click->caret mapping converge as text grows.
         float scrollOffset = 0;
         if (isFocused && fullTextWidth > usableWidth)
         {
             float cursorWidth = MeasureTextWidth(effectText[..Math.Min(cursorPos, effectText.Length)], fontSize, style.FontFamily);
             float maxScroll = Math.Max(0, fullTextWidth - usableWidth);
-            scrollOffset = KeepCaretVisibleOffset(cursorWidth, scrollOffset, usableWidth, maxScroll);
+            scrollOffset = KeepCaretVisibleOffset(cursorWidth, _inputScrollOffset, usableWidth, maxScroll);
         }
 
         // Draw selection background

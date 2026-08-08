@@ -499,6 +499,7 @@ public class CascadeResolver
         if (style.Clear != def.Clear) props["clear"] = style.Clear.ToString().ToLowerInvariant();
         if (style.BoxSizing != def.BoxSizing) props["box-sizing"] = style.BoxSizing == BoxSizingType.BorderBox ? "border-box" : "content-box";
         if (style.Cursor != def.Cursor) props["cursor"] = style.Cursor ?? "auto";
+        if (style.Resize != def.Resize) props["resize"] = style.Resize == ResizeType.None ? "none" : style.Resize.ToString().ToLowerInvariant();
 
         AddLengthProp(props, style.Width, "width", def.Width);
         AddLengthProp(props, style.Height, "height", def.Height);

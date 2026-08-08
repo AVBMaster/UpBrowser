@@ -109,6 +109,12 @@ namespace UpBrowser;
     private float _elemScrollDragStart;
     private float _elemScrollDragStartScroll;
 
+    // Textarea scroll state (user wheel/thumb scroll vs caret-following viewport)
+    private bool _textareaUserScroll;
+    private bool _textareaScrollDragging;
+    private float _textareaScrollDragStartY;
+    private float _textareaScrollDragStartScroll;
+
     // Text selection support (node+offset based for character-level precision)
     private struct SelPoint
     {
@@ -1571,6 +1577,11 @@ namespace UpBrowser;
             _layout.Layout(_currentLoad.Document, windowWidth, windowHeight);
         }
 
+        // Refresh the shared scroll state so the painter and the click->caret mapping
+        // agree on the same viewport (boxes are fresh after the layout above).
+        UpdateInputScrollOffset(_focusedElement);
+        UpdateTextAreaScrollY();
+
         // Return old display list ops to pool before creating new one (fixes memory leak)
         _displayList.Clear();
 
@@ -1578,6 +1589,9 @@ namespace UpBrowser;
         _cachedPaintVisitor.SetFocusedElement(_focusedElement);
         _cachedPaintVisitor.SetSkipInputTextOverlay(true);
         _cachedPaintVisitor.SetPasswordRevealed(_passwordRevealed);
+        _cachedPaintVisitor.SetInputScrollOffset(_inputScrollOffset);
+        _cachedPaintVisitor.SetTextAreaScrollY(_textareaScrollY);
+        _cachedPaintVisitor.SetTextAreaUserScroll(_textareaUserScroll);
         var (mx, my) = _input.GetMousePosition();
         _cachedPaintVisitor.SetMouseState(mx + _scroll.ScrollX, my - _contentOffset + _scroll.ScrollY,
             _input.IsMouseDown(), _pressedInputControl);
@@ -1797,8 +1811,13 @@ namespace UpBrowser;
         {
             // Input-only change: avoid O(n) DOM walk + display list rebuild.
             // Only rebuild the overlay (input text/cursor/selection — ~O(1)).
+            UpdateInputScrollOffset(_focusedElement);
+            UpdateTextAreaScrollY();
             _cachedPaintVisitor.SetFocusedElement(_focusedElement);
             _cachedPaintVisitor.SetPasswordRevealed(_passwordRevealed);
+            _cachedPaintVisitor.SetInputScrollOffset(_inputScrollOffset);
+            _cachedPaintVisitor.SetTextAreaScrollY(_textareaScrollY);
+            _cachedPaintVisitor.SetTextAreaUserScroll(_textareaUserScroll);
             var (hmx, hmy) = _input.GetMousePosition();
             _cachedPaintVisitor.SetMouseState(hmx + _scroll.ScrollX, hmy - _contentOffset + _scroll.ScrollY,
                 _input.IsMouseDown(), _pressedInputControl);
@@ -2137,8 +2156,7 @@ namespace UpBrowser;
         return handled;
     }
 
-    private bool HitTestElementScrollbar(float x, float y, out LayoutBox? hitBox, out bool isVertical)
-    {
+    private bool HitTestElementScrollbar(float x, float y, out LayoutBox? hitBox, out bool isVertical)    {
         hitBox = null;
         isVertical = false;
         if (_currentLoad == null) return false;
@@ -2178,6 +2196,47 @@ namespace UpBrowser;
             el = el.ParentElement;
         }
         return false;
+    }
+
+    // Textarea vertical scrollbar (overlay, drawn by DrawTextAreaElement). Handles
+    // thumb drag start and track page-up/down; only active while the textarea is
+    // focused and its content overflows.
+    private bool HandleTextAreaScrollbarClick(float x, float y)
+    {
+        if (_focusedElement == null || _focusedElement.TagName != "TEXTAREA" ||
+            _focusedElement.ComputedStyle == null || _focusedElement.LayoutBox == null)
+            return false;
+        float docX = x + _scroll.ScrollX;
+        float docY = y - _contentOffset + _scroll.ScrollY;
+        var cb = _focusedElement.LayoutBox.ContentBox;
+        const float scrollBarW = 12f;
+        if (docX < cb.Right - scrollBarW || docX > cb.Right || docY < cb.Top || docY > cb.Bottom)
+            return false;
+        // A resize grip owns the bottom-right corner; leave that square to it.
+        if (_focusedElement.ComputedStyle.Resize != ResizeType.None && docY >= cb.Bottom - 16)
+            return false;
+        var (usableH, totalH, _, maxScrollY, _) = GetTextAreaMetrics(_focusedElement);
+        if (maxScrollY <= 0) return false;
+
+        float trackHeight = cb.Height;
+        float thumbHeight = Math.Max(20, trackHeight * Math.Min(1, usableH / Math.Max(1, totalH)));
+        float thumbTop = (trackHeight - thumbHeight) * (_textareaScrollY / maxScrollY);
+        float localY = docY - cb.Top;
+        if (localY >= thumbTop && localY <= thumbTop + thumbHeight)
+        {
+            _textareaScrollDragging = true;
+            _textareaScrollDragStartY = localY;
+            _textareaScrollDragStartScroll = _textareaScrollY;
+            _input.NeedsRedraw = true;
+        }
+        else
+        {
+            _textareaUserScroll = true;
+            float page = trackHeight * 0.9f;
+            _textareaScrollY = Math.Clamp(_textareaScrollY + (localY < thumbTop ? -page : page), 0, maxScrollY);
+            _input.NeedsRedraw = true;
+        }
+        return true;
     }
 
     private void ComputeSelectDropdownGeometry()
@@ -2309,6 +2368,10 @@ namespace UpBrowser;
             if (HandleSelectDropdownClick(x, y))
                 return;
         }
+
+        // Check the focused textarea's scrollbar before generic scroll containers
+        if (HandleTextAreaScrollbarClick(x, y))
+            return;
 
         // Check element scrollbar first
         if (HitTestElementScrollbar(x, y, out var sbBox, out bool isVert))
@@ -2476,8 +2539,12 @@ namespace UpBrowser;
                         _textareaResizeElement = element;
                         _textareaResizeStartX = docX;
                         _textareaResizeStartY = adjustedY;
-                        _textareaResizeStartW = element.LayoutBox.ContentBox.Width;
-                        _textareaResizeStartH = element.LayoutBox.ContentBox.Height;
+                        // The inline style width/height is interpreted as content-box
+                        // size, but a border-box textarea reports border-box dims; pick
+                        // whichever matches the element's box-sizing.
+                        bool boxSizing = element.ComputedStyle.BoxSizing == BoxSizingType.BorderBox;
+                        _textareaResizeStartW = boxSizing ? element.LayoutBox.BorderBox.Width : element.LayoutBox.ContentBox.Width;
+                        _textareaResizeStartH = boxSizing ? element.LayoutBox.BorderBox.Height : element.LayoutBox.ContentBox.Height;
                         _pressedInputControl = "textarea-resize";
                         _inputDragging = false;
                         return;
@@ -2485,6 +2552,7 @@ namespace UpBrowser;
                     // Multi-line textarea: map the click to a visual line/column and
                     // convert back to a flat character index.
                     _inputCursorPos = GetTextAreaCharIndex(element, docX, adjustedY);
+                    _textareaUserScroll = false;
                 }
                 else if (isTextInput && element.TagName == "INPUT" && !string.IsNullOrEmpty(val) && element.ComputedStyle != null && element.LayoutBox != null)
                 {
@@ -2733,6 +2801,7 @@ namespace UpBrowser;
     private Core.Dom.Element? _textareaResizeElement;
     private float _textareaResizeStartX, _textareaResizeStartY;
     private float _textareaResizeStartW, _textareaResizeStartH;
+    private float _textareaScrollY;
     private Core.Dom.Element? _activeSelect;
     private SKRect _selectDropdownRect;
     private readonly List<(Core.Dom.Element Option, SKRect Rect)> _selectOptionRects = new();
@@ -2821,6 +2890,11 @@ namespace UpBrowser;
     {
         if (_focusedElement == null || !_focusedElement.IsTextEditable)
             return false;
+
+        // Any keystroke re-enables caret-following scrolling for textareas,
+        // overriding a previous wheel/thumb scroll of the viewport.
+        if (_focusedElement.TagName == "TEXTAREA")
+            _textareaUserScroll = false;
 
         string? inputType = _focusedElement.InputType?.ToLowerInvariant();
         bool isTextInput = inputType == null || inputType == "text" || inputType == "password" ||
@@ -3187,6 +3261,21 @@ namespace UpBrowser;
         _lastInputTimeTick = Environment.TickCount64;
         float docX = mouseX + _scroll.ScrollX;
         float docY = mouseY - _contentOffset + _scroll.ScrollY;
+
+        // Focused textarea: the wheel scrolls its own content (vertical only).
+        if (deltaY != 0 && _focusedElement != null && _focusedElement.TagName == "TEXTAREA" &&
+            _focusedElement.LayoutBox != null)
+        {
+            var tcb = _focusedElement.LayoutBox.ContentBox;
+            if (docX >= tcb.Left && docX <= tcb.Right && docY >= tcb.Top && docY <= tcb.Bottom)
+            {
+                _textareaUserScroll = true;
+                _textareaScrollY += (float)(-deltaY / 120.0 * 40.0);
+                _input.NeedsRedraw = true;
+                return true;
+            }
+        }
+
         var element = HitTest(_currentLoad.Document, docX, docY);
         if (element == null) return false;
 
@@ -3393,6 +3482,26 @@ namespace UpBrowser;
         _lastInputTimeTick = Environment.TickCount64;
         if (_currentLoad == null) return;
 
+        // Textarea scrollbar thumb drag update
+        if (_textareaScrollDragging && _focusedElement != null && _focusedElement.TagName == "TEXTAREA" &&
+            _focusedElement.LayoutBox != null)
+        {
+            float dragDocY = y - _contentOffset + _scroll.ScrollY;
+            var cb = _focusedElement.LayoutBox.ContentBox;
+            var (usableH, totalH, _, maxScrollY, _) = GetTextAreaMetrics(_focusedElement);
+            if (maxScrollY > 0)
+            {
+                float trackHeight = cb.Height;
+                float thumbHeight = Math.Max(20, trackHeight * Math.Min(1, usableH / Math.Max(1, totalH)));
+                float localY = dragDocY - cb.Top;
+                float delta = (localY - _textareaScrollDragStartY) / Math.Max(1, trackHeight - thumbHeight) * maxScrollY;
+                _textareaUserScroll = true;
+                _textareaScrollY = Math.Clamp(_textareaScrollDragStartScroll + delta, 0, maxScrollY);
+            }
+            _input.NeedsRedraw = true;
+            return;
+        }
+
         // Element scrollbar drag update
         if (_elemScrollDragBox != null)
         {
@@ -3581,6 +3690,7 @@ namespace UpBrowser;
         // Element scrollbar drag release
         _elemScrollDragBox = null;
         _textareaResizeElement = null;
+        _textareaScrollDragging = false;
         bool hadControlPress = _pressedInputControl != null || _pressedButton != null;
         _pressedInputControl = null;
         _pressedButton = null;
@@ -3807,6 +3917,9 @@ namespace UpBrowser;
 
     private void UpdateInputScrollOffset(Core.Dom.Element? element)
     {
+        // Seed from the previous scroll so a caret sitting mid-text keeps the
+        // current viewport instead of snapping back to 0; only overflow re-scrolls.
+        float currentScroll = _inputScrollOffset;
         _inputScrollOffset = 0;
         if (element == null || element.LayoutBox == null) return;
         var style = element.ComputedStyle;
@@ -3830,8 +3943,56 @@ namespace UpBrowser;
             float cursorWidth = TextMeasurer.Instance?.MeasureText(measuredValue[..Math.Min(_inputCursorPos, measuredValue.Length)], fontFamily, fontSize)
                 ?? _inputCursorPos * fontSize * 0.55f;
             float maxScroll = Math.Max(0, fullTextWidth - usableWidth);
-            _inputScrollOffset = KeepCaretVisibleOffset(cursorWidth, _inputScrollOffset, usableWidth, maxScroll);
+            _inputScrollOffset = KeepCaretVisibleOffset(cursorWidth, currentScroll, usableWidth, maxScroll);
         }
+    }
+
+    // Mirrors PaintVisitor.DrawTextAreaElement's keep-visible rule, but persists the
+    // vertical scroll as state (seeded from the previous value) so the viewport is
+    // stable while typing/clicking instead of re-deriving from the caret each draw.
+    // Shared textarea geometry: wrapped line count, scroll range and caret line.
+    // Used by the caret-following viewport, the scrollbar hit-test and the thumb
+    // drag so they all agree on the same numbers.
+    private (float usableH, float totalH, float lineH, float maxScrollY, int caretLine) GetTextAreaMetrics(Core.Dom.Element el)
+    {
+        var style = el.ComputedStyle!;
+        var box = el.LayoutBox!;
+        float fs = style.FontSize > 0 ? style.FontSize : 14;
+        float lineH = fs * (style.LineHeight > 0 ? style.LineHeight : 1.2f);
+        float usableW = Math.Max(1, box.ContentBox.Width - 4);
+        float usableH = Math.Max(1, box.ContentBox.Height - 4);
+        var lines = Core.Layout.TextWrapHelper.WrapToLines(el.Value ?? "", style.FontFamily ?? "Arial", fs, usableW);
+        float totalH = lines.Count * lineH;
+        float maxScrollY = Math.Max(0, totalH - usableH);
+        int caretLine = lines.Count == 0 ? 0
+            : Math.Min(Core.Layout.TextWrapHelper.GetLineColumn(lines, _inputCursorPos).line, lines.Count - 1);
+        return (usableH, totalH, lineH, maxScrollY, caretLine);
+    }
+
+    private void UpdateTextAreaScrollY()
+    {
+        // Seed from the previous scroll so typing/clicking below the fold keeps the
+        // viewport stable instead of resetting the textarea back to the top.
+        float prevScroll = _textareaScrollY;
+        _textareaScrollY = 0;
+        var el = _focusedElement;
+        if (el == null || el.TagName != "TEXTAREA" || el.ComputedStyle == null || el.LayoutBox == null) return;
+        var (usableH, totalH, lineH, maxScrollY, caretLine) = GetTextAreaMetrics(el);
+        if (maxScrollY <= 0) { _textareaScrollY = 0; return; }
+        float scroll = prevScroll;
+        if (_textareaUserScroll)
+        {
+            // User scrolled with the wheel/thumb: keep the viewport, just clamp.
+            _textareaScrollY = Math.Clamp(scroll, 0, maxScrollY);
+            return;
+        }
+        const float margin = 4;
+        float caretLineY = caretLine * lineH;
+        if (caretLineY < scroll + margin)
+            scroll = Math.Max(0, caretLineY - margin);
+        else if (caretLineY + lineH > scroll + usableH - margin)
+            scroll = Math.Min(maxScrollY, caretLineY + lineH - (usableH - margin));
+        _textareaScrollY = scroll;
     }
 
     private float GetInputReservedRight(Core.Dom.Element element)
@@ -3879,18 +4040,11 @@ namespace UpBrowser;
         var lines = Core.Layout.TextWrapHelper.WrapToLines(val, fontFamily, fontSize, usableW);
         if (lines.Count == 0) return 0;
 
-        int caretLine = Math.Min(Core.Layout.TextWrapHelper.GetLineColumn(lines, _inputCursorPos).line, lines.Count - 1);
+        // Use the shared vertical scroll state (the viewport as currently shown) so
+        // the clicked line is resolved against what the user actually sees, matching
+        // the painter exactly.
         float maxScrollY = Math.Max(0, lines.Count * lineH - usableH);
-        float scrollY = 0;
-        if (maxScrollY > 0)
-        {
-            const float margin = 4;
-            float caretLineY = caretLine * lineH;
-            if (caretLineY < scrollY + margin)
-                scrollY = Math.Max(0, caretLineY - margin);
-            else if (caretLineY + lineH > scrollY + usableH - margin)
-                scrollY = Math.Min(maxScrollY, caretLineY + lineH - (usableH - margin));
-        }
+        float scrollY = maxScrollY > 0 ? _textareaScrollY : 0;
 
         int lineIdx = (int)Math.Floor((docY - textTop + scrollY) / lineH);
         lineIdx = Math.Clamp(lineIdx, 0, lines.Count - 1);
