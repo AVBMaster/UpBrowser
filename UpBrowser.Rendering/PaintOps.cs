@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Globalization;
 using System.Linq;
 using SkiaSharp;
 using UpBrowser.Core.Dom;
@@ -125,7 +126,7 @@ public class DrawRectOp : PaintOp
                 Rect.Top + inset,
                 Rect.Right - inset,
                 Rect.Bottom - inset);
-            var pb2 = new SKPathBuilder();
+            var pb2= new SKPathBuilder();
             pb2.AddRoundRect(innerRect, Math.Max(0, BorderRadius - inset), Math.Max(0, BorderRadius - inset));
             using var strokePath = pb2.Detach();
             borderPaint.Color = BorderTopColor;
@@ -274,6 +275,9 @@ public class DrawTextOp : PaintOp
     public List<TextShadowValue>? TextShadows { get; set; }
     public float LetterSpacing { get; set; }
     public bool Italic { get; set; }
+    public string EmphasisMark { get; set; } = string.Empty;
+    public bool EmphasisOver { get; set; } = true;
+    public SKColor EmphasisColor { get; set; }
 
     public override void Reset()
     {
@@ -292,6 +296,9 @@ public class DrawTextOp : PaintOp
         TextShadows = null;
         LetterSpacing = 0;
         Italic = false;
+        EmphasisMark = string.Empty;
+        EmphasisOver = true;
+        EmphasisColor = default;
     }
 
     public override void Execute(SKCanvas canvas)
@@ -307,25 +314,8 @@ public class DrawTextOp : PaintOp
 
         float x = X;
 
-        // Draw text shadows before main text
-        if (TextShadows != null && TextShadows.Count > 0)
-        {
-            var (scaleX, scaleY) = GetCanvasScale(canvas);
-            foreach (var shadow in TextShadows)
-            {
-                using var shadowPaint = new SKPaint
-                {
-                    Color = shadow.Color,
-                    Style = SKPaintStyle.Fill,
-                    IsAntialias = true,
-                    ImageFilter = shadow.BlurRadius > 0 ? SKImageFilter.CreateBlur(shadow.BlurRadius, shadow.BlurRadius) : null
-                };
-                float shadowX = SnapToDevice(x + shadow.OffsetX, scaleX);
-                float shadowY = SnapToDevice(Y + shadow.OffsetY, scaleY);
-                using var shadowFont = new SKFont(GetTypeface(), FontSize);
-                canvas.DrawText(Text, shadowX, shadowY, SKTextAlign.Left, shadowFont, shadowPaint);
-            }
-        }
+        // Measure the run width up-front: under/over decorations paint before
+        // the text (so glyphs sit on top), but still need the text extent.
         bool needsAlignment = TextAlign == TextAlignType.Center || TextAlign == TextAlignType.End || TextAlign == TextAlignType.Right;
 
         float totalWidth;
@@ -347,105 +337,147 @@ public class DrawTextOp : PaintOp
         var (sx, sy) = GetCanvasScale(canvas);
         float drawX = SnapToDevice(x, sx);
         float drawY = SnapToDevice(Y, sy);
-        float actualWidth = MeasureTextWithFallback(canvas, paint, drawX, drawY, dryRun: false);
+        float actualWidth = MeasureTextWithFallback(canvas, paint, drawX, drawY, dryRun: true);
 
-        if (Underline)
+        float ascent = GetFontAscent();
+
+        // Paint order mirrors miniblink TextFragmentPainter::Paint fast path:
+        // 1. underline/overline (with shadow passes) before the text,
+        // 2. text shadows + text,
+        // 3. line-through (with shadow passes) after the text.
+        if (Underline || Overline)
         {
-            float underlineY = drawY + 2;
-            var underlineColor = UnderlineColor.Alpha > 0 ? UnderlineColor : Color;
-            if (DecorationStyle == TextDecorationStyleType.Wavy)
+            TextDecorationPainter.PaintUnderOrOverLines(
+                canvas, drawX, actualWidth, drawY, ascent, FontSize,
+                Underline, Overline,
+                DecorationStyle,
+                Color,
+                UnderlineColor.Alpha > 0 ? UnderlineColor : Color,
+                TextShadows,
+                (upper, stripe) => ComputeSkipInkClips(upper, stripe, drawX, drawY));
+        }
+
+        // Draw text shadows before main text
+        if (TextShadows != null && TextShadows.Count > 0)
+        {
+            foreach (var shadow in TextShadows)
             {
-                    var pb3 = new SKPathBuilder();
-                float waveLength = MathF.Max(4, FontSize * 0.15f);
-                float amplitude = MathF.Max(1.5f, FontSize * 0.05f);
-                float endX = drawX + actualWidth;
-                float x0 = drawX;
-                pb3.MoveTo(x0, underlineY);
-                int segments = Math.Max(1, (int)((endX - x0) / waveLength));
-                for (int i = 0; i < segments; i++)
+                using var shadowPaint = new SKPaint
                 {
-                    float t0 = (float)i / segments;
-                    float t1 = (float)(i + 0.5f) / segments;
-                    float t2 = (float)(i + 1) / segments;
-                    float cx1 = x0 + (endX - x0) * t1;
-                    float cy1 = underlineY - amplitude;
-                    float cx2 = x0 + (endX - x0) * t2;
-                    float cy2 = underlineY;
-                    pb3.QuadTo(cx1, cy1, cx2, cy2);
-                }
-                using var wavyPath = pb3.Detach();
-                using var wavyPaint = new SKPaint
-                {
-                    Color = underlineColor,
-                    StrokeWidth = 1,
-                    Style = SKPaintStyle.Stroke,
-                    IsAntialias = true
-                };
-                canvas.DrawPath(wavyPath, wavyPaint);
-            }
-            else if (DecorationStyle == TextDecorationStyleType.Double)
-            {
-                using var doublePaint = new SKPaint
-                {
-                    Color = underlineColor,
-                    StrokeWidth = 1,
-                    Style = SKPaintStyle.Stroke,
-                    IsAntialias = true
-                };
-                canvas.DrawLine(drawX, underlineY - 1, drawX + actualWidth, underlineY - 1, doublePaint);
-                canvas.DrawLine(drawX, underlineY + 1, drawX + actualWidth, underlineY + 1, doublePaint);
-            }
-            else if (DecorationStyle == TextDecorationStyleType.Dotted || DecorationStyle == TextDecorationStyleType.Dashed)
-            {
-                float[] intervals = DecorationStyle == TextDecorationStyleType.Dotted ? new[] { 1f, 3f } : new[] { 5f, 3f };
-                using var dashPaint = new SKPaint
-                {
-                    Color = underlineColor,
-                    StrokeWidth = 1,
-                    Style = SKPaintStyle.Stroke,
+                    Color = shadow.Color,
+                    Style = SKPaintStyle.Fill,
                     IsAntialias = true,
-                    PathEffect = SKPathEffect.CreateDash(intervals, 0)
+                    ImageFilter = shadow.BlurRadius > 0 ? SKImageFilter.CreateBlur(shadow.BlurRadius, shadow.BlurRadius) : null
                 };
-                canvas.DrawLine(drawX, underlineY, drawX + actualWidth, underlineY, dashPaint);
-            }
-            else
-            {
-                using var underlinePaint = new SKPaint
-                {
-                    Color = underlineColor,
-                    StrokeWidth = 1,
-                    Style = SKPaintStyle.Stroke,
-                    IsAntialias = true
-                };
-                canvas.DrawLine(drawX, underlineY, drawX + actualWidth, underlineY, underlinePaint);
+                float shadowX = SnapToDevice(drawX + shadow.OffsetX, sx);
+                float shadowY = SnapToDevice(drawY + shadow.OffsetY, sy);
+                using var shadowFont = new SKFont(GetTypeface(), FontSize);
+                canvas.DrawText(Text, shadowX, shadowY, SKTextAlign.Left, shadowFont, shadowPaint);
             }
         }
+
+        MeasureTextWithFallback(canvas, paint, drawX, drawY, dryRun: false);
 
         if (LineThrough)
         {
-            float strikeY = Y - FontSize * 0.3f;
-            using var strikePaint = new SKPaint
-            {
-                Color = Color,
-                StrokeWidth = 1,
-                Style = SKPaintStyle.Stroke,
-                IsAntialias = true
-            };
-            canvas.DrawLine(x, strikeY, x + actualWidth, strikeY, strikePaint);
+            TextDecorationPainter.PaintLineThrough(
+                canvas, drawX, actualWidth, drawY, ascent, FontSize,
+                true,
+                DecorationStyle,
+                Color,
+                TextShadows);
         }
 
-        if (Overline)
+        if (!string.IsNullOrEmpty(EmphasisMark))
         {
-            float overlineY = Y - FontSize * 1.15f;
-            var overlineColor = UnderlineColor.Alpha > 0 ? UnderlineColor : Color;
-            using var overlinePaint = new SKPaint
+            DrawEmphasisMarks(canvas, drawX, drawY);
+        }
+    }
+
+    private void DrawEmphasisMarks(SKCanvas canvas, float x, float y)
+    {
+        var mark = EmphasisMark;
+        var text = Text;
+        if (string.IsNullOrEmpty(mark) || string.IsNullOrEmpty(text)) return;
+
+        using var markFont = CreateFont(GetTypefaceForChar(mark[0]));
+        float glyphCenterX = markFont.MeasureText(mark) / 2;
+        var mm = markFont.Metrics;
+        float ascent = -mm.Ascent;
+        float descent = Math.Max(0, mm.Descent);
+        float offset = EmphasisOver ? -(ascent + descent) : (descent + ascent);
+
+        using var markPaint = new SKPaint
+        {
+            Color = EmphasisColor.Alpha > 0 ? EmphasisColor : Color,
+            Style = SKPaintStyle.Fill,
+            IsAntialias = true
+        };
+
+        float currentX = x;
+        int len = text.Length;
+        int runStart = 0;
+        SKTypeface currentTypeface = GetTypefaceForChar(text[0]);
+        for (int i = 1; i <= len; i++)
+        {
+            if (i < len)
             {
-                Color = overlineColor,
-                StrokeWidth = 1,
-                Style = SKPaintStyle.Stroke,
-                IsAntialias = true
-            };
-            canvas.DrawLine(drawX, overlineY, drawX + actualWidth, overlineY, overlinePaint);
+                char c = text[i];
+                SKTypeface neededTypeface = GetTypefaceForChar(c);
+                if (neededTypeface != currentTypeface)
+                {
+                    currentX = DrawEmphasisRun(canvas, markPaint, markFont, text[runStart..i], currentX, y, offset, glyphCenterX, currentTypeface);
+                    currentTypeface = neededTypeface;
+                    runStart = i;
+                }
+            }
+            else
+            {
+                currentX = DrawEmphasisRun(canvas, markPaint, markFont, text[runStart..i], currentX, y, offset, glyphCenterX, currentTypeface);
+            }
+        }
+    }
+
+    private float DrawEmphasisRun(SKCanvas canvas, SKPaint markPaint, SKFont markFont, string run, float x, float y, float offset, float glyphCenterX, SKTypeface typeface)
+    {
+        float currentX = x;
+        using var font = CreateFont(typeface);
+        for (int i = 0; i < run.Length; i++)
+        {
+            char c = run[i];
+            float charWidth = font.MeasureText(run[i].ToString());
+            if (CanReceiveTextEmphasis(c))
+            {
+                float centerX = currentX + charWidth / 2;
+                canvas.DrawText(EmphasisMark, centerX - glyphCenterX, y + offset, SKTextAlign.Left, markFont, markPaint);
+            }
+            currentX += charWidth + (i < run.Length - 1 ? LetterSpacing : 0);
+        }
+        return currentX;
+    }
+
+    private static bool CanReceiveTextEmphasis(char c)
+    {
+        var category = CharUnicodeInfo.GetUnicodeCategory(c);
+        if (category == UnicodeCategory.SpaceSeparator || category == UnicodeCategory.LineSeparator ||
+            category == UnicodeCategory.ParagraphSeparator || category == UnicodeCategory.OtherNotAssigned ||
+            category == UnicodeCategory.Control || category == UnicodeCategory.Format)
+            return false;
+        int cp = c;
+        if (cp == 0x1361 || cp == 0x10100 || cp == 0x10101 || cp == 0x1039F || cp == 0x0F0B || cp == 0x0F0C)
+            return false;
+        return true;
+    }
+
+    private float GetFontAscent()
+    {
+        try
+        {
+            return Core.Fonts.FontMetricsProvider.Get(GetTypeface(), FontSize).FloatAscent;
+        }
+        catch
+        {
+            return Core.Fonts.FontMetricsProvider.Get((SKTypeface?)null, FontSize).FloatAscent;
         }
     }
 
@@ -494,6 +526,88 @@ public class DrawTextOp : PaintOp
         return currentX - x;
     }
 
+    /// <summary>
+    /// Computes the skip-ink clip rects for the given decoration stripe band.
+    /// Mirrors miniblink's TextPainter::ClipDecorationsStripe: for each text run
+    /// (same typeface fallback as <see cref="MeasureTextWithFallback"/>) the
+    /// glyph ink intercepts of the band [upper, upper + stripe] are queried via
+    /// SKTextBlob.GetIntercepts and each x-interval becomes a clip rect at
+    /// (runX + begin, upper) of size (end - begin, stripe), outset vertically by
+    /// 1px and horizontally by min(thickness, 13). Rectangles are in canvas
+    /// coordinates, ready for SKClipOperation.Difference.
+    /// </summary>
+    private List<SKRect>? ComputeSkipInkClips(float upper, float stripe, float drawX, float drawY)
+    {
+        if (string.IsNullOrEmpty(Text))
+            return null;
+        if (stripe <= 0)
+            return null;
+
+        var clips = new List<SKRect>();
+        float dilation = MathF.Min(TextDecorationPainter.ComputeDecorationThickness(FontSize), 13f);
+
+        using var interceptPaint = new SKPaint
+        {
+            Style = SKPaintStyle.Fill,
+            IsAntialias = true
+        };
+
+        var text = Text;
+        int len = text.Length;
+        float currentX = 0;
+        int runStart = 0;
+        SKTypeface currentTypeface = GetTypefaceForChar(text[0]);
+
+        for (int i = 1; i <= len; i++)
+        {
+            if (i < len)
+            {
+                char c = text[i];
+                SKTypeface neededTypeface = GetTypefaceForChar(c);
+                if (neededTypeface != currentTypeface)
+                {
+                    currentX += AddRunIntercepts(clips, text[runStart..i], currentX, upper, stripe, dilation, currentTypeface, interceptPaint, drawX, drawY);
+                    currentTypeface = neededTypeface;
+                    runStart = i;
+                }
+            }
+            else
+            {
+                currentX += AddRunIntercepts(clips, text[runStart..i], currentX, upper, stripe, dilation, currentTypeface, interceptPaint, drawX, drawY);
+            }
+        }
+
+        return clips.Count > 0 ? clips : null;
+    }
+
+    private float AddRunIntercepts(List<SKRect> clips, string run, float runX, float upper, float stripe, float dilation,
+        SKTypeface typeface, SKPaint interceptPaint, float drawX, float drawY)
+    {
+        if (run.Length == 0)
+            return 0;
+
+        using var font = CreateFont(typeface);
+        float runWidth = font.MeasureText(run) + (run.Length - 1) * LetterSpacing;
+
+        using var blob = SKTextBlob.Create(run, font, new SKPoint(0, 0));
+        var intervals = blob.GetIntercepts(upper, upper + stripe, interceptPaint);
+        if (intervals != null)
+        {
+            for (int k = 0; k + 1 < intervals.Length; k += 2)
+            {
+                float begin = intervals[k];
+                float end = intervals[k + 1];
+                float x0 = drawX + runX + begin - dilation;
+                float x1 = drawX + runX + end + dilation;
+                float y0 = drawY + upper - 1f;
+                float y1 = drawY + upper + stripe + 1f;
+                clips.Add(new SKRect(x0, y0, x1, y1));
+            }
+        }
+
+        return runWidth;
+    }
+
     private SKFont CreateFont(SKTypeface typeface)
     {
         var actualTypeface = typeface;
@@ -532,7 +646,8 @@ public class DrawTextOp : PaintOp
                      (c >= 0xFF00 && c <= 0xFFEF);
         bool isEmoji = c >= 0x2600;
         bool isSpecialSymbol = (c >= 0x2000 && c <= 0x206F) || (c >= 0x2100 && c <= 0x27BF) ||
-                               (c >= 0x2800 && c <= 0x28FF) || c == 0x00A0 || c == 0x00A9 ||
+                               (c >= 0x2800 && c <= 0x28FF) || c == 0x00
+                               || c == 0x00A9 ||
                                c == 0x00AE || (c >= 0x2190 && c <= 0x21FF) ||
                                (c >= 0x2200 && c <= 0x22FF) || (c >= 0x2300 && c <= 0x23FF);
 
@@ -562,7 +677,15 @@ public class DrawTextOp : PaintOp
         if (isEmoji)
             return GetCachedEmojiTypeface() ?? GetCachedChineseTypeface();
         if (isSpecialSymbol)
+        {
+            // Use the fallback chain to find a font that actually contains the
+            // glyph — the default typeface (e.g. Arial) often lacks arrows, math
+            // symbols, etc. even though the character range is recognised.
+            var fallback = Core.Fonts.FontManager.GetFallbackTypeface(codePoint);
+            if (fallback != null)
+                return fallback;
             return GetCachedDefaultTypeface();
+        }
 
         var defaultTf = GetCachedDefaultTypeface();
         using var defaultCheckFont = new SKFont(defaultTf, 12);
@@ -987,6 +1110,8 @@ public class PushLayerOp : PaintOp
     public bool HasClipRect { get; set; }
     public SKPath? ClipPath { get; set; }
     public SKImageFilter? ImageFilter { get; set; }
+    public SKImage? MaskImage { get; set; }
+    public SKBlendMode BlendMode { get; set; } = SKBlendMode.SrcOver;
 
     public override void Reset()
     {
@@ -994,8 +1119,11 @@ public class PushLayerOp : PaintOp
         Opacity = 1.0f;
         ClipRect = default;
         HasClipRect = false;
+        ClipPath?.Dispose();
         ClipPath = null;
         ImageFilter = null;
+        MaskImage = null;
+        BlendMode = SKBlendMode.SrcOver;
     }
 
     public override void Execute(SKCanvas canvas)
@@ -1006,6 +1134,14 @@ public class PushLayerOp : PaintOp
             paint.Color = paint.Color.WithAlpha((byte)(Opacity * 255));
         if (ImageFilter != null)
             paint.ImageFilter = ImageFilter;
+        if (BlendMode != SKBlendMode.SrcOver)
+            paint.BlendMode = BlendMode;
+
+        if (MaskImage != null)
+        {
+            paint.Shader = SKShader.CreateImage(MaskImage, SKShaderTileMode.Clamp, SKShaderTileMode.Clamp);
+            paint.BlendMode = SKBlendMode.SrcIn;
+        }
 
         canvas.SaveLayer(paint);
 
@@ -1032,6 +1168,7 @@ public class PushClipOp : PaintOp
     {
         base.Reset();
         ClipRect = default;
+        ClipPath?.Dispose();
         ClipPath = null;
         AntiAlias = true;
     }
@@ -1141,10 +1278,12 @@ public class DrawShadowOp : PaintOp
 
     public override void Execute(SKCanvas canvas)
     {
-        var blurFilter = GetOrCreateBlur(BlurRadius);
+        // Fresh blur filter per draw (matches the standalone verification, avoids
+        // any shared-cache/image-filter lifecycle issue).
+        SKImageFilter blurFilter = BlurRadius > 0 ? SKImageFilter.CreateBlur(BlurRadius, BlurRadius) : null;
         using var paint = new SKPaint
         {
-            Color = Color.WithAlpha(80),
+            Color = Color,
             IsAntialias = true,
             ImageFilter = blurFilter
         };
@@ -1329,6 +1468,14 @@ public class DisplayList
     public SpatialGrid? SpatialGrid => _spatialGrid;
 
     public void Add(PaintOp op) { lock (_lock) _ops.Add(op); }
+
+    /// <summary>Inspect the op list (ordered as stored).</summary>
+    public IEnumerable<PaintOp> EnumerateOps()
+    {
+        List<PaintOp> snapshot;
+        lock (_lock) snapshot = new List<PaintOp>(_ops);
+        return snapshot;
+    }
 
     public void AddRange(IEnumerable<PaintOp> ops) { lock (_lock) _ops.AddRange(ops); }
 

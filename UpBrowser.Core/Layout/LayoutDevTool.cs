@@ -210,7 +210,7 @@ public class LayoutDevTool
             _sb.AppendLine($"{indent}  [color]         #{style.Color.Red:X2}{style.Color.Green:X2}{style.Color.Blue:X2}{style.Color.Alpha:X2}  opacity={style.Opacity:F2}");
             _sb.AppendLine($"{indent}  [font]          {style.FontFamily ?? "(none)"} size={style.FontSize:F1}px weight={style.FontWeight} style={style.FontStyle} lh={style.LineHeight:F2}");
             _sb.AppendLine($"{indent}  [text]          align={style.TextAlign} decorate={style.TextDecoration} transform={style.TextTransform} overflow={style.TextOverflow} wrap={style.WhiteSpace} indent={style.TextIndent:F1}");
-            _sb.AppendLine($"{indent}  [bg]            color={FmtColor(style.BackgroundColor)} image={style.BackgroundImage?.Truncate(60) ?? "none"} size={style.BackgroundSize} repeat={style.BackgroundRepeat} attach={style.BackgroundAttachment}");
+            _sb.AppendLine($"{indent}  [bg]            color={FmtColor(style.BackgroundColor)} image={(style.BackgroundImage != null ? string.Join(", ", style.BackgroundImage.Select(s => s.Truncate(60))) : "none")} size={style.BackgroundSize} repeat={style.BackgroundRepeat} attach={style.BackgroundAttachment}");
             _sb.AppendLine($"{indent}  [overflow]      {style.Overflow} x={style.OverflowX} y={style.OverflowY}  visibility={style.Visibility}");
             _sb.AppendLine($"{indent}  [z-index]       {(style.ZIndex.HasValue ? style.ZIndex.Value.ToString() : "auto")}");
 
@@ -238,8 +238,9 @@ public class LayoutDevTool
             if (style.AnimationName != null && style.AnimationName != "none")
                 _sb.AppendLine($"{indent}  [animation]     name={style.AnimationName} dur={style.AnimationDuration} iter={style.AnimationIterationCount} fill={style.AnimationFillMode}");
 
-            if (style.BoxShadow != null)
-                _sb.AppendLine($"{indent}  [box-shadow]    {FmtBoxShadow(style.BoxShadow)}");
+            if (style.BoxShadow != null && style.BoxShadow.Count > 0)
+                foreach (var bs in style.BoxShadow)
+                    _sb.AppendLine($"{indent}  [box-shadow]    {FmtBoxShadow(bs)}");
             if (style.TextShadow.Count > 0)
                 _sb.AppendLine($"{indent}  [text-shadow]   {style.TextShadow.Count} shadow(s)");
 
@@ -600,7 +601,7 @@ public class LayoutDevTool
         if (style == null) { foreach (var c in element.Children.OfType<Element>()) DumpBackgroundBorder(c); return; }
 
         bool hasBg = style.BackgroundColor.HasValue && style.BackgroundColor.Value.Alpha > 0;
-        bool hasBgImage = !string.IsNullOrEmpty(style.BackgroundImage);
+        bool hasBgImage = style.BackgroundImage is { Count: > 0 };
         bool hasBorder = style.BorderTopWidth > 0 || style.BorderRightWidth > 0 || style.BorderBottomWidth > 0 || style.BorderLeftWidth > 0;
         bool hasRadius = style.BorderTopLeftRadius > 0 || style.BorderTopRightRadius > 0 || style.BorderBottomRightRadius > 0 || style.BorderBottomLeftRadius > 0;
 
@@ -610,7 +611,7 @@ public class LayoutDevTool
             string id = string.IsNullOrEmpty(element.Id) ? "" : $"#{element.Id}";
             _sb.AppendLine($"  <{tag}{id}>");
             if (hasBg) _sb.AppendLine($"    background-color: {FmtColor(style.BackgroundColor)}");
-            if (hasBgImage) _sb.AppendLine($"    background-image: {style.BackgroundImage?.Truncate(80)}");
+            if (hasBgImage) _sb.AppendLine($"    background-image: {string.Join(", ", style.BackgroundImage!.Select(s => s.Truncate(80)))}");
             if (hasBg) _sb.AppendLine($"    background-size:  {style.BackgroundSize}  repeat={style.BackgroundRepeat}  attach={style.BackgroundAttachment}");
             if (hasBorder)
                 _sb.AppendLine($"    border: T={style.BorderTopWidth:F1}px/{style.BorderTopStyle}/{FmtColor(style.BorderTopColor)} R={style.BorderRightWidth:F1}px/{style.BorderRightStyle}/{FmtColor(style.BorderRightColor)} B={style.BorderBottomWidth:F1}px/{style.BorderBottomStyle}/{FmtColor(style.BorderBottomColor)} L={style.BorderLeftWidth:F1}px/{style.BorderLeftStyle}/{FmtColor(style.BorderLeftColor)}");
@@ -751,7 +752,8 @@ public class LayoutDevTool
             string id = string.IsNullOrEmpty(element.Id) ? "" : $"#{element.Id}";
             _sb.AppendLine($"  <{tag}{id}>");
             if (hasBoxShadow)
-                _sb.AppendLine($"    box-shadow: {FmtBoxShadow(style.BoxShadow!)}");
+                foreach (var bs in style.BoxShadow!)
+                    _sb.AppendLine($"    box-shadow: {FmtBoxShadow(bs)}");
             if (hasTextShadow)
             {
                 foreach (var ts in style.TextShadow)

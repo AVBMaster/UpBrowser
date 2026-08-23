@@ -24,5 +24,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\UpBrowser.Core\UpBrowser.Core.csproj" />
+    <ProjectReference Include="..\UpBrowser.Rendering\UpBrowser.Rendering.csproj" />
   </ItemGroup>
 </Project>

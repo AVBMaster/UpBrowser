@@ -1,10 +1,11 @@
-<Solution>
+﻿<Solution>
   <Project Path="UpBrowser.Input/UpBrowser.Input.csproj" />
   <Project Path="UpBrowser.Native\UpBrowser.Native.csproj" />
   <Project Path="UpBrowser.Platform\UpBrowser.Platform.csproj" />
   <Project Path="UpBrowser.Rendering\UpBrowser.Rendering.csproj" />
   <Project Path="UpBrowser.Core\UpBrowser.Core.csproj" />
   <Project Path="UpBrowser.Core.Tests\UpBrowser.Core.Tests.csproj" />
+  <Project Path="UpBrowser.SmokeTest\UpBrowser.SmokeTest.csproj" />
   <Project Path="UpBrowser.PerfSmokeTest\UpBrowser.PerfSmokeTest.csproj" />
   <Project Path="UpBrowser\UpBrowser.csproj" />
   <Project Path="UpBrowser.JsEngineProtocol\UpBrowser.JsEngineProtocol.csproj" />

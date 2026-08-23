@@ -80,6 +80,7 @@ public static class DirtyState
 
     public static NodeState Get(Element element)
     {
+        if (element == null) return new NodeState();
         if (_table.TryGetValue(element, out var state)) return state;
         state = new NodeState();
         _table.Add(element, state);

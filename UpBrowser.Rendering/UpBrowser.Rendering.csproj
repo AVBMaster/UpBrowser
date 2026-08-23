@@ -7,7 +7,7 @@
     <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
     <JsonSerializerIsReflectionEnabledByDefault>false</JsonSerializerIsReflectionEnabledByDefault>
     <SupportWinXP>true</SupportWinXP>
-    <!--<DefineConstants>$(DefineConstants);SUPPORT_WINXP</DefineConstants>-->
+    <DefineConstants>$(DefineConstants);SUPPORT_WINXP</DefineConstants>
   </PropertyGroup>
 
   <ItemGroup>

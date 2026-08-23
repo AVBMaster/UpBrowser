@@ -1,6 +1,7 @@
 using SkiaSharp;
 using UpBrowser.Core.Dom;
 using UpBrowser.Core.Layout;
+using UpBrowser.Core.Layout.Geometry;
 using UpBrowser.Core.Css;
 using UpBrowser.Core.Performance;
 using UpBrowser.Core.Performance.Resources;
@@ -11,12 +12,26 @@ namespace UpBrowser.Rendering;
 public class PaintVisitor
 {
     private readonly DisplayList _displayList = new();
+    private readonly BoxPainterBase _boxPainter;
+    private readonly OutlinePainter _outlinePainter;
+    private readonly InlineBoxFragmentPainter _inlinePainter;
+    private readonly PrePaintTreeWalk _prePaintTreeWalk = new();
+    private readonly PaintLayerClipper _layerClipper;
+    private readonly FramePainter _framePainter;
+private readonly ScrollableAreaPainter _scrollableAreaPainter;
+    private readonly ImagePainter _imagePainter;
+    private readonly ReplacedPainter _replacedPainter;
+    private readonly HighlightPainter _highlightPainter;
+    private readonly MaskPainter _maskPainter;
     public DisplayList OverlayList => _overlayList;
     private readonly DisplayList _overlayList = new();
     private SKTypeface _defaultTypeface = SKTypeface.Default;
     private Dictionary<string, SKTypeface> _typefaceCache;     // cached typefaces per family:weight
     private ImageCache _imageCache;
     private float _contentOffsetY;
+    private float _viewportWidth;
+    private float _viewportHeight;
+    private Core.Dom.Document? _currentDocument;
     private string[]? _fontFamilies;
     private string? _baseUrl;
     private Core.Dom.Element? _focusedElement;
@@ -55,12 +70,26 @@ public class PaintVisitor
         Dictionary<string, SKTypeface>? sharedTypefaceCache = null,
         ImageCache? sharedImageCache = null,
         string[]? fontFamilies = null,
-        string? baseUrl = null)
+        string? baseUrl = null,
+        float viewportWidth = 0,
+        float viewportHeight = 0)
     {
         _contentOffsetY = contentOffsetY;
+        _viewportWidth = viewportWidth;
+        _viewportHeight = viewportHeight;
+        _boxPainter = new BoxPainterBase(_displayList);
+        _outlinePainter = new OutlinePainter(_displayList);
+        _inlinePainter = new InlineBoxFragmentPainter(this);
+        _layerClipper = new PaintLayerClipper(_displayList);
+        _framePainter = new FramePainter(_displayList);
+_scrollableAreaPainter = new ScrollableAreaPainter(_displayList);
+        _imageCache = sharedImageCache ?? new ImageCache();
+        _imagePainter = new ImagePainter(_displayList, _imageCache, baseUrl);
+        _replacedPainter = new ReplacedPainter(_displayList, _imageCache, baseUrl);
+        _highlightPainter = new HighlightPainter(_displayList);
+        _maskPainter = new MaskPainter(_imageCache, baseUrl);
         _defaultTypeface = FontHelper.GetChineseTypeface() ?? SKTypeface.Default;
         _typefaceCache = sharedTypefaceCache ?? new Dictionary<string, SKTypeface>();
-        _imageCache = sharedImageCache ?? new ImageCache();
         _fontFamilies = fontFamilies;
         _baseUrl = baseUrl;
     }
@@ -112,6 +141,7 @@ public class PaintVisitor
             int cmp = CompareDomPosition(anchorNode!, focusNode!);
             _selStartIsAnchor = cmp <= 0;
         }
+        _highlightPainter.SetSelectionRange(anchorNode, anchorOffset, focusNode, focusOffset);
     }
 
     private SKRect? GetSelHighlight(Core.Dom.TextNode? runNode, string runText, SKRect runBounds,
@@ -244,6 +274,37 @@ public class PaintVisitor
 
     public DisplayList GetDisplayList() => _displayList;
 
+    internal BoxPainterBase BoxPainter => _boxPainter;
+    internal Document? GetCurrentDocument() => _currentDocument;
+    internal ImageCache ImageCache => _imageCache;
+
+    internal void PaintLayerBackgroundFill(Element element, ComputedStyle style, SKRect borderRect)
+    {
+        bool transfersToView = _currentDocument != null &&
+            ViewPainter.BackgroundTransfersToView(element, _currentDocument);
+        DrawElementBackground(element, element.LayoutBox!, style, borderRect, transfersToView);
+    }
+
+    internal void PaintLayerBorder(Element element, ComputedStyle style, SKRect borderRect)
+    {
+        DrawElementBorder(element, element.LayoutBox!, style, borderRect);
+    }
+
+    internal void PaintLayerOutline(Element element, ComputedStyle style, SKRect borderRect)
+    {
+        DrawElementOutline(element, element.LayoutBox!, style, borderRect);
+    }
+
+    internal void PaintLayerContent(Element element, ComputedStyle style, LayoutBox box, SKRect offsetBorderBox)
+    {
+        DrawElementContent(element, box, style);
+    }
+
+    internal void PaintLayerScrollbar(LayoutBox box, ComputedStyle style, float contentOffsetY)
+    {
+        DrawScrollbar(box, style);
+    }
+
     public void RebuildOverlay()
     {
         // Cheap: clear overlay list and rebuild only the focused input's text/cursor/selection ops.
@@ -290,8 +351,38 @@ public class PaintVisitor
         return typeface ?? _defaultTypeface ?? SKTypeface.Default;
     }
 
+    /// <summary>
+    /// Transliteration of ViewPainter::PaintBoxDecorationBackground (view_painter.cc).
+    /// Paints the canvas (viewport/document) background: the base background color
+    /// (white, matching SkiaRenderer's canvas.Clear) blended with the propagated
+    /// root element background. The paint rect covers the union of the visible
+    /// viewport content area and the whole document so no gap appears while scrolling.
+    /// </summary>
+    private void PaintViewBackground(Document document)
+    {
+        var background = _framePainter.PaintBackground(
+            document, _viewportWidth, _viewportHeight, _contentOffsetY);
+        if (background == null) return;
+
+        // Propagated background-image layers paint over the same rect. CSS
+        // background-clip is ignored for the canvas — layers expand to cover the
+        // whole canvas (see view_painter.cc PaintRootElementGroup).
+        var bgStyle = background.Style;
+        var bgRect = background.CanvasRect;
+        bool hasImage = bgStyle.BackgroundImage is { Count: > 0 } && bgStyle.BackgroundImage!.Any(s => s != "none");
+        if (hasImage)
+        {
+            if (bgStyle.BackgroundImage!.Any(s => s.Contains("gradient", StringComparison.OrdinalIgnoreCase)))
+                DrawGradientBackground(bgStyle, bgRect);
+            else
+                DrawBackgroundImage(background.SourceElement, bgStyle, bgRect);
+        }
+    }
+
     public void VisitDocument(Document document)
     {
+        _currentDocument = document;
+        PaintViewBackground(document);
         var root = document.DocumentElement ?? document.Body;
         if (root == null) return;
         VisitElement(root);
@@ -304,11 +395,93 @@ public class PaintVisitor
             DrawSelectDropdown();
     }
 
-    private void VisitElement(Element element)
+    /// <summary>
+    /// Paints the document using Blink's stacking-context paint order.
+    /// Builds a PaintLayer tree and paints each layer in CSS stacking order
+    /// (background → negative z → block bg → float → inline → auto z → positive z).
+    /// </summary>
+    public void VisitDocumentStacking(Document document)
+    {
+        _currentDocument = document;
+        PaintViewBackground(document);
+        var root = document.DocumentElement ?? document.Body;
+        if (root == null) return;
+
+        // Rebuild paint properties before collecting paint layers. This mirrors
+        // the browser lifecycle: layout -> pre-paint property walk -> paint.
+        _prePaintTreeWalk.Walk(root);
+
+        _stackingPaint = true;
+        _stackingLayers = new Dictionary<Element, bool>();
+        _stackingLayerTree = new PaintLayerTree();
+        _stackingLayerTree.Build(document);
+
+        // Paint the root element (establishes the base stacking context)
+        VisitElement(root);
+
+// Paint remaining layers in stacking order
+        var processed = new HashSet<Element> { root };
+        foreach (var layer in _stackingLayerTree.GetPaintOrder())
+        {
+            if (layer.Element == root || processed.Contains(layer.Element)) continue;
+
+            // P2-2b: viewport culling at paint-layer granularity — a stacking
+            // context whose subtree lies entirely outside the cull rect emits no
+            // ops at all (mirrors what CullRectUpdater feeds into Blink's layer
+            // painting). Fixed/sticky descendants establish their own layers and
+            // are tested independently, so they are never lost.
+            if (_cullRect.HasValue)
+            {
+                var b = layer.Element.LayoutBox?.BorderBox ?? SKRect.Empty;
+                if (b.Width <= 0 && b.Height <= 0 && !LayerHasPaintableContent(layer))
+                {
+                    processed.Add(layer.Element);
+                    continue;
+                }
+                b.Inflate(CullMarginPx, CullMarginPx);
+                b.Offset(0, TotalOffsetY);
+                if (!_cullRect.Value.IntersectsWith(b))
+                {
+                    processed.Add(layer.Element);
+                    continue;
+                }
+            }
+
+            var layerPainter = new PaintLayerPainter(this, layer);
+            layerPainter.Paint(TotalOffsetY);
+            processed.Add(layer.Element);
+        }
+
+        _stackingPaint = false;
+        _stackingLayers = null;
+        _stackingLayerTree = null;
+
+        if (_activeSelect != null)
+            DrawSelectDropdown();
+    }
+
+    /// <summary>Cull-margin for shadows / glyph bleed / image overscan.</summary>
+    private const float CullMarginPx = 300f;
+    private SKRect? _cullRect;
+
+    /// <summary>
+    /// Page-space rectangle that needs painting (typically the viewport plus a
+    /// margin). Null disables culling — headless snapshots paint the full page.
+    /// </summary>
+    public void SetCullRect(SKRect? pageSpaceRect) => _cullRect = pageSpaceRect;
+
+    private static bool LayerHasPaintableContent(PaintLayer layer) => false;
+
+    private bool _stackingPaint;
+    private Dictionary<Element, bool>? _stackingLayers;
+    private PaintLayerTree? _stackingLayerTree;
+
+    internal void VisitElement(Element element)
     {
         var layoutBox = element.LayoutBox;
 
-        // If no layout box (e.g. <tr>, <thead>, <tbody>), still visit children
+        // If no layout box (e.g. <tr>, <thead>, <tbody>), descendants still need
+        // to be painted when the layer tree is driving the traversal.
         if (layoutBox == null)
         {
             foreach (var child in element.Children)
@@ -346,22 +519,28 @@ public class PaintVisitor
         if (!string.IsNullOrEmpty(style.Filter) && style.Filter != "none")
             elementFilter = FilterRenderer.ParseAndChain(style.Filter);
 
-        bool hasClipPath = !string.IsNullOrEmpty(style.ClipPath) && style.ClipPath != "none";
+bool hasClipPath = ClipPathClipper.HasClipPath(style.ClipPath);
         bool hasOpacityLayer = style.Opacity < 1.0f && style.Opacity >= 0f;
+        bool hasBlendMode = style.MixBlendMode != MixBlendModeType.Normal;
+        bool hasMask = _maskPainter.HasMask(style);
+        SKImage? maskImage = null;
+        if (hasMask)
+            maskImage = _maskPainter.TryLoadMaskImage(style);
 
-        if (!isVisibilityHidden && (elementFilter != null || hasOpacityLayer || hasClipPath))
+        var viewportCullRect = new SKRect(0, TotalOffsetY, _viewportWidth, TotalOffsetY + _viewportHeight);
+        if (viewportCullRect.Width <= 0 || viewportCullRect.Height <= 0)
+            viewportCullRect = SKRect.Create(float.MinValue / 2, float.MinValue / 2, float.MaxValue, float.MaxValue);
+        using var objectPaintState = new ScopedPaintState(
+            _displayList, new SKPoint(TotalOffsetX, TotalOffsetY), viewportCullRect);
+
+        if (!isVisibilityHidden && (elementFilter != null || hasOpacityLayer || hasBlendMode || hasClipPath || hasMask))
         {
-            var layerOp = PaintOpPool.GetPushLayerOp();
-            layerOp.Opacity = hasOpacityLayer ? style.Opacity : 1.0f;
-            layerOp.ImageFilter = elementFilter;
+            SKPath? clipPath = null;
             if (hasClipPath)
-            {
-                var clipPath = ParseClipPath(style.ClipPath, layoutBox);
-                if (clipPath != null)
-                    layerOp.ClipPath = clipPath;
-            }
-            layerOp.Bounds = offsetBorderBox;
-            _displayList.Add(layerOp);
+                clipPath = ClipPathClipper.Parse(style.ClipPath, layoutBox);
+            objectPaintState.PushLayer(hasOpacityLayer ? style.Opacity : 1.0f,
+                elementFilter, clipPath, offsetBorderBox, maskImage,
+                hasBlendMode ? MixBlendModeToSkBlendMode(style.MixBlendMode) : SKBlendMode.SrcOver);
         }
 
         if (!isVisibilityHidden)
@@ -376,17 +555,16 @@ public class PaintVisitor
                 if (operations.Count > 0)
                 {
                     transformMatrix = TransformParser.ToMatrix(operations, transformOrigin.X, transformOrigin.Y);
-                    var transformOp = PaintOpPool.GetPushTransformOp();
-                    transformOp.Matrix = transformMatrix;
-                    transformOp.Bounds = offsetBorderBox;
-                    _displayList.Add(transformOp);
+                    objectPaintState.PushTransform(transformMatrix, offsetBorderBox);
                 }
             }
 
             bool isInline = style.Display == DisplayType.Inline;
             if (!isInline && !isVisibilityHidden)
             {
-                DrawElementBackground(element, layoutBox, style, offsetBorderBox);
+                bool transfersToView = _currentDocument != null &&
+                    ViewPainter.BackgroundTransfersToView(element, _currentDocument);
+                DrawElementBackground(element, layoutBox, style, offsetBorderBox, transfersToView);
                 DrawElementBorder(element, layoutBox, style, offsetBorderBox);
                 DrawElementOutline(element, layoutBox, style, offsetBorderBox);
             }
@@ -452,6 +630,9 @@ public class PaintVisitor
             bool isScrollContainer = layoutBox.IsScrollContainer &&
                 (layoutBox.ScrollContentHeight > layoutBox.ContentBox.Height || layoutBox.ScrollContentWidth > layoutBox.ContentBox.Width);
             bool needsClip = hasOverflowHidden || isScrollContainer;
+            using (var contentsPaintState = new ScopedPaintState(
+                _displayList, objectPaintState.PaintOffset, objectPaintState.CullRect))
+            {
             if (needsClip)
             {
                 var clipRect = new SKRect(
@@ -459,12 +640,7 @@ public class PaintVisitor
                     layoutBox.PaddingBox.Top + TotalOffsetY,
                     layoutBox.PaddingBox.Right,
                     layoutBox.PaddingBox.Bottom + TotalOffsetY);
-                if (clipRect.Width > 0 && clipRect.Height > 0)
-                {
-                    var clipOp = PaintOpPool.GetPushClipOp();
-                    clipOp.ClipRect = clipRect;
-                    _displayList.Add(clipOp);
-                }
+                contentsPaintState.PushClip(clipRect);
             }
 
             if (isScrollContainer)
@@ -473,24 +649,21 @@ public class PaintVisitor
                 float scrollOffsetY = -layoutBox.ScrollY;
                 if (scrollOffsetX != 0 || scrollOffsetY != 0)
                 {
-                    var translateOp = PaintOpPool.GetPushTransformOp();
-                    translateOp.Matrix = SKMatrix.CreateTranslation(scrollOffsetX, scrollOffsetY);
-                    translateOp.Bounds = new SKRect(
+                    var scrollBounds = new SKRect(
                         layoutBox.ContentBox.Left,
                         layoutBox.ContentBox.Top + TotalOffsetY,
                         layoutBox.ContentBox.Right,
                         layoutBox.ContentBox.Bottom + TotalOffsetY);
-                    _displayList.Add(translateOp);
+                    contentsPaintState.PushTransform(
+                        SKMatrix.CreateTranslation(scrollOffsetX, scrollOffsetY), scrollBounds);
                 }
             }
 
             bool hasStickyOffset = (stickyOffsetX != 0 || stickyOffsetY != 0);
             if (hasStickyOffset)
             {
-                var stickyOp = PaintOpPool.GetPushTransformOp();
-                stickyOp.Matrix = SKMatrix.CreateTranslation(stickyOffsetX, stickyOffsetY);
-                stickyOp.Bounds = offsetBorderBox;
-                _displayList.Add(stickyOp);
+                contentsPaintState.PushTransform(
+                    SKMatrix.CreateTranslation(stickyOffsetX, stickyOffsetY), offsetBorderBox);
             }
 
             if (!isInline)
@@ -501,14 +674,7 @@ public class PaintVisitor
             if (style.Display == DisplayType.ListItem)
                 DrawListMarker(element, layoutBox, style);
 
-            if (hasStickyOffset)
-                _displayList.Add(PaintOpPool.GetPopTransformOp());
-
-            if (isScrollContainer && (layoutBox.ScrollX != 0 || layoutBox.ScrollY != 0))
-                _displayList.Add(PaintOpPool.GetPopTransformOp());
-
-            if (needsClip)
-                _displayList.Add(PaintOpPool.GetPopClipOp());
+            }
 
             // Draw scrollbar for scroll containers:
             //  overflow: scroll → always show; overflow: auto → only when content overflows
@@ -524,21 +690,43 @@ public class PaintVisitor
                 }
             }
 
-            if (hasTransform && transformMatrix != SKMatrix.Identity)
-            {
-                _displayList.Add(PaintOpPool.GetPopTransformOp());
-            }
         }
 
-        foreach (var child in element.Children)
+        // In stacking paint mode, the PaintLayerTree controls child ordering.
+        // In normal mode, use z-index sorting for correct stacking within each parent.
+        if (_stackingPaint)
         {
-            if (child is Element childElement && childElement.ComputedStyle != null && childElement.ComputedStyle.Display != DisplayType.None)
+            // Let the layer tree handle child ordering; don't recurse here.
+        }
+        else
+        {
+            // Sort children by z-index for correct stacking (negative → 0 → positive)
+            var children = element.Children
+                .OfType<Element>()
+                .Where(c => c.ComputedStyle != null && c.ComputedStyle.Display != DisplayType.None)
+                .OrderBy(c => c.ComputedStyle!.ZIndex ?? 0)
+                .ToList();
+
+            foreach (var childElement in children)
                 VisitElement(childElement);
         }
 
-        if (!isVisibilityHidden && (elementFilter != null || hasOpacityLayer || hasClipPath))
+    }
+
+    /// <summary>
+    /// Paint layout boxes that were produced by layout but have no DOM element of
+    /// their own (anonymous boxes such as multicol columns). Their inline content
+    /// is drawn relative to each box's own content rectangle.
+    /// </summary>
+    private void PaintAnonymousChildBoxes(LayoutBox parent)
+    {
+        foreach (var child in parent.Children)
         {
-            _displayList.Add(PaintOpPool.GetPopLayerOp());
+            if (child.Dimensions?.Element != null)
+                continue; // has a DOM element; painted through VisitElement
+            if (child.Lines == null && child.LineRuns == null)
+                continue;
+            DrawInlineRuns(child);
         }
     }
 
@@ -574,7 +762,7 @@ public class PaintVisitor
         if (box.Lines != null && box.Lines.Count > 0 && box.Lines[0].Baseline > 0)
             markerY = box.Lines[0].Baseline;
         else
-            markerY = box.ContentBox.Top + style.FontSize * 0.85f;
+            markerY = box.ContentBox.Top + Core.Fonts.LineBoxMetrics.GetBaseline(style);
         
         string markerText = style.ListStyleType switch
         {
@@ -617,7 +805,7 @@ public class PaintVisitor
         return result;
     }
 
-    private void DrawElementBackground(Element element, LayoutBox box, ComputedStyle style, SKRect borderRect)
+    private void DrawElementBackground(Element element, LayoutBox box, ComputedStyle style, SKRect borderRect, bool skipBackgroundLayers = false)
     {
         var paddingRect = new SKRect(borderRect.Left + style.BorderLeftWidth, borderRect.Top + style.BorderTopWidth,
                                      borderRect.Right - style.BorderRightWidth, borderRect.Bottom - style.BorderBottomWidth);
@@ -656,10 +844,14 @@ public class PaintVisitor
             _displayList.Add(clipOp);
         }
 
-        DrawBoxShadow(borderRect, style);
+        // Normal box shadows paint first (under the background); inset shadows
+        // paint after the background (over it), mirroring box_painter_base.cc.
+        _boxPainter.PaintNormalBoxShadow(borderRect, style);
+
+        if (skipBackgroundLayers) return;
 
         bool hasBackgroundColor = style.BackgroundColor.HasValue && style.BackgroundColor.Value.Alpha > 0;
-        bool hasBackgroundImage = !string.IsNullOrEmpty(style.BackgroundImage);
+        bool hasBackgroundImage = style.BackgroundImage is { Count: > 0 };
 
         if (hasBackgroundColor)
         {
@@ -675,9 +867,90 @@ public class PaintVisitor
             _displayList.Add(op);
         }
 
-        if (hasBackgroundImage && style.BackgroundImage != null)
+        if (hasBackgroundImage && style.BackgroundImage is { Count: > 0 })
         {
-            if (style.BackgroundImage.Contains("gradient", StringComparison.OrdinalIgnoreCase))
+            if (style.BackgroundImage!.Any(s => s.Contains("gradient", StringComparison.OrdinalIgnoreCase)))
+                DrawGradientBackground(style, paddingRect);
+            else
+                DrawBackgroundImage(element, style, paddingRect);
+        }
+
+        _boxPainter.PaintInsetBoxShadowWithBorderRect(borderRect, style);
+
+        // Pop clip if we pushed one
+        if (needsClip)
+        {
+            var popOp = PaintOpPool.GetPopClipOp();
+            popOp.Bounds = borderRect;
+            _displayList.Add(popOp);
+        }
+    }
+
+    /// <summary>
+    /// Paint the background fill layers (background-color + background-image)
+    /// of an element honoring background-clip. Shared fill portion used by the
+    /// inline painter (InlineBoxFragmentPainter.PaintFillLayer) so inline boxes
+    /// render background images through the same pipeline as block boxes.
+    /// </summary>
+    internal void PaintBackgroundFill(Element element, ComputedStyle style, SKRect borderRect)
+    {
+        var paddingRect = new SKRect(borderRect.Left + style.BorderLeftWidth, borderRect.Top + style.BorderTopWidth,
+                                     borderRect.Right - style.BorderRightWidth, borderRect.Bottom - style.BorderBottomWidth);
+        if (paddingRect.Width <= 0 || paddingRect.Height <= 0) return;
+
+        // Determine the background clip rect based on background-clip property
+        SKRect bgClipRect;
+        switch (style.BackgroundClip?.ToLowerInvariant())
+        {
+            case "border-box":
+                bgClipRect = borderRect;
+                break;
+            case "content-box":
+                float padL = style.PaddingLeft is PixelLength pl ? pl.Value : 0;
+                float padT = style.PaddingTop is PixelLength pt ? pt.Value : 0;
+                float padR = style.PaddingRight is PixelLength pr ? pr.Value : 0;
+                float padB = style.PaddingBottom is PixelLength pb ? pb.Value : 0;
+                bgClipRect = new SKRect(paddingRect.Left + padL, paddingRect.Top + padT,
+                                        paddingRect.Right - padR, paddingRect.Bottom - padB);
+                if (bgClipRect.Width <= 0) bgClipRect.Right = bgClipRect.Left;
+                if (bgClipRect.Height <= 0) bgClipRect.Bottom = bgClipRect.Top;
+                break;
+            default: // padding-box
+                bgClipRect = paddingRect;
+                break;
+        }
+
+        // Push clip to background clip rect
+        bool needsClip = style.BackgroundClip != null && style.BackgroundClip != "" &&
+                         style.BackgroundClip.ToLowerInvariant() != "padding-box";
+        if (needsClip)
+        {
+            var clipOp = PaintOpPool.GetPushClipOp();
+            clipOp.ClipRect = bgClipRect;
+            clipOp.Bounds = borderRect;
+            _displayList.Add(clipOp);
+        }
+
+        bool hasBackgroundColor = style.BackgroundColor.HasValue && style.BackgroundColor.Value.Alpha > 0;
+        bool hasBackgroundImage = style.BackgroundImage is { Count: > 0 };
+
+        if (hasBackgroundColor)
+        {
+            SKColor bgColor = style.BackgroundColor.Value;
+            if (style.Opacity < 1.0f)
+                bgColor = bgColor.WithAlpha((byte)(bgColor.Alpha * style.Opacity));
+
+            var op = PaintOpPool.GetDrawRectOp();
+            op.Rect = paddingRect;
+            op.FillColor = bgColor;
+            op.BorderRadius = Math.Max(style.BorderTopLeftRadius, Math.Max(style.BorderTopRightRadius, Math.Max(style.BorderBottomLeftRadius, style.BorderBottomRightRadius)));
+            op.Bounds = borderRect;
+            _displayList.Add(op);
+        }
+
+        if (hasBackgroundImage && style.BackgroundImage is { Count: > 0 })
+        {
+            if (style.BackgroundImage!.Any(s => s.Contains("gradient", StringComparison.OrdinalIgnoreCase)))
                 DrawGradientBackground(style, paddingRect);
             else
                 DrawBackgroundImage(element, style, paddingRect);
@@ -694,126 +967,89 @@ public class PaintVisitor
 
     private void DrawBoxShadow(SKRect rect, ComputedStyle style)
     {
-        if (style.BoxShadow == null) return;
-        var shadow = style.BoxShadow;
+        if (style.BoxShadow == null || style.BoxShadow.Count == 0) return;
 
-        if (shadow.Inset)
+        foreach (var shadow in style.BoxShadow)
         {
-            float radius = Math.Max(style.BorderTopLeftRadius, Math.Max(style.BorderTopRightRadius,
-                Math.Max(style.BorderBottomLeftRadius, style.BorderBottomRightRadius)));
-            float blur = Math.Max(1, shadow.BlurRadius);
-            using var innerPath = new SKPath();
-            if (radius > 0)
-                innerPath.AddRoundRect(rect, radius, radius);
-            else
-                innerPath.AddRect(rect);
-            var clipOp = PaintOpPool.GetPushClipOp();
-            clipOp.ClipPath = new SKPath(innerPath);
-            clipOp.AntiAlias = true;
-            clipOp.Bounds = rect;
-            _displayList.Add(clipOp);
-            var shadowOp = PaintOpPool.GetDrawShadowOp();
-            shadowOp.Path = new SKPath(innerPath);
-            shadowOp.Color = shadow.Color;
-            shadowOp.BlurRadius = blur;
-            shadowOp.OffsetX = shadow.OffsetX;
-            shadowOp.OffsetY = shadow.OffsetY;
-            shadowOp.Inset = true;
-            shadowOp.ZIndex = -1;
-            shadowOp.Bounds = new SKRect(rect.Left - Math.Abs(shadow.OffsetX) - blur, rect.Top - Math.Abs(shadow.OffsetY) - blur,
-                                         rect.Right + Math.Abs(shadow.OffsetX) + blur, rect.Bottom + Math.Abs(shadow.OffsetY) + blur);
-            _displayList.Add(shadowOp);
-            var popClipOp = PaintOpPool.GetPopClipOp();
-            popClipOp.Bounds = rect;
-            _displayList.Add(popClipOp);
-            return;
-        }
+            if (shadow.Inset)
+            {
+                float radius = Math.Max(style.BorderTopLeftRadius, Math.Max(style.BorderTopRightRadius,
+                    Math.Max(style.BorderBottomLeftRadius, style.BorderBottomRightRadius)));
+                float blur = Math.Max(1, shadow.BlurRadius);
+                using var innerPath = new SKPath();
+                if (radius > 0)
+                    innerPath.AddRoundRect(rect, radius, radius);
+                else
+                    innerPath.AddRect(rect);
+                var clipOp = PaintOpPool.GetPushClipOp();
+                clipOp.ClipPath = new SKPath(innerPath);
+                clipOp.AntiAlias = true;
+                clipOp.Bounds = rect;
+                _displayList.Add(clipOp);
+                var shadowOp = PaintOpPool.GetDrawShadowOp();
+                shadowOp.Path = new SKPath(innerPath);
+                shadowOp.Color = shadow.Color;
+                shadowOp.BlurRadius = blur;
+                shadowOp.OffsetX = shadow.OffsetX;
+                shadowOp.OffsetY = shadow.OffsetY;
+                shadowOp.Inset = true;
+                shadowOp.ZIndex = 0;
+                shadowOp.Bounds = new SKRect(rect.Left - Math.Abs(shadow.OffsetX) - blur, rect.Top - Math.Abs(shadow.OffsetY) - blur,
+                                             rect.Right + Math.Abs(shadow.OffsetX) + blur, rect.Bottom + Math.Abs(shadow.OffsetY) + blur);
+                _displayList.Add(shadowOp);
+                var popClipOp = PaintOpPool.GetPopClipOp();
+                popClipOp.Bounds = rect;
+                _displayList.Add(popClipOp);
+                continue;
+            }
 
-        var path = new SKPath();
-        float borderradius = Math.Max(style.BorderTopLeftRadius, Math.Max(style.BorderTopRightRadius,
-            Math.Max(style.BorderBottomLeftRadius, style.BorderBottomRightRadius)));
-        if (borderradius > 0)
-            path.AddRoundRect(rect, borderradius, borderradius);
-        else
-            path.AddRect(rect);
-        var shadowOutsetOp = PaintOpPool.GetDrawShadowOp();
-        shadowOutsetOp.Path.Dispose();
-        shadowOutsetOp.Path = path;
-        shadowOutsetOp.Color = shadow.Color;
-        shadowOutsetOp.BlurRadius = Math.Max(1, shadow.BlurRadius);
-        shadowOutsetOp.OffsetX = shadow.OffsetX;
-        shadowOutsetOp.OffsetY = shadow.OffsetY;
-        shadowOutsetOp.ZIndex = -1;
-        shadowOutsetOp.Bounds = new SKRect(rect.Left + shadow.OffsetX - shadow.BlurRadius, rect.Top + shadow.OffsetY - shadow.BlurRadius,
-                                     rect.Right + shadow.OffsetX + shadow.BlurRadius, rect.Bottom + shadow.OffsetY + shadow.BlurRadius);
-        _displayList.Add(shadowOutsetOp);
+            var path = new SKPath();
+            float borderradius = Math.Max(style.BorderTopLeftRadius, Math.Max(style.BorderTopRightRadius,
+                Math.Max(style.BorderBottomLeftRadius, style.BorderBottomRightRadius)));
+            if (borderradius > 0)
+                path.AddRoundRect(rect, borderradius, borderradius);
+            else
+                path.AddRect(rect);
+            var shadowOutsetOp = PaintOpPool.GetDrawShadowOp();
+            shadowOutsetOp.Path.Dispose();
+            shadowOutsetOp.Path = path;
+            shadowOutsetOp.Color = shadow.Color;
+            shadowOutsetOp.BlurRadius = Math.Max(1, shadow.BlurRadius);
+            shadowOutsetOp.OffsetX = shadow.OffsetX;
+            shadowOutsetOp.OffsetY = shadow.OffsetY;
+            shadowOutsetOp.ZIndex = 0;
+            shadowOutsetOp.Bounds = new SKRect(rect.Left + shadow.OffsetX - shadow.BlurRadius, rect.Top + shadow.OffsetY - shadow.BlurRadius,
+                                         rect.Right + shadow.OffsetX + shadow.BlurRadius, rect.Bottom + shadow.OffsetY + shadow.BlurRadius);
+            _displayList.Add(shadowOutsetOp);
+        }
     }
+
+private static SKBlendMode MixBlendModeToSkBlendMode(MixBlendModeType mode) => mode switch
+    {
+        MixBlendModeType.Multiply => SKBlendMode.Multiply,
+        MixBlendModeType.Screen => SKBlendMode.Screen,
+        MixBlendModeType.Overlay => SKBlendMode.Overlay,
+        MixBlendModeType.Darken => SKBlendMode.Darken,
+        MixBlendModeType.Lighten => SKBlendMode.Lighten,
+        MixBlendModeType.ColorDodge => SKBlendMode.ColorDodge,
+        MixBlendModeType.ColorBurn => SKBlendMode.ColorBurn,
+        MixBlendModeType.HardLight => SKBlendMode.HardLight,
+        MixBlendModeType.SoftLight => SKBlendMode.SoftLight,
+        MixBlendModeType.Difference => SKBlendMode.Difference,
+        MixBlendModeType.Exclusion => SKBlendMode.Exclusion,
+        MixBlendModeType.Hue => SKBlendMode.Hue,
+        MixBlendModeType.Saturation => SKBlendMode.Saturation,
+        MixBlendModeType.Color => SKBlendMode.Color,
+        MixBlendModeType.Luminosity => SKBlendMode.Luminosity,
+        _ => SKBlendMode.SrcOver,
+    };
+
+    private static bool IsMixBlendModeRequired(ComputedStyle style) => style.MixBlendMode != MixBlendModeType.Normal;
 
     private void DrawScrollbar(LayoutBox box, ComputedStyle style)
     {
-        var paddingBox = box.PaddingBox;
-        float scrollbarWidth = 12f;
-
-        bool overflowYScroll = style.OverflowY == OverflowType.Scroll || style.Overflow == OverflowType.Scroll;
-        bool overflowXScroll = style.OverflowX == OverflowType.Scroll || style.Overflow == OverflowType.Scroll;
-        bool hasVOverflow = box.ScrollContentHeight > box.ContentBox.Height;
-        bool hasHOverflow = box.ScrollContentWidth > box.ContentBox.Width;
-
-        // Vertical scrollbar
-        if (hasVOverflow || overflowYScroll)
-        {
-            float trackHeight = paddingBox.Height;
-            float thumbRatio = box.ContentBox.Height / Math.Max(1, box.ScrollContentHeight);
-            float thumbHeight = Math.Max(20, trackHeight * Math.Min(1, thumbRatio));
-            float trackX = paddingBox.Right - scrollbarWidth;
-            float trackY = paddingBox.Top + TotalOffsetY;
-
-            var trackOp = PaintOpPool.GetDrawRectOp();
-            trackOp.Rect = new SKRect(trackX, trackY, trackX + scrollbarWidth, trackY + trackHeight);
-            trackOp.FillColor = new SKColor(240, 240, 240);
-            trackOp.Bounds = trackOp.Rect;
-            _displayList.Add(trackOp);
-
-            if (hasVOverflow)
-            {
-                float scrollRange = Math.Max(1, box.ScrollContentHeight - box.ContentBox.Height);
-                float thumbY = trackY + (trackHeight - thumbHeight) * (box.ScrollY / scrollRange);
-                var thumbOp = PaintOpPool.GetDrawRectOp();
-                thumbOp.Rect = new SKRect(trackX + 2, thumbY + 1, trackX + scrollbarWidth - 2, thumbY + thumbHeight - 1);
-                thumbOp.FillColor = new SKColor(180, 180, 180);
-                thumbOp.Bounds = thumbOp.Rect;
-                _displayList.Add(thumbOp);
-            }
-        }
-
-        // Horizontal scrollbar
-        if (hasHOverflow || overflowXScroll)
-        {
-            float trackWidth = paddingBox.Width;
-            bool alsoVertical = hasVOverflow || overflowYScroll;
-            if (alsoVertical) trackWidth -= scrollbarWidth;
-            float thumbRatio = box.ContentBox.Width / Math.Max(1, box.ScrollContentWidth);
-            float thumbWidth = Math.Max(20, trackWidth * Math.Min(1, thumbRatio));
-            float trackX = paddingBox.Left;
-            float trackY = paddingBox.Bottom - scrollbarWidth + TotalOffsetY;
-
-            var trackOp = PaintOpPool.GetDrawRectOp();
-            trackOp.Rect = new SKRect(trackX, trackY, trackX + trackWidth, trackY + scrollbarWidth);
-            trackOp.FillColor = new SKColor(240, 240, 240);
-            trackOp.Bounds = trackOp.Rect;
-            _displayList.Add(trackOp);
-
-            if (hasHOverflow)
-            {
-                float scrollRange = Math.Max(1, box.ScrollContentWidth - box.ContentBox.Width);
-                float thumbX = trackX + (trackWidth - thumbWidth) * (box.ScrollX / scrollRange);
-                var thumbOp = PaintOpPool.GetDrawRectOp();
-                thumbOp.Rect = new SKRect(thumbX + 1, trackY + 2, thumbX + thumbWidth - 1, trackY + scrollbarWidth - 2);
-                thumbOp.FillColor = new SKColor(180, 180, 180);
-                thumbOp.Bounds = thumbOp.Rect;
-                _displayList.Add(thumbOp);
-            }
-        }
+        bool canResize = style.Resize != ResizeType.None;
+        _scrollableAreaPainter.Paint(box, style, TotalOffsetY, canResize);
     }
 
     private SKPoint ParseTransformOrigin(string? origin, LayoutBox box)
@@ -847,108 +1083,73 @@ public class PaintVisitor
 
     private void DrawBackgroundImage(Element element, ComputedStyle style, SKRect rect)
     {
-        var url = style.BackgroundImage;
-        if (string.IsNullOrEmpty(url)) return;
+        var images = style.BackgroundImage;
+        if (images == null || images.Count == 0) return;
+        if (string.IsNullOrEmpty(images[0])) return;
+        var url = images[0];
         var task = _imageCache.GetImageAsync(url);
         task.Wait();
         var image = task.Result;
         if (image == null) return;
+
+        var fillLayer = BackgroundImageGeometry.FromStyle(style);
+        if (fillLayer == null) return;
+
+        float padL = style.PaddingLeft is PixelLength pl ? pl.Value : 0;
+        float padT = style.PaddingTop is PixelLength pt ? pt.Value : 0;
+        float padR = style.PaddingRight is PixelLength pr ? pr.Value : 0;
+        float padB = style.PaddingBottom is PixelLength pb ? pb.Value : 0;
+
+        var paintContext = new BoxBackgroundPaintContext(
+            new SKSize(rect.Width, rect.Height),
+            style.BorderTopWidth, style.BorderRightWidth, style.BorderBottomWidth, style.BorderLeftWidth,
+            padT, padR, padB, padL);
+
+        var geometry = new BackgroundImageGeometry();
+        geometry.Calculate(fillLayer, paintContext, rect, style, new SKSize(image.Width, image.Height));
+        DrawBackgroundTiles(image, geometry);
+    }
+
+    /// <summary>
+    /// Tile an image over the snapped destination rect using the precomputed
+    /// tile size, phase and repeat spacing from <see cref="BackgroundImageGeometry"/>.
+    /// </summary>
+    private void DrawBackgroundTiles(SKImage image, BackgroundImageGeometry geometry)
+    {
+        var destRect = geometry.SnappedDestRect;
+        if (destRect.Width <= 0 || destRect.Height <= 0) return;
+        var tileSize = geometry.TileSize;
+        if (tileSize.Width <= 0 || tileSize.Height <= 0) return;
+
+        var phase = geometry.ComputePhase();
+        float stepX = tileSize.Width + geometry.SpaceSize.Width;
+        float stepY = tileSize.Height + geometry.SpaceSize.Height;
+        if (stepX <= 0 || stepY <= 0) return;
+
         float imgW = image.Width, imgH = image.Height;
-        float tileWidth = imgW, tileHeight = imgH;
-        if (style.BackgroundSize == BackgroundSizeType.Cover)
-        {
-            float srcRatio = imgW / imgH;
-            float destRatio = rect.Width / rect.Height;
-            if (srcRatio > destRatio)
-            {
-                tileHeight = rect.Height;
-                tileWidth = tileHeight * srcRatio;
-            }
-            else
-            {
-                tileWidth = rect.Width;
-                tileHeight = tileWidth / srcRatio;
-            }
-        }
-        else if (style.BackgroundSize == BackgroundSizeType.Contain)
-        {
-            float srcRatio = imgW / imgH;
-            float destRatio = rect.Width / rect.Height;
-            if (srcRatio > destRatio)
-            {
-                tileWidth = rect.Width;
-                tileHeight = tileWidth / srcRatio;
-            }
-            else
-            {
-                tileHeight = rect.Height;
-                tileWidth = tileHeight * srcRatio;
-            }
-        }
-        else if (style.BackgroundSize == BackgroundSizeType.Length)
-        {
-            if (style.BackgroundSizeWidth != null)
-                tileWidth = style.BackgroundSizeWidth.ToPixels(rect.Width, 16, rect.Width, rect.Height);
-            if (style.BackgroundSizeHeight != null)
-                tileHeight = style.BackgroundSizeHeight.ToPixels(rect.Height, 16, rect.Width, rect.Height);
-        }
 
-        float posX = 0, posY = 0;
-        if (style.BackgroundPositionX != null)
+        for (float y = destRect.Top + phase.Y; y < destRect.Bottom; y += stepY)
         {
-            if (style.BackgroundPositionX is PixelLength px) posX = px.Value;
-            else if (style.BackgroundPositionX is PercentLength ppx) posX = rect.Width * ppx.Value;
-        }
-        if (style.BackgroundPositionY != null)
-        {
-            if (style.BackgroundPositionY is PixelLength py) posY = py.Value;
-            else if (style.BackgroundPositionY is PercentLength ppy) posY = rect.Height * ppy.Value;
-        }
-
-        if (style.BackgroundRepeat == BackgroundRepeat.NoRepeat)
-        {
-            var destRect = new SKRect(rect.Left + posX, rect.Top + posY, rect.Left + posX + tileWidth, rect.Top + posY + tileHeight);
-            var op = PaintOpPool.GetDrawImageOp();
-            op.Image = image;
-            op.SourceRect = new SKRect(0, 0, imgW, imgH);
-            op.DestRect = destRect;
-            op.Fit = ImageFit.None;
-            op.Bounds = rect;
-            _displayList.Add(op);
-            return;
-        }
-
-        bool repeatX = style.BackgroundRepeat == BackgroundRepeat.Repeat || style.BackgroundRepeat == BackgroundRepeat.RepeatX;
-        bool repeatY = style.BackgroundRepeat == BackgroundRepeat.Repeat || style.BackgroundRepeat == BackgroundRepeat.RepeatY;
-        float startX = rect.Left + posX;
-        if (repeatX) while (startX > rect.Left) startX -= tileWidth;
-        float startY = rect.Top + posY;
-        if (repeatY) while (startY > rect.Top) startY -= tileHeight;
-
-        for (float y = startY; y < rect.Bottom; y += tileHeight)
-        {
-            if (!repeatY && y > rect.Top) break;
-            for (float x = startX; x < rect.Right; x += tileWidth)
+            for (float x = destRect.Left + phase.X; x < destRect.Right; x += stepX)
             {
-                if (!repeatX && x > rect.Left) break;
-                var tileRect = new SKRect(x, y, x + tileWidth, y + tileHeight);
+                var tileRect = new SKRect(x, y, x + tileSize.Width, y + tileSize.Height);
                 var clipRect = tileRect;
-                clipRect.Left = Math.Max(clipRect.Left, rect.Left);
-                clipRect.Top = Math.Max(clipRect.Top, rect.Top);
-                clipRect.Right = Math.Min(clipRect.Right, rect.Right);
-                clipRect.Bottom = Math.Min(clipRect.Bottom, rect.Bottom);
+                clipRect.Left = Math.Max(clipRect.Left, destRect.Left);
+                clipRect.Top = Math.Max(clipRect.Top, destRect.Top);
+                clipRect.Right = Math.Min(clipRect.Right, destRect.Right);
+                clipRect.Bottom = Math.Min(clipRect.Bottom, destRect.Bottom);
                 if (clipRect.Width > 0 && clipRect.Height > 0)
                 {
-                    float srcLeft = (clipRect.Left - x) / tileWidth * image.Width;
-                    float srcTop = (clipRect.Top - y) / tileHeight * image.Height;
-                    float srcRight = srcLeft + (clipRect.Width / tileWidth * image.Width);
-                    float srcBottom = srcTop + (clipRect.Height / tileHeight * image.Height);
+                    float srcLeft = (clipRect.Left - x) / tileSize.Width * imgW;
+                    float srcTop = (clipRect.Top - y) / tileSize.Height * imgH;
+                    float srcRight = srcLeft + (clipRect.Width / tileSize.Width * imgW);
+                    float srcBottom = srcTop + (clipRect.Height / tileSize.Height * imgH);
                     var op = PaintOpPool.GetDrawImageOp();
                     op.Image = image;
                     op.SourceRect = new SKRect(srcLeft, srcTop, srcRight, srcBottom);
                     op.DestRect = clipRect;
                     op.Fit = ImageFit.None;
-                    op.Bounds = rect;
+                    op.Bounds = destRect;
                     _displayList.Add(op);
                 }
             }
@@ -957,7 +1158,7 @@ public class PaintVisitor
 
     private void DrawGradientBackground(ComputedStyle style, SKRect rect)
     {
-        var shader = GradientRenderer.CreateGradient(style.BackgroundImage!, rect);
+        var shader = GradientRenderer.CreateGradient(style.BackgroundImage?.FirstOrDefault() ?? "", rect);
         if (shader == null) return;
 
         float maxRadius = Math.Max(style.BorderTopLeftRadius, Math.Max(style.BorderTopRightRadius,
@@ -982,7 +1183,7 @@ public class PaintVisitor
         _displayList.Add(op);
     }
 
-    private void DrawElementBorder(Element element, LayoutBox box, ComputedStyle style, SKRect borderRect)
+    internal void DrawElementBorder(Element element, LayoutBox box, ComputedStyle style, SKRect borderRect)
     {
         if (element.TagName.Equals("BUTTON", StringComparison.OrdinalIgnoreCase))
             return;
@@ -991,67 +1192,18 @@ public class PaintVisitor
 
         if (element.TagName.Equals("FIELDSET", StringComparison.OrdinalIgnoreCase))
         {
-            DrawFieldsetBorder(borderRect, style);
+            FieldsetPainter.PaintFieldsetBorder(_displayList, element, style, borderRect, TotalOffsetY);
             return;
         }
 
-        float tl = style.BorderTopLeftRadius, tr = style.BorderTopRightRadius, br = style.BorderBottomRightRadius, bl = style.BorderBottomLeftRadius;
-        if (tl > 0 || tr > 0 || br > 0 || bl > 0)
+        if (NinePieceImagePainter.HasBorderImage(style))
         {
-            DrawRoundedBorder(borderRect, tl, tr, br, bl, style);
+            NinePieceImagePainter.Paint(_displayList, _imageCache, style, borderRect);
             return;
         }
 
-        var op = PaintOpPool.GetDrawRectOp();
-        op.Rect = borderRect;
-        op.BorderTopWidth = style.BorderTopWidth;
-        op.BorderRightWidth = style.BorderRightWidth;
-        op.BorderBottomWidth = style.BorderBottomWidth;
-        op.BorderLeftWidth = style.BorderLeftWidth;
-        op.BorderTopColor = style.BorderTopColor;
-        op.BorderRightColor = style.BorderRightColor;
-        op.BorderBottomColor = style.BorderBottomColor;
-        op.BorderLeftColor = style.BorderLeftColor;
-        op.BorderTopStyle = style.BorderTopStyle;
-        op.BorderRightStyle = style.BorderRightStyle;
-        op.BorderBottomStyle = style.BorderBottomStyle;
-        op.BorderLeftStyle = style.BorderLeftStyle;
-        op.Bounds = borderRect;
-        _displayList.Add(op);
-    }
-
-    private void DrawFieldsetBorder(SKRect borderRect, ComputedStyle style)
-    {
-        float borderWidth = Math.Max(2, style.BorderTopWidth);
-        var path = new SKPath();
-        path.AddRect(borderRect);
-        var op = PaintOpPool.GetDrawPathOp();
-        op.Path = path;
-        op.StrokePaint = new SKPaint
-        {
-            Color = style.BorderTopColor,
-            Style = SKPaintStyle.Stroke,
-            StrokeWidth = borderWidth,
-            IsAntialias = true
-        };
-        op.Bounds = borderRect;
-        _displayList.Add(op);
-
-        float borderWidth2 = borderWidth * 0.5f;
-        var innerPath = new SKPath();
-        innerPath.AddRect(new SKRect(borderRect.Left + borderWidth2, borderRect.Top + borderWidth2,
-            borderRect.Right - borderWidth2, borderRect.Bottom - borderWidth2));
-        var innerOp = PaintOpPool.GetDrawPathOp();
-        innerOp.Path = innerPath;
-        innerOp.StrokePaint = new SKPaint
-        {
-            Color = new SKColor(240, 240, 240),
-            Style = SKPaintStyle.Stroke,
-            StrokeWidth = borderWidth2,
-            IsAntialias = true
-        };
-        innerOp.Bounds = borderRect;
-        _displayList.Add(innerOp);
+        var borderPainter = new BoxBorderPainter(_displayList, borderRect, style);
+        borderPainter.Paint();
     }
 
     private void DrawFocusRing(Element element, LayoutBox box, DisplayList? target = null)
@@ -1072,49 +1224,7 @@ public class PaintVisitor
         if (style.OutlineWidth <= 0 || style.OutlineStyle == BorderStyle.None) return;
 
         float offset = style.OutlineOffset;
-        var outlineRect = new SKRect(
-            borderRect.Left - offset - style.OutlineWidth,
-            borderRect.Top - offset - style.OutlineWidth,
-            borderRect.Right + offset + style.OutlineWidth,
-            borderRect.Bottom + offset + style.OutlineWidth);
-
-        using var paint = new SKPaint
-        {
-            Color = style.OutlineColor,
-            Style = SKPaintStyle.Stroke,
-            StrokeWidth = style.OutlineWidth,
-            IsAntialias = true
-        };
-
-        float maxRadius = Math.Max(style.BorderTopLeftRadius, Math.Max(style.BorderTopRightRadius,
-            Math.Max(style.BorderBottomLeftRadius, style.BorderBottomRightRadius)));
-
-        if (maxRadius > 0)
-        {
-            var op = PaintOpPool.GetDrawPathOp();
-            var path = new SKPath();
-            path.AddRoundRect(outlineRect, maxRadius + offset, maxRadius + offset);
-            op.Path.Dispose();
-            op.Path = path;
-            op.StrokePaint = paint;
-            op.Bounds = outlineRect;
-            _displayList.Add(op);
-        }
-        else
-        {
-            var op = PaintOpPool.GetDrawRectOp();
-            op.Rect = outlineRect;
-            op.BorderTopWidth = style.OutlineWidth;
-            op.BorderRightWidth = style.OutlineWidth;
-            op.BorderBottomWidth = style.OutlineWidth;
-            op.BorderLeftWidth = style.OutlineWidth;
-            op.BorderTopColor = style.OutlineColor;
-            op.BorderRightColor = style.OutlineColor;
-            op.BorderBottomColor = style.OutlineColor;
-            op.BorderLeftColor = style.OutlineColor;
-            op.Bounds = outlineRect;
-            _displayList.Add(op);
-        }
+        _outlinePainter.PaintOutline(borderRect, style, offset);
     }
 
     private void DrawInlineChildrenDecorations(Element element)
@@ -1133,230 +1243,18 @@ public class PaintVisitor
                     childBox.BorderBox.Bottom + TotalOffsetY);
 
                 bool childVisHidden = childStyle.Visibility == VisibilityType.Hidden;
+                if (!childVisHidden && InlineBoxFragmentPainter.HasBoxDecorationBackground(childStyle))
+                {
+                    // Port of InlineBoxFragmentPainter::PaintBackgroundBorderShadow:
+                    // paints normal shadow → background fill layers → inset shadow → border.
+                    _inlinePainter.PaintBackgroundBorderShadow(childElement, childStyle, childBorderRect);
+                }
                 if (!childVisHidden)
                 {
-                    DrawElementBackground(childElement, childBox, childStyle, childBorderRect);
-                    DrawElementBorder(childElement, childBox, childStyle, childBorderRect);
                     DrawElementOutline(childElement, childBox, childStyle, childBorderRect);
                 }
             }
         }
-    }
-
-    private SKPath? ParseClipPath(string? clipPath, LayoutBox box)
-    {
-        if (string.IsNullOrEmpty(clipPath)) return null;
-
-        var path = new SKPath();
-        var rect = box.BorderBox;
-
-        if (clipPath.StartsWith("circle("))
-        {
-            var inner = clipPath[7..^1];
-            var parts = inner.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-            float radius = Math.Min(rect.Width, rect.Height) / 2f;
-            float cx = rect.MidX, cy = rect.MidY;
-            if (parts.Length >= 1)
-            {
-                var rStr = parts[0].Trim();
-                if (rStr.EndsWith("%"))
-                {
-                    if (float.TryParse(rStr[..^1].Trim(), out var pct))
-                        radius = Math.Min(rect.Width, rect.Height) * pct / 100f;
-                }
-                else
-                {
-                    float.TryParse(rStr.Replace("px", "").Trim(), out radius);
-                }
-            }
-            // at keyword for center: circle(50% at 30% 40%)
-            int atIdx = Array.FindIndex(parts, p => p.Equals("at", StringComparison.OrdinalIgnoreCase));
-            if (atIdx >= 0 && parts.Length > atIdx + 2)
-            {
-                var cxStr = parts[atIdx + 1];
-                if (cxStr.EndsWith("%"))
-                {
-                    if (float.TryParse(cxStr[..^1].Trim(), out var pct))
-                        cx = rect.Left + rect.Width * pct / 100f;
-                }
-                else
-                {
-                    if (float.TryParse(cxStr.Replace("px", "").Trim(), out var v))
-                        cx = rect.Left + v;
-                }
-                var cyStr = parts[atIdx + 2];
-                if (cyStr.EndsWith("%"))
-                {
-                    if (float.TryParse(cyStr[..^1].Trim(), out var pct))
-                        cy = rect.Top + rect.Height * pct / 100f;
-                }
-                else
-                {
-                    if (float.TryParse(cyStr.Replace("px", "").Trim(), out var v))
-                        cy = rect.Top + v;
-                }
-            }
-            path.AddCircle(cx, cy, Math.Max(0, radius));
-        }
-        else if (clipPath.StartsWith("ellipse("))
-        {
-            var inner = clipPath[8..^1];
-            var parts = inner.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-            float rx = rect.Width / 2f, ry = rect.Height / 2f;
-            float cx = rect.MidX, cy = rect.MidY;
-            if (parts.Length >= 2)
-            {
-                var rxStr = parts[0];
-                if (rxStr.EndsWith("%"))
-                {
-                    if (float.TryParse(rxStr[..^1].Trim(), out var pct))
-                        rx = rect.Width * pct / 100f;
-                }
-                else
-                {
-                    float.TryParse(rxStr.Replace("px", "").Trim(), out rx);
-                }
-                var ryStr = parts[1];
-                if (ryStr.EndsWith("%"))
-                {
-                    if (float.TryParse(ryStr[..^1].Trim(), out var pct))
-                        ry = rect.Height * pct / 100f;
-                }
-                else
-                {
-                    float.TryParse(ryStr.Replace("px", "").Trim(), out ry);
-                }
-            }
-            int atIdx = Array.FindIndex(parts, p => p.Equals("at", StringComparison.OrdinalIgnoreCase));
-            if (atIdx >= 0 && parts.Length > atIdx + 2)
-            {
-                var cxStr = parts[atIdx + 1];
-                if (cxStr.EndsWith("%"))
-                {
-                    if (float.TryParse(cxStr[..^1].Trim(), out var pct))
-                        cx = rect.Left + rect.Width * pct / 100f;
-                }
-                else
-                {
-                    if (float.TryParse(cxStr.Replace("px", "").Trim(), out var v))
-                        cx = rect.Left + v;
-                }
-                var cyStr = parts[atIdx + 2];
-                if (cyStr.EndsWith("%"))
-                {
-                    if (float.TryParse(cyStr[..^1].Trim(), out var pct))
-                        cy = rect.Top + rect.Height * pct / 100f;
-                }
-                else
-                {
-                    if (float.TryParse(cyStr.Replace("px", "").Trim(), out var v))
-                        cy = rect.Top + v;
-                }
-            }
-            path.AddOval(new SKRect(cx - Math.Max(0, rx), cy - Math.Max(0, ry), cx + Math.Max(0, rx), cy + Math.Max(0, ry)));
-        }
-        else if (clipPath.StartsWith("inset("))
-        {
-            var inner = clipPath[6..^1];
-            // Split by spaces, handling round keyword
-            var parts = inner.Split(' ', StringSplitOptions.RemoveEmptyEntries).ToList();
-            float top = 0, right = 0, bottom = 0, left = 0;
-            int count = 0;
-            foreach (var p in parts)
-            {
-                if (p.Equals("round", StringComparison.OrdinalIgnoreCase)) break;
-                float val = 0;
-                var trimmed = p.Replace("px", "").Trim();
-                if (trimmed.EndsWith("%"))
-                {
-                    if (float.TryParse(trimmed[..^1].Trim(), out var pct))
-                        val = pct / 100f;
-                }
-                else
-                {
-                    float.TryParse(trimmed, out val);
-                }
-                if (count == 0) top = val;
-                else if (count == 1) right = val;
-                else if (count == 2) bottom = val;
-                else if (count == 3) left = val;
-                count++;
-            }
-            if (count == 1) right = bottom = left = top;
-            else if (count == 2) { bottom = top; left = right; }
-            else if (count == 3) { left = right; }
-            // Convert percentages to absolute values
-            if (top < 1 && top >= 0 && parts[0].EndsWith("%")) top = rect.Height * top;
-            if (right < 1 && right >= 0 && parts[Math.Min(1, parts.Count - 1)].EndsWith("%")) right = rect.Width * right;
-            if (bottom < 1 && bottom >= 0 && parts[Math.Min(2, parts.Count - 1)].EndsWith("%")) bottom = rect.Height * bottom;
-            if (left < 1 && left >= 0 && parts[Math.Min(3, parts.Count - 1)].EndsWith("%")) left = rect.Width * left;
-            var insetRect = new SKRect(rect.Left + left, rect.Top + top, rect.Right - right, rect.Bottom - bottom);
-            path.AddRect(insetRect);
-        }
-        else if (clipPath.StartsWith("polygon("))
-        {
-            var inner = clipPath[8..^1];
-            var parts = inner.Split(',', StringSplitOptions.RemoveEmptyEntries);
-            // Skip optional "fill" or "nonzero"/"evenodd" keywords
-            int firstPt = 0;
-            if (parts.Length > 0)
-            {
-                var trimmed = parts[0].Trim();
-                if (trimmed.Equals("fill", StringComparison.OrdinalIgnoreCase) ||
-                    trimmed.Equals("nonzero", StringComparison.OrdinalIgnoreCase) ||
-                    trimmed.Equals("evenodd", StringComparison.OrdinalIgnoreCase))
-                    firstPt = 1;
-            }
-            bool first = true;
-            for (int pi = firstPt; pi < parts.Length; pi++)
-            {
-                var coords = parts[pi].Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
-                if (coords.Length < 2) continue;
-                float x = 0, y = 0;
-                if (coords[0].EndsWith("%"))
-                {
-                    if (float.TryParse(coords[0][..^1].Trim(), out var pct))
-                        x = rect.Left + rect.Width * pct / 100f;
-                }
-                else
-                {
-                    float.TryParse(coords[0].Replace("px", "").Trim(), out x);
-                    x += rect.Left;
-                }
-                if (coords[1].EndsWith("%"))
-                {
-                    if (float.TryParse(coords[1][..^1].Trim(), out var pct))
-                        y = rect.Top + rect.Height * pct / 100f;
-                }
-                else
-                {
-                    float.TryParse(coords[1].Replace("px", "").Trim(), out y);
-                    y += rect.Top;
-                }
-                if (first) { path.MoveTo(x, y); first = false; }
-                else path.LineTo(x, y);
-            }
-            path.Close();
-        }
-        else if (clipPath.StartsWith("rect("))
-        {
-            var inner = clipPath[5..^1];
-            var parts = inner.Split(',', StringSplitOptions.RemoveEmptyEntries);
-            float top = 0, right = rect.Width, bottom = rect.Height, left = 0;
-            if (parts.Length >= 1) float.TryParse(parts[0].Replace("px", "").Trim(), out top);
-            if (parts.Length >= 2) float.TryParse(parts[1].Replace("px", "").Trim(), out right);
-            if (parts.Length >= 3) float.TryParse(parts[2].Replace("px", "").Trim(), out bottom);
-            if (parts.Length >= 4) float.TryParse(parts[3].Replace("px", "").Trim(), out left);
-            var r = new SKRect(rect.Left + left, rect.Top + top, rect.Left + right, rect.Top + bottom);
-            path.AddRect(r);
-        }
-        else
-        {
-            path.Dispose();
-            return null;
-        }
-
-        return path;
     }
 
     private void DrawRoundedBorder(SKRect rect, float tl, float tr, float br, float bl, ComputedStyle style)
@@ -1403,8 +1301,48 @@ public class PaintVisitor
         }
     }
 
+    /// <summary>
+    /// A5: draws the column-rule separator lines between the multicol columns.
+    /// Rule i sits centered in the gap between column i-1 and column i:
+    /// x = contentLeft + i * (colWidth + gap) - gap / 2.
+    /// </summary>
+    private void DrawColumnRules(LayoutBox box, ComputedStyle style)
+    {
+        float gap = Math.Max(0, box.ColumnGapSize);
+        float progression = box.ColumnWidth + gap;
+        if (progression <= 0) return;
+
+        float ruleColor = 0;
+        var color = style.ColumnRuleColor ?? style.Color;
+        float left = box.ContentBox.Left;
+        float top = box.ContentBox.Top + TotalOffsetY;
+        float height = box.ContentBox.Height;
+
+        for (int i = 1; i < box.ColumnCount; i++)
+        {
+            float cx = left + i * progression - gap / 2f;
+            var op = PaintOpPool.GetDrawLineOp();
+            op.X1 = cx;
+            op.Y1 = top;
+            op.X2 = cx;
+            op.Y2 = top + height;
+            op.Color = color;
+            op.StrokeWidth = style.ColumnRuleWidth;
+            op.Bounds = new SKRect(cx - style.ColumnRuleWidth / 2f - 1, top,
+                                   cx + style.ColumnRuleWidth / 2f + 1, top + height);
+            _displayList.Add(op);
+        }
+    }
+
     private void DrawElementContent(Element element, LayoutBox box, ComputedStyle style)
     {
+        // A5: multicol column rules — vertical separators between columns.
+        if (box.IsMultiColumn && box.ColumnCount > 1 &&
+            style.ColumnRuleStyle != BorderStyle.None && style.ColumnRuleWidth > 0)
+        {
+            DrawColumnRules(box, style);
+        }
+
         if (element.TagName.Equals("INPUT", StringComparison.OrdinalIgnoreCase))
         {
             var inputType = element.InputType?.ToLowerInvariant();
@@ -1453,9 +1391,13 @@ public class PaintVisitor
         }
         if (element.TagName.Equals("IMG", StringComparison.OrdinalIgnoreCase))
         {
-            DrawImageElement(element, style, box);
+            _imagePainter.PaintImage(element, style, box);
             return;
         }
+        // Replaced-element content painting (video/canvas/object/embed).
+        // Background & border phases already ran; this paints the CONTENT layer.
+        if (_replacedPainter.TryPaint(element, style, box))
+            return;
         if (element.TagName.Equals("PROGRESS", StringComparison.OrdinalIgnoreCase))
         {
             DrawProgressElement(element, box, style);
@@ -1494,11 +1436,30 @@ public class PaintVisitor
             DrawInlineRuns(box);
             return;
         }
+        // Anonymous child boxes (multicol column fragmentainers) hold this
+        // element's flow content, distributed across columns. Paint them instead
+        // of the raw text fallback below, which would redraw all the text as a
+        // single full-width run.
+        if (HasAnonymousContentChildren(box))
+        {
+            PaintAnonymousChildBoxes(box);
+            return;
+        }
         foreach (var child in element.Children)
         {
             if (child is TextNode textNode)
                 DrawTextNode(textNode, box, style);
         }
+    }
+
+    private static bool HasAnonymousContentChildren(LayoutBox box)
+    {
+        foreach (var child in box.Children)
+        {
+            if (child.Dimensions?.Element == null && (child.Lines != null || child.LineRuns != null))
+                return true;
+        }
+        return false;
     }
 
     private void CollectTextNodes(Node node, StringBuilder sb)
@@ -1648,7 +1609,7 @@ public class PaintVisitor
         float contentHeight = contentBottom - contentTop;
 
         float textX = contentLeft + Math.Max(0, (contentWidth - textWidth) / 2);
-        float textY = contentTop + Math.Max(0, (contentHeight - btnFontSize) / 2) + btnFontSize * 0.8f;
+        float textY = contentTop + Math.Max(0, (contentHeight - btnFontSize) / 2) + Core.Fonts.LineBoxMetrics.GetTextAscent(btnFontSize, style.FontFamily, style.FontWeight);
         textX = Math.Max(contentLeft, Math.Min(textX, contentRight - textWidth));
         textY = Math.Max(contentTop, Math.Min(textY, contentBottom));
         if (isPressed)
@@ -1901,7 +1862,7 @@ public class PaintVisitor
             var op = PaintOpPool.GetDrawTextOp();
             op.Text = seg;
             op.X = segX;
-            op.Y = lineY + fontSize * 0.85f + TotalOffsetY;
+            op.Y = lineY + Core.Fonts.LineBoxMetrics.GetTextAscent(fontSize, style.FontFamily, style.FontWeight) + TotalOffsetY;
             op.Color = color;
             op.FontSize = fontSize;
             op.FontFamily = style.FontFamily ?? "Arial";
@@ -2002,7 +1963,7 @@ public class PaintVisitor
 
         float fontSize = style.FontSize > 0 ? style.FontSize : 14;
         var contentBox = box.ContentBox;
-        float textY = contentBox.Top + fontSize * 0.85f;
+        float textY = contentBox.Top + Core.Fonts.LineBoxMetrics.GetTextAscent(fontSize, style.FontFamily, style.FontWeight);
         SKColor textColor = showPlaceholder ? new SKColor(160, 160, 160) : (style.Color.Alpha > 0 ? style.Color : SKColors.Black);
         if (isDisabled)
             textColor = new SKColor(160, 160, 160);
@@ -2104,21 +2065,39 @@ public class PaintVisitor
                 contentBox, TotalOffsetY, targetList);
         }
 
-        // IME composition underline
+        // IME composition underline — P2-2: routed through StyleableMarkerPainter
+        // (thick solid = Blink's default for the ACTIVE composition clause).
         if (isFocused && _inputImeComposing && _inputImeComposition.Length > 0)
         {
             float compStartX = textX + MeasureTextWidth(effectText[..Math.Min(_inputCursorPos, displayText.Length)], fontSize, style.FontFamily) - scrollOffset;
             float compWidth = MeasureTextWidth(_inputImeComposition, fontSize, style.FontFamily);
-            float compY = contentBox.Bottom + TotalOffsetY - 2;
-            var lineOp = PaintOpPool.GetDrawLineOp();
-            lineOp.X1 = Math.Max(contentBox.Left, compStartX);
-            lineOp.Y1 = compY;
-            lineOp.X2 = Math.Min(contentBox.Right, compStartX + compWidth);
-            lineOp.Y2 = compY;
-            lineOp.Color = new SKColor(0, 0, 0);
-            lineOp.StrokeWidth = 1;
-            lineOp.Bounds = new SKRect(lineOp.X1, compY - 1, lineOp.X2, compY + 1);
-            targetList.Add(lineOp);
+            compStartX = Math.Max(contentBox.Left, compStartX);
+            compWidth = Math.Min(compWidth, contentBox.Right - compStartX);
+
+            var marker = new StyleableMarker
+            {
+                Thickness = TextMarkerThickness.Thick,
+                UnderlineColor = style.CaretColor ?? new SKColor(0, 0, 0),
+                UnderlineStyle = ImeTextSpanUnderlineStyle.Solid,
+                IsComposition = true,
+            };
+            if (compWidth > 1 && StyleableMarkerPainter.ShouldPaintUnderline(marker))
+            {
+                var origin = new PhysicalOffset(contentBox.Left, contentBox.Top + TotalOffsetY);
+                var markerRect = LineRelativeRect.Create(
+                    new PhysicalRect(compStartX - origin.Left, 0, compWidth, contentBox.Height),
+                    rotation: null);
+                var strokes = new List<DrawRectOp>();
+                var squiggles = new List<DrawPathOp>();
+                StyleableMarkerPainter.PaintUnderline(marker, strokes, squiggles, origin, style,
+                    markerRect, contentBox.Height, realZoom: 1f, inDarkMode: false, fillColorOverride: default);
+                foreach (var op in strokes) { op.Bounds = op.Rect; targetList.Add(op); }
+                foreach (var p in squiggles)
+                {
+                    p.Bounds = p.Path.Bounds;
+                    targetList.Add(p);
+                }
+            }
         }
 
         // Draw cursor (hidden for readonly/disabled inputs)
@@ -2336,7 +2315,7 @@ public class PaintVisitor
         var op = PaintOpPool.GetDrawTextOp();
         op.Text = text;
         op.X = x;
-        op.Y = contentBox.Top + fontSize * 0.85f + yOffset;
+        op.Y = contentBox.Top + Core.Fonts.LineBoxMetrics.GetTextAscent(fontSize, style.FontFamily, style.FontWeight) + yOffset;
         op.Color = color;
         op.FontSize = fontSize;
         op.FontFamily = style.FontFamily ?? "Arial";
@@ -2369,7 +2348,7 @@ public class PaintVisitor
         var contentBox = box.ContentBox;
         bool isDisabled = element.HasAttribute("disabled");
         float textX = contentBox.Left + 4;
-        float textY = contentBox.Top + fontSize * 0.85f;
+        float textY = contentBox.Top + Core.Fonts.LineBoxMetrics.GetTextAscent(fontSize, style.FontFamily, style.FontWeight);
         var op = PaintOpPool.GetDrawTextOp();
         op.Text = displayText;
         op.X = textX;
@@ -2446,7 +2425,7 @@ public class PaintVisitor
                 var textOp = PaintOpPool.GetDrawTextOp();
                 textOp.Text = option.TextContent?.Trim() ?? "";
                 textOp.X = orect.Left + 8;
-                textOp.Y = orect.Top + dy + (orect.Height - fontSize) / 2 + fontSize * 0.8f;
+                textOp.Y = orect.Top + dy + (orect.Height - fontSize) / 2 + Core.Fonts.LineBoxMetrics.GetTextAscent(fontSize, "Segoe UI, Arial, sans-serif");
                 textOp.Color = isSelected ? SKColors.White : new SKColor(50, 50, 50);
                 textOp.FontSize = fontSize;
                 textOp.FontFamily = "Segoe UI, Arial, sans-serif";
@@ -2692,7 +2671,7 @@ public class PaintVisitor
         var labelOp = PaintOpPool.GetDrawTextOp();
         labelOp.Text = btnLabel;
         labelOp.X = btnRect.Left + 6;
-        labelOp.Y = btnRect.Top + (btnH - fontSize) / 2 + fontSize * 0.8f;
+        labelOp.Y = btnRect.Top + (btnH - fontSize) / 2 + Core.Fonts.LineBoxMetrics.GetTextAscent(fontSize, style.FontFamily, style.FontWeight);
         labelOp.Color = isDisabled ? new SKColor(160, 160, 160) : SKColors.Black;
         labelOp.FontSize = fontSize;
         labelOp.FontFamily = style.FontFamily ?? "Segoe UI, Arial, sans-serif";
@@ -2705,7 +2684,7 @@ public class PaintVisitor
         var fileOp = PaintOpPool.GetDrawTextOp();
         fileOp.Text = fileName;
         fileOp.X = btnRect.Right + 6;
-        fileOp.Y = btnRect.Top + (btnH - fontSize) / 2 + fontSize * 0.8f;
+        fileOp.Y = btnRect.Top + (btnH - fontSize) / 2 + Core.Fonts.LineBoxMetrics.GetTextAscent(fontSize, style.FontFamily, style.FontWeight);
         fileOp.Color = isDisabled ? new SKColor(160, 160, 160) : new SKColor(80, 80, 80);
         fileOp.FontSize = fontSize;
         fileOp.FontFamily = style.FontFamily ?? "Segoe UI, Arial, sans-serif";
@@ -2745,7 +2724,7 @@ public class PaintVisitor
 
         float fontSize = style.FontSize > 0 ? style.FontSize : 14;
         var contentBox = box.ContentBox;
-        float textY = contentBox.Top + fontSize * 0.85f;
+        float textY = contentBox.Top + Core.Fonts.LineBoxMetrics.GetTextAscent(fontSize, style.FontFamily, style.FontWeight);
         SKColor textColor = string.IsNullOrEmpty(value) ? new SKColor(160, 160, 160) : (style.Color.Alpha > 0 ? style.Color : SKColors.Black);
         if (isDisabled)
             textColor = new SKColor(160, 160, 160);
@@ -2863,8 +2842,13 @@ public class PaintVisitor
 
     private void DrawTextNode(TextNode textNode, LayoutBox box, ComputedStyle parentStyle)
     {
-        var text = textNode.TextContent;
-        if (string.IsNullOrEmpty(text)) return;
+        var rawText = textNode.TextContent;
+        if (string.IsNullOrEmpty(rawText)) return;
+        // Whitespace-only text nodes (e.g. the "\n    " between block children)
+        // contribute no visible text; painting them renders a missing-glyph tofu
+        // box at the start of block containers.
+        if (string.IsNullOrWhiteSpace(rawText)) return;
+        var text = NormalizeFallbackText(rawText);
         text = ApplyTextTransform(text, parentStyle?.TextTransform);
         var contentBox = box.ContentBox;
         float y = contentBox.Top + (parentStyle?.FontSize ?? 16) + TotalOffsetY;
@@ -2900,63 +2884,10 @@ public class PaintVisitor
         op.Bounds = new SKRect(textX, boundTop, textX + textWidth, boundBottom);
 
         // Add selection highlight clipped to the overlapping region
-        var selHighlight = GetSelHighlight(textNode, text, op.Bounds,
+        _highlightPainter.PaintHighlight(textNode, text, op.Bounds,
             op.FontSize, op.FontFamily, op.FontWeight);
-        if (selHighlight.HasValue)
-        {
-            var highlightOp = PaintOpPool.GetDrawRectOp();
-            highlightOp.Rect = selHighlight.Value;
-            highlightOp.FillColor = new SKColor(0x1A, 0x73, 0xE8, 0x40);
-            highlightOp.BorderTopWidth = 0;
-            highlightOp.BorderBottomWidth = 0;
-            highlightOp.BorderLeftWidth = 0;
-            highlightOp.BorderRightWidth = 0;
-            highlightOp.Bounds = selHighlight.Value;
-            _displayList.Add(highlightOp);
-        }
 
         _displayList.Add(op);
-    }
-
-    private void DrawImageElement(Element element, ComputedStyle style, LayoutBox box)
-    {
-        var src = element.GetAttribute("src");
-        if (string.IsNullOrEmpty(src)) return;
-        var resolvedSrc = ResolveImageUrl(src);
-        if (resolvedSrc == null) return;
-        var task = _imageCache.GetImageAsync(resolvedSrc);
-        task.Wait();
-        var image = task.Result;
-        if (image == null) return;
-        var rect = new SKRect(box.ContentBox.Left, box.ContentBox.Top, box.ContentBox.Right, box.ContentBox.Bottom);
-        var op = PaintOpPool.GetDrawImageOp();
-        op.Image = image;
-        op.SourceRect = new SKRect(0, 0, image.Width, image.Height);
-        op.DestRect = rect;
-        op.Fit = MapObjectFitToImageFit(style.ObjectFit);
-        op.ZIndex = element.ComputedStyle?.ZIndex ?? 0;
-        op.Bounds = rect;
-        _displayList.Add(op);
-    }
-
-    private string? ResolveImageUrl(string url)
-    {
-        if (string.IsNullOrEmpty(url)) return null;
-        if (url.StartsWith("http://") || url.StartsWith("https://") || url.StartsWith("data:") || url.StartsWith("blob:"))
-            return url;
-        if (url.StartsWith("//"))
-        {
-            if (!string.IsNullOrEmpty(_baseUrl) && _baseUrl.StartsWith("https://"))
-                return "https:" + url;
-            return "http:" + url;
-        }
-        if (string.IsNullOrEmpty(_baseUrl)) return url;
-        try
-        {
-            var baseUri = new Uri(_baseUrl.EndsWith('/') ? _baseUrl : _baseUrl + '/');
-            return new Uri(baseUri, url).ToString();
-        }
-        catch { return url; }
     }
 
     private float GetPixelLengthFromStyle(Length length, float defaultValue)
@@ -2976,15 +2907,31 @@ public class PaintVisitor
         };
     }
 
-    private static ImageFit MapObjectFitToImageFit(ObjectFitType objectFit) => objectFit switch
+    /// <summary>
+    /// Collapse '\r' / '\n' / '\t' occurring in text painted through the no-run
+    /// fallback path. Such containers have no line-break data and paint a single
+    /// run; handing a raw newline to Skia's DrawText renders a missing-glyph
+    /// tofu box.
+    /// </summary>
+    private static string NormalizeFallbackText(string text)
     {
-        ObjectFitType.Fill => ImageFit.Fill,
-        ObjectFitType.Contain => ImageFit.Contain,
-        ObjectFitType.Cover => ImageFit.Cover,
-        ObjectFitType.None => ImageFit.None,
-        ObjectFitType.ScaleDown => ImageFit.ScaleDown,
-        _ => ImageFit.Fill
-    };
+        if (text.IndexOf('\r') < 0 && text.IndexOf('\n') < 0 && text.IndexOf('\t') < 0)
+            return text;
+        var sb = new StringBuilder(text.Length);
+        for (int i = 0; i < text.Length; i++)
+        {
+            char c = text[i];
+            if (c is '\r' or '\n' or '\t')
+            {
+                if (sb.Length == 0 || sb[^1] != ' ') sb.Append(' ');
+            }
+            else
+            {
+                sb.Append(c);
+            }
+        }
+        return sb.ToString();
+    }
 
     private SKPath CreateRoundedRectPath(SKRect rect, float radius)
     {
@@ -3001,6 +2948,22 @@ public class PaintVisitor
         path.QuadTo(x, y, x + radius, y);
         path.Close();
         return path;
+    }
+
+    private static string GetTextEmphasisMarkString(ComputedStyle? style)
+    {
+        if (style == null) return string.Empty;
+        var s = style.TextEmphasisStyle;
+        if (string.IsNullOrEmpty(s) || s == "none") return string.Empty;
+        var lower = s.ToLowerInvariant();
+        bool open = lower.Contains("open");
+        if (lower.Contains("double-circle")) return open ? "\u25CE" : "\u25C9";
+        if (lower.Contains("circle")) return open ? "\u25CB" : "\u25CF";
+        if (lower.Contains("triangle")) return open ? "\u25B3" : "\u25B2";
+        if (lower.Contains("sesame")) return open ? "\uFE46" : "\uFE45";
+        if (lower.Contains("dot")) return open ? "\u25E6" : "\u2022";
+        if (lower == "auto" || lower == "filled" || lower == "open") return "\u2022";
+        return s.Trim();
     }
 
     private void DrawInlineRuns(LayoutBox box)
@@ -3050,23 +3013,21 @@ public class PaintVisitor
                         op.Italic = parentStyle?.FontStyle == FontStyleType.Italic || parentStyle?.FontStyle == FontStyleType.Oblique;
                         if (parentStyle?.TextShadow != null && parentStyle.TextShadow.Count > 0)
                             op.TextShadows = parentStyle.TextShadow;
+                        op.EmphasisMark = GetTextEmphasisMarkString(parentStyle);
+                        if (!string.IsNullOrEmpty(op.EmphasisMark))
+                        {
+                            op.EmphasisOver = parentStyle == null || parentStyle.TextEmphasisPosition.Contains("over", StringComparison.OrdinalIgnoreCase);
+                            var emphasisColorStr = parentStyle?.TextEmphasisColor;
+                            if (string.IsNullOrEmpty(emphasisColorStr) || emphasisColorStr.Equals("currentcolor", StringComparison.OrdinalIgnoreCase))
+                                op.EmphasisColor = op.Color;
+                            else
+                                op.EmphasisColor = ColorParser.Parse(emphasisColorStr);
+                        }
                         op.Bounds = new SKRect(currentX + lineOffsetX, lineY, currentX + run.Width + lineOffsetX, lineY + line.Height);
 
                         // Add selection highlight clipped to the overlapping region
-                        var selHighlight = GetSelHighlight(textNode, runText, op.Bounds,
+                        _highlightPainter.PaintHighlight(textNode, runText, op.Bounds,
                             op.FontSize, op.FontFamily, op.FontWeight, runStartOffset);
-                        if (selHighlight.HasValue)
-                        {
-                            var highlightOp = PaintOpPool.GetDrawRectOp();
-                            highlightOp.Rect = selHighlight.Value;
-                            highlightOp.FillColor = new SKColor(0x1A, 0x73, 0xE8, 0x40);
-                            highlightOp.BorderTopWidth = 0;
-                            highlightOp.BorderBottomWidth = 0;
-                            highlightOp.BorderLeftWidth = 0;
-                            highlightOp.BorderRightWidth = 0;
-                            highlightOp.Bounds = selHighlight.Value;
-                            _displayList.Add(highlightOp);
-                        }
 
                         _displayList.Add(op);
                         runStartOffset += runText.Length;
@@ -3088,7 +3049,7 @@ public class PaintVisitor
             int runStartOffset = 0;
             float x = box.ContentBox.Left;
             float fontSize = box.LineRuns.FirstOrDefault()?.FontSize ?? 16;
-            float baseline = boxTop + fontSize * 0.85f;
+            float baseline = boxTop + Core.Fonts.LineBoxMetrics.GetBaselineForLineHeight(box.Dimensions?.Style, box.LineHeight);
             foreach (var run in box.LineRuns)
             {
                 if (run.IsText && run.Node is TextNode textNode)
@@ -3120,23 +3081,21 @@ public class PaintVisitor
                     op.Italic = parentStyle?.FontStyle == FontStyleType.Italic || parentStyle?.FontStyle == FontStyleType.Oblique;
                     if (parentStyle?.TextShadow != null && parentStyle.TextShadow.Count > 0)
                         op.TextShadows = parentStyle.TextShadow;
+                    op.EmphasisMark = GetTextEmphasisMarkString(parentStyle);
+                    if (!string.IsNullOrEmpty(op.EmphasisMark))
+                    {
+                        op.EmphasisOver = parentStyle == null || parentStyle.TextEmphasisPosition.Contains("over", StringComparison.OrdinalIgnoreCase);
+                        var emphasisColorStr = parentStyle?.TextEmphasisColor;
+                        if (string.IsNullOrEmpty(emphasisColorStr) || emphasisColorStr.Equals("currentcolor", StringComparison.OrdinalIgnoreCase))
+                            op.EmphasisColor = op.Color;
+                        else
+                            op.EmphasisColor = ColorParser.Parse(emphasisColorStr);
+                    }
                     op.Bounds = new SKRect(x, boxTop, x + run.Width, boxTop + run.Height);
 
                     // Add selection highlight clipped to the overlapping region
-                    var selHighlight = GetSelHighlight(textNode, runText, op.Bounds,
+                    _highlightPainter.PaintHighlight(textNode, runText, op.Bounds,
                         op.FontSize, op.FontFamily, op.FontWeight, runStartOffset);
-                    if (selHighlight.HasValue)
-                    {
-                        var highlightOp = PaintOpPool.GetDrawRectOp();
-                        highlightOp.Rect = selHighlight.Value;
-                        highlightOp.FillColor = new SKColor(0x1A, 0x73, 0xE8, 0x40);
-                        highlightOp.BorderTopWidth = 0;
-                        highlightOp.BorderBottomWidth = 0;
-                        highlightOp.BorderLeftWidth = 0;
-                        highlightOp.BorderRightWidth = 0;
-                        highlightOp.Bounds = selHighlight.Value;
-                        _displayList.Add(highlightOp);
-                    }
 
                     _displayList.Add(op);
                     runStartOffset += runText.Length;

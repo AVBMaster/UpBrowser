@@ -159,8 +159,11 @@
     function DOMStyleHost(elId) {
         var self = this;
         self.__id = elId;
-        self.getPropertyValue = function(name) { return __ipc('dom_getProperty', JSON.stringify([self.__id, name])); };
-        self.setProperty = function(name, val) { __ipc('dom_setProperty', JSON.stringify([self.__id, name, val])); };
+        // Dedicated style IPC methods: routing style writes through the generic
+        // dom_setProperty namespace silently dropped every CSS-only name.
+        self.getPropertyValue = function(name) { return __ipc('dom_getStyleProperty', JSON.stringify([self.__id, name])); };
+        self.setProperty = function(name, val) { __ipc('dom_setStyleProperty', JSON.stringify([self.__id, name, val === null || val === undefined ? '' : String(val)])); };
+        self.removeProperty = function(name) { __ipc('dom_setStyleProperty', JSON.stringify([self.__id, name, ''])); };
         Object.defineProperty(self, 'display', { get: function() { return self.getPropertyValue('display'); }, set: function(v) { self.setProperty('display', v); } });
         Object.defineProperty(self, 'width', { get: function() { return self.getPropertyValue('width'); }, set: function(v) { self.setProperty('width', v); } });
         Object.defineProperty(self, 'height', { get: function() { return self.getPropertyValue('height'); }, set: function(v) { self.setProperty('height', v); } });
@@ -187,6 +190,23 @@
         Object.defineProperty(self, 'borderBottomWidth', { get: function() { return self.getPropertyValue('borderBottomWidth'); }, set: function(v) { self.setProperty('borderBottomWidth', v); } });
         Object.defineProperty(self, 'boxSizing', { get: function() { return self.getPropertyValue('boxSizing'); }, set: function(v) { self.setProperty('boxSizing', v); } });
         Object.defineProperty(self, 'zIndex', { get: function() { return self.getPropertyValue('zIndex'); }, set: function(v) { self.setProperty('zIndex', v); } });
+        Object.defineProperty(self, 'cssText', {
+            get: function() { return __ipc('dom_getCssText', JSON.stringify([self.__id])); },
+            set: function(v) { __ipc('dom_setCssText', JSON.stringify([self.__id, v === null || v === undefined ? '' : String(v)])); }
+        });
+        // Catch-all so any CSS property not listed above still works
+        // (el.style.backgroundImage = ... / el.style['grid-area'] = ...).
+        if (typeof Proxy === 'function') {
+            return new Proxy(self, {
+                get: function(t, p) {
+                    if (typeof p === 'string' && p !== 'length' && !(p in t)) return t.getPropertyValue(p);
+                    var v = t[p];
+                    return typeof v === 'function' ? v.bind(t) : v;
+                },
+                set: function(t, p, v) { t.setProperty(p, v); return true; }
+            });
+        }
+        return self;
     }
 
     // DOMComputedStyleHost

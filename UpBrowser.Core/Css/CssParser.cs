@@ -795,22 +795,34 @@ public class CssSelector
                 {
                     parts.Add((currentComb, current.Trim()));
                     currentComb = CombinatorType.Descendant;
+                    current = "";
                 }
             }
-            else if (c == '>') { parts.Add((currentComb, current.Trim())); currentComb = CombinatorType.Child; current = ""; }
-            else if (c == '+') { parts.Add((currentComb, current.Trim())); currentComb = CombinatorType.AdjacentSibling; current = ""; }
-            else if (c == '~') { parts.Add((currentComb, current.Trim())); currentComb = CombinatorType.GeneralSibling; current = ""; }
+            // The +, > and ~ combinators may be surrounded by whitespace; when
+            // current is already empty (whitespace flushed it) only the combinator
+            // is recorded, no empty compound is emitted.
+            else if (c == '>') { if (!string.IsNullOrEmpty(current)) { parts.Add((currentComb, current.Trim())); current = ""; } currentComb = CombinatorType.Child; }
+            else if (c == '+') { if (!string.IsNullOrEmpty(current)) { parts.Add((currentComb, current.Trim())); current = ""; } currentComb = CombinatorType.AdjacentSibling; }
+            else if (c == '~') { if (!string.IsNullOrEmpty(current)) { parts.Add((currentComb, current.Trim())); current = ""; } currentComb = CombinatorType.GeneralSibling; }
             else current += c;
         }
         if (!string.IsNullOrEmpty(current)) parts.Add((currentComb, current.Trim()));
 
         if (parts.Count == 0) return new CssSelector { Type = SelectorType.Universal };
 
+        // A complex selector is matched right-to-left: the RIGHTMOST compound is
+        // the root (the element the rule applies to), and each compound's Parent
+        // chains to the LEFT (ancestor) compound with that root compound's
+        // Combinator describing the relation ('.w > div' => root=div,
+        // div.Combinator=Child, div.Parent=.w). Previously the LEFTMOST compound
+        // was made the root, so the matcher checked the ancestor's type/class
+        // against the child element and combinators like '>' never worked.
         CssSelector? root = null;
         CssSelector? prev = null;
 
-        foreach (var (comb, part) in parts)
+        for (int i = parts.Count - 1; i >= 0; i--)
         {
+            var (comb, part) = parts[i];
             var sel = ParseSimpleSelector(part);
             sel.Combinator = comb;
 
@@ -1154,44 +1166,53 @@ public class CssSelector
     public bool Matches(Element element, Element? parent)
     {
         // A selector chain linked via Parent with Group combinator acts as an OR.
-        // e.g. "div, .foo" → first=div (Combinator=Group, Parent=.foo)
+        // e.g. "div, .foo" -> first=div (Combinator=Group, Parent=.foo)
         // Matches returns true if ANY group matches.
         if (Combinator == CombinatorType.Group && Parent != null)
             return MatchesSimple(this, element) || Parent.Matches(element, parent);
 
+        // This selector must match the element itself.
         if (!MatchesSimple(this, element)) return false;
 
         if (Parent == null) return true;
 
-        var ancestor = parent;
-        while (ancestor != null)
-        {
-            if (MatchesSimple(Parent, ancestor)) return true;
-            if (Combinator == CombinatorType.Child) break;
-            ancestor = ancestor.ParentElement;
-        }
-
-        return CheckOtherCombinators(element);
-    }
-
-    private bool CheckOtherCombinators(Element element)
-    {
+        // Match the ancestor chain (Parent side) using this selector's combinator.
         switch (Combinator)
         {
             case CombinatorType.Child:
-                return Parent != null && element.ParentElement != null && MatchesSimple(Parent, element.ParentElement);
+            {
+                var childParent = element.ParentElement;
+                return childParent != null && Parent.Matches(childParent, childParent.ParentElement);
+            }
+
+            case CombinatorType.Descendant:
+            {
+                var ancestor = element.ParentElement;
+                while (ancestor != null)
+                {
+                    if (Parent.Matches(ancestor, ancestor.ParentElement))
+                        return true;
+                    ancestor = ancestor.ParentElement;
+                }
+                return false;
+            }
+
             case CombinatorType.AdjacentSibling:
-                var prev = element.PreviousSibling;
-                return prev is Element prevEl && Parent != null && MatchesSimple(Parent, prevEl);
+                return element.PreviousSibling is Element prevSibling &&
+                       Parent.Matches(prevSibling, prevSibling.ParentElement);
+
             case CombinatorType.GeneralSibling:
+            {
                 var siblings = element.Parent?.Children.OfType<Element>() ?? Enumerable.Empty<Element>();
-                var before = siblings.TakeWhile(s => s != element);
-                return before.Any(s => Parent != null && MatchesSimple(Parent, s));
+                return siblings
+                    .TakeWhile(s => s != element)
+                    .Any(s => Parent.Matches(s, s.ParentElement));
+            }
+
             default:
                 return true;
         }
     }
-
     private bool MatchesSimple(CssSelector selector, Element element)
     {
         return selector.Type switch
@@ -1203,7 +1224,7 @@ public class CssSelector
             SelectorType.Class => selector.Classes.All(c => element.HasClass(c)),
             SelectorType.Attribute => MatchAttribute(selector, element),
             SelectorType.PseudoClass => MatchesPseudoClass(selector, element),
-            SelectorType.PseudoElement => true,
+            SelectorType.PseudoElement => selector.PseudoElement is PseudoElementType.Before or PseudoElementType.After,
             _ => true
         };
     }
@@ -1244,7 +1265,7 @@ public class CssSelector
 
     private bool MatchesPseudoClass(CssSelector selector, Element element)
     {
-        if (selector.PseudoClass == null) return true;
+        if (selector.PseudoClass == null) return false;
 
         return selector.PseudoClass switch
         {

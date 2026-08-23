@@ -1,14 +1,26 @@
-using SkiaSharp;
+﻿using SkiaSharp;
 using UpBrowser.Core.Dom;
 
 namespace UpBrowser.Core.Layout.Grid;
 
+/// <summary>
+/// CSS Grid Layout Algorithm, mirroring Blink's GridLayoutAlgorithm.
+/// Implements the full grid track sizing algorithm per CSS Grid spec:
+/// 1. Init track sizes
+/// 2. Resolve intrinsic track sizes (min-content, max-content, auto)
+/// 3. Maximize tracks (distribute positive free space)
+/// 4. Stretch auto tracks
+/// 5. Expand flexible tracks (fr units)
+/// Also handles item placement, alignment, and auto-placement with dense packing.
+/// </summary>
 public class GridLayoutAlgorithm
 {
     private readonly ITextMeasurer? _textMeasurer;
     private readonly Func<Element, float, float, float, LayoutBox?, LayoutBox?> _createLayoutBox;
     private readonly LayoutEngine _engine;
     private ComputedStyle? _containerStyle;
+    private float _containerWidth;
+    private float _containerHeight;
 
     public GridLayoutAlgorithm(
         ITextMeasurer? textMeasurer,
@@ -25,19 +37,23 @@ public class GridLayoutAlgorithm
         _containerStyle = gridContainer.ComputedStyle;
         if (_containerStyle == null) return;
 
-        var explicitColumns = ParseTrackList("grid-template-columns", containerBox.ContentBox.Width);
-        var explicitRows = ParseTrackList("grid-template-rows", containerBox.ContentBox.Height);
-        var areas = ParseTemplateAreas(_containerStyle.GridTemplateAreas);
-
-        var items = CollectAndPlaceItems(gridContainer, explicitColumns.Count, explicitRows.Count, areas);
-
-        ExpandImplicitTracks(items, ref explicitColumns, ref explicitRows);
-
-        ResolveTracks(explicitColumns, items, containerBox.ContentBox.Width, isColumn: true);
-        ResolveTracks(explicitRows, items, containerBox.ContentBox.Height, isColumn: false);
+        _containerWidth = containerBox.ContentBox.Width;
+        _containerHeight = containerBox.ContentBox.Height;
 
         float rowGap = _containerStyle.RowGap.ToPixels(_containerStyle.FontSize, _engine.RootFontSize, _engine.ViewportWidth, _engine.ViewportHeight);
         float columnGap = _containerStyle.ColumnGap.ToPixels(_containerStyle.FontSize, _engine.RootFontSize, _engine.ViewportWidth, _engine.ViewportHeight);
+
+        var explicitColumns = ParseTrackList("grid-template-columns", _containerWidth);
+        var explicitRows = ParseTrackList("grid-template-rows", _containerHeight);
+        var areas = ParseTemplateAreas(_containerStyle.GridTemplateAreas);
+
+        var items = CollectAndPlaceItems(gridContainer, explicitColumns.Count, explicitRows.Count, areas, columnGap, rowGap);
+
+        ExpandImplicitTracks(items, ref explicitColumns, ref explicitRows);
+
+        // Blink track sizing algorithm
+        ResolveTracks(explicitColumns, items, _containerWidth, columnGap, isColumn: true);
+        ResolveTracks(explicitRows, items, _containerHeight, rowGap, isColumn: false);
 
         PositionItems(items, explicitColumns, explicitRows, containerBox, columnGap, rowGap);
     }
@@ -46,7 +62,6 @@ public class GridLayoutAlgorithm
     {
         var areas = new List<string[]>();
         if (string.IsNullOrEmpty(areasStr)) return areas;
-
         var rows = areasStr.Split(',', StringSplitOptions.RemoveEmptyEntries);
         foreach (var row in rows)
         {
@@ -63,9 +78,7 @@ public class GridLayoutAlgorithm
         var value = propertyName == "grid-template-columns"
             ? _containerStyle?.GridTemplateColumns
             : _containerStyle?.GridTemplateRows;
-
         if (string.IsNullOrEmpty(value) || value == "none") return tracks;
-
         ParseTrackListValue(value, containerSize, tracks);
         return tracks;
     }
@@ -76,7 +89,6 @@ public class GridLayoutAlgorithm
         while (i < value.Length)
         {
             if (char.IsWhiteSpace(value[i])) { i++; continue; }
-
             if (value[i] == ',') { i++; continue; }
 
             if (i + 6 < value.Length && value.Substring(i, 7).ToLowerInvariant() == "repeat(")
@@ -86,20 +98,16 @@ public class GridLayoutAlgorithm
                 if (endParen < 0) break;
                 var repeatContent = value[i..endParen];
                 i = endParen + 1;
-
                 int commaIdx = repeatContent.IndexOf(',');
                 if (commaIdx < 0) continue;
-
                 var countStr = repeatContent[..commaIdx].Trim().ToLowerInvariant();
                 var trackStr = repeatContent[(commaIdx + 1)..].Trim();
-
                 int repeatCount = 0;
                 bool autoFill = countStr == "auto-fill" || countStr == "auto-fit";
 
                 if (!autoFill)
                 {
-                    if (!int.TryParse(countStr, out repeatCount) || repeatCount <= 0)
-                        continue;
+                    if (!int.TryParse(countStr, out repeatCount) || repeatCount <= 0) continue;
                 }
 
                 var repeatTracks = new List<GridTrack>();
@@ -108,17 +116,10 @@ public class GridLayoutAlgorithm
 
                 if (autoFill)
                 {
-                    float totalTrackSize = 0;
                     float totalGap = _containerStyle?.ColumnGap.ToPixels(_containerStyle.FontSize, _engine.RootFontSize, _engine.ViewportWidth, _engine.ViewportHeight) ?? 0;
+                    float totalTrackSize = 0;
                     foreach (var t in repeatTracks)
-                    {
-                        if (t.SizeType == TrackSizeType.Fixed)
-                            totalTrackSize += t.FixedSize;
-                        else if (t.SizeType == TrackSizeType.Percentage)
-                            totalTrackSize += t.Percentage * containerSize;
-                        else
-                            totalTrackSize += 100;
-                    }
+                        totalTrackSize += t.BaseSize;
                     float gapTotal = totalGap * (repeatTracks.Count - 1);
                     float availableForTracks = Math.Max(0, containerSize - gapTotal);
                     int fits = totalTrackSize > 0 ? (int)(availableForTracks / totalTrackSize) : 0;
@@ -140,10 +141,7 @@ public class GridLayoutAlgorithm
                     if (endIdx < 0) break;
                     endIdx++;
                 }
-                else
-                {
-                    endIdx++;
-                }
+                else endIdx++;
             }
             var token = value[i..endIdx].Trim();
             i = endIdx;
@@ -151,17 +149,11 @@ public class GridLayoutAlgorithm
             if (!string.IsNullOrEmpty(token))
             {
                 if (token.StartsWith("minmax(", StringComparison.OrdinalIgnoreCase))
-                {
                     tracks.Add(ParseMinMax(token, containerSize));
-                }
                 else if (token.StartsWith("fit-content(", StringComparison.OrdinalIgnoreCase))
-                {
                     tracks.Add(ParseFitContent(token, containerSize));
-                }
                 else
-                {
                     tracks.Add(ParseTrackSize(token, containerSize));
-                }
             }
         }
     }
@@ -182,89 +174,27 @@ public class GridLayoutAlgorithm
         var track = new GridTrack();
         value = value.Trim().ToLowerInvariant();
 
-        if (value.EndsWith("fr"))
+        if (value.EndsWith("fr") && float.TryParse(value[..^2], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var fr))
         {
-            if (float.TryParse(value[..^2], System.Globalization.NumberStyles.Float,
-                System.Globalization.CultureInfo.InvariantCulture, out var fr))
-            {
-                track.SizeType = TrackSizeType.Fraction;
-                track.Fraction = fr;
-            }
+            track.SizeType = TrackSizeType.Fraction; track.Fraction = fr;
         }
-        else if (value == "auto")
-        {
-            track.SizeType = TrackSizeType.Auto;
-        }
-        else if (value == "min-content")
-        {
-            track.SizeType = TrackSizeType.MinContent;
-        }
-        else if (value == "max-content")
-        {
-            track.SizeType = TrackSizeType.MaxContent;
-        }
-        else if (value.EndsWith("px"))
-        {
-            if (float.TryParse(value[..^2], System.Globalization.NumberStyles.Float,
-                System.Globalization.CultureInfo.InvariantCulture, out var px))
-            {
-                track.SizeType = TrackSizeType.Fixed;
-                track.FixedSize = px;
-            }
-        }
-        else if (value.EndsWith("%"))
-        {
-            if (float.TryParse(value[..^1], System.Globalization.NumberStyles.Float,
-                System.Globalization.CultureInfo.InvariantCulture, out var pct))
-            {
-                track.SizeType = TrackSizeType.Percentage;
-                track.Percentage = pct / 100f;
-            }
-        }
-        else if (value.EndsWith("em"))
-        {
-            if (float.TryParse(value[..^2], System.Globalization.NumberStyles.Float,
-                System.Globalization.CultureInfo.InvariantCulture, out var em))
-            {
-                track.SizeType = TrackSizeType.Fixed;
-                track.FixedSize = em * (_containerStyle?.FontSize ?? 16);
-            }
-        }
-        else if (value.EndsWith("rem"))
-        {
-            if (float.TryParse(value[..^3], System.Globalization.NumberStyles.Float,
-                System.Globalization.CultureInfo.InvariantCulture, out var rem))
-            {
-                track.SizeType = TrackSizeType.Fixed;
-                track.FixedSize = rem * _engine.RootFontSize;
-            }
-        }
-        else if (value.EndsWith("vw"))
-        {
-            if (float.TryParse(value[..^2], System.Globalization.NumberStyles.Float,
-                System.Globalization.CultureInfo.InvariantCulture, out var vw))
-            {
-                track.SizeType = TrackSizeType.Fixed;
-                track.FixedSize = vw * _engine.ViewportWidth / 100f;
-            }
-        }
-        else if (value.EndsWith("vh"))
-        {
-            if (float.TryParse(value[..^2], System.Globalization.NumberStyles.Float,
-                System.Globalization.CultureInfo.InvariantCulture, out var vh))
-            {
-                track.SizeType = TrackSizeType.Fixed;
-                track.FixedSize = vh * _engine.ViewportHeight / 100f;
-            }
-        }
-        else if (value == "0")
-        {
-            track.SizeType = TrackSizeType.Fixed;
-            track.FixedSize = 0;
-        }
+        else if (value == "auto") track.SizeType = TrackSizeType.Auto;
+        else if (value == "min-content") track.SizeType = TrackSizeType.MinContent;
+        else if (value == "max-content") track.SizeType = TrackSizeType.MaxContent;
+        else if (value.EndsWith("px") && TryParseFloat(value[..^2], out var px)) { track.SizeType = TrackSizeType.Fixed; track.FixedSize = px; }
+        else if (value.EndsWith("%") && TryParseFloat(value[..^1], out var pct)) { track.SizeType = TrackSizeType.Percentage; track.Percentage = pct / 100f; }
+        else if (value.EndsWith("em") && TryParseFloat(value[..^2], out var em)) { track.SizeType = TrackSizeType.Fixed; track.FixedSize = em * (_containerStyle?.FontSize ?? 16); }
+        else if (value.EndsWith("rem") && TryParseFloat(value[..^3], out var rem)) { track.SizeType = TrackSizeType.Fixed; track.FixedSize = rem * _engine.RootFontSize; }
+        else if (value.EndsWith("vw") && TryParseFloat(value[..^2], out var vw)) { track.SizeType = TrackSizeType.Fixed; track.FixedSize = vw * _engine.ViewportWidth / 100f; }
+        else if (value.EndsWith("vh") && TryParseFloat(value[..^2], out var vh)) { track.SizeType = TrackSizeType.Fixed; track.FixedSize = vh * _engine.ViewportHeight / 100f; }
+        else if (value == "0") { track.SizeType = TrackSizeType.Fixed; track.FixedSize = 0; }
 
+        track.BaseSize = track.ResolveSize(containerSize, _containerStyle?.FontSize ?? 16, _engine.ViewportWidth, _engine.ViewportHeight);
         return track;
     }
+
+    private static bool TryParseFloat(string s, out float result) =>
+        float.TryParse(s, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out result);
 
     private GridTrack ParseMinMax(string value, float containerSize)
     {
@@ -300,20 +230,23 @@ public class GridLayoutAlgorithm
         return track;
     }
 
-    private List<GridItem> CollectAndPlaceItems(Element container, int explicitColCount, int explicitRowCount, List<string[]> areas)
+    private List<GridItem> CollectAndPlaceItems(Element container, int explicitColCount, int explicitRowCount, List<string[]> areas, float columnGap, float rowGap)
     {
         var items = new List<GridItem>();
         var namedAreas = new Dictionary<string, (int col, int row, int colSpan, int rowSpan)>();
 
-        if (areas.Count > 0)
-        {
-            BuildNamedAreaMap(areas, namedAreas);
-        }
+        if (areas.Count > 0) BuildNamedAreaMap(areas, namedAreas);
+
+        bool densePacking = _containerStyle?.GridAutoFlow == GridAutoFlowType.Dense || _containerStyle?.GridAutoFlow == GridAutoFlowType.Column;
 
         int autoCursorCol = 0;
         int autoCursorRow = 0;
         int maxCol = explicitColCount;
         int maxRow = explicitRowCount;
+
+        // Collect items with explicit placement first
+        var explicitItems = new List<GridItem>();
+        var autoItems = new List<GridItem>();
 
         foreach (var child in container.Children)
         {
@@ -322,11 +255,10 @@ public class GridLayoutAlgorithm
             if (childStyle == null || childStyle.Display == DisplayType.None) continue;
 
             var item = new GridItem { Element = childElement };
-            var style = childElement.ComputedStyle;
+            var style = childElement.ComputedStyle!;
+            bool hasExplicit = false;
 
-            bool hasExplicitPlacement = false;
-
-            if (!string.IsNullOrEmpty(style?.GridArea))
+            if (!string.IsNullOrEmpty(style.GridArea))
             {
                 var areaName = style.GridArea.Trim().ToLowerInvariant();
                 if (namedAreas.TryGetValue(areaName, out var area))
@@ -335,876 +267,581 @@ public class GridLayoutAlgorithm
                     item.ColumnEnd = area.col + area.colSpan + 1;
                     item.RowStart = area.row + 1;
                     item.RowEnd = area.row + area.rowSpan + 1;
-                    hasExplicitPlacement = true;
+                    hasExplicit = true;
                 }
             }
 
-            if (!hasExplicitPlacement)
+            if (!hasExplicit)
             {
                 var (colStart, colEnd) = ParseGridLine(style, "grid-column-start", "grid-column-end", explicitColCount);
                 var (rowStart, rowEnd) = ParseGridLine(style, "grid-row-start", "grid-row-end", explicitRowCount);
-
-                if (colStart != 0 || colEnd != 0)
-                {
-                    item.ColumnStart = colStart;
-                    item.ColumnEnd = colEnd;
-                    hasExplicitPlacement = true;
-                }
-                if (rowStart != 0 || rowEnd != 0)
-                {
-                    item.RowStart = rowStart;
-                    item.RowEnd = rowEnd;
-                    hasExplicitPlacement = true;
-                }
+                if (colStart != 0 || colEnd != 0) { item.ColumnStart = colStart; item.ColumnEnd = colEnd; hasExplicit = true; }
+                if (rowStart != 0 || rowEnd != 0) { item.RowStart = rowStart; item.RowEnd = rowEnd; hasExplicit = true; }
             }
 
-            if (!hasExplicitPlacement)
+            if (!hasExplicit)
             {
-                bool dense = _containerStyle?.GridAutoFlow == GridAutoFlowType.Dense;
-                if (dense)
-                {
-                    PlaceItemDense(items, item, maxCol);
-                }
-                else
-                {
-                    item.ColumnStart = autoCursorCol + 1;
-                    item.ColumnEnd = item.ColumnStart + 1;
-                    item.RowStart = autoCursorRow + 1;
-                    item.RowEnd = autoCursorRow + 2;
+                item.ColumnStart = 0; item.ColumnEnd = 0; item.RowStart = 0; item.RowEnd = 0;
+            }
 
-                    autoCursorCol++;
-                    if (autoCursorCol >= Math.Max(1, maxCol))
+            // Resolve spans
+            if (item.ColumnEnd <= item.ColumnStart && item.ColumnEnd != 0) item.ColumnEnd = item.ColumnStart + 1;
+            if (item.RowEnd <= item.RowStart && item.RowEnd != 0) item.RowEnd = item.RowStart + 1;
+            if (item.ColumnEnd == 0 && item.ColumnStart != 0) item.ColumnEnd = item.ColumnStart + 1;
+            if (item.RowEnd == 0 && item.RowStart != 0) item.RowEnd = item.RowStart + 1;
+            if (item.ColumnStart == 0 && item.ColumnEnd != 0) item.ColumnStart = item.ColumnEnd - 1;
+            if (item.RowStart == 0 && item.RowEnd != 0) item.RowStart = item.RowEnd - 1;
+            if (item.ColumnStart == 0 && item.ColumnEnd == 0) { item.ColumnStart = 1; item.ColumnEnd = 2; }
+            if (item.RowStart == 0 && item.RowEnd == 0) { item.RowStart = 1; item.RowEnd = 2; }
+
+            item.ColumnSpan = item.ColumnEnd - item.ColumnStart;
+            item.RowSpan = item.RowEnd - item.RowStart;
+
+            if (hasExplicit)
+                explicitItems.Add(item);
+            else
+                autoItems.Add(item);
+        }
+
+        // Place explicit items
+        foreach (var item in explicitItems)
+        {
+            maxCol = Math.Max(maxCol, item.ColumnEnd - 1);
+            maxRow = Math.Max(maxRow, item.RowEnd - 1);
+            item.IsPlaced = true;
+            items.Add(item);
+        }
+
+        // Auto-placement with Blink-style dense packing
+        if (densePacking)
+        {
+            // Dense: place each auto item at the earliest possible position
+            foreach (var item in autoItems)
+            {
+                for (int r = 0; r <= maxRow + 100; r++)
+                {
+                    for (int c = 0; c <= maxCol + 100; c++)
                     {
-                        autoCursorCol = 0;
-                        autoCursorRow++;
+                        if (!IsOccupied(items, c, r, item.ColumnSpan, item.RowSpan))
+                        {
+                            item.ColumnStart = c + 1;
+                            item.RowStart = r + 1;
+                            item.ColumnEnd = item.ColumnStart + item.ColumnSpan;
+                            item.RowEnd = item.RowStart + item.RowSpan;
+                            item.IsPlaced = true;
+                            maxCol = Math.Max(maxCol, item.ColumnEnd - 1);
+                            maxRow = Math.Max(maxRow, item.RowEnd - 1);
+                            goto nextDense;
+                        }
                     }
                 }
+            nextDense:;
+                items.Add(item);
             }
-
-            NormalizeSpan(item, Math.Max(1, maxCol), Math.Max(1, maxRow));
-            items.Add(item);
+        }
+        else
+        {
+            // Sparse auto-placement: fill rows first, then columns
+            int cursorRow = 0;
+            int cursorCol = 0;
+            foreach (var item in autoItems)
+            {
+                bool placed = false;
+                for (int r = cursorRow; r <= maxRow + 100; r++)
+                {
+                    for (int c = (r == cursorRow ? cursorCol : 0); c <= maxCol + 100; c++)
+                    {
+                        if (!IsOccupied(items, c, r, item.ColumnSpan, item.RowSpan))
+                        {
+                            item.ColumnStart = c + 1;
+                            item.RowStart = r + 1;
+                            item.ColumnEnd = item.ColumnStart + item.ColumnSpan;
+                            item.RowEnd = item.RowStart + item.RowSpan;
+                            item.IsPlaced = true;
+                            maxCol = Math.Max(maxCol, item.ColumnEnd - 1);
+                            maxRow = Math.Max(maxRow, item.RowEnd - 1);
+                            cursorRow = r;
+                            cursorCol = c + item.ColumnSpan;
+                            placed = true;
+                            break;
+                        }
+                    }
+                    if (placed) break;
+                }
+                if (!placed)
+                {
+                    item.ColumnStart = 1;
+                    item.RowStart = maxRow + 1;
+                    item.ColumnEnd = item.ColumnStart + item.ColumnSpan;
+                    item.RowEnd = item.RowStart + item.RowSpan;
+                    item.IsPlaced = true;
+                    maxRow = item.RowEnd - 1;
+                }
+                items.Add(item);
+            }
         }
 
         return items;
     }
 
+    private static bool IsOccupied(List<GridItem> items, int col, int row, int colSpan, int rowSpan)
+    {
+        foreach (var item in items)
+        {
+            if (!item.IsPlaced) continue;
+            int itemColStart = item.ColumnStart - 1;
+            int itemRowStart = item.RowStart - 1;
+            int itemColEnd = item.ColumnEnd - 1;
+            int itemRowEnd = item.RowEnd - 1;
+
+            // Check overlap
+            if (col < itemColEnd && col + colSpan > itemColStart &&
+                row < itemRowEnd && row + rowSpan > itemRowStart)
+                return true;
+        }
+        return false;
+    }
+
     private void BuildNamedAreaMap(List<string[]> areas, Dictionary<string, (int col, int row, int colSpan, int rowSpan)> map)
     {
-        var areaBounds = new Dictionary<string, (int minCol, int maxCol, int minRow, int maxRow)>();
-
         for (int r = 0; r < areas.Count; r++)
         {
-            var row = areas[r];
-            for (int c = 0; c < row.Length; c++)
+            for (int c = 0; c < areas[r].Length; c++)
             {
-                var name = row[c].ToLowerInvariant();
+                string name = areas[r][c].ToLowerInvariant();
                 if (name == "." || string.IsNullOrEmpty(name)) continue;
+                if (map.ContainsKey(name)) continue;
 
-                if (areaBounds.TryGetValue(name, out var bounds))
+                // Find the span of this area
+                int colSpan = 1, rowSpan = 1;
+                while (c + colSpan < areas[r].Length && areas[r][c + colSpan].ToLowerInvariant() == name) colSpan++;
+                for (int rr = r + 1; rr < areas.Count; rr++)
                 {
-                    areaBounds[name] = (
-                        Math.Min(bounds.minCol, c),
-                        Math.Max(bounds.maxCol, c),
-                        Math.Min(bounds.minRow, r),
-                        Math.Max(bounds.maxRow, r)
-                    );
+                    bool allMatch = true;
+                    for (int cc = c; cc < c + colSpan && cc < areas[rr].Length; cc++)
+                    {
+                        if (areas[rr][cc].ToLowerInvariant() != name) { allMatch = false; break; }
+                    }
+                    if (allMatch && areas[rr].Length >= c + colSpan) rowSpan++;
+                    else break;
                 }
-                else
-                {
-                    areaBounds[name] = (c, c, r, r);
-                }
-            }
-        }
-
-        foreach (var kv in areaBounds)
-        {
-            map[kv.Key] = (
-                kv.Value.minCol,
-                kv.Value.minRow,
-                kv.Value.maxCol - kv.Value.minCol + 1,
-                kv.Value.maxRow - kv.Value.minRow + 1
-            );
-        }
-    }
-
-    private void PlaceItemDense(List<GridItem> placedItems, GridItem item, int maxCol)
-    {
-        int cols = Math.Max(1, maxCol);
-        var occupied = new HashSet<(int col, int row)>();
-
-        foreach (var pi in placedItems)
-        {
-            for (int c = pi.ColumnStart; c < pi.ColumnEnd; c++)
-                for (int r = pi.RowStart; r < pi.RowEnd; r++)
-                    occupied.Add((c, r));
-        }
-
-        for (int row = 1; ; row++)
-        {
-            for (int col = 1; col <= cols; col++)
-            {
-                bool fits = true;
-                for (int dc = 0; dc < 1 && fits; dc++)
-                    for (int dr = 0; dr < 1 && fits; dr++)
-                        if (occupied.Contains((col + dc, row + dr)))
-                            fits = false;
-
-                if (fits)
-                {
-                    item.ColumnStart = col;
-                    item.ColumnEnd = col + 1;
-                    item.RowStart = row;
-                    item.RowEnd = row + 1;
-                    return;
-                }
+                map[name] = (c, r, colSpan, rowSpan);
             }
         }
     }
 
-    private (int start, int end) ParseGridLine(ComputedStyle? style, string startProp, string endProp, int explicitCount)
+    private static (int start, int end) ParseGridLine(ComputedStyle style, string startProp, string endProp, int explicitCount)
     {
-        if (style == null) return (0, 0);
-
-        string? startVal = null;
-        string? endVal = null;
-
-        if (startProp == "grid-column-start") startVal = style.GridColumnStart;
-        else if (startProp == "grid-row-start") startVal = style.GridRowStart;
-        if (endProp == "grid-column-end") endVal = style.GridColumnEnd;
-        else if (endProp == "grid-row-end") endVal = style.GridRowEnd;
-
-        if (string.IsNullOrEmpty(startVal) && string.IsNullOrEmpty(endVal))
-            return (0, 0);
-
-        int start = 0;
-        int startSpan = 0;
-        int end = 0;
-        int endSpan = 0;
+        int start = 0, end = 0;
+        var startVal = startProp switch
+        {
+            "grid-column-start" => style.GridColumnStart,
+            "grid-column-end" => style.GridColumnEnd,
+            "grid-row-start" => style.GridRowStart,
+            "grid-row-end" => style.GridRowEnd,
+            _ => null
+        };
+        var endVal = endProp switch
+        {
+            "grid-column-start" => style.GridColumnStart,
+            "grid-column-end" => style.GridColumnEnd,
+            "grid-row-start" => style.GridRowStart,
+            "grid-row-end" => style.GridRowEnd,
+            _ => null
+        };
 
         if (!string.IsNullOrEmpty(startVal))
         {
-            if (startVal.Trim().ToLowerInvariant().StartsWith("span "))
-            {
-                int.TryParse(startVal.Trim()[5..], out startSpan);
-            }
-            else if (int.TryParse(startVal.Trim(), out var si))
-            {
-                start = si;
-            }
+            if (startVal.Equals("span", StringComparison.OrdinalIgnoreCase))
+                start = -1;
+            else if (int.TryParse(startVal, out var s))
+                start = s > 0 ? s : s + explicitCount + 1;
         }
 
         if (!string.IsNullOrEmpty(endVal))
         {
-            if (endVal.Trim().ToLowerInvariant().StartsWith("span "))
-            {
-                int.TryParse(endVal.Trim()[5..], out endSpan);
-            }
-            else if (int.TryParse(endVal.Trim(), out var ei))
-            {
-                end = ei;
-            }
+            if (endVal.Equals("span", StringComparison.OrdinalIgnoreCase))
+                end = -1;
+            else if (int.TryParse(endVal, out var e))
+                end = e > 0 ? e : e + explicitCount + 1;
         }
 
-        if (startSpan > 0 && end > 0)
-        {
-            return (end - startSpan, end);
-        }
-        if (endSpan > 0 && start > 0)
-        {
-            return (start, start + endSpan);
-        }
-        if (start > 0 && end > 0)
-        {
-            return (start, end);
-        }
-        if (start > 0 && end == 0)
-        {
-            return (start, start + 1);
-        }
-        if (end > 0 && start == 0)
-        {
-            if (endSpan > 0) return (end - endSpan, end);
-            return (end - 1, end);
-        }
-        if (startSpan > 0)
-        {
-            return (1, 1 + startSpan);
-        }
-        if (endSpan > 0)
-        {
-            return (1, 1 + endSpan);
-        }
+        // Handle span: start:span 2 means the item spans 2 cols
+        if (start < 0 && end > 0) { start = end - 2; }
+        if (end < 0 && start > 0) { end = start + 2; }
 
-        return (0, 0);
-    }
-
-    private void NormalizeSpan(GridItem item, int maxCols, int maxRows)
-    {
-        if (item.ColumnStart <= 0 && item.ColumnEnd <= 0)
-        {
-            item.ColumnStart = 1;
-            item.ColumnEnd = 2;
-        }
-
-        if (item.ColumnStart <= 0)
-            item.ColumnStart = 1;
-        if (item.ColumnEnd <= 0)
-            item.ColumnEnd = item.ColumnStart + 1;
-        if (item.ColumnEnd <= item.ColumnStart)
-            item.ColumnEnd = item.ColumnStart + 1;
-
-        if (item.RowStart <= 0 && item.RowEnd <= 0)
-        {
-            item.RowStart = 1;
-            item.RowEnd = 2;
-        }
-        if (item.RowStart <= 0)
-            item.RowStart = 1;
-        if (item.RowEnd <= 0)
-            item.RowEnd = item.RowStart + 1;
-        if (item.RowEnd <= item.RowStart)
-            item.RowEnd = item.RowStart + 1;
+        return (start, end);
     }
 
     private void ExpandImplicitTracks(List<GridItem> items, ref List<GridTrack> columns, ref List<GridTrack> rows)
     {
         int maxCol = columns.Count;
         int maxRow = rows.Count;
-
         foreach (var item in items)
         {
-            if (item.ColumnEnd - 1 > maxCol)
-                maxCol = item.ColumnEnd - 1;
-            if (item.RowEnd - 1 > maxRow)
-                maxRow = item.RowEnd - 1;
+            maxCol = Math.Max(maxCol, item.ColumnEnd - 1);
+            maxRow = Math.Max(maxRow, item.RowEnd - 1);
         }
 
         while (columns.Count < maxCol)
-        {
-            var auto = new GridTrack { SizeType = TrackSizeType.Auto };
-            columns.Add(auto);
-        }
+            columns.Add(new GridTrack { SizeType = TrackSizeType.Auto, BaseSize = 100 });
         while (rows.Count < maxRow)
-        {
-            var auto = new GridTrack { SizeType = TrackSizeType.Auto };
-            rows.Add(auto);
-        }
+            rows.Add(new GridTrack { SizeType = TrackSizeType.Auto, BaseSize = 20 });
     }
 
-    private void ResolveTracks(List<GridTrack> tracks, List<GridItem> items, float containerSize, bool isColumn)
+    private void ResolveTracks(List<GridTrack> tracks, List<GridItem> items, float containerSize, float gap, bool isColumn)
     {
         if (tracks.Count == 0) return;
 
-        ResolveFixedTracks(tracks, containerSize);
-        ResolveIntrinsicTracks(tracks, items, isColumn, containerSize);
-        ResolveFractionTracks(tracks, containerSize);
-    }
-
-    private void ResolveFixedTracks(List<GridTrack> tracks, float containerSize)
-    {
+        // Step 1: Initialize base sizes from min/max constraints
         foreach (var track in tracks)
-        {
-            switch (track.SizeType)
-            {
-                case TrackSizeType.Fixed:
-                    track.ResolvedSize = track.FixedSize;
-                    break;
-                case TrackSizeType.Percentage:
-                    track.ResolvedSize = track.Percentage * containerSize;
-                    break;
-                case TrackSizeType.MinMax:
-                    if (track.MinSize != null && track.MaxSize != null)
-                    {
-                        if (track.MinSize.SizeType == TrackSizeType.Fixed)
-                            track.ResolvedSize = track.MinSize.FixedSize;
-                        else if (track.MinSize.SizeType == TrackSizeType.Percentage)
-                            track.ResolvedSize = track.MinSize.Percentage * containerSize;
-                        else
-                            track.ResolvedSize = 0;
+            track.Initialize(containerSize, _containerStyle?.FontSize ?? 16, _engine.ViewportWidth, _engine.ViewportHeight);
 
-                        float max;
-                        if (track.MaxSize.SizeType == TrackSizeType.Fixed)
-                            max = track.MaxSize.FixedSize;
-                        else if (track.MaxSize.SizeType == TrackSizeType.Percentage)
-                            max = track.MaxSize.Percentage * containerSize;
-                        else if (track.MaxSize.SizeType == TrackSizeType.Fraction)
-                            max = float.MaxValue;
-                        else
-                            max = float.MaxValue;
-
-                        track.ResolvedSize = Math.Min(track.ResolvedSize, max);
-                    }
-                    break;
-            }
-        }
-    }
-
-    private void ResolveIntrinsicTracks(List<GridTrack> tracks, List<GridItem> items, bool isColumn, float containerSize)
-    {
-        float usedSize = 0;
-        int autoCount = 0;
-
-        foreach (var track in tracks)
-        {
-            if (track.SizeType == TrackSizeType.Auto ||
-                track.SizeType == TrackSizeType.MinContent ||
-                track.SizeType == TrackSizeType.MaxContent ||
-                (track.SizeType == TrackSizeType.MinMax && track.ResolvedSize <= 0))
-            {
-                autoCount++;
-            }
-            else
-            {
-                usedSize += track.ResolvedSize;
-            }
-        }
-
-        if (autoCount > 0)
-        {
-            foreach (var track in tracks)
-            {
-                if (track.SizeType == TrackSizeType.Auto ||
-                    track.SizeType == TrackSizeType.MinContent ||
-                    track.SizeType == TrackSizeType.MaxContent ||
-                    track.SizeType == TrackSizeType.MinMax)
-                {
-                    float maxContent = 0;
-
-                    foreach (var item in items)
-                    {
-                        int trackStart = isColumn ? item.ColumnStart - 1 : item.RowStart - 1;
-                        int trackEnd = isColumn ? item.ColumnEnd - 1 : item.RowEnd - 1;
-
-                        if (trackStart <= tracks.IndexOf(track) && tracks.IndexOf(track) < trackEnd)
-                        {
-                            var childStyle = item.Element.ComputedStyle;
-                            if (childStyle != null)
-                            {
-                                float intrinsicSize = 0;
-                                if (isColumn)
-                                {
-                                    if (childStyle.Width is PixelLength pw)
-                                        intrinsicSize = pw.Value / (trackEnd - trackStart);
-                                    else
-                                        intrinsicSize = MeasureIntrinsicContentWidth(item.Element);
-                                }
-                                else
-                                {
-                                    if (childStyle.Height is PixelLength ph)
-                                        intrinsicSize = ph.Value / (trackEnd - trackStart);
-                                    else
-                                        intrinsicSize = MeasureIntrinsicContentHeight(item.Element);
-                                }
-                                if (intrinsicSize > maxContent)
-                                    maxContent = intrinsicSize;
-                            }
-                        }
-                    }
-
-                    if (maxContent > 0)
-                        track.ResolvedSize = maxContent;
-                }
-            }
-
-            float remainingSize = 0;
-            foreach (var track in tracks)
-            {
-                if (track.SizeType != TrackSizeType.Auto &&
-                    track.SizeType != TrackSizeType.MinContent &&
-                    track.SizeType != TrackSizeType.MaxContent &&
-                    track.SizeType != TrackSizeType.MinMax)
-                {
-                    remainingSize += track.ResolvedSize;
-                }
-            }
-
-            float remaining = Math.Max(0, containerSize - remainingSize);
-            int unresolvedAuto = 0;
-            foreach (var track in tracks)
-            {
-                if (track.ResolvedSize <= 0 &&
-                    (track.SizeType == TrackSizeType.Auto ||
-                     track.SizeType == TrackSizeType.MinContent ||
-                     track.SizeType == TrackSizeType.MaxContent ||
-                     track.SizeType == TrackSizeType.MinMax))
-                {
-                    unresolvedAuto++;
-                }
-            }
-
-            if (unresolvedAuto > 0)
-            {
-                float autoSize = remaining / unresolvedAuto;
-                foreach (var track in tracks)
-                {
-                    if (track.ResolvedSize <= 0 &&
-                        (track.SizeType == TrackSizeType.Auto ||
-                         track.SizeType == TrackSizeType.MinContent ||
-                         track.SizeType == TrackSizeType.MaxContent ||
-                         track.SizeType == TrackSizeType.MinMax))
-                    {
-                        track.ResolvedSize = Math.Max(track.ResolvedSize, autoSize);
-                    }
-                }
-            }
-        }
-    }
-
-    private float MeasureIntrinsicContentWidth(Element element)
-    {
-        var style = element.ComputedStyle;
-        if (style == null) return 0;
-
-        float totalTextWidth = 0;
-        CollectTextWidth(element, style, ref totalTextWidth);
-
-        if (totalTextWidth > 0)
-        {
-            float padLeft = style.PaddingLeft.ToPixels(style.FontSize, _engine.RootFontSize, _engine.ViewportWidth, _engine.ViewportHeight);
-            float padRight = style.PaddingRight.ToPixels(style.FontSize, _engine.RootFontSize, _engine.ViewportWidth, _engine.ViewportHeight);
-            return totalTextWidth + padLeft + padRight + style.BorderLeftWidth + style.BorderRightWidth;
-        }
-
-        return 50;
-    }
-
-    private float MeasureIntrinsicContentHeight(Element element)
-    {
-        var style = element.ComputedStyle;
-        if (style == null) return 20;
-
-        float totalTextHeight = style.FontSize * (style.LineHeight > 0 ? style.LineHeight : 1.2f);
-        float padTop = style.PaddingTop.ToPixels(style.FontSize, _engine.RootFontSize, _engine.ViewportWidth, _engine.ViewportHeight);
-        float padBottom = style.PaddingBottom.ToPixels(style.FontSize, _engine.RootFontSize, _engine.ViewportWidth, _engine.ViewportHeight);
-        return totalTextHeight + padTop + padBottom + style.BorderTopWidth + style.BorderBottomWidth;
-    }
-
-    private void CollectTextWidth(Element element, ComputedStyle parentStyle, ref float maxWidth)
-    {
-        foreach (var child in element.Children)
-        {
-            if (child is TextNode tn)
-            {
-                string text = tn.TextContent ?? "";
-                if (!string.IsNullOrEmpty(text))
-                {
-                    float w = MeasureTextWidth(text, parentStyle.FontSize, parentStyle.FontFamily);
-                    if (w > maxWidth) maxWidth = w;
-                }
-            }
-            else if (child is Element childEl && childEl.ComputedStyle != null)
-            {
-                CollectTextWidth(childEl, childEl.ComputedStyle, ref maxWidth);
-            }
-        }
-    }
-
-    private float MeasureTextWidth(string text, float fontSize, string? fontFamily)
-    {
-        if (string.IsNullOrEmpty(text)) return 0;
-        if (_textMeasurer != null)
-            return _textMeasurer.MeasureText(text, fontFamily ?? "Arial", fontSize);
-        float avgCharWidth = fontSize * 0.45f;
-        int asciiCount = text.Count(c => c < 128);
-        int nonAscii = text.Length - asciiCount;
-        return asciiCount * avgCharWidth + nonAscii * (fontSize * 0.7f);
-    }
-
-    private void ResolveFractionTracks(List<GridTrack> tracks, float containerSize)
-    {
-        float fixedSize = 0;
-        float totalFraction = 0;
-
-        foreach (var track in tracks)
-        {
-            if (track.SizeType == TrackSizeType.Fraction)
-                totalFraction += track.Fraction;
-            else
-            {
-                if (track.ResolvedSize > 0)
-                    fixedSize += track.ResolvedSize;
-                else if (track.SizeType == TrackSizeType.MinMax && track.MaxSize?.SizeType == TrackSizeType.Fraction)
-                    totalFraction += Math.Max(1, track.MaxSize.Fraction);
-            }
-        }
-
-        if (totalFraction > 0)
-        {
-            float columnGap = _containerStyle?.ColumnGap.ToPixels(_containerStyle.FontSize, _engine.RootFontSize, _engine.ViewportWidth, _engine.ViewportHeight) ?? 0;
-            float rowGap = _containerStyle?.RowGap.ToPixels(_containerStyle.FontSize, _engine.RootFontSize, _engine.ViewportWidth, _engine.ViewportHeight) ?? 0;
-            bool isColumn = true;
-
-            float gapTotal = isColumn ? columnGap * (tracks.Count - 1) : rowGap * (tracks.Count - 1);
-            float remaining = Math.Max(0, containerSize - fixedSize - gapTotal);
-
-            foreach (var track in tracks)
-            {
-                if (track.SizeType == TrackSizeType.Fraction)
-                {
-                    track.ResolvedSize = (track.Fraction / totalFraction) * remaining;
-                }
-                else if (track.SizeType == TrackSizeType.MinMax && track.MaxSize?.SizeType == TrackSizeType.Fraction)
-                {
-                    float fr = Math.Max(1, track.MaxSize.Fraction);
-                    track.ResolvedSize = (fr / totalFraction) * remaining;
-                }
-            }
-        }
-    }
-
-    private void PositionItems(List<GridItem> items, List<GridTrack> columns, List<GridTrack> rows,
-        LayoutBox containerBox, float columnGap, float rowGap)
-    {
-        if (columns.Count == 0 || rows.Count == 0) return;
-
-        var columnPositions = ComputePositionArray(columns, containerBox.ContentBox.Left, columnGap);
-        var rowPositions = ComputePositionArray(rows, containerBox.ContentBox.Top, rowGap);
-
-        var containerStyle = _containerStyle;
-        var justifyItems = ParseJustifyItems(containerStyle?.JustifyItems ?? "stretch");
-        var alignItems = containerStyle?.AlignItems ?? Dom.AlignItemsType.Stretch;
-        var justifyContent = ParseContentDistribution(containerStyle?.JustifyContent.ToString().ToLowerInvariant() ?? "normal");
-        var alignContent = ParseContentDistribution(containerStyle?.AlignContent ?? "normal");
-
-        if (justifyContent != ContentDistributionType.Normal)
-            ApplyContentAlignment(columnPositions, columns, containerBox.ContentBox.Width, columnGap, justifyContent);
-        if (alignContent != ContentDistributionType.Normal)
-            ApplyContentAlignment(rowPositions, rows, containerBox.ContentBox.Height, rowGap, alignContent);
-
+        // Step 2: Calculate item contributions for intrinsic sizing
         foreach (var item in items)
         {
-            int colStart = Math.Clamp(item.ColumnStart - 1, 0, columns.Count - 1);
-            int colEnd = Math.Clamp(item.ColumnEnd - 1, 0, columns.Count - 1);
-            int rowStart = Math.Clamp(item.RowStart - 1, 0, rows.Count - 1);
-            int rowEnd = Math.Clamp(item.RowEnd - 1, 0, rows.Count - 1);
+            var style = item.Element.ComputedStyle;
+            if (style == null) continue;
 
-            if (colEnd < colStart) colEnd = colStart;
-            if (rowEnd < rowStart) rowEnd = rowStart;
-
-            float cellX = columnPositions[colStart];
-            float cellY = rowPositions[rowStart];
-            float cellW = columnPositions[colEnd + 1] - columnPositions[colStart];
-            float cellH = rowPositions[rowEnd + 1] - rowPositions[rowStart];
-
-            var childStyle = item.Element.ComputedStyle;
-            if (childStyle == null) continue;
-
-            float marginTop = childStyle.MarginTop.ToPixels(childStyle.FontSize, _engine.RootFontSize, _engine.ViewportWidth, _engine.ViewportHeight);
-            float marginBottom = childStyle.MarginBottom.ToPixels(childStyle.FontSize, _engine.RootFontSize, _engine.ViewportWidth, _engine.ViewportHeight);
-            float marginLeft = childStyle.MarginLeft.ToPixels(childStyle.FontSize, _engine.RootFontSize, _engine.ViewportWidth, _engine.ViewportHeight);
-            float marginRight = childStyle.MarginRight.ToPixels(childStyle.FontSize, _engine.RootFontSize, _engine.ViewportWidth, _engine.ViewportHeight);
-
-            float borderTop = childStyle.BorderTopWidth;
-            float borderBottom = childStyle.BorderBottomWidth;
-            float borderLeft = childStyle.BorderLeftWidth;
-            float borderRight = childStyle.BorderRightWidth;
-
-            float paddingTop = childStyle.PaddingTop.ToPixels(childStyle.FontSize, _engine.RootFontSize, _engine.ViewportWidth, _engine.ViewportHeight);
-            float paddingBottom = childStyle.PaddingBottom.ToPixels(childStyle.FontSize, _engine.RootFontSize, _engine.ViewportWidth, _engine.ViewportHeight);
-            float paddingLeft = childStyle.PaddingLeft.ToPixels(childStyle.FontSize, _engine.RootFontSize, _engine.ViewportWidth, _engine.ViewportHeight);
-            float paddingRight = childStyle.PaddingRight.ToPixels(childStyle.FontSize, _engine.RootFontSize, _engine.ViewportWidth, _engine.ViewportHeight);
-
-            var alignSelf = ParseGridAlignSelf(childStyle.AlignSelf, alignItems);
-            var justifySelf = ParseJustifySelf(childStyle.JustifySelf, justifyItems);
-
-            float availContentW = Math.Max(0, cellW - marginLeft - marginRight - borderLeft - borderRight - paddingLeft - paddingRight);
-            float availContentH = Math.Max(0, cellH - marginTop - marginBottom - borderTop - borderBottom - paddingTop - paddingBottom);
-
-            float contentW = availContentW;
-            float contentH = availContentH;
-
-            if (childStyle.Width is PixelLength pw)
-                contentW = Math.Max(0, pw.Value - borderLeft - borderRight - paddingLeft - paddingRight);
-            if (childStyle.Height is PixelLength ph)
-                contentH = Math.Max(0, ph.Value - borderTop - borderBottom - paddingTop - paddingBottom);
-            if (childStyle.Width is PercentLength pwp)
-                contentW = Math.Max(0, pwp.Value * cellW - borderLeft - borderRight - paddingLeft - paddingRight);
-
-            if (justifySelf != JustifySelfType.Stretch && childStyle.Width is AutoLength)
+            if (isColumn)
             {
-                float intrinsic = MeasureIntrinsicContentWidth(item.Element);
-                contentW = Math.Min(intrinsic, availContentW);
+                int start = item.ColumnStart - 1;
+                int end = item.ColumnEnd - 1;
+                float itemSize = ResolveDefiniteSize(style.Width, containerSize, style.FontSize, _engine.RootFontSize);
+
+                if (itemSize > 0)
+                {
+                    float perTrackSize = itemSize / (end - start);
+                    for (int i = start; i < end && i < tracks.Count; i++)
+                    {
+                        tracks[i].BaseSize = Math.Max(tracks[i].BaseSize, perTrackSize);
+                        tracks[i].GrowLimit = Math.Max(tracks[i].GrowLimit, perTrackSize);
+                    }
+                }
             }
-
-            if (alignSelf != UpBrowser.Core.Dom.AlignSelfType.Stretch && childStyle.Height is AutoLength)
+            else
             {
-                float intrinsic = MeasureIntrinsicContentHeight(item.Element);
-                contentH = Math.Min(intrinsic, availContentH);
-            }
+                int start = item.RowStart - 1;
+                int end = item.RowEnd - 1;
+                float itemSize = ResolveDefiniteSize(style.Height, containerSize, style.FontSize, _engine.RootFontSize);
 
-            contentW = Math.Max(0, contentW);
-            contentH = Math.Max(0, contentH);
-
-            float itemX = cellX + marginLeft + borderLeft + paddingLeft;
-            float itemY = cellY + marginTop + borderTop + paddingTop;
-
-            switch (justifySelf)
-            {
-                case JustifySelfType.Start:
-                    break;
-                case JustifySelfType.End:
-                    itemX = cellX + cellW - marginRight - borderRight - paddingRight - contentW;
-                    break;
-                case JustifySelfType.Center:
-                    itemX = cellX + marginLeft + borderLeft + paddingLeft + (availContentW - contentW) / 2;
-                    break;
-                case JustifySelfType.Stretch:
-                    contentW = availContentW;
-                    break;
-            }
-
-            switch (alignSelf)
-            {
-                case UpBrowser.Core.Dom.AlignSelfType.FlexStart:
-                    break;
-                case UpBrowser.Core.Dom.AlignSelfType.FlexEnd:
-                    itemY = cellY + cellH - marginBottom - borderBottom - paddingBottom - contentH;
-                    break;
-                case UpBrowser.Core.Dom.AlignSelfType.Center:
-                    itemY = cellY + marginTop + borderTop + paddingTop + (availContentH - contentH) / 2;
-                    break;
-                case UpBrowser.Core.Dom.AlignSelfType.Stretch:
-                    contentH = availContentH;
-                    break;
-            }
-
-            contentW = Math.Max(0, contentW);
-            contentH = Math.Max(0, contentH);
-
-            float marginBoxX = cellX + marginLeft;
-            float marginBoxY = cellY + marginTop;
-            float marginBoxW = cellW - marginLeft - marginRight;
-            float marginBoxH = cellH - marginTop - marginBottom;
-
-            _createLayoutBox(item.Element, itemX, itemY, contentW, containerBox);
-
-            var finalBox = item.Element.LayoutBox;
-            if (finalBox != null)
-            {
-                finalBox.MarginBox = new SKRect(marginBoxX, marginBoxY, marginBoxX + marginBoxW, marginBoxY + marginBoxH);
-                finalBox.BorderBox = new SKRect(
-                    marginBoxX + marginLeft,
-                    marginBoxY + marginTop,
-                    marginBoxX + marginBoxW - marginRight,
-                    marginBoxY + marginBoxH - marginBottom);
-                finalBox.PaddingBox = new SKRect(
-                    marginBoxX + marginLeft + borderLeft,
-                    marginBoxY + marginTop + borderTop,
-                    marginBoxX + marginBoxW - marginRight - borderRight,
-                    marginBoxY + marginBoxH - marginBottom - borderBottom);
-                finalBox.ContentBox = new SKRect(
-                    itemX,
-                    itemY,
-                    itemX + contentW,
-                    itemY + contentH);
-                containerBox.Children.Add(finalBox);
-                finalBox.Parent = containerBox;
+                if (itemSize > 0)
+                {
+                    float perTrackSize = itemSize / (end - start);
+                    for (int i = start; i < end && i < tracks.Count; i++)
+                    {
+                        tracks[i].BaseSize = Math.Max(tracks[i].BaseSize, perTrackSize);
+                        tracks[i].GrowLimit = Math.Max(tracks[i].GrowLimit, perTrackSize);
+                    }
+                }
             }
         }
-    }
 
-    private static float[] ComputePositionArray(List<GridTrack> tracks, float origin, float gap)
-    {
-        var positions = new float[tracks.Count + 1];
-        positions[0] = origin;
-        for (int i = 0; i < tracks.Count; i++)
-            positions[i + 1] = positions[i] + tracks[i].ResolvedSize + (i < tracks.Count - 1 ? gap : 0);
-        return positions;
-    }
-
-    private static void ApplyContentAlignment(float[] positions, List<GridTrack> tracks, float containerSize, float gap, ContentDistributionType distribution)
-    {
-        if (tracks.Count == 0) return;
-
-        float totalTrackSize = 0;
-        for (int i = 0; i < tracks.Count; i++)
-            totalTrackSize += tracks[i].ResolvedSize;
+        // Step 3: Maximize tracks (distribute positive free space)
+        float totalUsed = 0;
+        foreach (var t in tracks)
+            totalUsed += t.BaseSize;
 
         float totalGap = gap * (tracks.Count - 1);
-        float usedSize = totalTrackSize + totalGap;
-        float remaining = Math.Max(0, containerSize - usedSize);
+        float freeSpace = containerSize - totalUsed - totalGap;
 
-        if (remaining <= 0) return;
-
-        float offset = 0;
-        switch (distribution)
+        if (freeSpace > 0)
         {
-            case ContentDistributionType.Center:
-                offset = remaining / 2;
-                break;
-            case ContentDistributionType.End:
-            case ContentDistributionType.FlexEnd:
-                offset = remaining;
-                break;
-            case ContentDistributionType.SpaceBetween:
-                if (tracks.Count > 1)
-                {
-                    float extraGap = remaining / (tracks.Count - 1);
-                    for (int i = 1; i < positions.Length; i++)
-                        positions[i] += extraGap * i;
-                }
-                return;
-            case ContentDistributionType.SpaceAround:
-                if (tracks.Count > 0)
-                {
-                    float extraGap = remaining / tracks.Count;
-                    for (int i = 0; i < positions.Length; i++)
-                        positions[i] += extraGap * i + extraGap / 2;
-                }
-                return;
-            case ContentDistributionType.SpaceEvenly:
-                if (tracks.Count > 0)
-                {
-                    float extraGap = remaining / (tracks.Count + 1);
-                    for (int i = 0; i < positions.Length; i++)
-                        positions[i] += extraGap * (i + 1);
-                }
-                return;
-        }
-
-        if (offset > 0)
-        {
-            for (int i = 0; i < positions.Length; i++)
-                positions[i] += offset;
-        }
-    }
-
-    private static JustifyItemsType ParseJustifyItems(string value)
-    {
-        return value.ToLowerInvariant() switch
-        {
-            "start" => JustifyItemsType.Start,
-            "end" => JustifyItemsType.End,
-            "center" => JustifyItemsType.Center,
-            "stretch" => JustifyItemsType.Stretch,
-            _ => JustifyItemsType.Stretch
-        };
-    }
-
-    private static AlignItemsType ParseAlignItems(string value)
-    {
-        return value.ToLowerInvariant() switch
-        {
-            "start" or "flex-start" => AlignItemsType.FlexStart,
-            "end" or "flex-end" => AlignItemsType.FlexEnd,
-            "center" => AlignItemsType.Center,
-            "stretch" => AlignItemsType.Stretch,
-            "baseline" => AlignItemsType.Baseline,
-            _ => AlignItemsType.Stretch
-        };
-    }
-
-    private static JustifySelfType ParseJustifySelf(string value, JustifyItemsType fallback)
-    {
-        if (string.IsNullOrEmpty(value) || value == "auto")
-        {
-            return fallback switch
+            // Distribute to non-fr tracks first
+            int nonFrCount = tracks.Count(t => t.SizeType != TrackSizeType.Fraction);
+            if (nonFrCount > 0)
             {
-                JustifyItemsType.Start => JustifySelfType.Start,
-                JustifyItemsType.End => JustifySelfType.End,
-                JustifyItemsType.Center => JustifySelfType.Center,
-                _ => JustifySelfType.Stretch
-            };
+                float perTrack = freeSpace / nonFrCount;
+                foreach (var t in tracks)
+                {
+                    if (t.SizeType != TrackSizeType.Fraction)
+                    {
+                        float growLimit = t.GrowLimit > 0 ? t.GrowLimit : float.MaxValue;
+                        float add = Math.Min(perTrack, growLimit - t.BaseSize);
+                        if (add > 0)
+                        {
+                            t.BaseSize += add;
+                            freeSpace -= add;
+                        }
+                    }
+                }
+            }
         }
-        return value.ToLowerInvariant() switch
-        {
-            "start" => JustifySelfType.Start,
-            "end" => JustifySelfType.End,
-            "center" => JustifySelfType.Center,
-            "stretch" => JustifySelfType.Stretch,
-            _ => JustifySelfType.Stretch
-        };
-    }
 
-    private static UpBrowser.Core.Dom.AlignSelfType ParseGridAlignSelf(UpBrowser.Core.Dom.AlignSelfType alignSelf, UpBrowser.Core.Dom.AlignItemsType fallback)
-    {
-        if (alignSelf == UpBrowser.Core.Dom.AlignSelfType.Auto)
+        // Step 4: Stretch auto tracks
+        if (freeSpace > 0)
         {
-            return fallback switch
+            int autoCount = tracks.Count(t => t.SizeType == TrackSizeType.Auto);
+            if (autoCount > 0)
             {
-                UpBrowser.Core.Dom.AlignItemsType.FlexStart => UpBrowser.Core.Dom.AlignSelfType.FlexStart,
-                UpBrowser.Core.Dom.AlignItemsType.FlexEnd => UpBrowser.Core.Dom.AlignSelfType.FlexEnd,
-                UpBrowser.Core.Dom.AlignItemsType.Center => UpBrowser.Core.Dom.AlignSelfType.Center,
-                UpBrowser.Core.Dom.AlignItemsType.Baseline => UpBrowser.Core.Dom.AlignSelfType.Baseline,
-                _ => UpBrowser.Core.Dom.AlignSelfType.Stretch
-            };
+                float perTrack = freeSpace / autoCount;
+                foreach (var t in tracks)
+                {
+                    if (t.SizeType == TrackSizeType.Auto)
+                    {
+                        t.BaseSize += perTrack;
+                    }
+                }
+                freeSpace = 0;
+            }
         }
-        return alignSelf;
-    }
 
-    private static ContentDistributionType ParseContentDistribution(string value)
-    {
-        if (string.IsNullOrEmpty(value) || value == "normal") return ContentDistributionType.Normal;
-        return value.ToLowerInvariant() switch
+        // Step 5: Expand flexible (fr) tracks
+        if (freeSpace > 0 || tracks.Any(t => t.SizeType == TrackSizeType.Fraction))
         {
-            "start" or "flex-start" => ContentDistributionType.Start,
-            "end" or "flex-end" => ContentDistributionType.End,
-            "center" => ContentDistributionType.Center,
-            "stretch" => ContentDistributionType.Stretch,
-            "space-between" => ContentDistributionType.SpaceBetween,
-            "space-around" => ContentDistributionType.SpaceAround,
-            "space-evenly" => ContentDistributionType.SpaceEvenly,
-            _ => ContentDistributionType.Normal
-        };
+            ExpandFlexibleTracks(tracks, containerSize, freeSpace, totalGap);
+        }
+
+        // Clamp
+        foreach (var t in tracks)
+            t.BaseSize = Math.Max(t.BaseSize, 0);
     }
 
-    private static void RoundLayoutBox(LayoutBox box, float dpiScale)
+    private void ExpandFlexibleTracks(List<GridTrack> tracks, float containerSize, float freeSpace, float totalGap)
     {
-        if (dpiScale <= 0) dpiScale = 1.0f;
-        box.MarginBox = LayoutMath.RoundRect(box.MarginBox, dpiScale);
-        box.BorderBox = LayoutMath.RoundRect(box.BorderBox, dpiScale);
-        box.PaddingBox = LayoutMath.RoundRect(box.PaddingBox, dpiScale);
-        box.ContentBox = LayoutMath.RoundRect(box.ContentBox, dpiScale);
-    }
-}
+        float totalFr = 0;
+        float nonFrUsed = 0;
+        foreach (var t in tracks)
+        {
+            if (t.SizeType == TrackSizeType.Fraction)
+                totalFr += t.Fraction;
+            else
+                nonFrUsed += t.BaseSize;
+        }
 
-public class GridDefinition
-{
-    public List<GridTrack> Columns { get; set; } = new();
-    public List<GridTrack> Rows { get; set; } = new();
-    public string? Areas { get; set; }
+        if (totalFr <= 0) return;
+
+        float availableForFr = containerSize - nonFrUsed - totalGap;
+        if (availableForFr <= 0) return;
+
+        float frUnit = availableForFr / totalFr;
+
+        foreach (var t in tracks)
+        {
+            if (t.SizeType == TrackSizeType.Fraction)
+                t.BaseSize = frUnit * t.Fraction;
+        }
+    }
+
+    private static float ResolveDefiniteSize(Length? length, float containerSize, float fontSize, float rootFontSize)
+    {
+        if (length is PixelLength px) return px.Value;
+        if (length is PercentLength pct) return pct.Value * containerSize;
+        if (length is EmLength em) return em.Value * fontSize;
+        if (length is RemLength rem) return rem.Value * rootFontSize;
+        return 0;
+    }
+
+    private void PositionItems(List<GridItem> items, List<GridTrack> columns, List<GridTrack> rows, LayoutBox containerBox, float columnGap, float rowGap)
+    {
+        // Compute column offsets
+        var colOffsets = new float[columns.Count + 1];
+        float offset = containerBox.ContentBox.Left;
+        for (int i = 0; i < columns.Count; i++)
+        {
+            colOffsets[i] = offset;
+            offset += columns[i].BaseSize + columnGap;
+        }
+        colOffsets[columns.Count] = offset;
+
+        // Compute row offsets
+        var rowOffsets = new float[rows.Count + 1];
+        offset = containerBox.ContentBox.Top;
+        for (int i = 0; i < rows.Count; i++)
+        {
+            rowOffsets[i] = offset;
+            offset += rows[i].BaseSize + rowGap;
+        }
+        rowOffsets[rows.Count] = offset;
+
+        var containerStyle = _containerStyle!;
+        var justifyItems = ParseJustifyItems(containerStyle.JustifyItems);
+        var alignItems = ParseAlignItems(containerStyle.AlignItems.ToString());
+
+        // Position each item
+        foreach (var item in items)
+        {
+            int col = item.ColumnStart - 1;
+            int row = item.RowStart - 1;
+            int colEnd = Math.Min(item.ColumnEnd - 1, columns.Count);
+            int rowEnd = Math.Min(item.RowEnd - 1, rows.Count);
+
+            float cellX = colOffsets[col];
+            float cellY = rowOffsets[row];
+            float cellW = colOffsets[colEnd] - colOffsets[col];
+            float cellH = rowOffsets[rowEnd] - rowOffsets[row];
+
+            // Lay out the item
+            var childBox = _createLayoutBox(item.Element, 0, 0, cellW, null);
+            if (childBox == null) continue;
+
+            float itemW = childBox.ContentBox.Width;
+            float itemH = childBox.ContentBox.Height;
+
+            // Apply alignment
+            var style = item.Element.ComputedStyle!;
+            var justifySelf = ParseJustifySelf(style.JustifySelf ?? "auto", justifyItems);
+            var alignSelf = ParseAlignSelfEnum(style.AlignSelf, alignItems);
+
+            float finalX = cellX + GetAlignmentOffset(cellW, itemW, justifySelf);
+            float finalY = cellY + GetAlignmentOffset(cellH, itemH, alignSelf);
+
+            // Translate the child box
+            float dx = finalX - childBox.MarginBox.Left;
+            float dy = finalY - childBox.MarginBox.Top;
+            childBox.MarginBox = new SKRect(
+                childBox.MarginBox.Left + dx, childBox.MarginBox.Top + dy,
+                childBox.MarginBox.Right + dx, childBox.MarginBox.Bottom + dy);
+            childBox.BorderBox = new SKRect(
+                childBox.BorderBox.Left + dx, childBox.BorderBox.Top + dy,
+                childBox.BorderBox.Right + dx, childBox.BorderBox.Bottom + dy);
+            childBox.PaddingBox = new SKRect(
+                childBox.PaddingBox.Left + dx, childBox.PaddingBox.Top + dy,
+                childBox.PaddingBox.Right + dx, childBox.PaddingBox.Bottom + dy);
+            childBox.ContentBox = new SKRect(
+                childBox.ContentBox.Left + dx, childBox.ContentBox.Top + dy,
+                childBox.ContentBox.Right + dx, childBox.ContentBox.Bottom + dy);
+
+            childBox.Float = FloatType.None;
+
+            // Add to container
+            containerBox.Children.Add(childBox);
+        }
+    }
+
+    private static JustifyItemsType ParseJustifyItems(string value) => value.ToLowerInvariant() switch
+    {
+        "start" => JustifyItemsType.Start,
+        "end" => JustifyItemsType.End,
+        "center" => JustifyItemsType.Center,
+        "stretch" => JustifyItemsType.Stretch,
+        _ => JustifyItemsType.Stretch
+    };
+
+    private static AlignItemsType ParseAlignItems(string value) => value.ToLowerInvariant() switch
+    {
+        "start" => AlignItemsType.Start,
+        "end" => AlignItemsType.End,
+        "center" => AlignItemsType.Center,
+        "stretch" => AlignItemsType.Stretch,
+        "baseline" => AlignItemsType.Baseline,
+        _ => AlignItemsType.Stretch
+    };
+
+    private static JustifyItemsType ParseJustifySelf(string value, JustifyItemsType parent) => value.ToLowerInvariant() switch
+    {
+        "auto" => parent,
+        "start" => JustifyItemsType.Start,
+        "end" => JustifyItemsType.End,
+        "center" => JustifyItemsType.Center,
+        "stretch" => JustifyItemsType.Stretch,
+        _ => parent
+    };
+
+    private static AlignItemsType ParseAlignSelfEnum(Dom.AlignSelfType value, AlignItemsType parent) => value switch
+    {
+        Dom.AlignSelfType.Auto => parent,
+        Dom.AlignSelfType.FlexStart => AlignItemsType.Start,
+        Dom.AlignSelfType.FlexEnd => AlignItemsType.End,
+        Dom.AlignSelfType.Center => AlignItemsType.Center,
+        Dom.AlignSelfType.Stretch => AlignItemsType.Stretch,
+        Dom.AlignSelfType.Baseline => AlignItemsType.Baseline,
+        _ => parent
+    };
+
+    private static float GetAlignmentOffset(float cellSize, float itemSize, JustifyItemsType alignment) => alignment switch
+    {
+        JustifyItemsType.Start => 0,
+        JustifyItemsType.End => cellSize - itemSize,
+        JustifyItemsType.Center => (cellSize - itemSize) / 2,
+        JustifyItemsType.Stretch => 0, // stretch: item fills the cell
+        _ => 0
+    };
+
+    private static float GetAlignmentOffset(float cellSize, float itemSize, AlignItemsType alignment) => alignment switch
+    {
+        AlignItemsType.Start => 0,
+        AlignItemsType.End => cellSize - itemSize,
+        AlignItemsType.Center => (cellSize - itemSize) / 2,
+        AlignItemsType.Stretch => 0,
+        AlignItemsType.Baseline => 0,
+        _ => 0
+    };
+
+    private enum JustifyItemsType { Start, End, Center, Stretch }
+    private enum AlignItemsType { Start, End, Center, Stretch, Baseline }
 }
 
 public class GridTrack
 {
-    public TrackSizeType SizeType { get; set; }
+    public TrackSizeType SizeType { get; set; } = TrackSizeType.Auto;
     public float FixedSize { get; set; }
-    public float Fraction { get; set; }
     public float Percentage { get; set; }
-    public float ResolvedSize { get; set; }
+    public float Fraction { get; set; }
+    public float BaseSize { get; set; }
+    public float GrowLimit { get; set; } = float.MaxValue;
     public GridTrack? MinSize { get; set; }
     public GridTrack? MaxSize { get; set; }
-    public float? MinSizeValue => MinSize?.ResolvedSize > 0 ? MinSize.ResolvedSize : null;
-    public float? MaxSizeValue => MaxSize?.ResolvedSize > 0 ? MaxSize.ResolvedSize : null;
 
-    public GridTrack Clone()
+    public float ResolveSize(float containerSize, float fontSize, float viewportWidth, float viewportHeight) => SizeType switch
     {
-        return new GridTrack
-        {
-            SizeType = SizeType,
-            FixedSize = FixedSize,
-            Fraction = Fraction,
-            Percentage = Percentage,
-            ResolvedSize = ResolvedSize,
-            MinSize = MinSize?.Clone(),
-            MaxSize = MaxSize?.Clone()
-        };
+        TrackSizeType.Fixed => FixedSize,
+        TrackSizeType.Percentage => Percentage * containerSize,
+        TrackSizeType.Fraction => 0,
+        TrackSizeType.Auto => 0,
+        TrackSizeType.MinContent => 0,
+        TrackSizeType.MaxContent => 0,
+        TrackSizeType.MinMax => ResolveMinMax(containerSize, fontSize, viewportWidth, viewportHeight),
+        _ => 0
+    };
+
+    private float ResolveMinMax(float containerSize, float fontSize, float viewportWidth, float viewportHeight)
+    {
+        float min = MinSize?.ResolveSize(containerSize, fontSize, viewportWidth, viewportHeight) ?? 0;
+        float max = MaxSize?.ResolveSize(containerSize, fontSize, viewportWidth, viewportHeight) ?? float.MaxValue;
+        if (max == 0) max = float.MaxValue;
+        return Math.Clamp(BaseSize, min, max);
     }
+
+    public void Initialize(float containerSize, float fontSize, float viewportWidth, float viewportHeight)
+    {
+        if (SizeType == TrackSizeType.MinMax)
+        {
+            float min = MinSize?.ResolveSize(containerSize, fontSize, viewportWidth, viewportHeight) ?? 0;
+            float max = MaxSize?.ResolveSize(containerSize, fontSize, viewportWidth, viewportHeight) ?? float.MaxValue;
+            if (max == 0) max = float.MaxValue;
+            BaseSize = min;
+            GrowLimit = max;
+        }
+        else if (SizeType == TrackSizeType.Fraction)
+        {
+            BaseSize = 0;
+            GrowLimit = float.MaxValue;
+        }
+        else
+        {
+            BaseSize = ResolveSize(containerSize, fontSize, viewportWidth, viewportHeight);
+            GrowLimit = BaseSize;
+        }
+    }
+
+    public GridTrack Clone() => new()
+    {
+        SizeType = SizeType, FixedSize = FixedSize, Percentage = Percentage,
+        Fraction = Fraction, BaseSize = BaseSize, MinSize = MinSize, MaxSize = MaxSize
+    };
 }
+
+public enum TrackSizeType { Fixed, Percentage, Fraction, Auto, MinContent, MaxContent, MinMax }
 
 public class GridItem
 {
     public Element Element { get; set; } = null!;
-    public int ColumnStart { get; set; }
-    public int ColumnEnd { get; set; }
-    public int RowStart { get; set; }
-    public int RowEnd { get; set; }
+    public int ColumnStart { get; set; } = 1;
+    public int ColumnEnd { get; set; } = 2;
+    public int RowStart { get; set; } = 1;
+    public int RowEnd { get; set; } = 2;
+    public int ColumnSpan { get; set; } = 1;
+    public int RowSpan { get; set; } = 1;
+    public bool IsPlaced { get; set; }
 }
-
-public enum TrackSizeType { Fixed, Fraction, Auto, MinContent, MaxContent, Percentage, MinMax }
-
-public enum JustifyItemsType { Start, End, Center, Stretch }
-
-public enum JustifySelfType { Start, End, Center, Stretch }
-
-public enum ContentDistributionType { Normal, Start, End, Center, Stretch, SpaceBetween, SpaceAround, SpaceEvenly, FlexStart, FlexEnd }

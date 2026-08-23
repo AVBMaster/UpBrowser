@@ -1,4 +1,4 @@
-using SkiaSharp;
+﻿using SkiaSharp;
 using UpBrowser.Core.Dom;
 using UpBrowser.Core.Css.ElementStyles;
 using UpBrowser.Core.Performance;
@@ -7,8 +7,8 @@ namespace UpBrowser.Core.Css.Resolver;
 
 /// <summary>
 /// CSS Cascade resolution system - inspired by Blink's StyleCascade.
-/// Two-phase design: Analyze (build CascadeMap) → Apply (build ComputedStyle).
-/// Priority encoding: Importance → Origin → TreeOrder → LayerOrder → Position
+/// Two-phase design: Analyze (build CascadeMap) 锟?Apply (build ComputedStyle).
+/// Priority encoding: Importance 锟?Origin 锟?TreeOrder 锟?LayerOrder 锟?Position
 /// </summary>
 public class CascadeResolver
 {
@@ -88,7 +88,7 @@ public class CascadeResolver
             && element.ComputedStyle.GetType() == typeof(ComputedStyle))
         {
             // Element already has a freshly computed style that matches the parent
-            // and signature → skip the entire cascade for this element.
+            // and signature 锟?skip the entire cascade for this element.
             if (UpBrowser.Core.Performance.DirtyState.IsClean(element)
                 && sharedCache.TryGetShared(signature) is not null)
             {
@@ -129,6 +129,9 @@ public class CascadeResolver
         ApplyHighPriority(style, parentStyle);
         ApplyMatchResult(style);
 
+        // Expose collected ::-webkit-scrollbar-* side-car to painting.
+        style.ScrollbarCustom = element.ScrollbarCustom;
+
         // Apply @keyframes final state for animated elements
         if (!string.IsNullOrEmpty(style.AnimationName) && style.AnimationName != "none")
         {
@@ -168,7 +171,7 @@ public class CascadeResolver
                     var expanded = ShorthandExpander.Expand(finalBlock.Properties);
                     foreach (var prop in expanded)
                     {
-                        var animPriority = new CascadePriority(
+                        var animPriority = new LegacyCascadePriority(
                             importance: false,
                             origin: CascadeOrigin.Animation,
                             treeOrder: int.MaxValue
@@ -194,6 +197,144 @@ public class CascadeResolver
     }
 
     /// <summary>
+    /// Routes ::-webkit-scrollbar-* pseudo-element declarations into the
+    /// element's <see cref="Dom.ScrollbarStyles"/> side-car. Returns false when
+    /// the rule is not a scrollbar rule so normal cascade continues.
+    /// </summary>
+    private static bool TryCollectScrollbarStyle(Element element, string selector, Dictionary<string, string> properties)
+    {
+        var slot = GetScrollbarSlot(selector);
+        if (slot == null)
+            return false;
+
+        element.ScrollbarCustom ??= new ScrollbarStyles();
+        var target = slot.Value switch
+        {
+            ScrollbarSlot.Thumb => element.ScrollbarCustom.Thumb,
+            ScrollbarSlot.Track => element.ScrollbarCustom.Track,
+            ScrollbarSlot.Corner => element.ScrollbarCustom.Corner,
+            _ => element.ScrollbarCustom.Bar,
+        };
+
+        foreach (var prop in properties)
+        {
+            var name = prop.Key.ToLowerInvariant();
+            var value = prop.Value?.Trim() ?? "";
+            try
+            {
+                switch (name)
+                {
+                    case "background":
+                    case "background-color":
+                        target.Background = ColorParser.Parse(value);
+                        break;
+                    case "width" when slot == ScrollbarSlot.Bar:
+                        if (TryParsePx(value, out var w)) { target.Thickness = (int)w; target.HasThickness = true; }
+                        break;
+                    case "height" when slot == ScrollbarSlot.Bar:
+                        // Vertical bars use width; horizontal use height 鈥?keep max
+                        // of both so one declaration per axis still works.
+                        if (TryParsePx(value, out var hgt) && hgt > target.Thickness)
+                        { target.Thickness = (int)hgt; target.HasThickness = true; }
+                        break;
+                    case "border-radius":
+                        if (TryParsePx(value, out var r)) target.BorderRadius = Math.Max(0, r);
+                        break;
+                    case "border":
+                    case "border-width":
+                        if (TryParsePx(FirstToken(value), out var bw)) target.BorderWidth = bw;
+                        break;
+                    case "border-color":
+                        target.BorderColor = ColorParser.Parse(LastToken(value));
+                        break;
+                }
+            }
+            catch { /* malformed declaration 鈥?ignore like the cascade does */ }
+        }
+        return true;
+
+        static ScrollbarSlot? GetScrollbarSlot(string sel)
+        {
+            if (!sel.Contains("::-webkit-scrollbar", StringComparison.OrdinalIgnoreCase))
+                return null;
+            if (sel.Contains("scrollbar-thumb", StringComparison.OrdinalIgnoreCase)) return ScrollbarSlot.Thumb;
+            if (sel.Contains("scrollbar-track-piece", StringComparison.OrdinalIgnoreCase)) return ScrollbarSlot.Track;
+            if (sel.Contains("scrollbar-track", StringComparison.OrdinalIgnoreCase)) return ScrollbarSlot.Track;
+            if (sel.Contains("scrollbar-corner", StringComparison.OrdinalIgnoreCase)) return ScrollbarSlot.Corner;
+            if (sel.Contains("scrollbar-button", StringComparison.OrdinalIgnoreCase)) return ScrollbarSlot.Button;
+            return ScrollbarSlot.Bar;
+        }
+
+        static bool TryParsePx(string v, out float px)
+        {
+            px = 0;
+            v = v.Trim();
+            if (v.EndsWith("px", StringComparison.OrdinalIgnoreCase) &&
+                float.TryParse(v[..^2], out px)) return true;
+            if (float.TryParse(v, out px)) return true; // unitless zero etc.
+            return false;
+        }
+
+        static string FirstToken(string v) { int i = v.IndexOf(' '); return i > 0 ? v[..i] : v; }
+        static string LastToken(string v) { int i = v.LastIndexOf(' '); return i > 0 ? v[(i + 1)..] : v; }
+    }
+
+    private enum ScrollbarSlot { Bar, Thumb, Track, Corner, Button }
+
+    /// <summary>Scrollbar-color &lt;thumb&gt; &lt;track&gt; ("auto" resets a slot).</summary>
+    private static void ApplyScrollbarColors(ComputedStyle style, string value)
+    {
+        var parts = ShorthandExpander.SplitShorthand(value);
+        if (parts.Count == 0) return;
+
+        style.ScrollbarThumbColor = parts[0].Trim() == "auto"
+            ? null
+            : ColorParser.Parse(parts[0].Trim());
+
+        style.ScrollbarTrackColor = parts.Count >= 2
+            ? (parts[1].Trim() == "auto" ? null : ColorParser.Parse(parts[1].Trim()))
+            : style.ScrollbarThumbColor;
+    }
+
+    /// <summary>
+    /// A5: `column-rule: &lt;width&gt; || &lt;style&gt; || &lt;color&gt;` 鈥?same token
+    /// classification family as border shorthands.
+    /// </summary>
+    private void ParseColumnRule(string value, ComputedStyle style)
+    {
+        foreach (var raw in ShorthandExpander.SplitShorthand(value))
+        {
+            var p = raw.Trim();
+            if (string.IsNullOrEmpty(p)) continue;
+
+            switch (p)
+            {
+                case "thin": style.ColumnRuleWidth = 1f; continue;
+                case "medium" or "auto": style.ColumnRuleWidth = 3f; continue;
+                case "thick": style.ColumnRuleWidth = 5f; continue;
+            }
+
+            if (p is "none" or "hidden" or "solid" or "dashed" or "dotted"
+                or "double" or "groove" or "ridge" or "inset" or "outset")
+            {
+                style.ColumnRuleStyle = ParseBorderStyleValue(p);
+                continue;
+            }
+
+            if (p.StartsWith('#') || p.StartsWith("rgb") || p.StartsWith("hsl")
+                || ColorParser.IsColorName(p))
+            {
+                style.ColumnRuleColor = ColorParser.Parse(p);
+                continue;
+            }
+
+            if (float.TryParse(p.EndsWith("px", StringComparison.OrdinalIgnoreCase) ? p[..^2] : p,
+                    out var wpx))
+                style.ColumnRuleWidth = Math.Max(0, wpx);
+        }
+    }
+
+    /// <summary>
     /// Analyze phase: traverse all author stylesheet declarations into CascadeMap.
     /// </summary>
     private void Analyze(Element element, int treeOrder)
@@ -202,39 +343,43 @@ public class CascadeResolver
         {
             foreach (var rule in stylesheet.Rules)
             {
-                if (_matcher.Matches(rule, element))
+                if (!_matcher.Matches(rule, element))
+                    continue;
+
+                // Scrollbar pseudo rules go to the side-car, not the cascade.
+                if (TryCollectScrollbarStyle(element, rule.Selector, rule.Properties))
+                    continue;
+
+                bool isBefore = rule.Selector.Contains("::before");
+                bool isAfter = rule.Selector.Contains("::after");
+
+                if (isBefore)
                 {
-                    bool isBefore = rule.Selector.Contains("::before");
-                    bool isAfter = rule.Selector.Contains("::after");
+                    element.BeforeStyles ??= new Dictionary<string, string>();
+                    foreach (var prop in rule.Properties)
+                        element.BeforeStyles[prop.Key] = prop.Value;
+                }
+                else if (isAfter)
+                {
+                    element.AfterStyles ??= new Dictionary<string, string>();
+                    foreach (var prop in rule.Properties)
+                        element.AfterStyles[prop.Key] = prop.Value;
+                }
+                else
+                {
+                    var expandedProps = ShorthandExpander.Expand(rule.Properties);
+                    foreach (var prop in expandedProps)
+                    {
+                        bool isImportant = rule.IsPropertyImportant(prop.Key) || rule.IsPropertyImportant(GetOriginalShorthand(prop.Key));
+                        var priority = new LegacyCascadePriority(
+                            importance: isImportant,
+                            origin: CascadeOrigin.Author,
+                            treeOrder: treeOrder
+                        );
+                        _cascadeMap.Insert(prop.Key, prop.Value, priority);
 
-                    if (isBefore)
-                    {
-                        element.BeforeStyles ??= new Dictionary<string, string>();
-                        foreach (var prop in rule.Properties)
-                            element.BeforeStyles[prop.Key] = prop.Value;
-                    }
-                    else if (isAfter)
-                    {
-                        element.AfterStyles ??= new Dictionary<string, string>();
-                        foreach (var prop in rule.Properties)
-                            element.AfterStyles[prop.Key] = prop.Value;
-                    }
-                    else
-                    {
-                        var expandedProps = ShorthandExpander.Expand(rule.Properties);
-                        foreach (var prop in expandedProps)
-                        {
-                            bool isImportant = rule.IsPropertyImportant(prop.Key) || rule.IsPropertyImportant(GetOriginalShorthand(prop.Key));
-                            var priority = new CascadePriority(
-                                importance: isImportant,
-                                origin: CascadeOrigin.Author,
-                                treeOrder: treeOrder
-                            );
-                            _cascadeMap.Insert(prop.Key, prop.Value, priority);
-
-                            if (prop.Key.StartsWith("--"))
-                                CssFunctionEvaluator.SetCustomProperty(prop.Key[2..], prop.Value);
-                        }
+                        if (prop.Key.StartsWith("--"))
+                            CssFunctionEvaluator.SetCustomProperty(prop.Key[2..], prop.Value);
                     }
                 }
             }
@@ -247,6 +392,9 @@ public class CascadeResolver
                     {
                         if (_matcher.Matches(rule, element))
                         {
+                            if (TryCollectScrollbarStyle(element, rule.Selector, rule.Properties))
+                                continue;
+
                             bool isBefore = rule.Selector.Contains("::before");
                             bool isAfter = rule.Selector.Contains("::after");
 
@@ -268,7 +416,7 @@ public class CascadeResolver
                                 foreach (var prop in expandedProps)
                                 {
                                     bool isImportant = rule.IsPropertyImportant(prop.Key) || rule.IsPropertyImportant(GetOriginalShorthand(prop.Key));
-                                    var priority = new CascadePriority(
+                                    var priority = new LegacyCascadePriority(
                                         importance: isImportant,
                                         origin: CascadeOrigin.Author,
                                         treeOrder: treeOrder
@@ -294,6 +442,9 @@ public class CascadeResolver
                     {
                         if (_matcher.Matches(rule, element))
                         {
+                            if (TryCollectScrollbarStyle(element, rule.Selector, rule.Properties))
+                                continue;
+
                             bool isBefore = rule.Selector.Contains("::before");
                             bool isAfter = rule.Selector.Contains("::after");
 
@@ -315,7 +466,7 @@ public class CascadeResolver
                                 foreach (var prop in expandedProps)
                                 {
                                     bool isImportant = rule.IsPropertyImportant(prop.Key) || rule.IsPropertyImportant(GetOriginalShorthand(prop.Key));
-                                    var priority = new CascadePriority(
+                                    var priority = new LegacyCascadePriority(
                                         importance: isImportant,
                                         origin: CascadeOrigin.Author,
                                         treeOrder: treeOrder
@@ -336,39 +487,42 @@ public class CascadeResolver
             {
                 foreach (var rule in layerRule.Rules)
                 {
-                    if (_matcher.Matches(rule, element))
+                    if (!_matcher.Matches(rule, element))
+                        continue;
+
+                    if (TryCollectScrollbarStyle(element, rule.Selector, rule.Properties))
+                        continue;
+
+                    bool isBefore = rule.Selector.Contains("::before");
+                    bool isAfter = rule.Selector.Contains("::after");
+
+                    if (isBefore)
                     {
-                        bool isBefore = rule.Selector.Contains("::before");
-                        bool isAfter = rule.Selector.Contains("::after");
+                        element.BeforeStyles ??= new Dictionary<string, string>();
+                        foreach (var prop in rule.Properties)
+                            element.BeforeStyles[prop.Key] = prop.Value;
+                    }
+                    else if (isAfter)
+                    {
+                        element.AfterStyles ??= new Dictionary<string, string>();
+                        foreach (var prop in rule.Properties)
+                            element.AfterStyles[prop.Key] = prop.Value;
+                    }
+                    else
+                    {
+                        var expandedProps = ShorthandExpander.Expand(rule.Properties);
+                        foreach (var prop in expandedProps)
+                        {
+                            bool isImportant = rule.IsPropertyImportant(prop.Key) || rule.IsPropertyImportant(GetOriginalShorthand(prop.Key));
+                            var priority = new LegacyCascadePriority(
+                                importance: isImportant,
+                                origin: CascadeOrigin.Author,
+                                treeOrder: treeOrder
+                            );
+                            _cascadeMap.Insert(prop.Key, prop.Value, priority);
 
-                        if (isBefore)
-                        {
-                            element.BeforeStyles ??= new Dictionary<string, string>();
-                            foreach (var prop in rule.Properties)
-                                element.BeforeStyles[prop.Key] = prop.Value;
-                        }
-                        else if (isAfter)
-                        {
-                            element.AfterStyles ??= new Dictionary<string, string>();
-                            foreach (var prop in rule.Properties)
-                                element.AfterStyles[prop.Key] = prop.Value;
-                        }
-                        else
-                        {
-                            var expandedProps = ShorthandExpander.Expand(rule.Properties);
-                            foreach (var prop in expandedProps)
-                            {
-                                bool isImportant = rule.IsPropertyImportant(prop.Key) || rule.IsPropertyImportant(GetOriginalShorthand(prop.Key));
-                                var priority = new CascadePriority(
-                                    importance: isImportant,
-                                    origin: CascadeOrigin.Author,
-                                    treeOrder: treeOrder
-                                );
-                                _cascadeMap.Insert(prop.Key, prop.Value, priority);
-
-                                if (prop.Key.StartsWith("--"))
-                                    CssFunctionEvaluator.SetCustomProperty(prop.Key[2..], prop.Value);
-                            }
+                            if (prop.Key.StartsWith("--"))
+                                CssFunctionEvaluator.SetCustomProperty(prop.Key[2..], prop.Value);
                         }
                     }
                 }
@@ -386,7 +540,7 @@ public class CascadeResolver
 
         foreach (var kv in props)
         {
-            var priority = new CascadePriority(false, CascadeOrigin.UserAgent, treeOrder);
+            var priority = new LegacyCascadePriority(false, CascadeOrigin.UserAgent, treeOrder);
             _cascadeMap.Insert(kv.Key, kv.Value, priority);
         }
     }
@@ -394,7 +548,7 @@ public class CascadeResolver
     private void AnalyzePresentationalHints(Element element, int treeOrder)
     {
         string tag = element.TagName.ToUpperInvariant();
-        var phPriority = new CascadePriority(false, CascadeOrigin.UserAgent, treeOrder);
+        var phPriority = new LegacyCascadePriority(false, CascadeOrigin.UserAgent, treeOrder);
 
         if (tag == "VIDEO" || tag == "IFRAME" || tag == "EMBED" || tag == "OBJECT")
         {
@@ -483,7 +637,7 @@ public class CascadeResolver
         if (style.WhiteSpace != def.WhiteSpace) props["white-space"] = style.WhiteSpace.ToString().ToLowerInvariant();
         if (style.ListStyleType != def.ListStyleType) props["list-style-type"] = style.ListStyleType.ToString().ToLowerInvariant();
         if (style.BorderCollapse != def.BorderCollapse) props["border-collapse"] = style.BorderCollapse ? "collapse" : "separate";
-        if (!string.IsNullOrEmpty(style.BackgroundImage)) props["background-image"] = style.BackgroundImage;
+        if (style.BackgroundImage is { Count: > 0 }) props["background-image"] = string.Join(", ", style.BackgroundImage);
         if (style.TextAlign != def.TextAlign) props["text-align"] = style.TextAlign.ToString().ToLowerInvariant();
         if (style.TextDecoration != def.TextDecoration) props["text-decoration"] = style.TextDecoration switch
             {
@@ -553,7 +707,9 @@ public class CascadeResolver
         if (style.OutlineColor != def.OutlineColor) props["outline-color"] = $"#{style.OutlineColor.Red:X2}{style.OutlineColor.Green:X2}{style.OutlineColor.Blue:X2}";
         if (style.OutlineOffset != def.OutlineOffset) props["outline-offset"] = $"{style.OutlineOffset}px";
 
-        if (style.BoxShadow != null) props["box-shadow"] = style.BoxShadow.ToString() ?? "none";
+        if (style.BoxShadow != null && style.BoxShadow.Count > 0)
+            props["box-shadow"] = string.Join(", ", style.BoxShadow.Select(b =>
+                (b.Inset ? "inset " : "") + $"{b.OffsetX:0.##}px {b.OffsetY:0.##}px {b.BlurRadius:0.##}px{(b.Spread != 0 ? $" {b.Spread:0.##}px" : "")} #{b.Color.Red:X2}{b.Color.Green:X2}{b.Color.Blue:X2}"));
         if (!string.IsNullOrEmpty(style.Filter)) props["filter"] = style.Filter!;
     }
 
@@ -573,7 +729,7 @@ public class CascadeResolver
         var expandedProps = ShorthandExpander.Expand(inlineProps);
         foreach (var prop in expandedProps)
         {
-            var priority = new CascadePriority(false, CascadeOrigin.Inline, treeOrder);
+            var priority = new LegacyCascadePriority(false, CascadeOrigin.Inline, treeOrder);
             _cascadeMap.Insert(prop.Key, prop.Value, priority);
         }
     }
@@ -584,7 +740,7 @@ public class CascadeResolver
         {
             if (!string.IsNullOrEmpty(kv.Key) && !string.IsNullOrEmpty(kv.Value))
             {
-                var priority = new CascadePriority(false, CascadeOrigin.JsModified, treeOrder);
+                var priority = new LegacyCascadePriority(false, CascadeOrigin.JsModified, treeOrder);
                 _cascadeMap.Insert(kv.Key, kv.Value, priority);
             }
         }
@@ -623,7 +779,7 @@ public class CascadeResolver
             style.FontFamily = ParseFontFamily(fontFamilyVal);
 
         if (_cascadeMap.TryGetValue("line-height", out var lineHeightVal))
-            style.LineHeight = ParseLineHeight(lineHeightVal, style.FontSize);
+            Fonts.LineBoxMetrics.ApplyLineHeight(style, lineHeightVal);
     }
 
     /// <summary>
@@ -638,7 +794,9 @@ public class CascadeResolver
         }
     }
 
-    private void ApplyProperty(ComputedStyle style, string name, string value)
+    /// <summary>Apply a single CSS property value to a style.  Public so that
+    /// pseudo-element styles can be resolved outside the full cascade walk.</summary>
+    public void ApplyProperty(ComputedStyle style, string name, string value)
     {
     try
     {
@@ -685,6 +843,19 @@ public class CascadeResolver
             case "color": style.Color = ColorParser.Parse(value); break;
             case "accent-color": style.AccentColor = value == "auto" ? null : ColorParser.Parse(value); break;
             case "caret-color": style.CaretColor = value == "auto" ? null : ColorParser.Parse(value); break;
+
+            // Standard scrollbar properties.
+            case "scrollbar-width":
+                style.ScrollbarWidth = value.Trim() switch
+                {
+                    "thin" => ScrollbarWidthType.Thin,
+                    "none" => ScrollbarWidthType.None,
+                    _ => ScrollbarWidthType.Auto,
+                };
+                break;
+            case "scrollbar-color":
+                ApplyScrollbarColors(style, value);
+                break;
             case "color-scheme":
                 var cs = value.ToLowerInvariant();
                 style.ColorScheme = cs switch { "light" => "light", "dark" => "dark", "light dark" => "light dark", _ => "normal" };
@@ -697,9 +868,9 @@ public class CascadeResolver
                 if (value == "none")
                     style.BackgroundImage = null;
                 else if (CssFunctionEvaluator.IsGradient(value))
-                    style.BackgroundImage = value;
+                    style.BackgroundImage = new List<string> { value };
                 else
-                    style.BackgroundImage = ParseUrl(value);
+                    style.BackgroundImage = SplitCommaOutsideParens(value).Select(s => s.Trim()).ToList();
                 break;
             case "background-repeat": style.BackgroundRepeat = ParseBackgroundRepeat(value); break;
             case "background-position": ParseBackgroundPosition(value, style); break;
@@ -735,6 +906,7 @@ public class CascadeResolver
             case "text-emphasis": style.TextEmphasis = value; break;
             case "text-emphasis-color": style.TextEmphasisColor = value; break;
             case "text-emphasis-style": style.TextEmphasisStyle = value; break;
+            case "text-emphasis-position": style.TextEmphasisPosition = value; break;
             case "text-shadow": style.TextShadow = ParseTextShadow(value); break;
             case "text-overflow": style.TextOverflow = value.ToLowerInvariant() == "ellipsis" ? TextOverflowType.Ellipsis : TextOverflowType.Clip; break;
             case "vertical-align": style.VerticalAlign = ParseVerticalAlign(value); break;
@@ -774,10 +946,10 @@ public class CascadeResolver
             case "border-bottom-color": style.BorderBottomColor = ColorParser.Parse(value); break;
             case "border-left-color": style.BorderLeftColor = ColorParser.Parse(value); break;
             case "border-radius": ParseBorderRadius(value, style); break;
-            case "border-top-left-radius": style.BorderTopLeftRadius = ParseSize(value) ?? 0; break;
-            case "border-top-right-radius": style.BorderTopRightRadius = ParseSize(value) ?? 0; break;
-            case "border-bottom-left-radius": style.BorderBottomLeftRadius = ParseSize(value) ?? 0; break;
-            case "border-bottom-right-radius": style.BorderBottomRightRadius = ParseSize(value) ?? 0; break;
+            case "border-top-left-radius": style.BorderTopLeftRadius = ParseRadiusValue(value) ?? 0; break;
+            case "border-top-right-radius": style.BorderTopRightRadius = ParseRadiusValue(value) ?? 0; break;
+            case "border-bottom-left-radius": style.BorderBottomLeftRadius = ParseRadiusValue(value) ?? 0; break;
+            case "border-bottom-right-radius": style.BorderBottomRightRadius = ParseRadiusValue(value) ?? 0; break;
             case "border-collapse": style.BorderCollapse = value.ToLowerInvariant() == "collapse"; break;
             case "border-spacing": style.BorderSpacing = ParseSize(value) ?? 0; break;
             case "border-image": style.BorderImageSource = ParseUrl(value); break;
@@ -811,6 +983,17 @@ public class CascadeResolver
             case "column-gap": if (Length.TryParse(value, out var cg)) style.ColumnGap = cg; break;
             case "column-count": if (int.TryParse(value, out var cc)) style.ColumnCount = cc; break;
             case "column-width": if (Length.TryParse(value, out var cw)) style.ColumnWidth = cw; break;
+
+            // A5: column-rule 鈥?the multicol separator line.
+            case "column-rule": ParseColumnRule(value, style); break;
+            case "column-rule-width":
+                if (value.Trim() is "thin") style.ColumnRuleWidth = 1f;
+                else if (value.Trim() is "medium" or "auto") style.ColumnRuleWidth = 3f;
+                else if (value.Trim() is "thick") style.ColumnRuleWidth = 5f;
+                else style.ColumnRuleWidth = ParseSize(value) ?? 3f;
+                break;
+            case "column-rule-style": style.ColumnRuleStyle = ParseBorderStyleValue(value); break;
+            case "column-rule-color": style.ColumnRuleColor = ColorParser.Parse(value); break;
             case "grid": style.Grid = value; break;
             case "grid-template": ParseGridTemplateShorthand(value, style); break;
             case "grid-template-columns": style.GridTemplateColumns = value == "none" ? null : value; break;
@@ -973,6 +1156,10 @@ public class CascadeResolver
         child.FontWeight = parent.FontWeight;
         child.FontStyle = parent.FontStyle;
         child.LineHeight = parent.LineHeight;
+        // 'line-height' inherits its computed value, so the 'normal' flag and any
+        // absolute length must travel with the multiplier.
+        child.LineHeightIsNormal = parent.LineHeightIsNormal;
+        child.LineHeightPx = parent.LineHeightPx;
         child.TextAlign = parent.TextAlign;
         child.WhiteSpace = parent.WhiteSpace;
         child.WordBreak = parent.WordBreak;
@@ -1000,6 +1187,7 @@ public class CascadeResolver
         child.TextEmphasis = parent.TextEmphasis;
         child.TextEmphasisColor = parent.TextEmphasisColor;
         child.TextEmphasisStyle = parent.TextEmphasisStyle;
+        child.TextEmphasisPosition = parent.TextEmphasisPosition;
         child.FontVariant = parent.FontVariant;
         child.FontKerning = parent.FontKerning;
         child.FontStretch = parent.FontStretch;
@@ -1051,6 +1239,8 @@ public class CascadeResolver
         dest.FontFamily = src.FontFamily; dest.FontSize = src.FontSize;
         dest.FontWeight = src.FontWeight; dest.FontStyle = src.FontStyle;
         dest.LineHeight = src.LineHeight;
+        dest.LineHeightIsNormal = src.LineHeightIsNormal;
+        dest.LineHeightPx = src.LineHeightPx;
         dest.TextAlign = src.TextAlign;
         dest.TextDecoration = src.TextDecoration;
         dest.TextDecorationLine = src.TextDecorationLine;
@@ -1136,6 +1326,7 @@ public class CascadeResolver
         dest.TextEmphasis = src.TextEmphasis;
         dest.TextEmphasisColor = src.TextEmphasisColor;
         dest.TextEmphasisStyle = src.TextEmphasisStyle;
+        dest.TextEmphasisPosition = src.TextEmphasisPosition;
         dest.OutlineWidth = src.OutlineWidth;
         dest.OutlineColor = src.OutlineColor;
         dest.OutlineStyle = src.OutlineStyle;
@@ -1214,7 +1405,7 @@ public class CascadeResolver
         dest.Grid = src.Grid;
     }
 
-    // ── Parsing helpers (delegated to specialized parsers) ──
+    // 鈹€鈹€ Parsing helpers (delegated to specialized parsers) 鈹€鈹€
 
     private void ParseShorthand4(string value, out Length top, out Length right, out Length bottom, out Length left)
     {
@@ -1438,7 +1629,7 @@ public class CascadeResolver
             }
             else if (lower.StartsWith("url("))
             {
-                style.BackgroundImage = ParseUrl(part);
+                style.BackgroundImage = new List<string> { ParseUrl(part) };
             }
             else if (lower is "repeat" or "repeat-x" or "repeat-y" or "no-repeat")
             {
@@ -1587,12 +1778,22 @@ public class CascadeResolver
     };
 
     private float? ParseSize(string value)
-    {
-        if (value.EndsWith("px") && float.TryParse(value[..^2], out var px)) return px;
+    {        if (value.EndsWith("px") && float.TryParse(value[..^2], out var px)) return px;
         if (value.EndsWith("em") && float.TryParse(value[..^2], out var em)) return em * 16;
         if (value.EndsWith("rem") && float.TryParse(value[..^2], out var rem)) return rem * 16;
         if (value == "0") return 0;
         return null;
+    }
+
+    /// <summary>
+    /// Parses one corner radius value, which may be a single length or the
+    /// 'horizontal vertical' pair produced for elliptical border-radius.
+    /// Uses the horizontal radius (the first value).
+    /// </summary>
+    private float? ParseRadiusValue(string value)
+    {
+        int sp = value.IndexOf(' ');
+        return sp > 0 ? ParseSize(value[..sp]) : ParseSize(value.Trim());
     }
 
     private void ParseFlexShorthand(string value, ComputedStyle style)
@@ -1734,8 +1935,8 @@ public class CascadeResolver
         if (i < parts.Length && parts[i] == "/")
         {
             i++;
-            if (i < parts.Length && float.TryParse(parts[i], out var lh))
-                style.LineHeight = lh / style.FontSize;
+            if (i < parts.Length)
+                Fonts.LineBoxMetrics.ApplyLineHeight(style, parts[i]);
             i++;
         }
 
@@ -2038,26 +2239,109 @@ public class CascadeResolver
         }
     }
 
-    private static BoxShadowValue? ParseBoxShadow(string value)
+    /// <summary>
+    /// Parses a 'box-shadow' value into a list of shadows. Supports the 'inset'
+    /// keyword (anywhere before the lengths) and multiple comma-separated shadows.
+    /// Mirrors the CSS box-shadow grammar: [inset? && <length>{2,4} && <color>?]# .
+    /// </summary>
+    private static List<BoxShadowValue>? ParseBoxShadow(string value)
     {
-        if (string.IsNullOrEmpty(value) || value == "none") return null;
+        if (string.IsNullOrEmpty(value) || value.Trim() == "none")
+            return null;
 
-        var parts = value.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        if (parts.Length < 2) return null;
-        if (parts[0] == "inset") return null;
+        var list = new List<BoxShadowValue>();
+        foreach (var part in SplitCommaOutsideParens(value))
+        {
+            var shadow = ParseBoxShadowComponent(part);
+            if (shadow != null)
+                list.Add(shadow);
+        }
+        return list.Count > 0 ? list : null;
+    }
 
-        float offsetX = float.TryParse(parts[0].TrimEnd('p', 'x'), out var ox) ? ox : 0;
-        float offsetY = float.TryParse(parts[1].TrimEnd('p', 'x'), out var oy) ? oy : 0;
+    /// <summary>Splits a value on commas that are not inside parentheses, so that
+    /// multiple box-shadows separate correctly while rgba()/rgb() color functions
+    /// stay intact.</summary>
+    private static IEnumerable<string> SplitCommaOutsideParens(string value)
+    {
+        int depth = 0;
+        int start = 0;
+        for (int i = 0; i < value.Length; i++)
+        {
+            if (value[i] == '(') depth++;
+            else if (value[i] == ')') depth--;
+            else if (value[i] == ',' && depth == 0)
+            {
+                yield return value[start..i];
+                start = i + 1;
+            }
+        }
+        yield return value[start..];
+    }
+
+    private static BoxShadowValue? ParseBoxShadowComponent(string component)
+    {
+        var parts = component.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length < 2)
+            return null;
+
+        bool inset = false;
+        int index = 0;
+        if (parts[0].Equals("inset", StringComparison.OrdinalIgnoreCase))
+        {
+            inset = true;
+            index++;
+        }
+        else if (parts.Length > 1 && parts[1].Equals("inset", StringComparison.OrdinalIgnoreCase))
+        {
+            // 'inset' may legally appear after the lengths.
+            inset = true;
+        }
+
+        // The first two tokens are offsets.
+        if (!TryParseLength(parts[index], out float offsetX) ||
+            !TryParseLength(parts[index + 1], out float offsetY))
+        {
+            return null;
+        }
+        index += 2;
+
         float blurRadius = 0, spread = 0;
-        int index = 2;
+        if (index < parts.Length && TryParseLength(parts[index], out float br))
+        {
+            blurRadius = br;
+            index++;
+        }
+        if (index < parts.Length && TryParseLength(parts[index], out float sp))
+        {
+            spread = sp;
+            index++;
+        }
 
-        if (index < parts.Length && parts[index].Contains("px") && float.TryParse(parts[index].TrimEnd('p', 'x'), out var br))
-        { blurRadius = br; index++; }
-        if (index < parts.Length && parts[index].Contains("px") && float.TryParse(parts[index].TrimEnd('p', 'x'), out var sp))
-        { spread = sp; index++; }
+        SKColor color;
+        if (index < parts.Length)
+        {
+            color = ColorParser.Parse(string.Join(" ", parts.Skip(index)));
+        }
+        else
+            color = new SKColor(0, 0, 0, 80); // default currentColor鈮坆lack with standard shadow alpha
+        return new BoxShadowValue(color, offsetX, offsetY, blurRadius, spread, inset);
+    }
 
-        var color = index < parts.Length ? ColorParser.Parse(string.Join(" ", parts.Skip(index))) : new SKColor(0, 0, 0, 80);
-        return new BoxShadowValue(color, offsetX, offsetY, blurRadius, spread);
+    private static bool TryParseLength(string token, out float value)
+    {
+        value = 0;
+        var t = token.Trim();
+        if (t.EndsWith("px", StringComparison.OrdinalIgnoreCase) && float.TryParse(t[..^2], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out value))
+            return true;
+        if (t.EndsWith("em", StringComparison.OrdinalIgnoreCase) && float.TryParse(t[..^2], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out value))
+        {
+            value *= 16;
+            return true;
+        }
+        if (float.TryParse(t, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out value))
+            return true;
+        return false;
     }
 
     private bool EvaluateSupportsCondition(string condition)
@@ -2173,26 +2457,26 @@ public class CascadeResolver
 
 /// <summary>
 /// Cascade priority encoding - similar to Blink's 96-bit priority integer.
-/// Order: Importance → Origin → TreeOrder
+/// Order: Importance 锟?Origin 锟?TreeOrder
 /// Per CSS Cascading 4 spec:
 ///   Normal: Inline(5) > Author(3) > User(2) > UA(1)
 ///   Important: UA(5) > User(4) > Author(3) > Inline(2)
 ///   (JS-modified same as Inline)
 /// </summary>
-public readonly struct CascadePriority : IComparable<CascadePriority>
+public readonly struct LegacyCascadePriority : IComparable<LegacyCascadePriority>
 {
     public readonly bool Importance;
     public readonly CascadeOrigin Origin;
     public readonly int TreeOrder;
 
-    public CascadePriority(bool importance, CascadeOrigin origin, int treeOrder)
+    public LegacyCascadePriority(bool importance, CascadeOrigin origin, int treeOrder)
     {
         Importance = importance;
         Origin = origin;
         TreeOrder = treeOrder;
     }
 
-    public int CompareTo(CascadePriority other)
+    public int CompareTo(LegacyCascadePriority other)
     {
         if (Importance != other.Importance)
             return Importance.CompareTo(other.Importance);
@@ -2244,11 +2528,11 @@ public enum CascadeOrigin { UserAgent, User, Author, Inline, Animation, JsModifi
 /// </summary>
 public class CascadeMap
 {
-    private readonly Dictionary<string, (string value, CascadePriority priority)> _map = new();
+    private readonly Dictionary<string, (string value, LegacyCascadePriority priority)> _map = new();
 
     public void Clear() => _map.Clear();
 
-    public void Insert(string property, string value, CascadePriority priority)
+    public void Insert(string property, string value, LegacyCascadePriority priority)
     {
         if (_map.TryGetValue(property, out var existing))
         {
@@ -2281,7 +2565,7 @@ public class CascadeMap
 
 /// <summary>
 /// SelectorMatcher - pre-compiles selectors for faster matching.
-/// Inspired by Blink's CSS selector matching optimization.
+/// Uses the Blink-style CssSelectorParser and SelectorChecker.
 /// </summary>
 public class SelectorMatcher
 {
@@ -2291,11 +2575,12 @@ public class SelectorMatcher
     {
         if (!_selectorCache.TryGetValue(rule.Selector, out var selector))
         {
-            selector = CssSelector.Parse(rule.Selector);
-            _selectorCache[rule.Selector] = selector;
+            var parsed = CssSelector.Parse(rule.Selector);
+            _selectorCache[rule.Selector] = parsed;
+            selector = parsed;
         }
-
-        return selector.Matches(element, element.ParentElement);
+        bool m = selector.Matches(element, element.ParentElement);
+        return m;
     }
 
     public void ClearCache() => _selectorCache.Clear();

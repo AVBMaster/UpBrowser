@@ -33,6 +33,7 @@ public class DevToolsConsole : IImeSupport
     private float _thumbDragStartOffset;
 
     private bool _mouseDown;
+    private bool _warnedUnavailable;
     private string _imeCompositionString = "";
     private int _imeCompositionCursorPos;
 
@@ -222,7 +223,11 @@ public class DevToolsConsole : IImeSupport
     {
         if (_font == null || _skFont == null)
         {
-            Console.WriteLine("[DevToolsConsole.Render] SKPaint/SKFont unavailable on this OS, skipping render");
+            if (!_warnedUnavailable)
+            {
+                _warnedUnavailable = true;
+                Console.WriteLine("[DevToolsConsole.Render] SKPaint/SKFont unavailable on this OS, skipping render");
+            }
             return;
         }
 

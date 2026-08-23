@@ -1,7 +1,9 @@
-using UpBrowser.Core.Dom;
+﻿using UpBrowser.Core.Dom;
+using UpBrowser.Core.Dom.Html;
 using UpBrowser.Core.Layout.Grid;
 using SkiaSharp;
 using System.Text;
+using UpBrowser.Core.Css;
 
 namespace UpBrowser.Core.Layout;
 
@@ -40,8 +42,55 @@ public class LayoutEngine
     public float DpiScale => _dpiScale;
     public float ContentHeight => _contentHeight;
 
+    /// <summary>
+    /// Push viewport / device / root-font state onto this engine instance without
+    /// running a layout pass.
+    /// </summary>
+    /// <remarks>
+    /// The box-construction helpers (<c>CreateLayoutBox</c> and every
+    /// <c>ToPixels</c> call inside them) read these fields directly. Incremental
+    /// drivers that invoke <see cref="CreateLayoutBoxPublic"/> node-by-node bypass
+    /// <see cref="Layout"/>/<see cref="LayoutNg"/>/<see cref="LayoutIncremental"/>
+    /// 鈥?the only three methods that used to establish this state 鈥?so without an
+    /// explicit sync, vw/vh resolved against a 0x0 viewport, rem against the
+    /// default 16px root font and DPI rounding was disabled. Any external driver
+    /// of per-node construction MUST call this first.
+    /// </remarks>
+    public void SyncPipelineState(float viewportWidth, float viewportHeight, float dpiScale, float rootFontSize)
+    {
+        _viewportWidth = viewportWidth;
+        _viewportHeight = viewportHeight;
+        _dpiScale = dpiScale > 0 ? dpiScale : 1.0f;
+        _rootFontSize = rootFontSize > 0 ? rootFontSize : 16f;
+    }
+
+    /// <summary>
+    /// When true, <see cref="Layout"/> uses the NG pipeline (BlockLayoutAlgorithm
+    /// + NgFragmentConverter) instead of the legacy CreateLayoutBox path.
+    /// </summary>
+    public bool UseNgPipeline { get; set; } = true;
+
+    /// <summary>
+    /// [ARCHIVED 鈥?P2-1] When true, <see cref="Layout"/> uses the BlinkLayoutBridge
+    /// (ported LayoutObject hierarchy) instead of the NG pipeline. Kept for
+    /// reference only; do not enable without a parity audit (see
+    /// BlinkLayoutBridge header notes).
+    /// </summary>
+    public static bool UseBlinkBridge { get; set; } = false;
+
     public void Layout(Document document, float width, float height, float dpiScale = 1.0f)
     {
+        if (UseBlinkBridge)
+        {
+            BlinkLayoutBridge.BuildAndLayout(document, width, height, dpiScale);
+            return;
+        }
+        if (UseNgPipeline)
+        {
+            LayoutNg(document, width, height, dpiScale);
+            return;
+        }
+
         var sw = UpBrowser.Core.Performance.Clock.NowNanos();
         _viewportWidth = width;
         _viewportHeight = height;
@@ -63,6 +112,148 @@ public class LayoutEngine
             CalculateContentHeight(rootBox);
         }
         UpBrowser.Core.Performance.PipelineTimings.Layout.AddSample(UpBrowser.Core.Performance.Clock.NowNanos() - sw);
+    }
+
+    /// <summary>
+    /// NG-aligned layout entry: drives the NG pipeline (BlockLayoutAlgorithm on
+    /// the root) and converts the result into legacy Dom.LayoutBox values via
+    /// <see cref="NgFragmentConverter"/>. This lets the ported NG layout
+    /// algorithms drive real rendering for the whole document.
+    /// </summary>
+    public void LayoutNg(Document document, float width, float height, float dpiScale = 1.0f)
+    {
+        var sw = UpBrowser.Core.Performance.Clock.NowNanos();
+        _viewportWidth = width;
+        _viewportHeight = height;
+        _dpiScale = dpiScale;
+        _contentHeight = 0;
+
+        var root = document.DocumentElement ?? document.Body;
+        if (root == null)
+        {
+            UpBrowser.Core.Performance.PipelineTimings.Layout.AddSample(UpBrowser.Core.Performance.Clock.NowNanos() - sw);
+            return;
+        }
+
+        // Save scroll state BEFORE ClearLayoutBoxes destroys the boxes.
+        // Without this, every relayout resets ScrollY to 0 and inner scroll
+        // containers can never hold a position.
+        var savedScroll = new Dictionary<Element, Dom.LayoutBox>();
+        SaveScrollContainers(root, savedScroll);
+
+        ClearLayoutBoxes(root);
+
+        // Generate ::before / ::after pseudo-element content for all elements
+        // before the NG layout runs, so the pseudo-elements are in the DOM
+        // tree when the layout algorithm processes them.
+        GeneratePseudoElementsForTree(root);
+
+        // Unit-resolution context: rem resolves against the ROOT ELEMENT's
+        // computed font-size (CSS spec), vw/vh against the viewport established
+        // by SyncPipelineState/Layout entry above.
+        float rootFontSize = root.ComputedStyle?.FontSize ?? _rootFontSize;
+        if (rootFontSize <= 0) rootFontSize = ConstraintSpace.DefaultRootFontSize;
+        var space = ConstraintSpace.Builder(width, height)
+            .SetIsNewFormattingContext(true)
+            .SetBfcBlockOffset(0)
+            .SetForcedBfcBlockOffset(0)
+            .SetRootFontSize(rootFontSize)
+            .SetViewportSize(_viewportWidth, _viewportHeight)
+            .ToConstraintSpace();
+        var result = new BlockLayoutAlgorithm(root, space).Layout();
+        var rootBox = NgFragmentConverter.ToLayoutBox(result.Fragment, root);
+        if (rootBox != null)
+        {
+            root.LayoutBox = rootBox;
+            AssignLayoutBox(root, rootBox);
+
+            // Restore scroll state AFTER AssignLayoutBox has populated
+            // element.LayoutBox for all children. Restoring before would write
+            // to null references and silently lose the scroll position.
+            foreach (var kv in savedScroll)
+            {
+                if (kv.Key.LayoutBox is { } nb)
+                {
+                    nb.ScrollX = kv.Value.ScrollX;
+                    nb.ScrollY = kv.Value.ScrollY;
+                    nb.TargetScrollX = kv.Value.TargetScrollX;
+                    nb.TargetScrollY = kv.Value.TargetScrollY;
+                    nb.IsSmoothScrollingX = kv.Value.IsSmoothScrollingX;
+                    nb.IsSmoothScrollingY = kv.Value.IsSmoothScrollingY;
+                    nb.ScrollVelX = kv.Value.ScrollVelX;
+                    nb.ScrollVelY = kv.Value.ScrollVelY;
+                }
+            }
+            savedScroll.Clear();
+
+            CalculateContentHeight(rootBox);
+        }
+        UpBrowser.Core.Performance.PipelineTimings.Layout.AddSample(UpBrowser.Core.Performance.Clock.NowNanos() - sw);
+    }
+
+    /// <summary>Recursively collect LayoutBoxes of scroll containers.</summary>
+    private static void SaveScrollContainers(Element element, Dictionary<Element, Dom.LayoutBox> into)
+    {
+        if (element.LayoutBox is { IsScrollContainer: true } b)
+            into[element] = b;
+        foreach (var child in element.Children)
+            if (child is Element ce)
+                SaveScrollContainers(ce, into);
+    }
+
+    private void GeneratePseudoElementsForTree(Element element)
+    {
+        // Generate pseudo-elements for this element (needs a dummy box just for
+        // the style reference 鈥?the actual layout box will be created later).
+        if (element.ComputedStyle != null)
+        {
+            var dummy = new LayoutBox();
+            GeneratePseudoElementContent(element, dummy, element.ComputedStyle);
+        }
+        foreach (var child in element.Children)
+        {
+            if (child is Element childEl)
+                GeneratePseudoElementsForTree(childEl);
+        }
+    }
+
+    private void AssignLayoutBox(Element element, Dom.LayoutBox box)
+    {
+        element.LayoutBox = box;
+        foreach (var child in element.Children)
+        {
+            if (child is not Element childEl) continue;
+            // Search the box subtree, not just direct children: table layout nests
+            // cells under anonymous section/row boxes that have no DOM element, so
+            // a cell's box is a grandchild of the table's box. A direct-child-only
+            // match would leave every cell without a LayoutBox (and unpainted).
+            var childBox = FindBoxForElement(box, childEl);
+            childEl.LayoutBox = childBox;
+            if (childBox != null)
+                AssignLayoutBox(childEl, childBox);
+        }
+    }
+
+    /// <summary>
+    /// Find the layout box produced for <paramref name="target"/> within
+    /// <paramref name="box"/>'s subtree, preferring a direct child and otherwise
+    /// descending through anonymous boxes (e.g. table sections). Elements are
+    /// unique, so a subtree match is unambiguous.
+    /// </summary>
+    private static Dom.LayoutBox? FindBoxForElement(Dom.LayoutBox box, Element target)
+    {
+        foreach (var c in box.Children)
+        {
+            if (c.Dimensions?.Element == target)
+                return c;
+        }
+        foreach (var c in box.Children)
+        {
+            var found = FindBoxForElement(c, target);
+            if (found != null)
+                return found;
+        }
+        return null;
     }
 
     /// <summary>
@@ -363,7 +554,7 @@ public class LayoutEngine
         box.PaddingBox = LayoutMath.RoundRect(box.PaddingBox, _dpiScale);
         box.ContentBox = LayoutMath.RoundRect(box.ContentBox, _dpiScale);
 
-        box.LineHeight = style.LineHeight * style.FontSize;
+        box.LineHeight = Fonts.LineBoxMetrics.GetLineHeight(style);
 
         // Generate ::before and ::after pseudo-element content
         GeneratePseudoElementContent(element, box, style);
@@ -375,7 +566,7 @@ public class LayoutEngine
         float childY = box.ContentBox.Top;
         float childAvailableWidth = Math.Max(0, box.ContentBox.Width);
 
-        // 绝对定位处理
+        // 缁濆瀹氫綅澶勭悊
         if (style.Position == PositionType.Absolute)
         {
             LayoutBox? containingBlock = null;
@@ -580,30 +771,7 @@ public class LayoutEngine
             style.OverflowY == OverflowType.Scroll || style.OverflowY == OverflowType.Auto)
         {
             box.IsScrollContainer = true;
-            box.ScrollContentWidth = box.ContentBox.Width;
-            box.ScrollContentHeight = box.ContentBox.Height;
-            foreach (var child in box.Children)
-            {
-                if (child.MarginBox.Right > box.ContentBox.Left + box.ScrollContentWidth)
-                    box.ScrollContentWidth = child.MarginBox.Right - box.ContentBox.Left;
-                if (child.MarginBox.Bottom > box.ContentBox.Top + box.ScrollContentHeight)
-                    box.ScrollContentHeight = child.MarginBox.Bottom - box.ContentBox.Top;
-            }
-            if (box.Lines != null && box.Lines.Count > 0)
-            {
-                float maxLineWidth = 0;
-                foreach (var line in box.Lines)
-                {
-                    float lineWidth = 0;
-                    foreach (var run in line.Runs) lineWidth += run.Width;
-                    if (lineWidth > maxLineWidth) maxLineWidth = lineWidth;
-                }
-                if (maxLineWidth > box.ScrollContentWidth)
-                    box.ScrollContentWidth = maxLineWidth;
-                float linesHeight = box.Lines.Last().Y + box.Lines.Last().Height - box.ContentBox.Top;
-                if (linesHeight > box.ScrollContentHeight)
-                    box.ScrollContentHeight = linesHeight;
-            }
+            MeasureScrollContent(box);
         }
 
         // Detect sticky
@@ -662,7 +830,7 @@ public class LayoutEngine
             }
             if (contentWidthFromContent > 0)
             {
-                // ContentBox holds only the content (text/children) — no padding.
+                // ContentBox holds only the content (text/children) 鈥?no padding.
                 // BorderBox includes padding + border around content.
                 // MarginBox = BorderBox + margin.
                 float newContentWidth = contentWidthFromContent;
@@ -795,7 +963,7 @@ public class LayoutEngine
             string rowsStr = element.GetAttribute("rows");
             if (!string.IsNullOrEmpty(rowsStr) && int.TryParse(rowsStr, out int r) && r > 0)
                 rows = r;
-            float lineHeight = style.FontSize * (style.LineHeight > 0 ? style.LineHeight : 1.2f);
+            float lineHeight = Fonts.LineBoxMetrics.GetLineHeight(style);
             float borderTop = style.BorderTopWidth;
             float borderBottom = style.BorderBottomWidth;
             float paddingTop = style.PaddingTop.ToPixels(style.FontSize, _rootFontSize, _viewportWidth, _viewportHeight);
@@ -805,7 +973,7 @@ public class LayoutEngine
 
         if (element.TagName.ToUpperInvariant() == "SELECT")
         {
-            float lineHeight = style.FontSize * (style.LineHeight > 0 ? style.LineHeight : 1.2f);
+            float lineHeight = Fonts.LineBoxMetrics.GetLineHeight(style);
             float borderTop = style.BorderTopWidth;
             float borderBottom = style.BorderBottomWidth;
             float paddingTop = style.PaddingTop.ToPixels(style.FontSize, _rootFontSize, _viewportWidth, _viewportHeight);
@@ -826,13 +994,13 @@ public class LayoutEngine
         float currentY = y;
         var style = element.ComputedStyle;
         float fontSize = style?.FontSize ?? 16f;
-        float lineHeight = (style?.LineHeight ?? 1.5f) * fontSize;
+        float lineHeight = Fonts.LineBoxMetrics.GetLineHeight(style);
 
         var floatLeftElements = new List<(Element elem, float marginTop)>();
         var floatRightElements = new List<(Element elem, float marginTop)>();
         var normalFlowElements = new List<Node>();
 
-        // Check if details element without open attribute → hide all non-summary children
+        // Check if details element without open attribute 鈫?hide all non-summary children
         bool isClosedDetails = element.TagName == "DETAILS" && !element.HasAttribute("open");
         bool detailsSummaryFound = false;
 
@@ -942,7 +1110,7 @@ public class LayoutEngine
                     // Flush pending inline content before float
                     if (inlineCurrentLine != null && inlineCurrentLine.Runs.Count > 0)
                     {
-                        inlineCurrentLine.Height = inlineMaxHeightInLine > 0 ? inlineMaxHeightInLine : (style?.LineHeight ?? 1.5f) * (style?.FontSize ?? 16);
+                        inlineCurrentLine.Height = inlineMaxHeightInLine > 0 ? inlineMaxHeightInLine : Fonts.LineBoxMetrics.GetLineHeight(style);
                         currentY = inlineCurrentLine.Y + inlineCurrentLine.Height;
                         inlineCurrentLine = null;
                         inlineCurrentX = 0;
@@ -1018,7 +1186,7 @@ public class LayoutEngine
                     if (!preserveSpaces) text = text.Trim();
 
                     float inlineFontSize = childStyle.FontSize > 0 ? childStyle.FontSize : fontSize;
-                    float inlineLineHeight = (childStyle.LineHeight > 0 ? childStyle.LineHeight : 1.5f) * inlineFontSize;
+                    float inlineLineHeight = Fonts.LineBoxMetrics.GetLineHeight(childStyle);
 
                     // Inline container holding nested element children (e.g.
                     // <label><input type="checkbox"> A</label>). The generic inline path
@@ -1031,7 +1199,7 @@ public class LayoutEngine
                     {
                         if (inlineCurrentLine == null)
                         {
-                            inlineCurrentLine = new LineBox { Y = currentY, Baseline = currentY + inlineLineHeight * 0.85f, Height = inlineLineHeight };
+                            inlineCurrentLine = new LineBox { Y = currentY, Baseline = currentY + Fonts.LineBoxMetrics.GetBaselineForLineHeight(childStyle, inlineLineHeight), Height = inlineLineHeight };
                             box.Lines ??= new List<LineBox>();
                             box.Lines.Add(inlineCurrentLine);
                             inlineCurrentX = x;
@@ -1042,7 +1210,7 @@ public class LayoutEngine
                         {
                             inlineCurrentLine.Height = inlineMaxHeightInLine > 0 ? inlineMaxHeightInLine : inlineLineHeight;
                             currentY += inlineCurrentLine.Height;
-                            inlineCurrentLine = new LineBox { Y = currentY, Baseline = currentY + inlineLineHeight * 0.85f, Height = inlineLineHeight };
+                            inlineCurrentLine = new LineBox { Y = currentY, Baseline = currentY + Fonts.LineBoxMetrics.GetBaselineForLineHeight(childStyle, inlineLineHeight), Height = inlineLineHeight };
                             box.Lines.Add(inlineCurrentLine);
                             inlineCurrentX = x;
                             inlineMaxHeightInLine = 0;
@@ -1176,12 +1344,12 @@ public class LayoutEngine
                         baselineOffset = inlineFontSize * 0.3f;
                     else if (childStyle.VerticalAlign == VerticalAlignType.Super)
                         baselineOffset = -inlineFontSize * 0.5f;
-                    float lineBaseline = inlineCurrentLine?.Baseline ?? currentY + inlineLineHeight * 0.85f;
+                    float lineBaseline = inlineCurrentLine?.Baseline ?? currentY + Fonts.LineBoxMetrics.GetBaselineForLineHeight(childStyle, inlineLineHeight);
                     float runBaseline = lineBaseline + baselineOffset;
 
                     if (inlineCurrentLine == null)
                     {
-                        inlineCurrentLine = new LineBox { Y = currentY, Baseline = currentY + inlineLineHeight * 0.85f, Height = inlineLineHeight };
+                        inlineCurrentLine = new LineBox { Y = currentY, Baseline = currentY + Fonts.LineBoxMetrics.GetBaselineForLineHeight(childStyle, inlineLineHeight), Height = inlineLineHeight };
                         box.Lines ??= new List<LineBox>();
                         box.Lines.Add(inlineCurrentLine);
                         inlineCurrentX = x;
@@ -1192,7 +1360,7 @@ public class LayoutEngine
                     {
                         inlineCurrentLine.Height = inlineMaxHeightInLine > 0 ? inlineMaxHeightInLine : inlineLineHeight;
                         currentY += inlineCurrentLine.Height;
-                        inlineCurrentLine = new LineBox { Y = currentY, Baseline = currentY + inlineLineHeight * 0.85f, Height = inlineLineHeight };
+                        inlineCurrentLine = new LineBox { Y = currentY, Baseline = currentY + Fonts.LineBoxMetrics.GetBaselineForLineHeight(childStyle, inlineLineHeight), Height = inlineLineHeight };
                         box.Lines.Add(inlineCurrentLine);
                         inlineCurrentX = x;
                         inlineMaxHeightInLine = 0;
@@ -1316,7 +1484,7 @@ public class LayoutEngine
 
                 if (textNode.IsWhitespaceOnly)
                 {
-                    // Whitespace-only text node between inline elements → add a space to preserve inter-element spacing
+                    // Whitespace-only text node between inline elements 鈫?add a space to preserve inter-element spacing
                     if (inlineCurrentLine != null && inlineCurrentLine.Runs.Count > 0)
                     {
                         float spaceWidth = MeasureTextWidth(" ", fontSize, style.FontFamily, style.FontWeight);
@@ -1324,8 +1492,8 @@ public class LayoutEngine
                         {
                             inlineCurrentLine.Height = inlineMaxHeightInLine > 0 ? inlineMaxHeightInLine : lineHeight;
                             currentY += inlineCurrentLine.Height;
-                            float lineHeightPx = style.LineHeight * fontSize;
-                            inlineCurrentLine = new LineBox { Y = currentY, Baseline = currentY + lineHeightPx * 0.85f, Height = lineHeightPx };
+                            float lineHeightPx = Fonts.LineBoxMetrics.GetLineHeight(style);
+                            inlineCurrentLine = new LineBox { Y = currentY, Baseline = currentY + Fonts.LineBoxMetrics.GetBaselineForLineHeight(style, lineHeightPx), Height = lineHeightPx };
                             box.Lines.Add(inlineCurrentLine);
                             inlineCurrentX = x;
                             inlineMaxHeightInLine = 0;
@@ -1334,7 +1502,7 @@ public class LayoutEngine
                         {
                             Text = " ",
                             Width = spaceWidth,
-                            Height = style.LineHeight * fontSize,
+                            Height = Fonts.LineBoxMetrics.GetLineHeight(style),
                             IsText = true,
                             Node = textNode,
                             Color = style.Color,
@@ -1350,11 +1518,11 @@ public class LayoutEngine
                 var text = textNode.TextContent ?? "";
                 if (!string.IsNullOrEmpty(text))
                 {
-                    float lineHeightPx = style.LineHeight * fontSize;
+                    float lineHeightPx = Fonts.LineBoxMetrics.GetLineHeight(style);
 
                     if (inlineCurrentLine == null)
                     {
-                        inlineCurrentLine = new LineBox { Y = currentY, Baseline = currentY + lineHeightPx * 0.85f, Height = lineHeightPx };
+                        inlineCurrentLine = new LineBox { Y = currentY, Baseline = currentY + Fonts.LineBoxMetrics.GetBaselineForLineHeight(style, lineHeightPx), Height = lineHeightPx };
                         box.Lines ??= new List<LineBox>();
                         box.Lines.Add(inlineCurrentLine);
                         inlineCurrentX = x;
@@ -1369,7 +1537,7 @@ public class LayoutEngine
                         {
                             inlineCurrentLine.Height = inlineMaxHeightInLine > 0 ? inlineMaxHeightInLine : lineHeightPx;
                             currentY += inlineCurrentLine.Height;
-                            inlineCurrentLine = new LineBox { Y = currentY, Baseline = currentY + lineHeightPx * 0.85f, Height = lineHeightPx };
+                            inlineCurrentLine = new LineBox { Y = currentY, Baseline = currentY + Fonts.LineBoxMetrics.GetBaselineForLineHeight(style, lineHeightPx), Height = lineHeightPx };
                             box.Lines.Add(inlineCurrentLine);
                             inlineCurrentX = x;
                             inlineMaxHeightInLine = 0;
@@ -1421,7 +1589,7 @@ public class LayoutEngine
                                 {
                                     inlineCurrentLine.Height = inlineMaxHeightInLine > 0 ? inlineMaxHeightInLine : lineHeightPx;
                                     currentY += inlineCurrentLine.Height;
-                                    inlineCurrentLine = new LineBox { Y = currentY, Baseline = currentY + lineHeightPx * 0.85f, Height = lineHeightPx };
+                                    inlineCurrentLine = new LineBox { Y = currentY, Baseline = currentY + Fonts.LineBoxMetrics.GetBaselineForLineHeight(style, lineHeightPx), Height = lineHeightPx };
                                     box.Lines.Add(inlineCurrentLine);
                                     inlineCurrentX = x;
                                     inlineMaxHeightInLine = 0;
@@ -1453,7 +1621,7 @@ public class LayoutEngine
                                 {
                                     inlineCurrentLine.Height = inlineMaxHeightInLine > 0 ? inlineMaxHeightInLine : lineHeightPx;
                                     currentY += inlineCurrentLine.Height;
-                                    inlineCurrentLine = new LineBox { Y = currentY, Baseline = currentY + lineHeightPx * 0.85f, Height = lineHeightPx };
+                                    inlineCurrentLine = new LineBox { Y = currentY, Baseline = currentY + Fonts.LineBoxMetrics.GetBaselineForLineHeight(style, lineHeightPx), Height = lineHeightPx };
                                     box.Lines.Add(inlineCurrentLine);
                                     inlineCurrentX = x;
                                     inlineMaxHeightInLine = 0;
@@ -1489,14 +1657,14 @@ public class LayoutEngine
         y = currentY;
     }
 
-    // 修复后的内联布局方法：支持中文等无空格字符的换行
+    // 淇鍚庣殑鍐呰仈甯冨眬鏂规硶锛氭敮鎸佷腑鏂囩瓑鏃犵┖鏍煎瓧绗︾殑鎹㈣
     private void LayoutInlineChildren(Element element, LayoutBox box, float x, float y, float availableWidth)
     {
         var style = element.ComputedStyle;
         if (style == null) return;
 
-        float lineHeight = style.LineHeight * style.FontSize;
-        float baseline = y + lineHeight * 0.85f;
+        float lineHeight = Fonts.LineBoxMetrics.GetLineHeight(style);
+        float baseline = y + Fonts.LineBoxMetrics.GetBaselineForLineHeight(style, lineHeight);
         float currentX = x;
         float currentY = y;
         float maxHeightInLine = lineHeight;
@@ -1516,7 +1684,7 @@ public class LayoutEngine
                 var childStyle = childElement.ComputedStyle;
                 if (childStyle == null || childStyle.Display == DisplayType.None) continue;
 
-                // 处理按钮
+                // 澶勭悊鎸夐挳
                 if (childElement.TagName.Equals("BUTTON", StringComparison.OrdinalIgnoreCase))
                 {
                     string btnText = GetButtonTextFromElement(childElement);
@@ -1557,12 +1725,12 @@ public class LayoutEngine
                     totalButtonWidth = Math.Max(totalButtonWidth, 4);
                     totalButtonHeight = Math.Max(totalButtonHeight, 4);
 
-                    // 换行判断
+                    // 鎹㈣鍒ゆ柇
                     if (allowWrapping && currentX + totalButtonWidth > x + availableWidth - 0.01f && currentX > x)
                     {
                         currentLine.Height = maxHeightInLine;
                         currentY += maxHeightInLine;
-                        baseline = currentY + lineHeight * 0.85f;
+                        baseline = currentY + Fonts.LineBoxMetrics.GetBaselineForLineHeight(style, lineHeight);
                         currentX = x;
                         maxHeightInLine = lineHeight;
                         currentLine = new LineBox { Y = currentY, Baseline = baseline, Height = lineHeight };
@@ -1603,7 +1771,7 @@ public class LayoutEngine
                 {
                     currentLine.Height = maxHeightInLine;
                     currentY += maxHeightInLine;
-                    baseline = currentY + lineHeight * 0.85f;
+                    baseline = currentY + Fonts.LineBoxMetrics.GetBaselineForLineHeight(style, lineHeight);
                     currentX = x;
                     maxHeightInLine = lineHeight;
                     currentLine = new LineBox { Y = currentY, Baseline = baseline, Height = lineHeight };
@@ -1615,7 +1783,7 @@ public class LayoutEngine
                         box.Children.Add(blockChildBox);
                         blockChildBox.Parent = box;
                         currentY += blockChildBox.MarginBox.Height;
-                        baseline = currentY + lineHeight * 0.85f;
+                        baseline = currentY + Fonts.LineBoxMetrics.GetBaselineForLineHeight(style, lineHeight);
                         currentX = x;
                         currentLine = new LineBox { Y = currentY, Baseline = baseline, Height = lineHeight };
                         box.Lines.Add(currentLine);
@@ -1623,7 +1791,7 @@ public class LayoutEngine
                     continue;
                 }
 
-                // 处理内联元素（如 span），收集其内部文本
+                // 澶勭悊鍐呰仈鍏冪礌锛堝 span锛夛紝鏀堕泦鍏跺唴閮ㄦ枃鏈?
                 if (childStyle.Display == DisplayType.Inline || childStyle.Display == DisplayType.InlineBlock)
                 {
                     var textSb = new StringBuilder();
@@ -1650,12 +1818,12 @@ public class LayoutEngine
                             baselineOffset = -inlineFontSize * 0.5f;
                     float lineBase = currentLine?.Baseline ?? baseline;
                     float runBaseline = lineBase + baselineOffset;
-                        // 换行判断
+                        // 鎹㈣鍒ゆ柇
                         if (allowWrapping && currentX + textWidth > x + availableWidth - 0.01f && currentX > x)
                         {
                             currentLine.Height = maxHeightInLine;
                             currentY += maxHeightInLine;
-                            baseline = currentY + lineHeight * 0.85f;
+                            baseline = currentY + Fonts.LineBoxMetrics.GetBaselineForLineHeight(style, lineHeight);
                             currentX = x;
                             maxHeightInLine = lineHeight;
                             currentLine = new LineBox { Y = currentY, Baseline = baseline, Height = lineHeight };
@@ -1682,7 +1850,7 @@ public class LayoutEngine
                         if (textHeight > maxHeightInLine)
                             maxHeightInLine = textHeight;
 
-                        // 为内联元素创建 LayoutBox
+                        // 涓哄唴鑱斿厓绱犲垱寤?LayoutBox
                         var inlineBox = new LayoutBox
                         {
                             MarginBox = new SKRect(oldX, runBaseline - textHeight, oldX + textWidth, runBaseline),
@@ -1696,14 +1864,14 @@ public class LayoutEngine
                     }
                     else
                     {
-                        // 无文本的内联元素，给出占位大小
+                        // 鏃犳枃鏈殑鍐呰仈鍏冪礌锛岀粰鍑哄崰浣嶅ぇ灏?
                         float childWidth = CalculateInlineElementWidth(childElement, style.FontSize);
-                        float childHeight = childStyle.FontSize > 0 ? childStyle.FontSize * 1.2f : lineHeight;
+                        float childHeight = childStyle.FontSize > 0 ? Fonts.LineBoxMetrics.GetLineHeight(childStyle) : lineHeight;
                         if (allowWrapping && currentX + childWidth > x + availableWidth - 0.01f && currentX > x)
                         {
                             currentLine.Height = maxHeightInLine;
                             currentY += maxHeightInLine;
-                            baseline = currentY + lineHeight * 0.85f;
+                            baseline = currentY + Fonts.LineBoxMetrics.GetBaselineForLineHeight(style, lineHeight);
                             currentX = x;
                             maxHeightInLine = lineHeight;
                             currentLine = new LineBox { Y = currentY, Baseline = baseline, Height = lineHeight };
@@ -1734,14 +1902,14 @@ public class LayoutEngine
                     continue;
                 }
 
-                // 其他内联元素（br, wbr等）
+                // 鍏朵粬鍐呰仈鍏冪礌锛坆r, wbr绛夛級
                 float otherWidth = CalculateInlineElementWidth(childElement, style.FontSize);
-                float otherHeight = childStyle.FontSize > 0 ? childStyle.FontSize * 1.2f : lineHeight;
+                float otherHeight = childStyle.FontSize > 0 ? Fonts.LineBoxMetrics.GetLineHeight(childStyle) : lineHeight;
                 if (allowWrapping && currentX + otherWidth > x + availableWidth - 0.01f && currentX > x)
                 {
                     currentLine.Height = maxHeightInLine;
                     currentY += maxHeightInLine;
-                    baseline = currentY + lineHeight * 0.85f;
+                    baseline = currentY + Fonts.LineBoxMetrics.GetBaselineForLineHeight(style, lineHeight);
                     currentX = x;
                     maxHeightInLine = lineHeight;
                     currentLine = new LineBox { Y = currentY, Baseline = baseline, Height = lineHeight };
@@ -1781,7 +1949,7 @@ public class LayoutEngine
                         {
                             currentLine.Height = maxHeightInLine;
                             currentY += maxHeightInLine;
-                            baseline = currentY + lineHeight * 0.85f;
+                            baseline = currentY + Fonts.LineBoxMetrics.GetBaselineForLineHeight(style, lineHeight);
                             currentX = x;
                             maxHeightInLine = lineHeight;
                             currentLine = new LineBox { Y = currentY, Baseline = baseline, Height = lineHeight };
@@ -1804,11 +1972,11 @@ public class LayoutEngine
                     continue;
                 }
 
-                // 白空间处理：根据 white-space 模式处理文本
+                // 鐧界┖闂村鐞嗭細鏍规嵁 white-space 妯″紡澶勭悊鏂囨湰
                 List<string> textSegments;
                 if (preserveNewlines)
                 {
-                    // pre/pre-wrap/pre-line: 保留换行符作为段落分隔
+                    // pre/pre-wrap/pre-line: 淇濈暀鎹㈣绗︿綔涓烘钀藉垎闅?
                     textSegments = new List<string>();
                     var lines = text.Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.None);
                     foreach (var line in lines)
@@ -1829,12 +1997,12 @@ public class LayoutEngine
                 {
                     if (string.IsNullOrEmpty(segment) && preserveNewlines && !firstSegment)
                     {
-                        // pre/pre-wrap/pre-line 模式下，换行符产生新行
+                        // pre/pre-wrap/pre-line 妯″紡涓嬶紝鎹㈣绗︿骇鐢熸柊琛?
                         if (allowWrapping || currentX > x)
                         {
                             currentLine.Height = maxHeightInLine;
                             currentY += maxHeightInLine;
-                            baseline = currentY + lineHeight * 0.85f;
+                            baseline = currentY + Fonts.LineBoxMetrics.GetBaselineForLineHeight(style, lineHeight);
                             currentX = x;
                             maxHeightInLine = lineHeight;
                             currentLine = new LineBox { Y = currentY, Baseline = baseline, Height = lineHeight };
@@ -1848,14 +2016,14 @@ public class LayoutEngine
 
                     if (breakAll)
                     {
-                        // word-break: break-all - 允许在任何字符处断行
+                        // word-break: break-all - 鍏佽鍦ㄤ换浣曞瓧绗﹀鏂
                         LayoutTextCharacterByCharacter(segment, textNode, style, box, ref currentLine, ref currentX, ref currentY,
                             ref baseline, ref maxHeightInLine, x, availableWidth, lineHeight, false, false, false);
                     }
                     else if (breakWord && segment.Contains(' ') && !preserveSpaces)
                     {
                         // overflow-wrap: break-word / word-break: break-word
-                        // 先按空格分词，单词放不下时按字符拆分
+                        // 鍏堟寜绌烘牸鍒嗚瘝锛屽崟璇嶆斁涓嶄笅鏃舵寜瀛楃鎷嗗垎
                         bool hasLeadingSpace = segment.Length > 0 && segment[0] == ' ';
                         bool hasTrailingSpace = segment.Length > 0 && segment[segment.Length - 1] == ' ';
                         var words = segment.Split(' ', StringSplitOptions.RemoveEmptyEntries);
@@ -1880,7 +2048,7 @@ public class LayoutEngine
                             {
                                 currentLine.Height = maxHeightInLine;
                                 currentY += maxHeightInLine;
-                                baseline = currentY + lineHeight * 0.85f;
+                                baseline = currentY + Fonts.LineBoxMetrics.GetBaselineForLineHeight(style, lineHeight);
                                 currentX = x;
                                 maxHeightInLine = lineHeight;
                                 currentLine = new LineBox { Y = currentY, Baseline = baseline, Height = lineHeight };
@@ -1889,7 +2057,7 @@ public class LayoutEngine
                             float remainingWidth = x + availableWidth - currentX;
                             if (tokenWidth > remainingWidth && allowWrapping)
                             {
-                                // 单词太长，按字符拆分
+                                // 鍗曡瘝澶暱锛屾寜瀛楃鎷嗗垎
                                 LayoutTextCharacterByCharacter(token, textNode, style, box, ref currentLine, ref currentX, ref currentY,
                                     ref baseline, ref maxHeightInLine, x, availableWidth, lineHeight, false, false, true);
                             }
@@ -1902,10 +2070,10 @@ public class LayoutEngine
                     }
                     else
                     {
-                        // 普通模式：按空格分词 (normal / pre-wrap) 或按字符拆分 (CJK)
+                        // 鏅€氭ā寮忥細鎸夌┖鏍煎垎璇?(normal / pre-wrap) 鎴栨寜瀛楃鎷嗗垎 (CJK)
                         if (preserveSpaces)
                         {
-                            // pre/pre-wrap: 保留原始空白，不分词
+                            // pre/pre-wrap: 淇濈暀鍘熷绌虹櫧锛屼笉鍒嗚瘝
                             LayoutTextRun(segment, textNode, style, box, ref currentLine, ref currentX, ref currentY,
                                 ref baseline, ref maxHeightInLine, x, availableWidth, lineHeight, !allowWrapping);
                         }
@@ -1939,7 +2107,7 @@ public class LayoutEngine
                             }
                             else
                             {
-                                // CJK 字符逐字换行
+                                // CJK 瀛楃閫愬瓧鎹㈣
                                 LayoutTextCharacterByCharacter(segment, textNode, style, box, ref currentLine, ref currentX, ref currentY,
                                     ref baseline, ref maxHeightInLine, x, availableWidth, lineHeight, !allowWrapping, false, false);
                             }
@@ -1967,7 +2135,7 @@ public class LayoutEngine
         box.MarginBox = new SKRect(box.MarginBox.Left, box.MarginBox.Top, box.MarginBox.Right, newContentBottom + pdBottom + bdBottom + mgBottom);
     }
 
-    // 修改后的 LayoutTextRun，增加 box 参数以便访问 Lines 集合
+    // 淇敼鍚庣殑 LayoutTextRun锛屽鍔?box 鍙傛暟浠ヤ究璁块棶 Lines 闆嗗悎
     private void LayoutTextRun(string text, TextNode textNode, ComputedStyle style, LayoutBox box,
         ref LineBox line, ref float currentX, ref float currentY, ref float baseline, ref float maxHeightInLine,
         float x, float availableWidth, float lineHeight, bool noWrap)
@@ -1977,14 +2145,14 @@ public class LayoutEngine
         float textWidth = MeasureTextWidth(text, fontSize, style.FontFamily, style.FontWeight);
         float textHeight = fontSize;
 
-        // 换行判断：如果当前行已有内容且加上当前 run 会超出宽度，则换行
-        // 如果当前行无内容但 run 本身宽度就超过可用宽度，也强制换行（允许单词内换行）
+        // 鎹㈣鍒ゆ柇锛氬鏋滃綋鍓嶈宸叉湁鍐呭涓斿姞涓婂綋鍓?run 浼氳秴鍑哄搴︼紝鍒欐崲琛?
+        // 濡傛灉褰撳墠琛屾棤鍐呭浣?run 鏈韩瀹藉害灏辫秴杩囧彲鐢ㄥ搴︼紝涔熷己鍒舵崲琛岋紙鍏佽鍗曡瘝鍐呮崲琛岋級
         if (!noWrap && currentX + textWidth > x + availableWidth - 0.01f)
         {
-            // 完成当前行
+            // 瀹屾垚褰撳墠琛?
             line.Height = maxHeightInLine;
             currentY += maxHeightInLine;
-            baseline = currentY + lineHeight * 0.85f;
+            baseline = currentY + Fonts.LineBoxMetrics.GetBaselineForLineHeight(style, lineHeight);
             currentX = x;
             maxHeightInLine = lineHeight;
             line = new LineBox { Y = currentY, Baseline = baseline, Height = lineHeight };
@@ -2009,7 +2177,7 @@ public class LayoutEngine
 
     private string NormalizeWhitespace(string text)
     {
-        // 将连续空白字符折叠为单个空格（CSS normal 模式）
+        // 灏嗚繛缁┖鐧藉瓧绗︽姌鍙犱负鍗曚釜绌烘牸锛圕SS normal 妯″紡锛?
         var sb = new StringBuilder();
         bool lastWasSpace = false;
         foreach (char c in text)
@@ -2050,12 +2218,12 @@ public class LayoutEngine
             {
                 if (breakLongWords)
                 {
-                    // overflow-wrap: break-word 模式 - 只在单词内换行
+                    // overflow-wrap: break-word 妯″紡 - 鍙湪鍗曡瘝鍐呮崲琛?
                     shouldBreak = currentX + currentLineWidth + charWidth > x + availableWidth - 0.01f;
                 }
                 else
                 {
-                    // word-break: break-all 或 CJK 模式 - 允许在任何字符处断行
+                    // word-break: break-all 鎴?CJK 妯″紡 - 鍏佽鍦ㄤ换浣曞瓧绗﹀鏂
                     shouldBreak = currentX + currentLineWidth + charWidth > x + availableWidth - 0.01f;
                 }
             }
@@ -2086,7 +2254,7 @@ public class LayoutEngine
         if (string.IsNullOrEmpty(text)) return 0;
         if (TextMeasurer.Instance != null)
             return TextMeasurer.Instance.MeasureText(text, fontFamily ?? "Arial", fontSize, weight);
-        // 后备估算
+        // 鍚庡浼扮畻
         float avgCharWidth = fontSize * 0.45f;
         int asciiCount = text.Count(c => c < 128);
         int nonAscii = text.Length - asciiCount;
@@ -2354,7 +2522,7 @@ public class LayoutEngine
         {
             if (style.Width is PixelLength w) return w.Value;
             if (style.Width is PercentLength wp) return wp.Value * containerSize;
-            // flex-basis: auto + width: auto → use intrinsic content width
+            // flex-basis: auto + width: auto 鈫?use intrinsic content width
             float intrinsic = MeasureIntrinsicWidth(element, style);
             if (intrinsic > 0) return intrinsic;
         }
@@ -2699,6 +2867,38 @@ public class LayoutEngine
         box.ContentBox = new SKRect(x, y, x + availableWidth, currentY);
     }
 
+    /// <summary>
+    /// Recomputes the scrollable overflow extent of a scroll container from its
+    /// children and line boxes, relative to the content box origin.
+    /// </summary>
+    private void MeasureScrollContent(LayoutBox box)
+    {
+        box.ScrollContentWidth = box.ContentBox.Width;
+        box.ScrollContentHeight = box.ContentBox.Height;
+        foreach (var child in box.Children)
+        {
+            if (child.MarginBox.Right > box.ContentBox.Left + box.ScrollContentWidth)
+                box.ScrollContentWidth = child.MarginBox.Right - box.ContentBox.Left;
+            if (child.MarginBox.Bottom > box.ContentBox.Top + box.ScrollContentHeight)
+                box.ScrollContentHeight = child.MarginBox.Bottom - box.ContentBox.Top;
+        }
+        if (box.Lines != null && box.Lines.Count > 0)
+        {
+            float maxLineWidth = 0;
+            foreach (var line in box.Lines)
+            {
+                float lineWidth = 0;
+                foreach (var run in line.Runs) lineWidth += run.Width;
+                if (lineWidth > maxLineWidth) maxLineWidth = lineWidth;
+            }
+            if (maxLineWidth > box.ScrollContentWidth)
+                box.ScrollContentWidth = maxLineWidth;
+            float linesHeight = box.Lines.Last().Y + box.Lines.Last().Height - box.ContentBox.Top;
+            if (linesHeight > box.ScrollContentHeight)
+                box.ScrollContentHeight = linesHeight;
+        }
+    }
+
     private void AdjustBoxHeightFromContent(LayoutBox box)
     {
         float paddingBottom = box.Dimensions?.PaddingBottom ?? 0;
@@ -2733,33 +2933,244 @@ public class LayoutEngine
 
     private void GeneratePseudoElementContent(Element element, LayoutBox box, ComputedStyle style)
     {
-        if (element.BeforeStyles != null && element.BeforeStyles.TryGetValue("content", out var beforeContent))
+        if (element.BeforeStyles != null && element.BeforeStyles.TryGetValue("content", out var beforeContent) && !element.HasGeneratedBefore)
         {
-            beforeContent = DecodeCssContent(beforeContent);
-            if (!string.IsNullOrEmpty(beforeContent) && beforeContent != "none" && !element.HasGeneratedBefore)
+            var result = BuildPseudoElement(element, style, beforeContent, isBefore: true);
+            if (result is Element el)
             {
-                var beforeNode = new TextNode(beforeContent);
-                beforeNode.Parent = element;
-                element.Children.Insert(0, beforeNode);
+                element.Children.Insert(0, el);
                 element.HasGeneratedBefore = true;
             }
         }
 
-        if (element.AfterStyles != null && element.AfterStyles.TryGetValue("content", out var afterContent))
+        if (element.AfterStyles != null && element.AfterStyles.TryGetValue("content", out var afterContent) && !element.HasGeneratedAfter)
         {
-            afterContent = DecodeCssContent(afterContent);
-            if (!string.IsNullOrEmpty(afterContent) && afterContent != "none" && !element.HasGeneratedAfter)
+            var result = BuildPseudoElement(element, style, afterContent, isBefore: false);
+            if (result is Element el)
             {
-                var afterNode = new TextNode(afterContent);
-                afterNode.Parent = element;
-                element.Children.Add(afterNode);
+                element.Children.Add(el);
                 element.HasGeneratedAfter = true;
             }
         }
     }
 
+    private static Node? BuildPseudoElement(Element parent, ComputedStyle parentStyle, string rawContent, bool isBefore)
+    {
+        var props = isBefore ? parent.BeforeStyles : parent.AfterStyles;
+        if (props == null) return null;
+
+        var content = DecodeCssContent(rawContent);
+        if (content == "none" || content == null) return null;
+
+        // Build a ComputedStyle by cloning the parent and applying ::before/::after props.
+        var pseudoStyle = parentStyle.Clone();
+
+        // Apply display (default for ::before/::after is 'inline').
+        string displayStr = "inline";
+        if (props.TryGetValue("display", out var d))
+            displayStr = d;
+        pseudoStyle.Display = displayStr.ToLowerInvariant() switch
+        {
+            "block" => DisplayType.Block,
+            "flex" => DisplayType.Flex,
+            "inline-flex" => DisplayType.InlineFlex,
+            "grid" => DisplayType.Grid,
+            "inline-grid" => DisplayType.InlineGrid,
+            "table" => DisplayType.Table,
+            "inline-block" => DisplayType.InlineBlock,
+            "list-item" => DisplayType.ListItem,
+            _ => DisplayType.Inline,
+        };
+
+        // Apply the remaining pseudo-element properties.
+        foreach (var kv in props)
+        {
+            if (kv.Key == "content" || kv.Key == "display") continue;
+            ApplyPseudoProperty(pseudoStyle, kv.Key, kv.Value);
+        }
+
+        // Create the Element.  Even for inline content we need a real Element
+        // so that the pseudo-element's own styles (color, font-weight, etc.) are
+        // applied 鈥?a bare TextNode would inherit the parent's style and ignore
+        // the ::before/::after declarations.
+        var pseudoEl = new HtmlElement("pseudo-" + (isBefore ? "before" : "after"))
+        {
+            ComputedStyle = pseudoStyle,
+            Parent = parent,
+        };
+
+        // Add the text content as a child text node.
+        if (!string.IsNullOrEmpty(content))
+        {
+            var textNode = new TextNode(content);
+            textNode.Parent = pseudoEl;
+            pseudoEl.Children.Add(textNode);
+        }
+
+        return pseudoEl;
+    }
+
+    private static void ApplyPseudoProperty(ComputedStyle style, string name, string value)
+    {
+        var lower = name.ToLowerInvariant();
+        try
+        {
+            switch (lower)
+            {
+                case "width": style.Width = Length.Parse(value); break;
+                case "height": style.Height = Length.Parse(value); break;
+                case "min-width": style.MinWidth = Length.Parse(value); break;
+                case "min-height": style.MinHeight = Length.Parse(value); break;
+                case "max-width": style.MaxWidth = Length.Parse(value); break;
+                case "max-height": style.MaxHeight = Length.Parse(value); break;
+                case "margin": ParseShorthand4(value, out var mt, out var mr, out var mb, out var ml);
+                    style.MarginTop = mt; style.MarginRight = mr; style.MarginBottom = mb; style.MarginLeft = ml; break;
+                case "margin-top": style.MarginTop = Length.Parse(value); break;
+                case "margin-right": style.MarginRight = Length.Parse(value); break;
+                case "margin-bottom": style.MarginBottom = Length.Parse(value); break;
+                case "margin-left": style.MarginLeft = Length.Parse(value); break;
+                case "padding": ParseShorthand4(value, out var pt, out var pr, out var pb, out var pl);
+                    style.PaddingTop = pt; style.PaddingRight = pr; style.PaddingBottom = pb; style.PaddingLeft = pl; break;
+                case "padding-top": style.PaddingTop = Length.Parse(value); break;
+                case "padding-right": style.PaddingRight = Length.Parse(value); break;
+                case "padding-bottom": style.PaddingBottom = Length.Parse(value); break;
+                case "padding-left": style.PaddingLeft = Length.Parse(value); break;
+                case "color": style.Color = ColorParser.Parse(value); break;
+                case "background-color": style.BackgroundColor = ColorParser.Parse(value); break;
+                case "background-image": style.BackgroundImage = new List<string> { value }; break;
+                case "position": style.Position = ParsePseudoPosition(value); break;
+                case "top": style.Top = Length.Parse(value); break;
+                case "right": style.Right = Length.Parse(value); break;
+                case "bottom": style.Bottom = Length.Parse(value); break;
+                case "left": style.Left = Length.Parse(value); break;
+                case "float": style.Float = ParsePseudoFloat(value); break;
+                case "clear": style.Clear = ParsePseudoClear(value); break;
+                case "z-index": style.ZIndex = int.TryParse(value, out var zi) ? zi : 0; break;
+                case "opacity": style.Opacity = float.TryParse(value, out var op) ? op : 1; break;
+                case "overflow": style.Overflow = ParsePseudoOverflow(value); break;
+                case "text-align": style.TextAlign = ParsePseudoTextAlign(value); break;
+                case "font-size": style.FontSize = ParsePseudoFontSize(value); break;
+                case "font-family": style.FontFamily = value; break;
+                case "font-weight": style.FontWeight = (FontWeight)(int.TryParse(value, out var fw) ? fw : 400); break;
+                case "border": ParsePseudoBorder(style, value); break;
+                case "border-radius": ParsePseudoBorderRadius(style, value); break;
+                case "box-shadow": ParsePseudoBoxShadow(style, value); break;
+                case "background": style.BackgroundColor = ColorParser.Parse(value); break;
+            }
+        }
+        catch { /* ignore invalid property values */ }
+    }
+
+    private static void ParseShorthand4(string value, out Length? v1, out Length? v2, out Length? v3, out Length? v4)
+    {
+        var parts = value.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        var p = parts.Select(Length.Parse).ToList();
+        v1 = p.Count > 0 ? p[0] : null;
+        v2 = p.Count > 1 ? p[1] : v1;
+        v3 = p.Count > 2 ? p[2] : v1;
+        v4 = p.Count > 3 ? p[3] : (p.Count > 1 ? p[1] : v1);
+    }
+
+    private static PositionType ParsePseudoPosition(string v) => v.ToLowerInvariant() switch
+    {
+        "absolute" => PositionType.Absolute, "fixed" => PositionType.Fixed,
+        "relative" => PositionType.Relative, "sticky" => PositionType.Sticky,
+        _ => PositionType.Static
+    };
+    private static FloatType ParsePseudoFloat(string v) => v.ToLowerInvariant() switch
+    {
+        "left" => FloatType.Left, "right" => FloatType.Right, _ => FloatType.None
+    };
+    private static ClearType ParsePseudoClear(string v) => v.ToLowerInvariant() switch
+    {
+        "left" => ClearType.Left, "right" => ClearType.Right, "both" => ClearType.Both, _ => ClearType.None
+    };
+    private static OverflowType ParsePseudoOverflow(string v) => v.ToLowerInvariant() switch
+    {
+        "hidden" => OverflowType.Hidden, "scroll" => OverflowType.Scroll, "auto" => OverflowType.Auto, _ => OverflowType.Visible
+    };
+    private static TextAlignType ParsePseudoTextAlign(string v) => v.ToLowerInvariant() switch
+    {
+        "left" => TextAlignType.Left, "right" => TextAlignType.Right, "center" => TextAlignType.Center, "justify" => TextAlignType.Justify, _ => TextAlignType.Start
+    };
+    private static float ParsePseudoFontSize(string v)
+    {
+        if (v.EndsWith("px") && float.TryParse(v[..^2], out var px)) return px;
+        if (v.EndsWith("em") && float.TryParse(v[..^2], out var em)) return em * 16;
+        if (v.EndsWith("rem") && float.TryParse(v[..^2], out var rem)) return rem * 16;
+        if (float.TryParse(v, out var f)) return f;
+        return 16;
+    }
+
+    private static void ParsePseudoBorder(ComputedStyle style, string value)
+    {
+        var parts = value.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        foreach (var p in parts)
+        {
+            if (p.EndsWith("px") && float.TryParse(p[..^2], out var w))
+            { style.BorderTopWidth = style.BorderRightWidth = style.BorderBottomWidth = style.BorderLeftWidth = w; }
+            else if (p is "solid" or "dashed" or "dotted" or "double" or "groove" or "ridge" or "inset" or "outset")
+            { var bs = p switch { "solid" => BorderStyle.Solid, "dashed" => BorderStyle.Dashed, "dotted" => BorderStyle.Dotted, "double" => BorderStyle.Double, "groove" => BorderStyle.Groove, "ridge" => BorderStyle.Ridge, "inset" => BorderStyle.Inset, "outset" => BorderStyle.Outset, _ => BorderStyle.Solid };
+                style.BorderTopStyle = style.BorderRightStyle = style.BorderBottomStyle = style.BorderLeftStyle = bs; }
+            else
+            { var c = ColorParser.Parse(p); style.BorderTopColor = style.BorderRightColor = style.BorderBottomColor = style.BorderLeftColor = c; }
+        }
+    }
+
+    private static void ParsePseudoBorderRadius(ComputedStyle style, string value)
+    {
+        var radii = value.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        var r = radii.Select(v =>
+        {
+            if (v.EndsWith("px") && float.TryParse(v[..^2], out var px)) return px;
+            if (float.TryParse(v, out var f)) return f;
+            return 0f;
+        }).ToList();
+        style.BorderTopLeftRadius = r.Count > 0 ? r[0] : 0;
+        style.BorderTopRightRadius = r.Count > 1 ? r[1] : r[0];
+        style.BorderBottomRightRadius = r.Count > 2 ? r[2] : r[0];
+        style.BorderBottomLeftRadius = r.Count > 3 ? r[3] : (r.Count > 0 ? r[0] : 0);
+    }
+
+    private static void ParsePseudoBoxShadow(ComputedStyle style, string value)
+    {
+        // Simplified: single shadow only.
+        if (value == "none") return;
+        var parts = value.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        bool inset = false;
+        int idx = 0;
+        if (parts[0] == "inset") { inset = true; idx++; }
+        if (idx + 1 >= parts.Length) return;
+        float.TryParse(parts[idx].TrimEnd('p', 'x'), out var ox);
+        float.TryParse(parts[idx + 1].TrimEnd('p', 'x'), out var oy);
+        idx += 2;
+        float br = 0, sp = 0;
+        if (idx < parts.Length && parts[idx].Contains('x')) { float.TryParse(parts[idx].TrimEnd('p', 'x'), out br); idx++; }
+        if (idx < parts.Length && parts[idx].Contains('x')) { float.TryParse(parts[idx].TrimEnd('p', 'x'), out sp); idx++; }
+        var color = idx < parts.Length ? ColorParser.Parse(string.Join(" ", parts.Skip(idx))) : new SKColor(0, 0, 0, 80);
+        style.BoxShadow = new List<BoxShadowValue> { new BoxShadowValue(color, ox, oy, br, sp, inset) };
+    }
+
     private static string DecodeCssContent(string content)
     {
+        // Handle attr(...) 鈥?extract attribute value from the element.
+        // The element context is passed only at generation time; the raw
+        // attr() text is left as-is and resolved later by the caller.
+        var trimmed = content.Trim();
+        if (trimmed.StartsWith("attr(", StringComparison.OrdinalIgnoreCase) && trimmed.EndsWith(")"))
+        {
+            // Extract the attribute name: attr(data-*) 鈫?data-*
+            var attrName = trimmed[5..^1].Trim();
+            return "attr(" + attrName + ")";
+        }
+
+        // Handle url(...) 鈥?image references.
+        if (trimmed.StartsWith("url(", StringComparison.OrdinalIgnoreCase) && trimmed.EndsWith(")"))
+        {
+            // Keep the url as-is for the image loader.
+            return trimmed;
+        }
+
         content = content.Trim('"', '\'');
         if (string.IsNullOrEmpty(content)) return content;
 

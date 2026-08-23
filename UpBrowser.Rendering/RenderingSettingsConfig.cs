@@ -34,6 +34,7 @@ public static class RenderingSettingsConfig
         public float ResolutionScale { get; set; } = 1.0f;
         public bool ShowFps { get; set; }
         public string JsEngine { get; set; } = "Jint";
+        public bool UseCustomHtmlParser { get; set; } = true;
     }
 
     public static void Save(RenderingSettings settings)
@@ -50,7 +51,8 @@ public static class RenderingSettingsConfig
             SmoothScrolling = settings.SmoothScrolling,
             ResolutionScale = settings.ResolutionScale,
             ShowFps = settings.ShowFps,
-            JsEngine = settings.JsEngine
+            JsEngine = settings.JsEngine,
+            UseCustomHtmlParser = settings.UseCustomHtmlParser
         };
 
         var ctx = new RenderingSettingsJsonContext(new JsonSerializerOptions { WriteIndented = true });
@@ -82,6 +84,7 @@ public static class RenderingSettingsConfig
             settings.ShowFps = data.ShowFps;
             if (!string.IsNullOrEmpty(data.JsEngine))
                 settings.JsEngine = data.JsEngine;
+            settings.UseCustomHtmlParser = data.UseCustomHtmlParser;
         }
         catch (Exception ex)
         {

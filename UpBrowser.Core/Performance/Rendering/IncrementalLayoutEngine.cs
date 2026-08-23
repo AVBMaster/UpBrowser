@@ -54,6 +54,17 @@ public sealed class LayoutStats
 /// production engine stays untouched for backwards compatibility; consumers that need
 /// incremental behaviour instantiate this engine and route layout requests through it.
 /// </summary>
+/// <remarks>
+/// <para>
+/// <b>Pipeline unification: </b> by default <see cref="Layout"/> now delegates to
+/// the wrapped engine's full pass — which routes through the NG pipeline exactly like
+/// <c>RenderSnapshot</c> — so the live browser and headless captures share ONE box
+/// production path. The historical cache-gated traversal remains available behind
+/// <see cref="UseNgRelayout"/>=false for A/B comparison; if you flip it back, note it
+/// requires <see cref="LayoutEngine.SyncPipelineState"/> to be pushed first (vw/vh/rem/
+/// DPI used to silently resolve against a 0x0 viewport on that path).
+/// </para>
+/// </remarks>
 public sealed class IncrementalLayoutEngine
 {
     private readonly LayoutEngine _base;
@@ -63,6 +74,14 @@ public sealed class IncrementalLayoutEngine
     public bool UseDirtyPropagation = true;
     public bool SkipCleanSubtrees = true;
     public ViewportCullingPolicy Culling { get; set; } = ViewportCullingPolicy.None;
+
+    /// <summary>
+    /// When true (default), <see cref="Layout"/> runs the wrapped engine's full
+    /// pipeline pass (NG when <see cref="LayoutEngine.UseNgPipeline"/>), guaranteeing
+    /// byte-identical boxes with the headless snapshot path. When false, the legacy
+    /// per-node cached traversal below is used instead.
+    /// </summary>
+    public bool UseNgRelayout { get; set; } = true;
 
     public IncrementalLayoutEngine(LayoutEngine baseEngine, LayoutCache? cache = null)
     {
@@ -82,10 +101,39 @@ public sealed class IncrementalLayoutEngine
         var root = document.DocumentElement ?? document.Body;
         if (root == null) { Stats.AddElapsed(Clock.NowNanos() - sw); return; }
 
+        if (UseNgRelayout)
+        {
+            // Unified pipeline: delegate to the wrapped engine's own full pass.
+            // UseNgPipeline=true makes this LayoutNg — the same entry RenderSnapshot
+            // uses — so browser frames and headless captures produce identical boxes.
+            // The viewport state is established inside the engine itself.
+            _base.SyncPipelineState(width, height, dpiScale, rootFontSize);
+            _base.Layout(document, width, height, dpiScale);
+
+            // The NG pass walks the whole tree fresh; report that honestly instead
+            // of pretending cache skips happened.
+            int subtree = CountSubtree(root);
+            Stats.IncDirtyRoot();
+            Stats.IncVisited();
+            Stats.IncRelaid();
+            Stats.IncMiss();
+            Stats.AddElapsed(Clock.NowNanos() - sw);
+            _ = subtree; // subtree size kept for future partial-relayout reporting
+            return;
+        }
+
         if (UseDirtyPropagation) Stats.IncDirtyRoot();
 
         // Always lay out from the root because container width may have changed.
         // Inner nodes are gated by the cache.
+        //
+        // Pipeline unification: the legacy traversal drives CreateLayoutBoxPublic node-by-node,
+        // which reads the base engine's viewport/root-font/DPI fields directly.
+        // Those were only ever established by Layout/LayoutNg/LayoutIncremental —
+        // none of which run on this path — so push them explicitly or vw/vh
+        // resolve against 0x0 and rem against a hardcoded 16px root font.
+        _base.SyncPipelineState(width, height, dpiScale, rootFontSize);
+
         Traverse(root, width, dpiScale, rootFontSize, isRoot: true);
         Stats.AddElapsed(Clock.NowNanos() - sw);
     }

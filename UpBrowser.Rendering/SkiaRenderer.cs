@@ -665,7 +665,7 @@ public class SkiaRenderer : IDisposable
         using var textPaint = new SKPaint
         {
             Color = _currentFps >= 55 ? SKColor.Parse("#4CAF50") :
-                    _currentFps >= 30 ? SKColor.Parse("#FFC107") :
+                    _currentFps >= 30 ? SKColor.Parse("#FF07") :
                     SKColor.Parse("#F44336"),
             IsAntialias = true
         };

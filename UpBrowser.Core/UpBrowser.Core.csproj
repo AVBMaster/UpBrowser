@@ -26,7 +26,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="AngleSharp" Version="*" />
+    <PackageReference Include="AngleSharp" Version="1.7.1" />
   </ItemGroup>
 
   <ItemGroup Condition="'$(UseLocalSkiaSharp)' == 'true'">

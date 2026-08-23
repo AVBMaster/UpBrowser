@@ -1,4 +1,4 @@
-using System.Collections.Concurrent;
+﻿using System.Collections.Concurrent;
 using SkiaSharp;
 using UpBrowser.Core;
 using UpBrowser.Core.Dom;
@@ -148,19 +148,11 @@ public class TabProcess : IDisposable
 
             _jsEngine.LoadDocument(loadResult.Document);
 
-            if (loadResult.StyleComputer != null)
-            {
-                loadResult.StyleComputer.ComputeStyles(
-                    loadResult.Document, _viewportWidth, _viewportHeight);
-            }
-
-            _layoutEngine.Layout(loadResult.Document, _viewportWidth, _viewportHeight, _dpiScale);
-
             RunPageScripts(loadResult, baseUrl);
 
             var visitor = new PaintVisitor(_contentOffset, _typefaceCache,
-                _imageCache, _fontFamilies, baseUrl);
-            visitor.VisitDocument(loadResult.Document);
+                _imageCache, _fontFamilies, baseUrl, _viewportWidth, _viewportHeight);
+            visitor.VisitDocumentStacking(loadResult.Document);
             var newDl = visitor.GetDisplayList();
             newDl.SortByZIndex();
             newDl.BuildSpatialGrid();
@@ -267,11 +259,26 @@ public class TabProcess : IDisposable
 
     private void RunPageScripts(DocumentManager.DocumentLoadResult loadResult, string? baseUrl)
     {
-        var angleDoc = loadResult.AngleSharpDoc;
-        if (angleDoc == null || _jsEngine == null) return;
+        var doc = loadResult.Document;
+        if (doc == null || _jsEngine == null) return;
 
-        var scripts = angleDoc.All.Where(e =>
-            e.LocalName?.ToLowerInvariant() == "script").ToList();
+        var allElements = new List<Element>();
+        if (doc.DocumentElement != null)
+        {
+            var queue = new Queue<Element>();
+            queue.Enqueue(doc.DocumentElement);
+            while (queue.Count > 0)
+            {
+                var el = queue.Dequeue();
+                allElements.Add(el);
+                foreach (var child in el.Children)
+                    if (child is Element childEl)
+                        queue.Enqueue(childEl);
+            }
+        }
+
+        var scripts = allElements.Where(e =>
+            e.TagName.ToLowerInvariant() == "script").ToList();
 
         foreach (var el in scripts)
         {
@@ -342,3 +349,5 @@ public class TabProcess : IDisposable
         return count;
     }
 }
+
+

@@ -1,10 +1,19 @@
 namespace UpBrowser.Core.Dom.Html;
 
+using SkiaSharp;
+
 public class HTMLCanvasElement : HtmlElement
 {
     private CanvasRenderingContext2D? _context2d;
     private WebGLRenderingContext? _webglContext;
     private string? _currentContextType;
+
+    /// <summary>
+    /// Backing-store snapshot for painting. Null until a rendering context
+    /// attaches a surface (JS canvas plumbing); a context-less canvas paints
+    /// transparent per spec.
+    /// </summary>
+    public SKImage? SnapshotSurface() => _context2d?.SnapshotImage();
 
     public HTMLCanvasElement(Document document, string? name = null, string? namespaceUri = null)
         : base(name ?? "canvas") { }
@@ -53,6 +62,14 @@ public class HTMLCanvasElement : HtmlElement
 
 public class CanvasRenderingContext2D
 {
+    private SKSurface? _surface;
+
+    /// <summary>Publish a backing surface (from the JS canvas plumbing).</summary>
+    public void AttachSurface(SKSurface surface) => _surface = surface;
+
+    /// <summary>Current pixels for painting; null until a surface is attached.</summary>
+    public SKImage? SnapshotImage() => _surface?.Snapshot();
+
     public CanvasElement? Canvas { get; set; }
     public double GlobalAlpha { get; set; } = 1.0;
     public string GlobalCompositeOperation { get; set; } = "source-over";

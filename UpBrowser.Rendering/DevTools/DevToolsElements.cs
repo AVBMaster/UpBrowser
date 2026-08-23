@@ -85,11 +85,17 @@ public class DevToolsElements
 
     public void HandleThumbDragEnd() { _thumbDragging = false; }
 
+    private bool _warnedUnavailable;
+
     public void Render(SKCanvas canvas, float x, float y, float width, float height, DevToolsTheme theme)
     {
         if (_font == null || _skFont == null)
         {
-            Console.WriteLine("[DevToolsElements.Render] SKPaint/SKFont unavailable on this OS, skipping render");
+            if (!_warnedUnavailable)
+            {
+                _warnedUnavailable = true;
+                Console.WriteLine("[DevToolsElements.Render] SKPaint/SKFont unavailable on this OS, skipping render");
+            }
             return;
         }
 

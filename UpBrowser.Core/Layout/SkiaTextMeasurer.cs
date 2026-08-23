@@ -87,16 +87,15 @@ public class SkiaTextMeasurer : ITextMeasurer
 
     public (float width, float height, float baseline) MeasureTextDetail(string text, string fontFamily, float fontSize, FontWeight weight = FontWeight.Normal)
     {
+        var metrics = Fonts.FontMetricsProvider.Get(fontFamily, fontSize, weight);
         if (string.IsNullOrEmpty(text))
-            return (0, fontSize, fontSize * 0.8f);
+            return (0, metrics.FloatHeight, metrics.FloatAscent);
 
         var typeface = FontManager.GetOrCreateTypeface(fontFamily, weight);
         using var skFont = new SKFont(typeface, fontSize);
-        var fontMetrics = skFont.Metrics;
-
         var width = skFont.MeasureText(text);
 
-        return (width, fontSize, -fontMetrics.Ascent);
+        return (width, metrics.FloatHeight, metrics.FloatAscent);
     }
 
     public float MeasureTextWidth(string text, float fontSize, string fontFamily, FontWeight weight = FontWeight.Normal)
@@ -106,8 +105,22 @@ public class SkiaTextMeasurer : ITextMeasurer
 
     public TextMetrics MeasureTextMetrics(string text, float fontSize, string fontFamily, FontWeight weight = FontWeight.Normal)
     {
+        var fm = Fonts.FontMetricsProvider.Get(fontFamily, fontSize, weight);
+
         if (string.IsNullOrEmpty(text))
-            return new TextMetrics { Width = 0, Height = fontSize, Ascent = 0, Descent = 0, XHeight = fontSize * 0.5f };
+        {
+            return new TextMetrics
+            {
+                Width = 0,
+                Height = fm.FloatHeight,
+                Ascent = fm.FloatAscent,
+                Descent = fm.FloatDescent,
+                Leading = fm.LineGap,
+                XHeight = fm.XHeight,
+                CapHeight = fm.CapHeight,
+                LineHeight = fm.LineSpacing,
+            };
+        }
 
         var key = $"{text}:{fontSize}:{fontFamily}:{weight}";
         if (_metricsCache.TryGetValue(key, out var cached))
@@ -115,20 +128,18 @@ public class SkiaTextMeasurer : ITextMeasurer
 
         var typeface = FontManager.GetOrCreateTypeface(fontFamily, weight);
         using var skFont = new SKFont(typeface, fontSize);
-        var fontMetrics = skFont.Metrics;
-
         var width = skFont.MeasureText(text);
 
         var result = new TextMetrics
         {
             Width = width,
-            Height = fontSize,
-            Ascent = -fontMetrics.Ascent,
-            Descent = fontMetrics.Descent,
-            Leading = fontMetrics.Leading,
-            XHeight = fontSize * 0.5f,
-            CapHeight = fontSize * 0.7f,
-            LineHeight = -fontMetrics.Ascent + fontMetrics.Descent + fontMetrics.Leading
+            Height = fm.FloatHeight,
+            Ascent = fm.FloatAscent,
+            Descent = fm.FloatDescent,
+            Leading = fm.LineGap,
+            XHeight = fm.XHeight,
+            CapHeight = fm.CapHeight,
+            LineHeight = fm.LineSpacing,
         };
 
         CacheIfNeeded(_metricsCache, key, result);
@@ -137,28 +148,22 @@ public class SkiaTextMeasurer : ITextMeasurer
 
     public float MeasureTextHeight(float fontSize, string fontFamily, FontWeight weight = FontWeight.Normal)
     {
-        var typeface = FontManager.GetOrCreateTypeface(fontFamily, weight);
-        using var skFont = new SKFont(typeface, fontSize);
-        var fontMetrics = skFont.Metrics;
-        return -fontMetrics.Ascent + fontMetrics.Descent;
+        return Fonts.FontMetricsProvider.Get(fontFamily, fontSize, weight).FloatHeight;
     }
 
     public float GetBaseline(float fontSize, string fontFamily, FontWeight weight = FontWeight.Normal)
     {
-        var typeface = FontManager.GetOrCreateTypeface(fontFamily, weight);
-        using var skFont = new SKFont(typeface, fontSize);
-        var fontMetrics = skFont.Metrics;
-        return -fontMetrics.Ascent;
+        return Fonts.FontMetricsProvider.Get(fontFamily, fontSize, weight).FloatAscent;
     }
 
     public float GetXHeight(float fontSize, string fontFamily)
     {
-        return MeasureTextMetrics("x", fontSize, fontFamily).XHeight;
+        return Fonts.FontMetricsProvider.Get(fontFamily, fontSize).XHeight;
     }
 
     public float GetCapHeight(float fontSize, string fontFamily)
     {
-        return MeasureTextMetrics("H", fontSize, fontFamily).CapHeight;
+        return Fonts.FontMetricsProvider.Get(fontFamily, fontSize).CapHeight;
     }
 
     public float MeasureWordWidth(string word, float fontSize, string fontFamily, FontWeight weight = FontWeight.Normal)
@@ -175,6 +180,9 @@ public class SkiaTextMeasurer : ITextMeasurer
         float currentWidth = 0;
         var currentWords = new List<string>();
 
+        // 'line-height: normal' for this font, i.e. its own line spacing.
+        float normalLineHeight = Fonts.FontMetricsProvider.Get(fontFamily, fontSize, weight).LineSpacing;
+
         foreach (var word in words)
         {
             var wordWidth = MeasureWordWidth(word + " ", fontSize, fontFamily, weight);
@@ -185,7 +193,7 @@ public class SkiaTextMeasurer : ITextMeasurer
                 {
                     Words = currentWords.ToArray(),
                     Width = currentWidth,
-                    LineHeight = fontSize * 1.2f
+                    LineHeight = normalLineHeight
                 });
                 currentWords = new List<string>();
                 currentWidth = 0;
@@ -201,7 +209,7 @@ public class SkiaTextMeasurer : ITextMeasurer
             {
                 Words = currentWords.ToArray(),
                 Width = currentWidth,
-                LineHeight = fontSize * 1.2f
+                LineHeight = normalLineHeight
             });
         }
 

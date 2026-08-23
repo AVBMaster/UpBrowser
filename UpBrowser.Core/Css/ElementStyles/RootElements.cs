@@ -17,7 +17,7 @@ public static class RootElements
                 style.MarginRight = new PixelLength(0);
                 style.FontFamily = "sans-serif";
                 style.FontSize = 16;
-                style.LineHeight = 1.15f;
+                Fonts.LineBoxMetrics.SetNormal(style);
                 // 透明背景，让 body 背景透出
                 style.BackgroundColor = null;
                 break;
@@ -29,7 +29,7 @@ public static class RootElements
                 style.MarginLeft = new PixelLength(8);
                 style.MarginRight = new PixelLength(8);
                 style.FontSize = 16;
-                style.LineHeight = 1.2f;
+                Fonts.LineBoxMetrics.SetNormal(style);
                 style.Color = SKColors.Black;
                 style.BackgroundColor = SKColors.White;
                 style.FontFamily = "Arial, sans-serif";

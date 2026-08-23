@@ -1,10 +1,11 @@
-using SkiaSharp;
+﻿using SkiaSharp;
 using System.Collections.Concurrent;
 using System.IO;
 using System.Text;
 using UpBrowser.Core;
 using UpBrowser.Core.Css;
 using UpBrowser.Core.Dom;
+using UpBrowser.Core.Input;
 using UpBrowser.Core.EventLoop;
 using FormElement = UpBrowser.Core.Dom.Html.HTMLFormElement;
 using UpBrowser.Core.JavaScript;
@@ -28,6 +29,8 @@ namespace UpBrowser;
     private readonly SkiaRenderer _skiaRenderer;
     private readonly ChromeRenderer _chrome;
     private readonly ScrollManager _scroll;
+    private readonly ScrollInteraction _scrollInteraction = new();
+    private bool _scrollDirty;
     private readonly DocumentManager _docManager;
     private readonly InputHandler _input;
     private readonly LayoutEngine _layout = new();
@@ -125,9 +128,11 @@ namespace UpBrowser;
     private bool _hasSelection;
     private SelPoint _selAnchor;
     private SelPoint _selFocus;
+    private readonly string? _startupUrl;
 
-    public BrowserApp(int logicalWidth, int logicalHeight)
+    public BrowserApp(int logicalWidth, int logicalHeight, string? startupUrl = null)
     {
+        _startupUrl = startupUrl;
         LogCtor("SkiaTextMeasurer");
         TextMeasurer.Instance = new Core.Layout.SkiaTextMeasurer();
         LogCtorDone("SkiaTextMeasurer");
@@ -166,6 +171,7 @@ namespace UpBrowser;
 
         LogCtor("LoadSettingsConfig");
         RenderingSettingsConfig.Load(_renderingSettings);
+        DocumentManager.UseCustomParser = _renderingSettings.UseCustomHtmlParser;
         LogCtorDone("LoadSettingsConfig");
 
         var engineType = JsEngineConfig.GetEngineTypeByName(_renderingSettings.JsEngine) ?? JsEngineType.Jint;
@@ -410,6 +416,7 @@ namespace UpBrowser;
         _renderingSettings.OnChanged += () =>
         {
             RenderingSettingsConfig.Save(_renderingSettings);
+            DocumentManager.UseCustomParser = _renderingSettings.UseCustomHtmlParser;
             _window.TargetFrameTimeMs = _renderingSettings.TargetFps > 0
                 ? (float)(1000.0 / _renderingSettings.TargetFps)
                 : 1f;
@@ -428,14 +435,14 @@ namespace UpBrowser;
         {
             _currentHtml = html;
 
-            // Dispose old AngleSharp document to free memory
             if (_currentLoad != null)
             {
-                _currentLoad.AngleSharpDoc?.Dispose();
+                // Dispose old document
             }
 
             _currentLoad = await _docManager.LoadHtmlAsync(html);
             var (pw, ph) = _window.GetClientSize();
+            _scrollInteraction.SetDocument(_currentLoad.Document);
             _jsEngine.LoadDocument(_currentLoad.Document);
             _devTools.SetDocument(_currentLoad.Document, html);
             _input.NeedsRedraw = true;
@@ -462,7 +469,21 @@ namespace UpBrowser;
             int wh = (int)(ph / _dpiScale);
             _devTools.HandleMouseMove(x, y, ww, wh);
         };
-        _input.OnScrollContainerWheel = (dx, dy, mx, my) => HandleScrollContainerWheel(dx, dy, mx, my);
+        _input.OnScrollContainerWheel = (dx, dy, mx, my) =>
+        {
+            // Shift+wheel scrolls horizontally, matching the page scroller.
+            if (_input.IsShiftDown)
+                (dx, dy) = (dy, 0);
+            float pageX = mx + _scroll.ScrollX;
+            float pageY = my - _contentOffset + _scroll.ScrollY;
+            return _scrollInteraction.HandleWheel(dx, dy, pageX, pageY);
+        };
+        _scrollInteraction.OnScrollChanged = () =>
+        {
+            // Lightweight scroll repaint — no ComputeStyles, no LayoutNg.
+            _scrollDirty = true;
+            _input.NeedsRedraw = true;
+        };
         _input.OnImeChar = HandleImeChar;
         _input.OnImeTargetChanged = UpdateImeTarget;
         _input.OnCopy = PerformCopy;
@@ -802,6 +823,7 @@ namespace UpBrowser;
         _currentHtml = DocumentManager.TestCssFeatureHtml;
         var initialLoad = await _docManager.LoadHtmlAsync(_currentHtml);
         _currentLoad = initialLoad;
+        _scrollInteraction.SetDocument(_currentLoad.Document);
         LogDone("LoadHtmlAsync");
 
         var devTool = new LayoutDevTool();
@@ -848,6 +870,15 @@ namespace UpBrowser;
         LogStart("WireNavigation");
         WireNavigation();
         LogDone("WireNavigation");
+
+        // Command line startup page: UpBrowser <url | file.html>
+        if (!string.IsNullOrWhiteSpace(_startupUrl))
+        {
+            if (_startupUrl.StartsWith("http://") || _startupUrl.StartsWith("https://"))
+                NavigateToHttp(_startupUrl);
+            else
+                NavigateToFile(new Uri(Path.GetFullPath(_startupUrl)).AbsoluteUri);
+        }
 
         LogStart("_window.Run(RenderFrame)");
         try
@@ -1003,6 +1034,7 @@ namespace UpBrowser;
             {
                 _currentHtml = savedState.Html;
                 _currentLoad = savedState.LoadResult;
+                _scrollInteraction.SetDocument(_currentLoad?.Document);
                 _scroll.ScrollTo(savedState.ScrollX, savedState.ScrollY);
 
                 if (_currentLoad != null)
@@ -1102,7 +1134,7 @@ namespace UpBrowser;
                 // 清除标签页状态
                 if (_tabStates.TryRemove(index, out var oldState) && oldState.LoadResult != null)
                 {
-                    try { oldState.LoadResult.AngleSharpDoc?.Dispose(); }
+                    try { }
                     catch (Exception ex) { Console.WriteLine($"[Dispose] Tab state doc error: {ex.Message}"); }
                 }
 
@@ -1111,9 +1143,10 @@ namespace UpBrowser;
                 {
                     if (_currentLoad != null && _chrome.ActiveTabIndex == index)
                     {
-                        try { _currentLoad.AngleSharpDoc?.Dispose(); }
+                        try { }
                         catch (Exception ex) { Console.WriteLine($"[Dispose] Current doc error: {ex.Message}"); }
                         _currentLoad = null;
+                        _scrollInteraction.SetDocument(null);
                     }
                 });
 
@@ -1144,10 +1177,23 @@ namespace UpBrowser;
     {
         if (_currentLoad == null) return;
 
-        var angleDoc = _currentLoad.AngleSharpDoc;
+        
 
-        var scriptElements = angleDoc.All.Where(e =>
-            e.LocalName?.ToLowerInvariant() == "script").ToList();
+        var scriptElements = new List<Element>();
+        if (_currentLoad.Document.DocumentElement != null)
+        {
+            var queue = new Queue<Element>();
+            queue.Enqueue(_currentLoad.Document.DocumentElement);
+            while (queue.Count > 0)
+            {
+                var el = queue.Dequeue();
+                if (el.TagName.ToLowerInvariant() == "script")
+                    scriptElements.Add(el);
+                foreach (var child in el.Children)
+                    if (child is Element childEl)
+                        queue.Enqueue(childEl);
+            }
+        }
 
         var integration = _jsEngine.IntegrationService;
 
@@ -1430,7 +1476,7 @@ namespace UpBrowser;
         // Dispose old document safely
         if (_currentLoad != null)
         {
-            try { _currentLoad.AngleSharpDoc?.Dispose(); }
+            try { }
             catch (Exception ex) { Console.WriteLine($"[Dispose] Error: {ex.Message}"); }
         }
 
@@ -1439,6 +1485,7 @@ namespace UpBrowser;
 
         _currentLoad = loadResult;
         _currentHtml = html;
+        _scrollInteraction.SetDocument(_currentLoad.Document);
 
         var (pw, ph) = _window.GetClientSize();
         int ww = (int)(pw / _dpiScale);
@@ -1449,6 +1496,13 @@ namespace UpBrowser;
 
         BuildDisplayList(ww, wh);
         _scroll.ScrollTo(0, 0);
+
+        // P3-2: W3C paint-timing semantics — FP is the first rendered frame of
+        // any kind; FCP is the first frame carrying real content (a non-empty
+        // page display list). Both are recorded exactly once by the metrics API.
+        _perfHub.Registry.Metrics.RecordFirstPaint();
+        if (_displayList.Count > 0)
+            _perfHub.Registry.Metrics.RecordFirstContentfulPaint();
 
         RunPageScripts(_currentBaseUrl);
 
@@ -1585,7 +1639,15 @@ namespace UpBrowser;
         // Return old display list ops to pool before creating new one (fixes memory leak)
         _displayList.Clear();
 
-        _cachedPaintVisitor = new PaintVisitor(_contentOffset, _sharedTypefaceCache, _sharedImageCache, _fontFamilies, _currentBaseUrl);
+        _cachedPaintVisitor = new PaintVisitor(_contentOffset, _sharedTypefaceCache, _sharedImageCache, _fontFamilies, _currentBaseUrl, windowWidth, windowHeight);
+        // P2-2b: viewport culling — only layers intersecting the visible page
+        // rect (+300px bleed) emit paint ops. Refreshed on every rebuild.
+        float cullTop = _scroll.ScrollY - 300f;
+        float cullLeft = _scroll.ScrollX - 300f;
+        _cachedPaintVisitor.SetCullRect(new SKRect(
+            cullLeft, cullTop,
+            cullLeft + windowWidth + 600f,
+            cullTop + windowHeight + _contentOffset + 600f));
         _cachedPaintVisitor.SetFocusedElement(_focusedElement);
         _cachedPaintVisitor.SetSkipInputTextOverlay(true);
         _cachedPaintVisitor.SetPasswordRevealed(_passwordRevealed);
@@ -1614,7 +1676,7 @@ namespace UpBrowser;
         {
             _cachedPaintVisitor.SetSelectionRange(_selAnchor.Node, _selAnchor.Offset, _selFocus.Node, _selFocus.Offset);
         }
-        _cachedPaintVisitor.VisitDocument(_currentLoad.Document);
+        _cachedPaintVisitor.VisitDocumentStacking(_currentLoad.Document);
         _displayList = _cachedPaintVisitor.GetDisplayList();
         _displayList.SortByZIndex();
         _displayList.BuildSpatialGrid();
@@ -1796,16 +1858,47 @@ namespace UpBrowser;
                 _pendingRelayout = false;
             }
 
-            BuildDisplayList(windowWidth, Math.Max(100, (int)contentViewportHeight));
+            // #3: page scrollbar takes layout space — reduce content width so
+            // text doesn't go under the scrollbar.
+            float sbWidth = _scroll.CanScrollY ? 12f : 0f;
+            float layoutWidth = Math.Max(100, windowWidth - sbWidth);
+            BuildDisplayList(layoutWidth, Math.Max(100, (int)contentViewportHeight));
             UpdateInputScrollOffset(_focusedElement);
 
             var bodyBox = _currentLoad.Document.Body?.LayoutBox;
-            float contentWidth = bodyBox?.BorderBox.Width ?? windowWidth;
+            float contentWidth = bodyBox?.BorderBox.Width ?? layoutWidth;
             float contentHeight = bodyBox?.BorderBox.Height ?? 0;
 
             _scroll.UpdateScroll(contentWidth, contentHeight, windowWidth, contentViewportHeight);
 
             _window.UpdateImeCompositionWindow();
+        }
+        else if (_scrollDirty && _currentLoad != null)
+        {
+            // ── Llightweight scroll-only repaint ──
+            // Scroll offset changed but layout/styles haven't. Just regenerate
+            // the display list from existing LayoutBoxes with current ScrollY
+            // transforms. Much faster than a full rebuild.
+            _scrollDirty = false;
+
+            float sbW = _scroll.CanScrollY ? 12f : 0f;
+            int lw = Math.Max(100, windowWidth - (int)sbW);
+            int vh = Math.Max(100, (int)contentViewportHeight);
+
+            PaintOpPool.Clear();
+            _displayList.Clear();
+            _cachedPaintVisitor = new PaintVisitor(_contentOffset, _sharedTypefaceCache,
+                _sharedImageCache, _fontFamilies, _currentBaseUrl, lw, vh);
+            _cachedPaintVisitor.SetSkipInputTextOverlay(true);
+            _cachedPaintVisitor.SetCullRect(new SKRect(
+                _scroll.ScrollX - 300, _scroll.ScrollY - 300,
+                _scroll.ScrollX + windowWidth + 300, _scroll.ScrollY + contentViewportHeight + 600));
+
+            _cachedPaintVisitor.VisitDocumentStacking(_currentLoad.Document);
+            _displayList = _cachedPaintVisitor.GetDisplayList();
+            _displayList.SortByZIndex();
+
+            _skiaRenderer.InvalidatePageCache();
         }
         else if (_input.NeedsRedraw && _cachedPaintVisitor != null)
         {
@@ -2361,6 +2454,12 @@ namespace UpBrowser;
     private void HandleDomClick(float x, float y)
     {
         if (_currentLoad == null) return;
+
+        // Delegate to unified scroll interaction (inner scrollbar thumb/track).
+        float pageX = x + _scroll.ScrollX;
+        float pageY = y - _contentOffset + _scroll.ScrollY;
+        if (_scrollInteraction.HandleMouseDown(pageX, pageY))
+            return;
 
         // If a select dropdown is open, clicks either pick an option or close it.
         if (_activeSelect != null)
@@ -3259,10 +3358,12 @@ namespace UpBrowser;
     {
         if (_currentLoad == null) return false;
         _lastInputTimeTick = Environment.TickCount64;
+
+        // Convert screen coords to page coords
         float docX = mouseX + _scroll.ScrollX;
         float docY = mouseY - _contentOffset + _scroll.ScrollY;
 
-        // Focused textarea: the wheel scrolls its own content (vertical only).
+        // Focused textarea: wheel scrolls its own content
         if (deltaY != 0 && _focusedElement != null && _focusedElement.TagName == "TEXTAREA" &&
             _focusedElement.LayoutBox != null)
         {
@@ -3276,9 +3377,10 @@ namespace UpBrowser;
             }
         }
 
+        // Find deepest element at cursor position
         var element = HitTest(_currentLoad.Document, docX, docY);
-        if (element == null) return false;
 
+        // Walk up from hit element to find nearest scroll container with overflow
         var el = element;
         while (el != null)
         {
@@ -3287,20 +3389,28 @@ namespace UpBrowser;
                 box.ContentBox.Height > 0 && box.ContentBox.Width > 0 &&
                 (box.ScrollContentHeight > box.ContentBox.Height || box.ScrollContentWidth > box.ContentBox.Width))
             {
+                // Direct scroll update — immediate, no animation layer
+                float maxScrollY = Math.Max(0, box.ScrollContentHeight - box.ContentBox.Height);
+                float maxScrollX = Math.Max(0, box.ScrollContentWidth - box.ContentBox.Width);
+
                 if (deltaY != 0)
                 {
-                    float impY = (float)(-deltaY / 120.0 * 60.0 * 3.0);
-                    box.ScrollVelY += impY;
-                    box.IsSmoothScrollingY = true;
+                    float dy = (float)(-deltaY / 120.0 * 60.0);
+                    box.ScrollY = Math.Clamp(box.ScrollY + dy, 0, maxScrollY);
+                    box.IsSmoothScrollingY = false;
+                    box.ScrollVelY = 0;
                 }
                 if (deltaX != 0)
                 {
-                    float impX = (float)(-deltaX / 120.0 * 60.0 * 3.0);
-                    box.ScrollVelX += impX;
-                    box.IsSmoothScrollingX = true;
+                    float dx = (float)(-deltaX / 120.0 * 60.0);
+                    box.ScrollX = Math.Clamp(box.ScrollX + dx, 0, maxScrollX);
+                    box.IsSmoothScrollingX = false;
+                    box.ScrollVelX = 0;
                 }
-                if (deltaY != 0 || deltaX != 0)
-                    return true;
+                // Force display-list rebuild so new ScrollY takes visual effect.
+                _pendingRelayout = true;
+                _input.NeedsRedraw = true;
+                return true;
             }
             el = el.ParentElement;
         }
@@ -3332,7 +3442,25 @@ namespace UpBrowser;
                 // ── Vertical ──
                 if (box.IsSmoothScrollingY)
                 {
-                    if (box.IsBouncingY)
+                    // Target-seeking spring (scrollTo/scrollIntoView smooth).
+                    // Takes priority over bounce/decay when a programmatic target is set.
+                    if (!float.IsNaN(box.TargetScrollY) && box.TargetScrollY >= 0 && !box.IsBouncingY)
+                    {
+                        const float springK = 120f, springDamp = 22f;
+                        float diff = box.TargetScrollY - box.ScrollY;
+                        box.ScrollVelY += diff * springK * dt;
+                        box.ScrollVelY *= MathF.Exp(-springDamp * dt);
+                        box.ScrollY += box.ScrollVelY * dt;
+                        if (MathF.Abs(diff) < 0.5f && MathF.Abs(box.ScrollVelY) < 2f)
+                        {
+                            box.ScrollY = box.TargetScrollY;
+                            box.TargetScrollY = float.NaN;
+                            box.ScrollVelY = 0;
+                            box.IsSmoothScrollingY = false;
+                        }
+                        else changed = true;
+                    }
+                    else if (box.IsBouncingY)
                     {
                         float boundary = box.ScrollY < 0 ? 0 : maxY;
                         float diff = boundary - box.ScrollY;
@@ -3371,7 +3499,24 @@ namespace UpBrowser;
                 // ── Horizontal ──
                 if (box.IsSmoothScrollingX)
                 {
-                    if (box.IsBouncingX)
+                    // X target-seeking spring
+                    if (!float.IsNaN(box.TargetScrollX) && box.TargetScrollX >= 0 && !box.IsBouncingX)
+                    {
+                        const float springK = 120f, springDamp = 22f;
+                        float diff = box.TargetScrollX - box.ScrollX;
+                        box.ScrollVelX += diff * springK * dt;
+                        box.ScrollVelX *= MathF.Exp(-springDamp * dt);
+                        box.ScrollX += box.ScrollVelX * dt;
+                        if (MathF.Abs(diff) < 0.5f && MathF.Abs(box.ScrollVelX) < 2f)
+                        {
+                            box.ScrollX = box.TargetScrollX;
+                            box.TargetScrollX = float.NaN;
+                            box.ScrollVelX = 0;
+                            box.IsSmoothScrollingX = false;
+                        }
+                        else changed = true;
+                    }
+                    else if (box.IsBouncingX)
                     {
                         float boundary = box.ScrollX < 0 ? 0 : maxX;
                         float diff = boundary - box.ScrollX;
@@ -3481,6 +3626,13 @@ namespace UpBrowser;
     {
         _lastInputTimeTick = Environment.TickCount64;
         if (_currentLoad == null) return;
+
+        // Delegate to unified scroll interaction (thumb drag tracking).
+        {
+            float pageX = x + _scroll.ScrollX;
+            float pageY = y - _contentOffset + _scroll.ScrollY;
+            _scrollInteraction.HandleMouseMove(pageX, pageY);
+        }
 
         // Textarea scrollbar thumb drag update
         if (_textareaScrollDragging && _focusedElement != null && _focusedElement.TagName == "TEXTAREA" &&
@@ -3687,6 +3839,9 @@ namespace UpBrowser;
 
     private void HandleDomMouseUp(float x, float y)
     {
+        // End scrollbar drag.
+        _scrollInteraction.HandleMouseUp();
+
         // Element scrollbar drag release
         _elemScrollDragBox = null;
         _textareaResizeElement = null;
@@ -4642,7 +4797,7 @@ namespace UpBrowser;
         _processManager.Dispose();
         if (_currentLoad != null)
         {
-            _currentLoad.AngleSharpDoc?.Dispose();
+            // Dispose handled elsewhere
         }
         _chrome.Dispose();
         _skiaRenderer.Dispose();
@@ -5203,3 +5358,6 @@ internal sealed class ImagePoolPressureAdapter : UpBrowser.Core.Performance.Memo
         }
     }
 }
+
+
+

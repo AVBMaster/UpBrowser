@@ -214,6 +214,9 @@ public class RenderingSettingsPage
         AddToggle("显示 FPS", _settings.ShowFps, () => _settings.ToggleFps(), ref idx);
         AddToggle("平滑滚动", _settings.SmoothScrolling, () => _settings.ToggleSmoothScrolling(), ref idx);
 
+        AddCategory("HTML 解析器", ref idx);
+        AddToggle("自定义解析器", _settings.UseCustomHtmlParser, () => _settings.UseCustomHtmlParser = !_settings.UseCustomHtmlParser, ref idx);
+
         AddCategory("JavaScript 引擎", ref idx);
         BuildJsEngineSection(ref idx);
 
@@ -242,6 +245,7 @@ public class RenderingSettingsPage
         if (label.Contains("画面缓存")) return () => _settings.PictureCaching;
         if (label.Contains("平滑")) return () => _settings.SmoothScrolling;
         if (label.Contains("FPS")) return () => _settings.ShowFps;
+        if (label.Contains("自定义解析器")) return () => _settings.UseCustomHtmlParser;
         return () => false;
     }
 

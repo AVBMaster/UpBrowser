@@ -117,8 +117,12 @@ public abstract class Element : Node
     public Dictionary<string, string> Style { get; } = new(StringComparer.OrdinalIgnoreCase);
     public Dictionary<string, string>? BeforeStyles { get; set; }
     public Dictionary<string, string>? AfterStyles { get; set; }
+
+    /// <summary>Collected ::-webkit-scrollbar-* part styles (side-car).</summary>
+    public ScrollbarStyles? ScrollbarCustom { get; set; }
     public bool HasGeneratedBefore { get; set; }
     public bool HasGeneratedAfter { get; set; }
+    public object? MarkerLayoutObject { get; set; }
 
     // ===== Common Attribute Shortcuts =====
     public string? Src => GetAttribute("src");
@@ -126,6 +130,9 @@ public abstract class Element : Node
     public string? StyleAttr => GetAttribute("style");
     public string? Alt => GetAttribute("alt");
     public string? Type => GetAttribute("type");
+
+    public float IntrinsicWidth { get; set; }
+    public float IntrinsicHeight { get; set; }
 
     private string? _value;
     public string? Value
@@ -154,6 +161,7 @@ public abstract class Element : Node
 
     // ===== Shadow DOM =====
     public ShadowRoot? ShadowRoot => InternalState.ShadowRoot;
+    public Element? AssignedSlot => null;
 
     public ShadowRoot AttachShadow(ShadowRootInit init)
     {
@@ -286,15 +294,121 @@ public abstract class Element : Node
     }
 
     // ===== scrollIntoView / scrollTo / scrollBy =====
-    public void ScrollIntoView(bool alignToTop = true) { }
-    public void ScrollIntoView(ScrollIntoViewOptions? options = null) { }
 
-    public void ScrollTo(double x, double y) { }
-    public void ScrollTo(ScrollToOptions? options = null) { }
-    public void ScrollBy(double x, double y) { }
-    public void ScrollBy(ScrollToOptions? options = null) { }
-    public void Scroll(double x, double y) => ScrollTo(x, y);
-    public void Scroll(ScrollToOptions? options = null) => ScrollTo(options);
+    /// <summary>
+    /// Finds the nearest ancestor (or self) that is a scroll container.
+    /// </summary>
+    public Element? NearestScrollContainer()
+    {
+        var node = this;
+        while (node != null)
+        {
+            var b = node.LayoutBox;
+            if (b != null && b.IsScrollContainer) return node;
+            node = node.ParentElement;
+        }
+        return null;
+    }
+
+    public void ScrollIntoView(bool alignToTop = true) =>
+        ScrollIntoView(new ScrollIntoViewOptions { Block = alignToTop ? ScrollLogicalPosition.Start : ScrollLogicalPosition.End });
+
+    public void ScrollIntoView(ScrollIntoViewOptions? options = null)
+    {
+        var box = LayoutBox;
+        if (box == null) return;
+
+        // Walk up to the nearest scroll container.
+        Element? container = NearestScrollContainer();
+        if (container == null) return;
+        var cBox = container.LayoutBox;
+        if (cBox == null) return;
+
+        var opts = options ?? new ScrollIntoViewOptions();
+
+        // Both boxes are already in absolute page coordinates (no scroll offset).
+        float elemPageTop = box.BorderBox.Top;
+        float containerContentTop = cBox.ContentBox.Top;
+        float elemInContent = elemPageTop - containerContentTop;
+
+        float target = opts.Block switch
+        {
+            ScrollLogicalPosition.End => elemInContent - cBox.ContentBox.Height + box.BorderBox.Height,
+            ScrollLogicalPosition.Center => elemInContent - (cBox.ContentBox.Height - box.BorderBox.Height) / 2,
+            _ => elemInContent, // Start / Nearest
+        };
+
+        float maxScroll = Math.Max(0, cBox.ScrollContentHeight - cBox.ContentBox.Height);
+        target = Math.Clamp(target, 0, maxScroll);
+
+        bool smooth = opts.Behavior == ScrollBehavior.Smooth
+            || (opts.Behavior == ScrollBehavior.Auto
+                && container.ComputedStyle?.ScrollBehavior == ScrollBehaviorType.Smooth);
+
+        if (smooth)
+        {
+            cBox.TargetScrollY = target;
+            cBox.IsSmoothScrollingY = true;
+            cBox.ScrollVelY = 0;
+            cBox.IsBouncingY = false;
+        }
+        else
+        {
+            cBox.ScrollY = target;
+        }
+    }
+
+    public void ScrollTo(double x, double y) => ScrollTo(new ScrollToOptions { Left = x, Top = y });
+
+    public void ScrollTo(ScrollToOptions? options = null)
+    {
+        if (options == null) return;
+        var container = NearestScrollContainer();
+        var cBox = container?.LayoutBox;
+        if (cBox == null) return;
+
+        float maxY = Math.Max(0, cBox.ScrollContentHeight - cBox.ContentBox.Height);
+        float maxX = Math.Max(0, cBox.ScrollContentWidth - cBox.ContentBox.Width);
+        float tx = Math.Clamp((float)options.Left, 0, maxX);
+        float ty = Math.Clamp((float)options.Top, 0, maxY);
+
+        if (options.Behavior == ScrollBehavior.Smooth)
+        {
+            cBox.TargetScrollX = tx;
+            cBox.TargetScrollY = ty;
+            cBox.IsSmoothScrollingX = true;
+            cBox.IsSmoothScrollingY = true;
+            cBox.ScrollVelX = 0;
+            cBox.ScrollVelY = 0;
+            cBox.IsBouncingX = false;
+            cBox.IsBouncingY = false;
+        }
+        else
+        {
+            cBox.ScrollX = tx;
+            cBox.ScrollY = ty;
+        }
+    }
+
+    public void ScrollBy(double x, double y) => ScrollTo(new ScrollToOptions { Left = ScrollLeft + x, Top = ScrollTop + y });
+
+    public void ScrollBy(ScrollToOptions? options = null)
+    {
+        if (options == null) return;
+        ScrollTo(new ScrollToOptions { Left = ScrollLeft + options.Left, Top = ScrollTop + options.Top, Behavior = options.Behavior });
+    }
+
+    public float ScrollTop
+    {
+        get => LayoutBox?.ScrollY ?? 0;
+        set { if (LayoutBox != null) LayoutBox.ScrollY = value; }
+    }
+
+    public float ScrollLeft
+    {
+        get => LayoutBox?.ScrollX ?? 0;
+        set { if (LayoutBox != null) LayoutBox.ScrollX = value; }
+    }
 
     // ===== checkVisibility =====
     public bool CheckVisibility(CheckVisibilityOptions? options = null) => true;

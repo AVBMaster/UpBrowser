@@ -445,6 +445,11 @@ public class MathLength : Length
 
 public class ComputedStyle
 {
+    /// <summary>
+    /// The computed -webkit-box-reflect value, if set. Mirrors StyleReflection
+    /// in core/style/style_reflection.h.
+    /// </summary>
+    public StyleReflection? BoxReflect { get; set; }
     private readonly Dictionary<string, string> _customProperties = new(StringComparer.OrdinalIgnoreCase);
 
     public void SetCustomProperty(string name, string value) => _customProperties[name] = value;
@@ -496,9 +501,25 @@ public class ComputedStyle
     public FontStyleType FontStyle { get; set; } = FontStyleType.Normal;
     public float LineHeight { get; set; } = 1.5f;
 
+    /// <summary>
+    /// True while 'line-height' still has its initial value of 'normal', meaning
+    /// the used value comes from the primary font's own line spacing rather than
+    /// from <see cref="LineHeight"/>. Any code that assigns an explicit
+    /// line-height must clear this flag, otherwise the assignment is ignored by
+    /// line box construction.
+    /// </summary>
+    public bool LineHeightIsNormal { get; set; } = true;
+
+    /// <summary>
+    /// Used value of 'line-height' in pixels when it was specified as a length
+    /// (for example '24px'). Null when line-height is 'normal' or a number /
+    /// percentage, in which case <see cref="LineHeight"/> holds the multiplier.
+    /// </summary>
+    public float? LineHeightPx { get; set; }
+
     public SKColor Color { get; set; } = SKColors.Black;
     public SKColor? BackgroundColor { get; set; }
-    public string? BackgroundImage { get; set; }
+    public List<string>? BackgroundImage { get; set; }
     public Length? BackgroundPositionX { get; set; }
     public Length? BackgroundPositionY { get; set; }
     public BackgroundRepeat BackgroundRepeat { get; set; } = BackgroundRepeat.Repeat;
@@ -511,6 +532,16 @@ public class ComputedStyle
     public WordBreakMode WordBreak { get; set; } = WordBreakMode.Normal;
     public OverflowWrapMode OverflowWrap { get; set; } = OverflowWrapMode.Normal;
 
+    // ---- Scrollbars (standard props + ::-webkit-scrollbar-* side-car) ----
+    /// <summary>scrollbar-width: auto | thin | none.</summary>
+    public ScrollbarWidthType ScrollbarWidth { get; set; } = ScrollbarWidthType.Auto;
+    /// <summary>scrollbar-color first value (thumb). Null = UA default.</summary>
+    public SKColor? ScrollbarThumbColor { get; set; }
+    /// <summary>scrollbar-color second value (track).</summary>
+    public SKColor? ScrollbarTrackColor { get; set; }
+    /// <summary>Collected ::-webkit-scrollbar-* part styles; null when none matched.</summary>
+    public ScrollbarStyles? ScrollbarCustom { get; set; }
+
     public OverflowType Overflow { get; set; } = OverflowType.Visible;
     public OverflowType OverflowX { get; set; } = OverflowType.Visible;
     public OverflowType OverflowY { get; set; } = OverflowType.Visible;
@@ -518,7 +549,7 @@ public class ComputedStyle
     public int? ZIndex { get; set; }
     public string? Cursor { get; set; } = "auto";
     public float Opacity { get; set; } = 1.0f;
-    public BoxShadowValue? BoxShadow { get; set; }
+    public List<BoxShadowValue>? BoxShadow { get; set; }
     public BackgroundSizeType BackgroundSize { get; set; } = BackgroundSizeType.Auto;
     public Length? BackgroundSizeWidth { get; set; }
     public Length? BackgroundSizeHeight { get; set; }
@@ -568,19 +599,54 @@ public class ComputedStyle
     public string TextTransform { get; set; } = "none";
     public TextOverflowType TextOverflow { get; set; } = TextOverflowType.Clip;
     public List<TextShadowValue> TextShadow { get; set; } = new();
-    public TextDecorationLineType TextDecorationLine { get; set; } = TextDecorationLineType.None;
-    public TextDecorationStyleType TextDecorationStyle { get; set; } = TextDecorationStyleType.Solid;
-    public SKColor TextDecorationColor { get; set; } = SKColors.Black;
-    public float TextDecorationThickness { get; set; }
-    public float TextUnderlineOffset { get; set; }
+public TextDecorationLineType TextDecorationLine { get; set; } = TextDecorationLineType.None;
+public TextDecorationStyleType TextDecorationStyle { get; set; } = TextDecorationStyleType.Solid;
+public SKColor TextDecorationColor { get; set; } = SKColors.Black;
+public float TextDecorationThickness { get; set; }
+public float TextUnderlineOffset { get; set; }
+
+private System.Collections.Generic.List<AppliedTextDecoration>? _appliedTextDecorations;
+
+/// <summary>
+/// The list of text decorations that apply to text in this style, gathering
+/// this style's own text-decoration properties. Mirrors
+/// ComputedStyle::AppliedTextDecorations() in applied_text_decoration.h. The
+/// instance is cached so that reference identity can be compared (the paint
+/// pipeline uses identity to detect decoration propagation across a parent
+/// chain, see inline_paint_context.cc).
+/// </summary>
+public System.Collections.Generic.List<AppliedTextDecoration> AppliedTextDecorations()
+{
+    if (_appliedTextDecorations != null)
+        return _appliedTextDecorations;
+
+    var list = new System.Collections.Generic.List<AppliedTextDecoration>();
+    if (TextDecorationLine != TextDecorationLineType.None)
+    {
+        list.Add(new AppliedTextDecoration(
+            TextDecorationLine, TextDecorationStyle, TextDecorationColor,
+            TextDecorationThickness, TextUnderlineOffset));
+    }
+    _appliedTextDecorations = list;
+    return list;
+}
+
+/// <summary>The text decorations before applying ::first-line overrides.</summary>
+public System.Collections.Generic.List<AppliedTextDecoration> BaseAppliedTextDecorations() => AppliedTextDecorations();
     public string TextEmphasis { get; set; } = "none";
     public string TextEmphasisColor { get; set; } = "currentcolor";
     public string TextEmphasisStyle { get; set; } = "none";
+    public string TextEmphasisPosition { get; set; } = "over right";
 
     public Length RowGap { get; set; } = new PixelLength(0);
     public Length ColumnGap { get; set; } = new PixelLength(0);
     public int ColumnCount { get; set; }
     public Length? ColumnWidth { get; set; }
+
+    // A5: column-rule (multicol separator line). Default 'medium none currentcolor'.
+    public float ColumnRuleWidth { get; set; } = 3f;
+    public BorderStyle ColumnRuleStyle { get; set; } = BorderStyle.None;
+    public SKColor? ColumnRuleColor { get; set; }
 
     public float OutlineWidth { get; set; }
     public SKColor OutlineColor { get; set; } = SKColors.Black;
@@ -736,11 +802,14 @@ public class ComputedStyle
             Display = Display, Position = Position, Float = Float, Clear = Clear,
             FontFamily = FontFamily, FontSize = FontSize, FontWeight = FontWeight,
             FontStyle = FontStyle, LineHeight = LineHeight,
+            LineHeightIsNormal = LineHeightIsNormal, LineHeightPx = LineHeightPx,
             Color = Color, BackgroundColor = BackgroundColor, BackgroundImage = BackgroundImage,
             BackgroundPositionX = BackgroundPositionX, BackgroundPositionY = BackgroundPositionY,
             BackgroundRepeat = BackgroundRepeat, BackgroundAttachment = BackgroundAttachment,
             TextAlign = TextAlign, TextDecoration = TextDecoration, VerticalAlign = VerticalAlign,
             WhiteSpace = WhiteSpace, WordBreak = WordBreak, OverflowWrap = OverflowWrap,
+            ScrollbarWidth = ScrollbarWidth, ScrollbarThumbColor = ScrollbarThumbColor,
+            ScrollbarTrackColor = ScrollbarTrackColor, ScrollbarCustom = ScrollbarCustom,
             Overflow = Overflow, OverflowX = OverflowX, OverflowY = OverflowY,
             Visibility = Visibility, ZIndex = ZIndex, Cursor = Cursor, Opacity = Opacity,
             BoxShadow = BoxShadow, BackgroundSize = BackgroundSize,
@@ -766,8 +835,11 @@ public class ComputedStyle
             TextDecorationColor = TextDecorationColor, TextDecorationThickness = TextDecorationThickness,
             TextUnderlineOffset = TextUnderlineOffset,
             TextEmphasis = TextEmphasis, TextEmphasisColor = TextEmphasisColor, TextEmphasisStyle = TextEmphasisStyle,
+            TextEmphasisPosition = TextEmphasisPosition,
             RowGap = RowGap, ColumnGap = ColumnGap,
             ColumnCount = ColumnCount, ColumnWidth = ColumnWidth,
+            ColumnRuleWidth = ColumnRuleWidth, ColumnRuleStyle = ColumnRuleStyle,
+            ColumnRuleColor = ColumnRuleColor,
             OutlineWidth = OutlineWidth, OutlineColor = OutlineColor, OutlineStyle = OutlineStyle, OutlineOffset = OutlineOffset,
             TableLayout = TableLayout, CaptionSide = CaptionSide, EmptyCells = EmptyCells, Content = Content,
             CounterIncrement = CounterIncrement, CounterReset = CounterReset, CounterSet = CounterSet, Quotes = Quotes,
@@ -872,14 +944,63 @@ public enum BackgroundOriginType { PaddingBox, BorderBox, ContentBox }
 public enum BackgroundBlendModeType { Normal, Multiply, Screen, Overlay, Darken, Lighten, ColorDodge, ColorBurn, HardLight, SoftLight, Difference, Exclusion, Hue, Saturation, Color, Luminosity }
 public enum TextDecorationLineType { None, Underline, Overline, LineThrough }
 public enum TextDecorationStyleType { Solid, Double, Dotted, Dashed, Wavy }
+
+/// <summary>
+/// A single applied text decoration, as derived from a style's text-decoration
+/// properties. Mirrors AppliedTextDecoration in core/style/applied_text_decoration.h.
+/// </summary>
+public sealed class AppliedTextDecoration
+{
+    public TextDecorationLineType Line { get; }
+    public TextDecorationStyleType Style { get; set; }
+    public SKColor Color { get; set; }
+    public float Thickness { get; }
+    public float UnderlineOffset { get; }
+
+    public AppliedTextDecoration(TextDecorationLineType line, TextDecorationStyleType style, SKColor color, float thickness, float underlineOffset)
+    {
+        Line = line;
+        Style = style;
+        Color = color;
+        Thickness = thickness;
+        UnderlineOffset = underlineOffset;
+    }
+
+    public bool HasUnderline => Line == TextDecorationLineType.Underline;
+
+    public override string ToString() => $"{Line} ({Style}) R={Color.Red} G={Color.Green} B={Color.Blue}";
+}
 public enum GridAutoFlowType { Row, Column, Dense }
 public enum ZoomType { Normal, Reset }
 
 public record BoxShadowValue(SKColor Color, float OffsetX, float OffsetY, float BlurRadius, float Spread, bool Inset = false);
 public record TextShadowValue(SKColor Color, float OffsetX, float OffsetY, float BlurRadius);
 
+public enum ReflectionDirectionType
+{
+    ReflectionAbove,
+    ReflectionBelow,
+    ReflectionLeft,
+    ReflectionRight,
+}
+
+/// <summary>
+/// The computed -webkit-box-reflect value. Mirrors StyleReflection in
+/// core/style/style_reflection.h: a direction, an offset and an optional
+/// mask nine-piece image.
+/// </summary>
+public sealed class StyleReflection
+{
+    public ReflectionDirectionType Direction { get; set; } = ReflectionDirectionType.ReflectionBelow;
+    public Length? Offset { get; set; }
+    public bool HasMask { get; set; }
+}
+
 public class BoxDimensions
 {
+    public ComputedStyle? Style { get; set; }
+    public Element? Element { get; set; }
+
     public float MarginTop { get; set; }
     public float MarginRight { get; set; }
     public float MarginBottom { get; set; }
@@ -952,6 +1073,17 @@ public class LayoutBox
 
     public LayoutBox? ContainingBlock { get; set; }
 
+    public LayoutBox? NextSibling
+    {
+        get
+        {
+            if (Parent == null) return null;
+            var siblings = Parent.Children;
+            int idx = siblings.IndexOf(this);
+            return idx >= 0 && idx + 1 < siblings.Count ? siblings[idx + 1] : null;
+        }
+    }
+
     public List<LineBox>? Lines { get; set; }
     public List<InlineRun>? LineRuns { get; set; }
     public bool IsFloating { get; set; }
@@ -962,8 +1094,8 @@ public class LayoutBox
     public float ScrollContentHeight { get; set; }
     public float ScrollX { get; set; }
     public float ScrollY { get; set; }
-    public float TargetScrollX { get; set; }
-    public float TargetScrollY { get; set; }
+    public float TargetScrollX { get; set; } = float.NaN;
+    public float TargetScrollY { get; set; } = float.NaN;
     public bool IsSmoothScrollingX { get; set; }
     public bool IsSmoothScrollingY { get; set; }
     public float ScrollVelX { get; set; }

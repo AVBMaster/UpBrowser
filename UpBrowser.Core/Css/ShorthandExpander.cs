@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 
 namespace UpBrowser.Core.Css;
@@ -30,7 +30,7 @@ public static class ShorthandExpander
             case "border-width": ExpandFourSides(result, "border", value, "width"); break;
             case "border-color": ExpandFourSides(result, "border", value, "color"); break;
             case "border-style": ExpandFourSides(result, "border", value, "style"); break;
-            case "border-radius": ExpandFourSides(result, "border", value, "radius"); break;
+            case "border-radius": ExpandBorderRadius(result, value); break;
             case "border-top": ExpandBorderSide(result, "border-top", value); break;
             case "border-right": ExpandBorderSide(result, "border-right", value); break;
             case "border-bottom": ExpandBorderSide(result, "border-bottom", value); break;
@@ -48,6 +48,8 @@ public static class ShorthandExpander
             case "text-decoration": ExpandTextDecoration(result, value); break;
             case "text-emphasis": ExpandTextEmphasis(result, value); break;
             case "gap": ExpandGap(result, value); break;
+        case "columns": ExpandColumns(result, value); break;
+        case "column-rule": ExpandColumnRule(result, value); break;
             case "inset": ExpandFourSides(result, "", value); break;
             case "overflow": ExpandOverflow(result, value); break;
             case "mask": result["mask-image"] = value; break;
@@ -55,6 +57,49 @@ public static class ShorthandExpander
         }
 
         return result;
+    }
+
+    private static void ExpandBorderRadius(Dictionary<string, string> result, string value)
+    {
+        // Fast path: no '/' (elliptical radii) 鈥?expand as a plain 1-4 value list.
+        if (!value.Contains('/'))
+        {
+            var parts = SplitShorthand(value);
+            string topLeft, topRight, bottomRight, bottomLeft;
+            switch (parts.Count)
+            {
+                case 1: topLeft = topRight = bottomRight = bottomLeft = parts[0]; break;
+                case 2: topLeft = bottomRight = parts[0]; topRight = bottomLeft = parts[1]; break;
+                case 3: topLeft = parts[0]; topRight = bottomLeft = parts[1]; bottomRight = parts[2]; break;
+                default: topLeft = parts[0]; topRight = parts[1]; bottomRight = parts[2]; bottomLeft = parts[3]; break;
+            }
+            result["border-top-left-radius"] = topLeft;
+            result["border-top-right-radius"] = topRight;
+            result["border-bottom-right-radius"] = bottomRight;
+            result["border-bottom-left-radius"] = bottomLeft;
+            return;
+        }
+
+        // Elliptical radii 'border-radius: h1 h2 / v1 v2': expand each corner to
+        // 'hw / vh' pairs the cascade parser understands (first value is the
+        // horizontal radius, second the vertical one).
+        var halves = value.Split('/');
+        var h = SplitShorthand(halves[0]);
+        var v = halves.Length > 1 ? SplitShorthand(halves[1]) : h;
+        int maxCount = Math.Max(h.Count, v.Count);
+        var hTopLeft = h[0];
+        var hTopRight = h.Count > 1 ? h[1] : h[0];
+        var hBottomRight = h.Count > 2 ? h[2] : h[0];
+        var hBottomLeft = h.Count > 3 ? h[3] : (h.Count > 1 ? h[1] : h[0]);
+        var vTopLeft = v[0];
+        var vTopRight = v.Count > 1 ? v[1] : v[0];
+        var vBottomRight = v.Count > 2 ? v[2] : v[0];
+        var vBottomLeft = v.Count > 3 ? v[3] : (v.Count > 1 ? v[1] : v[0]);
+
+        result["border-top-left-radius"] = $"{hTopLeft} {vTopLeft}";
+        result["border-top-right-radius"] = $"{hTopRight} {vTopRight}";
+        result["border-bottom-right-radius"] = $"{vBottomRight} {hBottomRight}";
+        result["border-bottom-left-radius"] = $"{vBottomLeft} {hBottomLeft}";
     }
 
     private static void ExpandFourSides(Dictionary<string, string> result, string prefix, string value, string? suffix = null)
@@ -412,13 +457,21 @@ public static class ShorthandExpander
         result["text-emphasis-style"] = "none";
         result["text-emphasis-color"] = "currentcolor";
 
+        var markParts = new List<string>();
         foreach (var part in parts)
         {
             var p = part.Trim();
-            if (p == "none" || p == "filled" || p == "open" || p == "dot" || p == "circle")
-                result["text-emphasis-style"] = p;
-            else if (IsColor(p))
+            if (IsColor(p))
                 result["text-emphasis-color"] = p;
+            else
+                markParts.Add(p);
+        }
+
+        if (markParts.Count > 0)
+        {
+            var style = string.Join(" ", markParts).Trim();
+            if (style == "auto") style = "filled dot";
+            result["text-emphasis-style"] = style;
         }
     }
 
@@ -437,9 +490,44 @@ public static class ShorthandExpander
         }
     }
 
-    private static void ExpandOverflow(Dictionary<string, string> result, string value)
+    /// <summary>
+    /// A5: `column-rule: &lt;width&gt; || &lt;style&gt; || &lt;color&gt;`.
+    /// </summary>
+    private static void ExpandColumnRule(Dictionary<string, string> result, string value)
     {
-        var parts = SplitShorthand(value);
+        foreach (var part in SplitShorthand(value))
+        {
+            var p = part.Trim().ToLowerInvariant();
+            if (string.IsNullOrEmpty(p)) continue;
+            if (IsBorderStyle(p))
+                result["column-rule-style"] = p;
+            else if (IsBorderWidth(p))
+                result["column-rule-width"] = p;
+            else if (IsColor(p))
+                result["column-rule-color"] = p;
+        }
+    }
+
+    /// <summary>
+    /// `columns: &lt;'column-width'&gt; || &lt;'column-count'&gt;` — per css-multicol
+    /// each of width/count may appear once in any order; an integer token is the
+    /// count, everything else (including `auto`) is the width.
+    /// </summary>
+    private static void ExpandColumns(Dictionary<string, string> result, string value)
+    {
+        foreach (var part in SplitShorthand(value))
+        {
+            var p = part.Trim();
+            if (p.Length == 0) continue;
+            if (int.TryParse(p, out _))
+                result["column-count"] = p;
+            else
+                result["column-width"] = p;
+        }
+    }
+
+    private static void ExpandOverflow(Dictionary<string, string> result, string value)
+    {        var parts = SplitShorthand(value);
         if (parts.Count >= 2)
         {
             result["overflow-x"] = parts[0].Trim();
@@ -452,7 +540,7 @@ public static class ShorthandExpander
         }
     }
 
-    private static List<string> SplitShorthand(string value)
+    internal static List<string> SplitShorthand(string value)
     {
         var parts = new List<string>();
         int depth = 0;

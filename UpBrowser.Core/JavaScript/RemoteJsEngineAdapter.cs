@@ -325,6 +325,10 @@ public class RemoteJsEngineAdapter : IJavaScriptEngineAdapter, IDisposable
                 "dom_getPropertyValue" => HandleDomGetPropertyValue(request, argsJson),
                 "dom_getProperty" => HandleDomGetProperty(request, argsJson),
                 "dom_setProperty" => HandleDomSetProperty(request, argsJson),
+                "dom_setStyleProperty" => HandleDomSetStyleProperty(request, argsJson),
+                "dom_getStyleProperty" => HandleDomGetStyleProperty(request, argsJson),
+                "dom_setCssText" => HandleDomSetCssText(request, argsJson),
+                "dom_getCssText" => HandleDomGetCssText(request, argsJson),
                 "dom_createElement" => HandleDomCreateElement(request, argsJson),
                 "dom_createElementBatch" => HandleDomCreateElementBatch(request, argsJson),
                 "dom_appendChild" => HandleDomAppendChild(request, argsJson),
@@ -855,6 +859,77 @@ public class RemoteJsEngineAdapter : IJavaScriptEngineAdapter, IDisposable
             return new IpcResponse { RequestId = request.RequestId, Success = false, Error = "Object not found" };
         }
         catch (Exception ex) { return new IpcResponse { RequestId = request.RequestId, Success = false, Error = ex.Message }; }
+    }
+
+    private IpcResponse HandleDomSetStyleProperty(IpcRequest request, string argsJson)
+    {
+        try
+        {
+            var el = GetDomObject(argsJson) as ElementHost;
+            if (el == null) return new IpcResponse { RequestId = request.RequestId, Success = false, Error = "Element not found" };
+            var name = ToKebabCase(GetStringArg(argsJson, 1) ?? "");
+            var v = GetStringArg(argsJson, 2);
+            if (string.IsNullOrEmpty(v))
+                el.style.removeProperty(name);
+            else
+                el.style.setProperty(name, v);
+            MarkDirty();
+            return RespondOk(request);
+        }
+        catch (Exception ex) { return new IpcResponse { RequestId = request.RequestId, Success = false, Error = ex.Message }; }
+    }
+
+    private IpcResponse HandleDomGetStyleProperty(IpcRequest request, string argsJson)
+    {
+        try
+        {
+            var el = GetDomObject(argsJson) as ElementHost;
+            if (el == null) return JsonResult(request, "");
+            var name = ToKebabCase(GetStringArg(argsJson, 1) ?? "");
+            return JsonResult(request, el.style.getPropertyValue(name) ?? "");
+        }
+        catch (Exception ex) { return new IpcResponse { RequestId = request.RequestId, Success = false, Error = ex.Message }; }
+    }
+
+    private IpcResponse HandleDomSetCssText(IpcRequest request, string argsJson)
+    {
+        try
+        {
+            var el = GetDomObject(argsJson) as ElementHost;
+            if (el == null) return new IpcResponse { RequestId = request.RequestId, Success = false, Error = "Element not found" };
+            el.style.cssText = GetStringArg(argsJson, 1) ?? "";
+            MarkDirty();
+            return RespondOk(request);
+        }
+        catch (Exception ex) { return new IpcResponse { RequestId = request.RequestId, Success = false, Error = ex.Message }; }
+    }
+
+    private IpcResponse HandleDomGetCssText(IpcRequest request, string argsJson)
+    {
+        try
+        {
+            var el = GetDomObject(argsJson) as ElementHost;
+            if (el == null) return JsonResult(request, "");
+            return JsonResult(request, el.style.cssText ?? "");
+        }
+        catch (Exception ex) { return new IpcResponse { RequestId = request.RequestId, Success = false, Error = ex.Message }; }
+    }
+
+    /// <summary>
+    /// JS style objects use camelCase CSS names (<c>backgroundColor</c>) while the
+    /// inline-style dictionary is kebab-case (<c>background-color</c>); names that
+    /// are already kebab-case pass through untouched.
+    /// </summary>
+    private static string ToKebabCase(string name)
+    {
+        if (string.IsNullOrEmpty(name) || name.Contains('-')) return name;
+        var sb = new System.Text.StringBuilder(name.Length + 4);
+        foreach (var ch in name)
+        {
+            if (char.IsUpper(ch)) { sb.Append('-'); sb.Append(char.ToLowerInvariant(ch)); }
+            else sb.Append(ch);
+        }
+        return sb.ToString();
     }
 
     private static void SetElProp(ElementHost el, string p, string v)

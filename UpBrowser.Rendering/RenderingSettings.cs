@@ -43,6 +43,7 @@ public class RenderingSettings
     private bool _showFps;
     private bool _showSettingsButton = true;
     private string _jsEngine = "Jint";
+    private bool _useCustomHtmlParser = true;
 
     public string JsEngine
     {
@@ -52,6 +53,20 @@ public class RenderingSettings
             if (_jsEngine != value)
             {
                 _jsEngine = value;
+                _preset = PerformancePreset.Custom;
+                NotifyChanged();
+            }
+        }
+    }
+
+    public bool UseCustomHtmlParser
+    {
+        get => _useCustomHtmlParser;
+        set
+        {
+            if (_useCustomHtmlParser != value)
+            {
+                _useCustomHtmlParser = value;
                 _preset = PerformancePreset.Custom;
                 NotifyChanged();
             }

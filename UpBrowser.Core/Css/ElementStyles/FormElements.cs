@@ -28,24 +28,25 @@ public static class FormElements
                 style.BorderRightStyle = BorderStyle.Inset;
                 style.BorderBottomStyle = BorderStyle.Inset;
                 style.BorderLeftStyle = BorderStyle.Inset;
-                style.BorderTopColor = SKColor.Parse("#767676");
-                style.BorderRightColor = SKColor.Parse("#767676");
-                style.BorderBottomColor = SKColor.Parse("#767676");
-                style.BorderLeftColor = SKColor.Parse("#767676");
                 style.BackgroundColor = SKColors.White;
-                style.FontSize = 14;
-                style.FontFamily = "Segoe UI, Arial, sans-serif";
+                style.Color = SKColors.Black;
+                style.FontSize = 13.3333f;
+                style.FontFamily = "Arial";
+                style.FontWeight = FontWeight.Normal;
                 style.Cursor = "text";
-                style.VerticalAlign = VerticalAlignType.Middle;
-                style.LineHeight = 1.15f;
                 style.BoxSizing = BoxSizingType.BorderBox;
+                style.LineHeight = 1.0f;
+                Fonts.LineBoxMetrics.SetMultiplier(style, 1.0f);
+                style.LetterSpacing = 0;
+                style.WordSpacing = 0;
+                style.TextIndent = 0;
+                style.TextTransform = "none";
 
                 switch (inputType)
                 {
                     case "checkbox":
-                    case "radio":
-                        style.Width = new PixelLength(16);
-                        style.Height = new PixelLength(16);
+                        style.Width = new PixelLength(13);
+                        style.Height = new PixelLength(13);
                         style.BorderTopWidth = 0;
                         style.BorderRightWidth = 0;
                         style.BorderBottomWidth = 0;
@@ -56,46 +57,38 @@ public static class FormElements
                         style.PaddingRight = new PixelLength(0);
                         style.Cursor = "default";
                         style.BackgroundColor = SKColors.Transparent;
-                        style.MarginTop = new PixelLength(3);
-                        style.MarginBottom = new PixelLength(3);
-                        style.MarginLeft = new PixelLength(4);
-                        style.MarginRight = new PixelLength(3);
+                        break;
+                    case "radio":
+                        style.Width = new PixelLength(13);
+                        style.Height = new PixelLength(13);
+                        style.BorderTopWidth = 0;
+                        style.BorderRightWidth = 0;
+                        style.BorderBottomWidth = 0;
+                        style.BorderLeftWidth = 0;
+                        style.PaddingTop = new PixelLength(0);
+                        style.PaddingBottom = new PixelLength(0);
+                        style.PaddingLeft = new PixelLength(0);
+                        style.PaddingRight = new PixelLength(0);
+                        style.Cursor = "default";
+                        style.BackgroundColor = SKColors.Transparent;
                         break;
                     case "button":
                     case "submit":
                     case "reset":
-                        style.Display = DisplayType.InlineBlock;
-                        style.BoxSizing = BoxSizingType.BorderBox;
-                        style.BorderTopWidth = 2;
-                        style.BorderRightWidth = 2;
-                        style.BorderBottomWidth = 2;
-                        style.BorderLeftWidth = 2;
                         style.BorderTopStyle = BorderStyle.Outset;
                         style.BorderRightStyle = BorderStyle.Outset;
                         style.BorderBottomStyle = BorderStyle.Outset;
                         style.BorderLeftStyle = BorderStyle.Outset;
-                        style.BorderTopColor = SKColor.Parse("#808080");
-                        style.BorderRightColor = SKColor.Parse("#808080");
-                        style.BorderBottomColor = SKColor.Parse("#808080");
-                        style.BorderLeftColor = SKColor.Parse("#808080");
                         style.PaddingTop = new PixelLength(1);
                         style.PaddingBottom = new PixelLength(1);
                         style.PaddingLeft = new PixelLength(6);
                         style.PaddingRight = new PixelLength(6);
                         style.BackgroundColor = SKColor.Parse("#E1E1E1");
-                        style.Color = SKColors.Black;
-                        style.FontSize = 14;
-                        style.FontFamily = "Segoe UI, Arial, sans-serif";
-                        style.TextAlign = TextAlignType.Center;
                         style.Cursor = "default";
                         style.WhiteSpace = WhiteSpaceMode.Nowrap;
-                        style.LineHeight = 1.2f;
                         break;
                     case "file":
                         style.Cursor = "default";
-                        style.PaddingLeft = new PixelLength(2);
-                        style.PaddingRight = new PixelLength(2);
-                        style.BoxSizing = BoxSizingType.BorderBox;
                         break;
                     case "image":
                         style.Cursor = "pointer";
@@ -113,20 +106,20 @@ public static class FormElements
                         style.Display = DisplayType.None;
                         break;
                     case "range":
-                        style.PaddingTop = new PixelLength(2);
-                        style.PaddingBottom = new PixelLength(2);
-                        style.PaddingLeft = new PixelLength(2);
-                        style.PaddingRight = new PixelLength(2);
                         style.BorderTopWidth = 0;
                         style.BorderRightWidth = 0;
                         style.BorderBottomWidth = 0;
                         style.BorderLeftWidth = 0;
+                        style.PaddingTop = new PixelLength(0);
+                        style.PaddingBottom = new PixelLength(0);
+                        style.PaddingLeft = new PixelLength(0);
+                        style.PaddingRight = new PixelLength(0);
                         style.Cursor = "default";
                         style.BackgroundColor = SKColors.Transparent;
                         break;
                     case "color":
-                        style.Width = new PixelLength(50);
-                        style.Height = new PixelLength(30);
+                        style.Width = new PixelLength(44);
+                        style.Height = new PixelLength(23);
                         style.BorderTopWidth = 1;
                         style.BorderRightWidth = 1;
                         style.BorderBottomWidth = 1;
@@ -135,19 +128,14 @@ public static class FormElements
                         style.BorderRightStyle = BorderStyle.Solid;
                         style.BorderBottomStyle = BorderStyle.Solid;
                         style.BorderLeftStyle = BorderStyle.Solid;
-                        style.BorderTopColor = SKColor.Parse("#767676");
-                        style.BorderRightColor = SKColor.Parse("#767676");
-                        style.BorderBottomColor = SKColor.Parse("#767676");
-                        style.BorderLeftColor = SKColor.Parse("#767676");
                         style.PaddingTop = new PixelLength(1);
                         style.PaddingBottom = new PixelLength(1);
-                        style.PaddingLeft = new PixelLength(1);
-                        style.PaddingRight = new PixelLength(1);
+                        style.PaddingLeft = new PixelLength(2);
+                        style.PaddingRight = new PixelLength(2);
                         style.BackgroundColor = SKColor.Parse("#E1E1E1");
                         style.Cursor = "default";
                         break;
                     case "search":
-                        style.BoxSizing = BoxSizingType.BorderBox;
                         break;
                     case "password":
                         style.Cursor = "text";
@@ -167,21 +155,17 @@ public static class FormElements
                 style.BorderRightStyle = BorderStyle.Inset;
                 style.BorderBottomStyle = BorderStyle.Inset;
                 style.BorderLeftStyle = BorderStyle.Inset;
-                style.BorderTopColor = SKColor.Parse("#767676");
-                style.BorderRightColor = SKColor.Parse("#767676");
-                style.BorderBottomColor = SKColor.Parse("#767676");
-                style.BorderLeftColor = SKColor.Parse("#767676");
                 style.PaddingTop = new PixelLength(2);
                 style.PaddingBottom = new PixelLength(2);
                 style.PaddingLeft = new PixelLength(2);
                 style.PaddingRight = new PixelLength(2);
                 style.BackgroundColor = SKColors.White;
                 style.Color = SKColors.Black;
-                style.FontSize = 14;
+                style.FontSize = 13.3333f;
                 style.FontFamily = "monospace";
                 style.WhiteSpace = WhiteSpaceMode.PreWrap;
+                style.OverflowWrap = OverflowWrapMode.BreakWord;
                 style.Cursor = "text";
-                style.LineHeight = 1.2f;
                 style.Resize = ResizeType.Both;
                 break;
 
@@ -197,20 +181,15 @@ public static class FormElements
                 style.BorderRightStyle = BorderStyle.Inset;
                 style.BorderBottomStyle = BorderStyle.Inset;
                 style.BorderLeftStyle = BorderStyle.Inset;
-                style.BorderTopColor = SKColor.Parse("#767676");
-                style.BorderRightColor = SKColor.Parse("#767676");
-                style.BorderBottomColor = SKColor.Parse("#767676");
-                style.BorderLeftColor = SKColor.Parse("#767676");
-                style.PaddingTop = new PixelLength(2);
-                style.PaddingBottom = new PixelLength(2);
-                style.PaddingLeft = new PixelLength(4);
-                style.PaddingRight = new PixelLength(4);
+                style.PaddingTop = new PixelLength(1);
+                style.PaddingBottom = new PixelLength(1);
+                style.PaddingLeft = new PixelLength(2);
+                style.PaddingRight = new PixelLength(2);
                 style.BackgroundColor = SKColors.White;
                 style.Color = SKColors.Black;
-                style.FontSize = 14;
-                style.FontFamily = "Segoe UI, Arial, sans-serif";
+                style.FontSize = 13.3333f;
+                style.FontFamily = "Arial";
                 style.Cursor = "default";
-                style.LineHeight = 1.2f;
                 style.WhiteSpace = WhiteSpaceMode.Nowrap;
                 break;
 
@@ -226,24 +205,18 @@ public static class FormElements
                 style.BorderRightStyle = BorderStyle.Outset;
                 style.BorderBottomStyle = BorderStyle.Outset;
                 style.BorderLeftStyle = BorderStyle.Outset;
-                style.BorderTopColor = SKColor.Parse("#808080");
-                style.BorderRightColor = SKColor.Parse("#808080");
-                style.BorderBottomColor = SKColor.Parse("#808080");
-                style.BorderLeftColor = SKColor.Parse("#808080");
                 style.PaddingTop = new PixelLength(1);
                 style.PaddingBottom = new PixelLength(1);
                 style.PaddingLeft = new PixelLength(6);
                 style.PaddingRight = new PixelLength(6);
                 style.BackgroundColor = SKColor.Parse("#E1E1E1");
                 style.Color = SKColors.Black;
-                style.FontSize = 14;
+                style.FontSize = 13.3333f;
                 style.FontWeight = FontWeight.Normal;
-                style.FontFamily = "Segoe UI, Arial, sans-serif";
+                style.FontFamily = "Arial";
                 style.TextAlign = TextAlignType.Center;
-                style.LineHeight = 1.2f;
                 style.Cursor = "default";
                 style.WhiteSpace = WhiteSpaceMode.Nowrap;
-                style.VerticalAlign = VerticalAlignType.Middle;
                 break;
 
             case "fieldset":
@@ -256,32 +229,18 @@ public static class FormElements
                 style.BorderRightStyle = BorderStyle.Groove;
                 style.BorderBottomStyle = BorderStyle.Groove;
                 style.BorderLeftStyle = BorderStyle.Groove;
-                style.BorderTopColor = SKColor.Parse("#808080");
-                style.BorderRightColor = SKColor.Parse("#808080");
-                style.BorderBottomColor = SKColor.Parse("#808080");
-                style.BorderLeftColor = SKColor.Parse("#808080");
-                style.PaddingTop = new PixelLength(8);
-                style.PaddingBottom = new PixelLength(10);
-                style.PaddingLeft = new PixelLength(12);
-                style.PaddingRight = new PixelLength(12);
-                style.MarginTop = new PixelLength(2);
-                style.MarginBottom = new PixelLength(2);
+                style.PaddingTop = new PixelLength(6);
+                style.PaddingBottom = new PixelLength(12);
+                style.PaddingLeft = new PixelLength(10);
+                style.PaddingRight = new PixelLength(10);
                 style.MarginLeft = new PixelLength(2);
                 style.MarginRight = new PixelLength(2);
-                style.BackgroundColor = SKColors.Transparent;
-                style.AlignItems = AlignItemsType.Stretch;
                 break;
 
             case "legend":
                 style.Display = DisplayType.Block;
-                style.FontWeight = FontWeight.Bold;
-                style.FontSize = 14;
-                style.FontFamily = "Segoe UI, Arial, sans-serif";
-                style.PaddingLeft = new PixelLength(4);
-                style.PaddingRight = new PixelLength(4);
-                style.MarginTop = new PixelLength(-4);
-                style.MarginBottom = new PixelLength(2);
-                style.Color = SKColors.Black;
+                style.PaddingLeft = new PixelLength(2);
+                style.PaddingRight = new PixelLength(2);
                 break;
 
             case "label":
@@ -291,7 +250,6 @@ public static class FormElements
 
             case "output":
                 style.Display = DisplayType.Inline;
-                style.FontFamily = "Segoe UI, Arial, sans-serif";
                 break;
 
             case "datalist":
@@ -301,21 +259,10 @@ public static class FormElements
             case "optgroup":
                 style.Display = DisplayType.Block;
                 style.FontWeight = FontWeight.Bold;
-                style.PaddingLeft = new PixelLength(8);
-                style.PaddingRight = new PixelLength(8);
-                style.PaddingTop = new PixelLength(2);
-                style.PaddingBottom = new PixelLength(2);
-                style.FontFamily = "Segoe UI, Arial, sans-serif";
                 break;
 
             case "option":
                 style.Display = DisplayType.Block;
-                style.PaddingLeft = new PixelLength(8);
-                style.PaddingRight = new PixelLength(8);
-                style.PaddingTop = new PixelLength(2);
-                style.PaddingBottom = new PixelLength(2);
-                style.FontFamily = "Segoe UI, Arial, sans-serif";
-                style.FontSize = 14;
                 break;
 
             case "form":
@@ -329,17 +276,13 @@ public static class FormElements
                 style.Appearance = "auto";
                 style.BoxSizing = BoxSizingType.BorderBox;
                 style.VerticalAlign = VerticalAlignType.Middle;
-                style.Height = new PixelLength(20);
-                style.Width = new PixelLength(150);
+                style.Width = new PixelLength(160);
+                style.Height = new PixelLength(16);
                 style.BorderTopWidth = 0;
                 style.BorderRightWidth = 0;
                 style.BorderBottomWidth = 0;
                 style.BorderLeftWidth = 0;
                 style.BackgroundColor = SKColors.Transparent;
-                style.PaddingTop = new PixelLength(2);
-                style.PaddingBottom = new PixelLength(2);
-                style.PaddingLeft = new PixelLength(2);
-                style.PaddingRight = new PixelLength(2);
                 break;
 
             case "meter":
@@ -347,34 +290,13 @@ public static class FormElements
                 style.Appearance = "auto";
                 style.BoxSizing = BoxSizingType.BorderBox;
                 style.VerticalAlign = VerticalAlignType.Middle;
-                style.Height = new PixelLength(20);
-                style.Width = new PixelLength(150);
+                style.Width = new PixelLength(160);
+                style.Height = new PixelLength(16);
                 style.BorderTopWidth = 0;
                 style.BorderRightWidth = 0;
                 style.BorderBottomWidth = 0;
                 style.BorderLeftWidth = 0;
                 style.BackgroundColor = SKColors.Transparent;
-                style.PaddingTop = new PixelLength(2);
-                style.PaddingBottom = new PixelLength(2);
-                style.PaddingLeft = new PixelLength(2);
-                style.PaddingRight = new PixelLength(2);
-                break;
-
-            case "keygen":
-                style.Display = DisplayType.InlineBlock;
-                style.BorderTopWidth = 1;
-                style.BorderRightWidth = 1;
-                style.BorderBottomWidth = 1;
-                style.BorderLeftWidth = 1;
-                style.BorderTopColor = SKColor.Parse("#DADCE0");
-                style.BorderRightColor = SKColor.Parse("#DADCE0");
-                style.BorderBottomColor = SKColor.Parse("#DADCE0");
-                style.BorderLeftColor = SKColor.Parse("#DADCE0");
-                break;
-
-            case "menu":
-                style.Display = DisplayType.Block;
-                style.ListStyleType = ListStyleType.Disc;
                 break;
         }
     }

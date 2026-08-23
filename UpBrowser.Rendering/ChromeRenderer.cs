@@ -171,7 +171,7 @@ public class ChromeRenderer : IImeSupport
         _selectionPaint = new SKPaint { Color = SKColor.Parse("#D2E3FC"), Style = SKPaintStyle.Fill };
 
         _lockPaint = new SKPaint { Color = SKColor.Parse("#34A853"), IsAntialias = true, Style = SKPaintStyle.Stroke, StrokeWidth = 1.5f };
-        _infoPaint = new SKPaint { Color = SKColor.Parse("#F9AB00"), IsAntialias = true };
+        _infoPaint = new SKPaint { Color = SKColor.Parse("#F9A0"), IsAntialias = true };
 
         _newTabBgPaint = new SKPaint { Color = SKColor.Parse("#E8EAED"), Style = SKPaintStyle.Fill, IsAntialias = true };
         _newTabHoverBgPaint = new SKPaint { Color = SKColor.Parse("#DADCE0"), Style = SKPaintStyle.Fill, IsAntialias = true };

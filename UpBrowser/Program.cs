@@ -13,6 +13,12 @@ class Program
             Log(ex.StackTrace ?? "[Main] No stack trace");
         };
 
+        if (args.Length > 0 && (args[0] == "--snapshot" || args[0] == "--diff" || args[0] == "--dumplayout"))
+        {
+            Environment.ExitCode = SnapshotCli.Run(args);
+            return;
+        }
+
         Log("[Main] Starting UpBrowser");
         Log($"[Main] OS: {Environment.OSVersion.VersionString}");
         Log($"[Main] Platform: {RuntimeInformation.OSDescription}");
@@ -21,7 +27,8 @@ class Program
         try
         {
             Log("[Main] Creating BrowserApp...");
-            var app = new BrowserApp(1024, 768);
+            string? startupUrl = args.Length > 0 && !args[0].StartsWith("--") ? args[0] : null;
+            var app = new BrowserApp(1024, 768, startupUrl);
             Log("[Main] BrowserApp created successfully");
 
             Log("[Main] Starting RunAsync...");

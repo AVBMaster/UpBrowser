@@ -1,4 +1,4 @@
-using System.Diagnostics.CodeAnalysis;
+﻿using System.Diagnostics.CodeAnalysis;
 using System.Threading;
 using UpBrowser.Core.Dom;
 using UpBrowser.Core.Dom.Html;
@@ -368,6 +368,13 @@ public class ElementHost
 
     public void scrollIntoView(bool alignToTop = true)
     {
+        _element.ScrollIntoView(alignToTop);
+    }
+
+    /// <summary>ScrollIntoView with options object (behavior/block/inline).</summary>
+    public void scrollIntoViewOptions(ScrollIntoViewOptions? options)
+    {
+        _element.ScrollIntoView(options);
     }
 
     public DomRect getBoundingClientRect()
@@ -464,9 +471,17 @@ public class ElementHost
         }
     }
 
-    public double scrollLeft { get; set; }
+    public double scrollLeft
+    {
+        get => _element.LayoutBox?.ScrollX ?? 0;
+        set { if (_element.LayoutBox != null) _element.LayoutBox.ScrollX = (float)value; }
+    }
 
-    public double scrollTop { get; set; }
+    public double scrollTop
+    {
+        get => _element.LayoutBox?.ScrollY ?? 0;
+        set { if (_element.LayoutBox != null) _element.LayoutBox.ScrollY = (float)value; }
+    }
 
     public float offsetTop 
     {

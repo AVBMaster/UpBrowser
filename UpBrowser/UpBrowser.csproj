@@ -42,9 +42,20 @@
 		<PropertyGroup>
 			<JsEngineHostTFM Condition="$([MSBuild]::IsOSPlatform('Windows'))">net10.0-windows</JsEngineHostTFM>
 			<JsEngineHostTFM Condition="!$([MSBuild]::IsOSPlatform('Windows'))">net10.0</JsEngineHostTFM>
+			<JsEngineHostOutDir Condition="$([MSBuild]::IsOSPlatform('Windows'))">$(MSBuildThisFileDirectory)..\UpBrowser.JsEngineHost\bin\$(Configuration)\net10.0-windows\</JsEngineHostOutDir>
+			<JsEngineHostOutDir Condition="!$([MSBuild]::IsOSPlatform('Windows'))">$(MSBuildThisFileDirectory)..\UpBrowser.JsEngineHost\bin\$(Configuration)\net10.0\</JsEngineHostOutDir>
 		</PropertyGroup>
 		<Exec Command="dotnet restore &quot;..\UpBrowser.JsEngineHost\UpBrowser.JsEngineHost.csproj&quot;" />
-		<Exec Command="dotnet build &quot;..\UpBrowser.JsEngineHost\UpBrowser.JsEngineHost.csproj&quot; -c $(Configuration) -f $(JsEngineHostTFM)" />
+		<!--
+		  Plain build with an explicit framework-dependent override: the host
+		  csproj defaults to SelfContained=true, which silently pushes its output
+		  into a self-contained RID subfolder (win-x64\) whose runtimeconfig has
+		  no framework reference. Copying THAT into the app directory hijacked
+		  the apphost's runtime resolution and broke startup. Building with
+		  SelfContained=false keeps the flat TFM folder as the single output
+		  location, framework-dependent like the installed shared runtime.
+		-->
+		<Exec Command="dotnet build &quot;..\UpBrowser.JsEngineHost\UpBrowser.JsEngineHost.csproj&quot; -c $(Configuration) -f $(JsEngineHostTFM) -p:SelfContained=false" />
 	</Target>
 
 	<Target Name="CopyJsEngineHostOutput" AfterTargets="Build" DependsOnTargets="EnsureJsEngineHostBuilt">
@@ -56,8 +67,8 @@
 			<JsEngineHostFiles Include="$(JsEngineHostOutDir)UpBrowser.JsEngineHost.*" />
 			<JsEngineHostFiles Include="$(JsEngineHostOutDir)*.dll" />
 		</ItemGroup>
-		<Copy SourceFiles="@(JsEngineHostFiles)" DestinationFolder="$(TargetDir)" OverwriteReadOnlyFiles="true" />
-		<Message Text="Copied @(JsEngineHostFiles-&gt;Count()) JsEngineHost files from $(JsEngineHostOutDir) to $(TargetDir)" Importance="high" />
+		<Copy SourceFiles="@(JsEngineHostFiles)" DestinationFolder="$(TargetDir)" OverwriteReadOnlyFiles="true" SkipUnchangedFiles="true" />
+		<Message Text="Copied @(JsEngineHostFiles->Count()) JsEngineHost files from $(JsEngineHostOutDir) to $(TargetDir)" Importance="high" />
 	</Target>
 
 	<!-- 发布时自动编译 JsEngineHost 并复制到输出目录 -->

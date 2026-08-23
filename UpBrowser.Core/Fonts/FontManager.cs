@@ -277,7 +277,7 @@ public class FontFallbackChain
                 "trebuchet" => new() { "Trebuchet MS" },
                 "arial-black" => new() { "Arial Black", "Impact" },
                 "impact" => new() { "Impact", "Arial Black" },
-                "generic-fallback" => new() { "Segoe UI", "Arial", "Times New Roman", "Microsoft YaHei", "Segoe UI Emoji" },
+                "generic-fallback" => new() { "Segoe UI", "Arial", "Times New Roman", "Microsoft YaHei", "Segoe UI Emoji", "Segoe UI Symbol" },
                 _ => new() { "Segoe UI" }
             };
         }
