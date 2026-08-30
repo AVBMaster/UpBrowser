@@ -1,10 +1,11 @@
 ﻿using SkiaSharp;
 using UpBrowser.Core.Dom;
+using UpBrowser.Core.Layout;
 
 namespace UpBrowser.Core.Layout.Grid;
 
 /// <summary>
-/// CSS Grid Layout Algorithm, mirroring Blink's GridLayoutAlgorithm.
+/// CSS Grid Layout Algorithm, mirroring the engine's grid layout algorithm.
 /// Implements the full grid track sizing algorithm per CSS Grid spec:
 /// 1. Init track sizes
 /// 2. Resolve intrinsic track sizes (min-content, max-content, auto)
@@ -16,20 +17,24 @@ namespace UpBrowser.Core.Layout.Grid;
 public class GridLayoutAlgorithm
 {
     private readonly ITextMeasurer? _textMeasurer;
-    private readonly Func<Element, float, float, float, LayoutBox?, LayoutBox?> _createLayoutBox;
-    private readonly LayoutEngine _engine;
+    private readonly ConstraintSpace _space;
+    private readonly float _rootFontSize;
+    private readonly float _viewportWidth;
+    private readonly float _viewportHeight;
     private ComputedStyle? _containerStyle;
     private float _containerWidth;
     private float _containerHeight;
+    private bool _containerHeightAuto;
 
     public GridLayoutAlgorithm(
         ITextMeasurer? textMeasurer,
-        Func<Element, float, float, float, LayoutBox?, LayoutBox?> createLayoutBox,
-        LayoutEngine engine)
+        in ConstraintSpace space)
     {
         _textMeasurer = textMeasurer;
-        _createLayoutBox = createLayoutBox;
-        _engine = engine;
+        _space = space;
+        _rootFontSize = space.RootFontSize;
+        _viewportWidth = space.ViewportWidth;
+        _viewportHeight = space.ViewportHeight;
     }
 
     public void Layout(Element gridContainer, LayoutBox containerBox, float availableWidth)
@@ -39,9 +44,10 @@ public class GridLayoutAlgorithm
 
         _containerWidth = containerBox.ContentBox.Width;
         _containerHeight = containerBox.ContentBox.Height;
+        _containerHeightAuto = !_space.HasDefiniteBlockSize;
 
-        float rowGap = _containerStyle.RowGap.ToPixels(_containerStyle.FontSize, _engine.RootFontSize, _engine.ViewportWidth, _engine.ViewportHeight);
-        float columnGap = _containerStyle.ColumnGap.ToPixels(_containerStyle.FontSize, _engine.RootFontSize, _engine.ViewportWidth, _engine.ViewportHeight);
+        float rowGap = _containerStyle.RowGap.ToPixels(_containerStyle.FontSize, _rootFontSize, _viewportWidth, _viewportHeight);
+        float columnGap = _containerStyle.ColumnGap.ToPixels(_containerStyle.FontSize, _rootFontSize, _viewportWidth, _viewportHeight);
 
         var explicitColumns = ParseTrackList("grid-template-columns", _containerWidth);
         var explicitRows = ParseTrackList("grid-template-rows", _containerHeight);
@@ -51,7 +57,7 @@ public class GridLayoutAlgorithm
 
         ExpandImplicitTracks(items, ref explicitColumns, ref explicitRows);
 
-        // Blink track sizing algorithm
+        // Track sizing algorithm
         ResolveTracks(explicitColumns, items, _containerWidth, columnGap, isColumn: true);
         ResolveTracks(explicitRows, items, _containerHeight, rowGap, isColumn: false);
 
@@ -116,7 +122,7 @@ public class GridLayoutAlgorithm
 
                 if (autoFill)
                 {
-                    float totalGap = _containerStyle?.ColumnGap.ToPixels(_containerStyle.FontSize, _engine.RootFontSize, _engine.ViewportWidth, _engine.ViewportHeight) ?? 0;
+                    float totalGap = _containerStyle?.ColumnGap.ToPixels(_containerStyle.FontSize, _rootFontSize, _viewportWidth, _viewportHeight) ?? 0;
                     float totalTrackSize = 0;
                     foreach (var t in repeatTracks)
                         totalTrackSize += t.BaseSize;
@@ -184,12 +190,12 @@ public class GridLayoutAlgorithm
         else if (value.EndsWith("px") && TryParseFloat(value[..^2], out var px)) { track.SizeType = TrackSizeType.Fixed; track.FixedSize = px; }
         else if (value.EndsWith("%") && TryParseFloat(value[..^1], out var pct)) { track.SizeType = TrackSizeType.Percentage; track.Percentage = pct / 100f; }
         else if (value.EndsWith("em") && TryParseFloat(value[..^2], out var em)) { track.SizeType = TrackSizeType.Fixed; track.FixedSize = em * (_containerStyle?.FontSize ?? 16); }
-        else if (value.EndsWith("rem") && TryParseFloat(value[..^3], out var rem)) { track.SizeType = TrackSizeType.Fixed; track.FixedSize = rem * _engine.RootFontSize; }
-        else if (value.EndsWith("vw") && TryParseFloat(value[..^2], out var vw)) { track.SizeType = TrackSizeType.Fixed; track.FixedSize = vw * _engine.ViewportWidth / 100f; }
-        else if (value.EndsWith("vh") && TryParseFloat(value[..^2], out var vh)) { track.SizeType = TrackSizeType.Fixed; track.FixedSize = vh * _engine.ViewportHeight / 100f; }
+        else if (value.EndsWith("rem") && TryParseFloat(value[..^3], out var rem)) { track.SizeType = TrackSizeType.Fixed; track.FixedSize = rem * _rootFontSize; }
+        else if (value.EndsWith("vw") && TryParseFloat(value[..^2], out var vw)) { track.SizeType = TrackSizeType.Fixed; track.FixedSize = vw * _viewportWidth / 100f; }
+        else if (value.EndsWith("vh") && TryParseFloat(value[..^2], out var vh)) { track.SizeType = TrackSizeType.Fixed; track.FixedSize = vh * _viewportHeight / 100f; }
         else if (value == "0") { track.SizeType = TrackSizeType.Fixed; track.FixedSize = 0; }
 
-        track.BaseSize = track.ResolveSize(containerSize, _containerStyle?.FontSize ?? 16, _engine.ViewportWidth, _engine.ViewportHeight);
+        track.BaseSize = track.ResolveSize(containerSize, _containerStyle?.FontSize ?? 16, _viewportWidth, _viewportHeight);
         return track;
     }
 
@@ -312,7 +318,7 @@ public class GridLayoutAlgorithm
             items.Add(item);
         }
 
-        // Auto-placement with Blink-style dense packing
+        // Auto-placement with dense packing
         if (densePacking)
         {
             // Dense: place each auto item at the earliest possible position
@@ -495,7 +501,7 @@ public class GridLayoutAlgorithm
 
         // Step 1: Initialize base sizes from min/max constraints
         foreach (var track in tracks)
-            track.Initialize(containerSize, _containerStyle?.FontSize ?? 16, _engine.ViewportWidth, _engine.ViewportHeight);
+            track.Initialize(containerSize, _containerStyle?.FontSize ?? 16, _viewportWidth, _viewportHeight);
 
         // Step 2: Calculate item contributions for intrinsic sizing
         foreach (var item in items)
@@ -507,7 +513,7 @@ public class GridLayoutAlgorithm
             {
                 int start = item.ColumnStart - 1;
                 int end = item.ColumnEnd - 1;
-                float itemSize = ResolveDefiniteSize(style.Width, containerSize, style.FontSize, _engine.RootFontSize);
+                float itemSize = ResolveDefiniteSize(style.Width, containerSize, style.FontSize, _rootFontSize);
 
                 if (itemSize > 0)
                 {
@@ -523,7 +529,7 @@ public class GridLayoutAlgorithm
             {
                 int start = item.RowStart - 1;
                 int end = item.RowEnd - 1;
-                float itemSize = ResolveDefiniteSize(style.Height, containerSize, style.FontSize, _engine.RootFontSize);
+                float itemSize = ResolveDefiniteSize(style.Height, containerSize, style.FontSize, _rootFontSize);
 
                 if (itemSize > 0)
                 {
@@ -671,9 +677,16 @@ public class GridLayoutAlgorithm
             float cellW = colOffsets[colEnd] - colOffsets[col];
             float cellH = rowOffsets[rowEnd] - rowOffsets[row];
 
-            // Lay out the item
-            var childBox = _createLayoutBox(item.Element, 0, 0, cellW, null);
-            if (childBox == null) continue;
+            // Lay out the item at the cell's inline size and convert the real
+            // fragment (text runs, line boxes, nested children) into the layout
+            // box tree — the same per-child dispatch flex uses, so a grid item's
+            // nested formatting contexts (flex/grid/table/replaced) are covered.
+            var childSpace = _space.InheritBuilder(cellW, float.PositiveInfinity)
+                .SetIsFixedInlineSize(true)
+                .SetIsNewFormattingContext(true)
+                .ToConstraintSpace();
+            var itemResult = new BlockLayoutAlgorithm(item.Element, childSpace).Layout();
+            var childBox = AuroraFragmentConverter.ToLayoutBox(itemResult.Fragment, item.Element, containerBox);
 
             float itemW = childBox.ContentBox.Width;
             float itemH = childBox.ContentBox.Height;
@@ -683,29 +696,109 @@ public class GridLayoutAlgorithm
             var justifySelf = ParseJustifySelf(style.JustifySelf ?? "auto", justifyItems);
             var alignSelf = ParseAlignSelfEnum(style.AlignSelf, alignItems);
 
-            float finalX = cellX + GetAlignmentOffset(cellW, itemW, justifySelf);
-            float finalY = cellY + GetAlignmentOffset(cellH, itemH, alignSelf);
+            // An auto-sized item stretches to fill its cell (CSS grid default);
+            // an item with a definite size keeps it and is aligned in the cell.
+            bool stretchInline = justifySelf == JustifyItemsType.Stretch && (style.Width is AutoLength or null);
+            bool stretchBlock = alignSelf == AlignItemsType.Stretch && (style.Height is AutoLength or null);
 
-            // Translate the child box
-            float dx = finalX - childBox.MarginBox.Left;
-            float dy = finalY - childBox.MarginBox.Top;
-            childBox.MarginBox = new SKRect(
-                childBox.MarginBox.Left + dx, childBox.MarginBox.Top + dy,
-                childBox.MarginBox.Right + dx, childBox.MarginBox.Bottom + dy);
-            childBox.BorderBox = new SKRect(
-                childBox.BorderBox.Left + dx, childBox.BorderBox.Top + dy,
-                childBox.BorderBox.Right + dx, childBox.BorderBox.Bottom + dy);
-            childBox.PaddingBox = new SKRect(
-                childBox.PaddingBox.Left + dx, childBox.PaddingBox.Top + dy,
-                childBox.PaddingBox.Right + dx, childBox.PaddingBox.Bottom + dy);
-            childBox.ContentBox = new SKRect(
-                childBox.ContentBox.Left + dx, childBox.ContentBox.Top + dy,
-                childBox.ContentBox.Right + dx, childBox.ContentBox.Bottom + dy);
+            float alignW = stretchInline ? cellW : itemW;
+            float alignH = stretchBlock ? cellH : itemH;
+
+            float finalX = cellX + GetAlignmentOffset(cellW, alignW, justifySelf);
+            float finalY = cellY + GetAlignmentOffset(cellH, alignH, alignSelf);
+
+            // Translate the child box and its subtree (lines, runs, children)
+            // to the aligned position within the grid content box.
+            TranslateBox(childBox, finalX - childBox.BorderBox.Left, finalY - childBox.BorderBox.Top);
+
+            if (stretchInline || stretchBlock)
+                ExpandBoxToCell(childBox,
+                    stretchInline ? cellW : childBox.BorderBox.Width,
+                    stretchBlock ? cellH : childBox.BorderBox.Height);
 
             childBox.Float = FloatType.None;
 
             // Add to container
             containerBox.Children.Add(childBox);
+        }
+
+        // Reflect the laid-out content height (row tracks + gaps) on the
+        // container box so auto-height grids report a real content box instead
+        // of the placeholder seeded for track unit resolution.
+        float contentEnd = rowOffsets[rows.Count];
+        containerBox.ContentBox = new SKRect(
+            containerBox.ContentBox.Left,
+            containerBox.ContentBox.Top,
+            containerBox.ContentBox.Right,
+            _containerHeightAuto ? Math.Max(containerBox.ContentBox.Top, contentEnd)
+                                 : Math.Max(containerBox.ContentBox.Bottom, contentEnd));
+    }
+
+    /// <summary>
+    /// Shift a converted layout box subtree by (dx, dy) without disturbing the
+    /// offsets between lines/runs/children (they all move together).
+    /// </summary>
+    private static void TranslateBox(Dom.LayoutBox box, float dx, float dy)
+    {
+        if (dx == 0 && dy == 0) return;
+
+        box.MarginBox = Offset(box.MarginBox, dx, dy);
+        box.BorderBox = Offset(box.BorderBox, dx, dy);
+        box.PaddingBox = Offset(box.PaddingBox, dx, dy);
+        box.ContentBox = Offset(box.ContentBox, dx, dy);
+
+        if (box.Lines != null)
+        {
+            foreach (var line in box.Lines)
+            {
+                line.X += dx;
+                line.Y += dy;
+                line.Baseline += dy;
+                foreach (var run in line.Runs)
+                {
+                    run.X += dx;
+                    run.Baseline += dy;
+                }
+            }
+        }
+        if (box.LineRuns != null)
+        {
+            foreach (var run in box.LineRuns)
+            {
+                run.X += dx;
+                run.Baseline += dy;
+            }
+        }
+
+        foreach (var child in box.Children)
+            TranslateBox(child, dx, dy);
+    }
+
+    private static SKRect Offset(SKRect r, float dx, float dy) =>
+        new(r.Left + dx, r.Top + dy, r.Right + dx, r.Bottom + dy);
+
+    /// <summary>
+    /// Grow a stretched item's box to fill its cell. Only expands (never shrinks
+    /// below the laid-out content), so an item that overflows its row tracks
+    /// keeps its content size.
+    /// </summary>
+    private static void ExpandBoxToCell(Dom.LayoutBox box, float borderWidth, float borderHeight)
+    {
+        float dw = borderWidth - box.BorderBox.Width;
+        float dh = borderHeight - box.BorderBox.Height;
+        if (dw > 0)
+        {
+            box.ContentBox = new SKRect(box.ContentBox.Left, box.ContentBox.Top, box.ContentBox.Right + dw, box.ContentBox.Bottom);
+            box.PaddingBox = new SKRect(box.PaddingBox.Left, box.PaddingBox.Top, box.PaddingBox.Right + dw, box.PaddingBox.Bottom);
+            box.BorderBox = new SKRect(box.BorderBox.Left, box.BorderBox.Top, box.BorderBox.Right + dw, box.BorderBox.Bottom);
+            box.MarginBox = new SKRect(box.MarginBox.Left, box.MarginBox.Top, box.MarginBox.Right + dw, box.MarginBox.Bottom);
+        }
+        if (dh > 0)
+        {
+            box.ContentBox = new SKRect(box.ContentBox.Left, box.ContentBox.Top, box.ContentBox.Right, box.ContentBox.Bottom + dh);
+            box.PaddingBox = new SKRect(box.PaddingBox.Left, box.PaddingBox.Top, box.PaddingBox.Right, box.PaddingBox.Bottom + dh);
+            box.BorderBox = new SKRect(box.BorderBox.Left, box.BorderBox.Top, box.BorderBox.Right, box.BorderBox.Bottom + dh);
+            box.MarginBox = new SKRect(box.MarginBox.Left, box.MarginBox.Top, box.MarginBox.Right, box.MarginBox.Bottom + dh);
         }
     }
 

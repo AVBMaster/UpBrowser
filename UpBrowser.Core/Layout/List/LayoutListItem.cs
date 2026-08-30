@@ -3,7 +3,7 @@ using UpBrowser.Core.Dom;
 namespace UpBrowser.Core.Layout.List;
 
 /// <summary>
-/// A LayoutObject subclass for 'display: list-item' in LayoutNG.
+/// A LayoutObject subclass for 'display: list-item' in the modern layout pipeline.
 /// Mirrors layout_list_item.h/.cc.
 /// </summary>
 public class LayoutListItem : LayoutBlockFlow

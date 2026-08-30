@@ -341,7 +341,7 @@ public class DrawTextOp : PaintOp
 
         float ascent = GetFontAscent();
 
-        // Paint order mirrors miniblink TextFragmentPainter::Paint fast path:
+        // Paint order mirrors the engine's text fragment painter fast path:
         // 1. underline/overline (with shadow passes) before the text,
         // 2. text shadows + text,
         // 3. line-through (with shadow passes) after the text.
@@ -528,7 +528,7 @@ public class DrawTextOp : PaintOp
 
     /// <summary>
     /// Computes the skip-ink clip rects for the given decoration stripe band.
-    /// Mirrors miniblink's TextPainter::ClipDecorationsStripe: for each text run
+    /// Mirrors the engine's ClipDecorationsStripe: for each text run
     /// (same typeface fallback as <see cref="MeasureTextWithFallback"/>) the
     /// glyph ink intercepts of the band [upper, upper + stripe] are queried via
     /// SKTextBlob.GetIntercepts and each x-interval becomes a clip rect at

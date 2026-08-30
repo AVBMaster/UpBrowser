@@ -56,7 +56,7 @@ public class UnpositionedListMarker
 
 /// <summary>
 /// Column layout algorithm for CSS multi-column layout.
-/// Mirrors column_layout_algorithm.h/.cc from Blink.
+/// Mirrors the modern layout pipeline's column layout algorithm.
 /// </summary>
 public class ColumnLayoutAlgorithm : LayoutAlgorithm
 {
@@ -229,8 +229,8 @@ public class ColumnLayoutAlgorithm : LayoutAlgorithm
         // When a list item has multicol, we need to keep track of the list marker.
         if (node.IsListItem())
         {
-            // The list marker positioning is simplified; the full Blink logic
-            // (UnpositionedListMarker) is not wired into the simplified builder.
+            // The list marker positioning is simplified; the full upstream
+            // logic (UnpositionedListMarker) is not wired into the simplified builder.
         }
     }
 
@@ -983,7 +983,7 @@ public class ColumnLayoutAlgorithm : LayoutAlgorithm
         return total;
     }
 
-    // ---- Static helpers mirroring Blink utility functions ----
+    // ---- Static helpers mirroring shared layout utility functions ----
 
     private static float ResolveUsedColumnInlineSize(float availableInlineSize, ComputedStyle style)
     {

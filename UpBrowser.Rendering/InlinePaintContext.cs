@@ -9,7 +9,7 @@ namespace UpBrowser.Rendering;
 /// <summary>
 /// Represents a [decorating box]:
 /// https://drafts.csswg.org/css-text-decor-3/#decorating-box
-/// Mirrors DecoratingBox in blink/renderer/core/paint/decorating_box.h.
+/// Mirrors DecoratingBox.
 /// </summary>
 public readonly struct DecoratingBox
 {
@@ -36,8 +36,7 @@ public readonly struct DecoratingBox
 
 /// <summary>
 /// Carries contextual information shared across multiple inline fragments within
-/// an inline formatting context. Mirrors InlinePaintContext in
-/// blink/renderer/core/paint/inline_paint_context.h.
+/// an inline formatting context. Mirrors InlinePaintContext.
 /// </summary>
 public sealed class InlinePaintContext
 {

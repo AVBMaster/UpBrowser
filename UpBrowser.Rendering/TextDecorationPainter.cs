@@ -4,11 +4,10 @@ using UpBrowser.Core.Dom;
 namespace UpBrowser.Rendering;
 
 /// <summary>
-/// Transliteration of miniblink's decoration_line_painter.cc and the geometry
-/// portions of text_decoration_info.cc / text_decoration_offset.cc. Computes
-/// text-decoration line geometry (thickness, underline/overline/line-through
-/// offsets, double offsets, wavy bezier pattern) and paints the decoration
-/// lines into a canvas.
+/// Implementation of the decoration-line painter and the geometry portions of
+/// the text-decoration info / offset helpers. Computes text-decoration line
+/// geometry (thickness, underline/overline/line-through offsets, double
+/// offsets, wavy bezier pattern) and paints the decoration lines into a canvas.
 /// </summary>
 public static class TextDecorationPainter
 {
@@ -91,8 +90,8 @@ public static class TextDecorationPainter
     }
 
     /// <summary>
-    /// Paints underline/overline decorations, mirroring miniblink's
-    /// TextDecorationPainter::PaintUnderOrOverLineDecorations: a shadow pass
+    /// Paints underline/overline decorations, mirroring the engine's
+    /// paint-under/over-line-decorations path: a shadow pass
     /// first (each text shadow rendered as the decoration in the shadow color,
     /// offset and blurred), then the line in its actual color. These lines are
     /// painted before the text so glyphs sit on top of them.
@@ -111,8 +110,8 @@ public static class TextDecorationPainter
         var lineColor = underlineColor.Alpha > 0 ? underlineColor : color;
 
         // text-decoration-skip-ink: auto — punch holes in the decoration line
-        // where the glyph ink crosses it. Mirrors miniblink's
-        // TextPainter::PaintDecorationLine / ClipDecorationsStripe: the stripe
+        // where the glyph ink crosses it. Mirrors the engine's
+        // PaintDecorationLine / ClipDecorationsStripe: the stripe
         // band is the decoration bounds inset by 0.5 (to ignore intersects
         // smaller than half a pixel); the provider returns the clip rects for a
         // given band (upper = band top relative to the baseline, stripe = band
@@ -137,8 +136,8 @@ public static class TextDecorationPainter
 
         PaintWithShadowPhases(canvas, shadows, lineColor, (dx, dy, shadowColor) =>
         {
-            // Underline: gap below the baseline grows with thickness. (miniblink:
-            // ComputeUnderlineOffsetAuto with is_fixed=false.)
+            // Underline: gap below the baseline grows with thickness.
+            // (ComputeUnderlineOffsetAuto with is_fixed=false.)
             if (underline)
             {
                 int gap = Math.Max(1, (int)MathF.Ceiling(thickness / 2f));
@@ -167,7 +166,7 @@ public static class TextDecorationPainter
 
     /// <summary>
     /// Height of the decoration stripe used for ink skipping, after the 0.5px
-    /// inset on each side. Mirrors miniblink's TextDecorationInfo::Bounds() for
+    /// inset on each side. Mirrors the engine's decoration-info Bounds() for
     /// each decoration style (double spans both stripes: DoubleOffset +
     /// thickness), with the height reduced by the inset.
     /// </summary>
@@ -182,7 +181,7 @@ public static class TextDecorationPainter
     /// Draws <paramref name="draw"/> with the skip-ink clip rects punched out
     /// (SKClipOperation.Difference), then restores. The rects are shifted by
     /// <paramref name="dx"/>/<paramref name="dy"/> so the holes follow the line
-    /// for each text-shadow phase (mirroring miniblink, where the clip is
+    /// for each text-shadow phase (mirroring the engine, where the clip is
     /// re-applied per phase). When there are no clips the line is drawn as-is.
     /// </summary>
     private static void DrawLineWithSkipInk(SKCanvas canvas, List<SKRect>? clips, float dx, float dy, Action draw)
@@ -201,8 +200,8 @@ public static class TextDecorationPainter
     }
 
     /// <summary>
-    /// Paints line-through decorations, mirroring miniblink's
-    /// TextDecorationPainter::PaintLineThroughDecorations: shadow pass first,
+    /// Paints line-through decorations, mirroring the engine's
+    /// paint-line-through path: shadow pass first,
     /// then the line in its actual color. Painted after the text so it sits on
     /// top of the glyphs. No skip: ink for line-through.
     /// </summary>
@@ -220,7 +219,7 @@ public static class TextDecorationPainter
         {
             if (!lineThrough)
                 return;
-            // Line-through: centered at 2/3 of the ascent (miniblink SetLineThroughLineData).
+            // Line-through: centered at 2/3 of the ascent (SetLineThroughLineData).
             float lineY = baselineY - ascent / 3f - thickness / 2f;
             PaintSingleLine(canvas, startX + dx, width, lineY + dy, thickness, style, shadowColor);
             if (style == TextDecorationStyleType.Double)
@@ -314,7 +313,7 @@ public static class TextDecorationPainter
         float controlPointDistance = WavyControlPointDistance(thickness);
 
         // The wavy path midpoints sit at y=0.5; its stroked bounds span
-        // 0.5 +/- (control_point_distance + thickness/2). miniblink floors the
+        // 0.5 +/- (control_point_distance + thickness/2). The engine floors the
         // top and paints the tile so nothing lands at y<0, centering the wave a
         // little below the decoration line.
         float strokeTop = 0.5f - controlPointDistance - thickness / 2f;

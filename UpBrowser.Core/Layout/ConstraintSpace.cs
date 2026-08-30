@@ -4,7 +4,7 @@ namespace UpBrowser.Core.Layout;
 
 /// <summary>
 /// ConstraintSpace - encodes the dimensional constraint environment for layout passes.
-/// Mirrors Blink's LayoutNG ConstraintSpace architecture.
+/// Mirrors the modern layout pipeline's ConstraintSpace architecture.
 /// </summary>
 public struct ConstraintSpace
 {
@@ -51,7 +51,7 @@ public struct ConstraintSpace
     private readonly float _viewportHeight;
 
     // Classic-scrollbar space reservation: inline size eaten by a vertical
-    // scrollbar of THIS box (Blink: ConstraintSpace::scrollbar_space). When
+    // scrollbar of THIS box (ConstraintSpace::scrollbar_space). When
     // set, child available inline size shrinks by it so content no longer
     // flows underneath the bar.
     private readonly float _scrollbarInline;

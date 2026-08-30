@@ -7,7 +7,7 @@ namespace UpBrowser.Core.Layout;
 
 /// <summary>
 /// Coordinates the full rendering pipeline: style resolution → animation → layout → pre-paint → paint.
-/// Mirrors Blink's Document lifecycle: StyleRecalc → Layout → PrePaint → Paint.
+/// Implements the document lifecycle: StyleRecalc → Layout → PrePaint → Paint.
 /// </summary>
 public class RenderingPipeline
 {

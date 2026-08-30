@@ -1,4 +1,4 @@
-using UpBrowser.Core.Dom;
+﻿using UpBrowser.Core.Dom;
 using UpBrowser.Core.Layout.Inline;
 using UpBrowser.Core.Layout.Geometry;
 
@@ -58,7 +58,7 @@ public partial class LayoutBlockFlow : LayoutBlock
 
     // ===== Inline formatting context =====
 
-    /// <summary>Returns the associated InlineNodeData, or null if not an NG inline formatting context root.</summary>
+    /// <summary>Returns the associated InlineNodeData, or null if not an inline formatting context root.</summary>
     public InlineNodeData? GetInlineNodeData() => _inlineNodeData;
 
     public void ResetInlineNodeData()
@@ -119,7 +119,7 @@ public partial class LayoutBlockFlow : LayoutBlock
     }
 
     /// <summary>Called when a child becomes floating or out-of-flow positioned.</summary>
-    public void ChildBecameFloatingOrOutOfFlow(LayoutNgBox child) { }
+    public void ChildBecameFloatingOrOutOfFlow(AuroraBox child) { }
 
     public void CollapseAnonymousBlockChild(LayoutBlockFlow child) { }
 

@@ -165,8 +165,8 @@ public class BlockLineClampData
 }
 
 // ============================================================================
-// BlockLayoutAlgorithm: a faithful port of block_layout_algorithm.cc
-// (LayoutNG / Blink).
+// BlockLayoutAlgorithm: a faithful port of the modern layout pipeline's
+// block layout algorithm.
 // ============================================================================
 
 /// <summary>
@@ -175,10 +175,9 @@ public class BlockLineClampData
 /// floats, out-of-flow positioning, block formatting contexts and (in
 /// structure) block fragmentation and line clamp.
 ///
-/// This is a line-for-line port of miniblink's
-/// third_party/blink/renderer/core/layout/block_layout_algorithm.cc adapted to
-/// this engine's simplified foundation (float LayoutUnit, Physical geometry,
-/// Element-based children).
+/// This is a faithful port of the modern layout pipeline's block layout
+/// algorithm, adapted to this engine's simplified foundation (float
+/// LayoutUnit, Physical geometry, Element-based children).
 /// </summary>
 public class BlockLayoutAlgorithm : LayoutAlgorithm
 {
@@ -525,7 +524,7 @@ public class BlockLayoutAlgorithm : LayoutAlgorithm
     public void SetBoxType(PhysicalFragment.BoxType type)
     {
         // Fragment box types aren't modeled on the engine's flat fragment; kept
-        // for API parity with the Blink algorithm.
+        // for API parity with the layout engine's algorithm.
     }
 
     /// <summary>
@@ -593,7 +592,7 @@ public class BlockLayoutAlgorithm : LayoutAlgorithm
     }
 
     /// <summary>
-    /// Classic-scrollbar placeholder (mirrors Blink's scrollbar space in
+    /// Classic-scrollbar placeholder (mirrors the engine's scrollbar space in
     /// ConstraintSpace + NeedsRelayoutWithNoChildScrollbarChanges): the first
     /// pass lays out without reserving bar space; if the content overflows (or
     /// overflow:scroll forces) a classic scrollbar, re-flow once with the bar
@@ -1975,7 +1974,7 @@ public class BlockLayoutAlgorithm : LayoutAlgorithm
             return layoutResult;
         }
 
-        // NOTREACHED in Blink. Fall back to the origin for robustness.
+        // NOTREACHED in the reference algorithm. Fall back to the origin for robustness.
         outChildBfcOffset = new BfcOffset(originOffset.LineOffset, originOffset.BlockOffset);
         var fallbackSpace = CreateConstraintSpaceForChild(child, childBreakToken, childData,
             new LogicalSize(ChildAvailableInlineSize, ChildAvailableSize().BlockSize),

@@ -1,4 +1,4 @@
-using UpBrowser.Core.Dom;
+﻿using UpBrowser.Core.Dom;
 using UpBrowser.Core.Layout.Geometry;
 
 namespace UpBrowser.Core.Layout;
@@ -11,11 +11,11 @@ namespace UpBrowser.Core.Layout;
 /// siblings of LayoutMultiColumnSet objects, i.e. direct children of the
 /// multicol container.
 /// </summary>
-public sealed class LayoutMultiColumnSpannerPlaceholder : LayoutNgBox
+public sealed class LayoutMultiColumnSpannerPlaceholder : AuroraBox
 {
-    private readonly LayoutNgBox? _layoutObjectInFlowThread;
+    private readonly AuroraBox? _layoutObjectInFlowThread;
 
-    public LayoutMultiColumnSpannerPlaceholder(LayoutNgBox? layoutObjectInFlowThread)
+    public LayoutMultiColumnSpannerPlaceholder(AuroraBox? layoutObjectInFlowThread)
         : base(null)
     {
         _layoutObjectInFlowThread = layoutObjectInFlowThread;
@@ -25,7 +25,7 @@ public sealed class LayoutMultiColumnSpannerPlaceholder : LayoutNgBox
 
     public override string GetName() => "LayoutMultiColumnSpannerPlaceholder";
 
-    public static LayoutMultiColumnSpannerPlaceholder CreateAnonymous(ComputedStyle parentStyle, LayoutNgBox layoutObjectInFlowThread)
+    public static LayoutMultiColumnSpannerPlaceholder CreateAnonymous(ComputedStyle parentStyle, AuroraBox layoutObjectInFlowThread)
     {
         var newSpanner = new LayoutMultiColumnSpannerPlaceholder(layoutObjectInFlowThread);
         newSpanner.UpdateProperties(parentStyle);
@@ -39,7 +39,7 @@ public sealed class LayoutMultiColumnSpannerPlaceholder : LayoutNgBox
         return ((LayoutBlockFlow)Parent!).MultiColumnFlowThread();
     }
 
-    public LayoutNgBox? LayoutObjectInFlowThread() => _layoutObjectInFlowThread;
+    public AuroraBox? LayoutObjectInFlowThread() => _layoutObjectInFlowThread;
 
     public bool AnonymousHasStylePropagationOverride => true;
 
@@ -129,7 +129,7 @@ public static class LayoutObjectSpannerExtensions
         return 0;
     }
 
-    public static ComputedStyle StyleRef(this LayoutNgBox box)
+    public static ComputedStyle StyleRef(this AuroraBox box)
     {
         if (box.Node is Element el && el.ComputedStyle != null)
             return el.ComputedStyle;

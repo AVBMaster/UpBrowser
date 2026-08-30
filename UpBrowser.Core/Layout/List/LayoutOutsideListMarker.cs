@@ -3,7 +3,7 @@ using UpBrowser.Core.Dom;
 namespace UpBrowser.Core.Layout.List;
 
 /// <summary>
-/// A LayoutObject subclass for outside-positioned list markers in LayoutNG.
+/// A LayoutObject subclass for outside-positioned list markers in the modern layout pipeline.
 /// Mirrors layout_outside_list_marker.h/.cc.
 /// </summary>
 public class LayoutOutsideListMarker : LayoutBlockFlow

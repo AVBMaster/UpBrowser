@@ -4,8 +4,7 @@ using UpBrowser.Core.Dom;
 namespace UpBrowser.Rendering;
 
 /// <summary>
-/// A reflection, as created by -webkit-box-reflect. Mirrors BoxReflection in
-/// blink/renderer/platform/graphics/box_reflection.h.
+/// A reflection, as created by -webkit-box-reflect. Mirrors BoxReflection.
 /// Consists of a direction, an offset applied after flipping about the x- or
 /// y-axis, and an optional mask image applied to the reflection before the
 /// reflection matrix is applied.

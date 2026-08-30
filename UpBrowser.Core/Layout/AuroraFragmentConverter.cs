@@ -4,12 +4,12 @@ using UpBrowser.Core.Dom;
 namespace UpBrowser.Core.Layout;
 
 /// <summary>
-/// Converts an NG <see cref="BoxFragment"/> (produced by BlockLayoutAlgorithm /
+/// Converts a <see cref="BoxFragment"/> (produced by BlockLayoutAlgorithm /
 /// InlineLayoutAlgorithm) into the legacy <see cref="Dom.LayoutBox"/> model that
-/// the painting pipeline consumes. This bridges the NG layout pipeline into real
-/// rendering.
+/// the painting pipeline consumes. This bridges the modern layout pipeline into
+/// real rendering.
 /// </summary>
-public static class NgFragmentConverter
+public static class AuroraFragmentConverter
 {
     public static Dom.LayoutBox ToLayoutBox(BoxFragment fragment, Element? element, Dom.LayoutBox? parent = null)
     {
@@ -150,7 +150,7 @@ public static class NgFragmentConverter
         }
 
         // Scroll-container state. The legacy path computed these in
-        // CreateLayoutBox; the NG conversion must do the same or overflow
+        // CreateLayoutBox; the conversion here must do the same or overflow
         // containers never get scrollbars / wheel routing.
         var elStyle = fragment.Element?.ComputedStyle;
         if (elStyle != null && IsScrollableOverflow(elStyle))

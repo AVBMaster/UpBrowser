@@ -5,19 +5,19 @@ namespace UpBrowser.Core.Layout;
 
 /// <summary>
 /// [ARCHIVED 2026-08 — P2-1 pipeline decision]
-/// Bridges the ported LayoutObject hierarchy into the existing
+/// Legacy bridge between the older LayoutObject hierarchy and the
 /// Dom.LayoutBox painting pipeline. Builds a LayoutView from the DOM tree,
 /// computes box geometry bottom-up, and exports Dom.LayoutBox values that
 /// the PaintVisitor consumes.
 ///
-/// INTENTIONALLY NOT WIRED: <see cref="LayoutEngine.UseBlinkBridge"/> stays
-/// false and every frame routes through the NG pipeline (see
-/// IncrementalLayoutEngine.UseNgRelayout). Kept compilable for reference and
-/// possible revival, but do NOT re-enable without a fresh parity audit against
-/// the NG path — three-pipeline drift was a root cause of the original
-/// snapshot-vs-browser mismatches (see docs/porting_tracker.md §五).
+/// INTENTIONALLY NOT WIRED: every frame routes through the modern layout
+/// pipeline (see <see cref="IncrementalLayoutEngine"/>).
+/// Kept compilable for reference and possible revival, but do NOT re-enable
+/// without a fresh parity audit against the modern path — two-pipeline drift
+/// was a root cause of the original snapshot-vs-browser mismatches (see
+/// docs/porting_tracker.md §五).
 /// </summary>
-public static class BlinkLayoutBridge
+public static class LegacyLayoutBridge
 {
     /// <summary>
     /// Build a LayoutView tree from the document and compute box geometry for

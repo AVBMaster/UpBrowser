@@ -6,7 +6,7 @@ namespace UpBrowser.Core.Layout.List;
 
 /// <summary>
 /// Hold code shared among all classes for list markers, for both legacy layout
-/// and LayoutNG. Mirrors list_marker.h/.cc.
+/// and the modern layout pipeline. Mirrors list_marker.h/.cc.
 /// </summary>
 public class ListMarker
 {

@@ -6,9 +6,8 @@ namespace UpBrowser.Rendering;
 
 /// <summary>
 /// Paints either a LayoutBox or a LayoutInline, allowing code sharing between
-/// block and inline-block painting. Mirrors BoxModelObjectPainter in
-/// blink/renderer/core/paint/box_model_object_painter.h/.cc, backing onto the
-/// existing <see cref="BoxPainterBase"/>.
+/// block and inline-block painting. Mirrors BoxModelObjectPainter, backing
+/// onto the existing <see cref="BoxPainterBase"/>.
 /// </summary>
 public sealed class BoxModelObjectPainter
 {

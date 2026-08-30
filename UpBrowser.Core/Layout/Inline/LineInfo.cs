@@ -55,7 +55,7 @@ public class LineInfo
 
     // ------------------------------------------------------------------
     // Compatibility output cache used by UpBrowser's renderer model. These
-    // are NOT part of the miniblink LineInfo; the algorithm computes them
+    // are NOT part of the upstream LineInfo; the algorithm computes them
     // after CreateLine() so the BoxLine/BoxRun leaf model can be produced.
     // ------------------------------------------------------------------
     public float BlockSize { get; set; }

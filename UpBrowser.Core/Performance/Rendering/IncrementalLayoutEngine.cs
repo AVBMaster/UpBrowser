@@ -49,39 +49,16 @@ public sealed class LayoutStats
 }
 
 /// <summary>
-/// An incremental, opt-in layout engine. It re-uses the existing <see cref="LayoutEngine"/>
-/// for the actual box construction logic, but gates each node on a cache lookup. The
-/// production engine stays untouched for backwards compatibility; consumers that need
-/// incremental behaviour instantiate this engine and route layout requests through it.
+/// The runtime layout orchestrator used by the live browser. It wraps a
+/// <see cref="LayoutEngine"/> and reports layout statistics for the diagnostics
+/// UI. There is exactly one layout path — the modern pipeline of the wrapped
+/// engine — so live frames and headless captures always produce identical boxes.
 /// </summary>
-/// <remarks>
-/// <para>
-/// <b>Pipeline unification: </b> by default <see cref="Layout"/> now delegates to
-/// the wrapped engine's full pass — which routes through the NG pipeline exactly like
-/// <c>RenderSnapshot</c> — so the live browser and headless captures share ONE box
-/// production path. The historical cache-gated traversal remains available behind
-/// <see cref="UseNgRelayout"/>=false for A/B comparison; if you flip it back, note it
-/// requires <see cref="LayoutEngine.SyncPipelineState"/> to be pushed first (vw/vh/rem/
-/// DPI used to silently resolve against a 0x0 viewport on that path).
-/// </para>
-/// </remarks>
 public sealed class IncrementalLayoutEngine
 {
     private readonly LayoutEngine _base;
     public LayoutCache Cache { get; }
     public LayoutStats Stats { get; } = new();
-    public bool UseCache = true;
-    public bool UseDirtyPropagation = true;
-    public bool SkipCleanSubtrees = true;
-    public ViewportCullingPolicy Culling { get; set; } = ViewportCullingPolicy.None;
-
-    /// <summary>
-    /// When true (default), <see cref="Layout"/> runs the wrapped engine's full
-    /// pipeline pass (NG when <see cref="LayoutEngine.UseNgPipeline"/>), guaranteeing
-    /// byte-identical boxes with the headless snapshot path. When false, the legacy
-    /// per-node cached traversal below is used instead.
-    /// </summary>
-    public bool UseNgRelayout { get; set; } = true;
 
     public IncrementalLayoutEngine(LayoutEngine baseEngine, LayoutCache? cache = null)
     {
@@ -90,9 +67,8 @@ public sealed class IncrementalLayoutEngine
     }
 
     /// <summary>
-    /// Run a full layout pass. The result is identical to <see cref="LayoutEngine.Layout"/>
-    /// but elements that are not dirty and whose cache key matches will skip the inner
-    /// <c>CreateLayoutBox</c> call.
+    /// Run a full layout pass. Delegates to the wrapped engine's modern pipeline
+    /// (the same entry headless snapshots use).
     /// </summary>
     public void Layout(Document document, float width, float height, float dpiScale = 1.0f, float rootFontSize = 16f)
     {
@@ -101,41 +77,20 @@ public sealed class IncrementalLayoutEngine
         var root = document.DocumentElement ?? document.Body;
         if (root == null) { Stats.AddElapsed(Clock.NowNanos() - sw); return; }
 
-        if (UseNgRelayout)
-        {
-            // Unified pipeline: delegate to the wrapped engine's own full pass.
-            // UseNgPipeline=true makes this LayoutNg — the same entry RenderSnapshot
-            // uses — so browser frames and headless captures produce identical boxes.
-            // The viewport state is established inside the engine itself.
-            _base.SyncPipelineState(width, height, dpiScale, rootFontSize);
-            _base.Layout(document, width, height, dpiScale);
-
-            // The NG pass walks the whole tree fresh; report that honestly instead
-            // of pretending cache skips happened.
-            int subtree = CountSubtree(root);
-            Stats.IncDirtyRoot();
-            Stats.IncVisited();
-            Stats.IncRelaid();
-            Stats.IncMiss();
-            Stats.AddElapsed(Clock.NowNanos() - sw);
-            _ = subtree; // subtree size kept for future partial-relayout reporting
-            return;
-        }
-
-        if (UseDirtyPropagation) Stats.IncDirtyRoot();
-
-        // Always lay out from the root because container width may have changed.
-        // Inner nodes are gated by the cache.
-        //
-        // Pipeline unification: the legacy traversal drives CreateLayoutBoxPublic node-by-node,
-        // which reads the base engine's viewport/root-font/DPI fields directly.
-        // Those were only ever established by Layout/LayoutNg/LayoutIncremental —
-        // none of which run on this path — so push them explicitly or vw/vh
-        // resolve against 0x0 and rem against a hardcoded 16px root font.
+        // Unified pipeline: delegate to the wrapped engine's own full pass.
+        // The viewport state is established inside the engine itself.
         _base.SyncPipelineState(width, height, dpiScale, rootFontSize);
+        _base.Layout(document, width, height, dpiScale);
 
-        Traverse(root, width, dpiScale, rootFontSize, isRoot: true);
+        // The modern pass walks the whole tree fresh; report that honestly instead
+        // of pretending cache skips happened.
+        int subtree = CountSubtree(root);
+        Stats.IncDirtyRoot();
+        Stats.IncVisited();
+        Stats.IncRelaid();
+        Stats.IncMiss();
         Stats.AddElapsed(Clock.NowNanos() - sw);
+        _ = subtree; // subtree size kept for future partial-relayout reporting
     }
 
     /// <summary>
@@ -167,40 +122,6 @@ public sealed class IncrementalLayoutEngine
         Cache.Invalidate(element);
     }
 
-    private LayoutBox? Traverse(Element element, float availableWidth, float dpiScale, float rootFontSize, bool isRoot)
-    {
-        Stats.IncVisited();
-
-        var key = new LayoutCacheKey(element, availableWidth, availableWidth, rootFontSize, dpiScale);
-
-        if (UseCache && !isRoot)
-        {
-            // Skip if the node is clean and we have a valid cached result.
-            var clean = !UseDirtyPropagation || DirtyState.IsClean(element);
-            if (clean && Cache.TryGetCached(element, key, out var cached) && cached is not null)
-            {
-                Stats.IncSkipped();
-                Stats.IncHit();
-                element.LayoutBox = cached.Box;
-                return cached.Box;
-            }
-            Stats.IncMiss();
-        }
-
-        Stats.IncRelaid();
-        // Delegate to the base engine. The base engine's CreateLayoutBox method
-        // re-uses cached child LayoutBox when present, so we benefit transitively.
-        var box = _base.CreateLayoutBoxPublic(element, 0, 0, availableWidth, null);
-        if (box != null)
-        {
-            int subtree = CountSubtree(element);
-            int lineRuns = box.Lines is null ? 0 : box.Lines.Sum(l => l.Runs.Count);
-            Cache.Store(element, key, box, box.ContentBox.Width, box.ContentBox.Height, subtree, lineRuns);
-        }
-        DirtyState.ClearAll(element);
-        return box;
-    }
-
     private static int CountSubtree(Element element)
     {
         int n = 1;
@@ -208,14 +129,4 @@ public sealed class IncrementalLayoutEngine
             if (child is Element ce) n += CountSubtree(ce);
         return n;
     }
-}
-
-/// <summary>Strategy for off-viewport layout skipping.</summary>
-public enum ViewportCullingPolicy
-{
-    None = 0,
-    /// <summary>Skip subtrees whose bounding box is entirely outside the viewport.</summary>
-    CullFarViewport,
-    /// <summary>Use cheap estimated dimensions for far subtrees.</summary>
-    EstimateFarViewport,
 }

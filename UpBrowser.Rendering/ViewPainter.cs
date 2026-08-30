@@ -8,8 +8,9 @@ namespace UpBrowser.Rendering;
 /// StyleResolver::PropagateStyleToViewport (style_resolver.cc) and
 /// LayoutBoxModelObject::BackgroundTransfersToView (layout_box_model_object.cc).
 ///
-/// Blink paints the "canvas" background (the rectangle behind the root element)
-/// itself rather than letting the html/body elements paint it on their own boxes:
+/// The engine paints the "canvas" background (the rectangle behind the root
+/// element) itself rather than letting the html/body elements paint it on their
+/// own boxes:
 ///   1. The base background color (LocalFrameView::BaseBackgroundColor, default
 ///      white) fills the viewport. In UpBrowser this is the SkiaRenderer's
 ///      canvas.Clear(...).

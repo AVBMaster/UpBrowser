@@ -5,7 +5,7 @@ using UpBrowser.Core.Layout.Inline;
 namespace UpBrowser.Core.Layout;
 
 /// <summary>
-/// Inline layout algorithm aligned to NG. Uses ConstraintSpaceBuilder,
+/// Inline layout algorithm aligned to the modern layout pipeline. Uses ConstraintSpaceBuilder,
 /// LengthUtils, BoxFragmentBuilder. Handles text runs, atomic inlines,
 /// line breaking, and inline formatting context.
 /// </summary>
@@ -63,7 +63,7 @@ public class InlineLayoutAlgorithm : LayoutAlgorithm
 
         if (TryLayoutLinesWithNgPipeline(availInline, padding.Left, padding.Top))
         {
-            // NG pipeline produced lines; skip legacy path.
+            // Modern pipeline produced lines; skip legacy path.
         }
         else
         {
@@ -122,7 +122,7 @@ public class InlineLayoutAlgorithm : LayoutAlgorithm
     }
 
     /// <summary>
-    /// NG-aligned inline layout path: collect items via InlineNode, break lines
+    /// Modern inline layout path: collect items via InlineNode, break lines
     /// via LineBreaker, build logical line items via LogicalLineBuilder, then
     /// convert to the existing BoxLine/BoxRun output model. Returns false when
     /// there is nothing to lay out (so callers can fall back).
@@ -280,7 +280,7 @@ public class InlineLayoutAlgorithm : LayoutAlgorithm
             // so their bottom rests on the (possibly lowered) baseline.
             AdjustLineForAtomicInlines(boxLine, lineBlockSize);
 
-            // Also feed via LogicalLineContainer (NG-aligned).
+            // Also feed via LogicalLineContainer.
             var lineContainer = new LogicalLineContainer();
             foreach (var li in logicalLineItems)
                 lineContainer.BaseLine.AddChild(li);

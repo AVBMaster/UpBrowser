@@ -1,12 +1,12 @@
-using UpBrowser.Core.Dom;
+﻿using UpBrowser.Core.Dom;
 using UpBrowser.Core.Layout.Inline;
 
 namespace UpBrowser.Core.Layout;
 
 /// <summary>
 /// The geometric result of laying out a box in a constraint space.
-/// Mirrors the concept of Blink's PhysicalBoxFragment: an immutable snapshot of
-/// the box's position and size within its containing block.
+/// Mirrors the concept of the engine's physical box fragment: an immutable
+/// snapshot of the box's position and size within its containing block.
 /// </summary>
 public class BoxFragment
 {
@@ -35,7 +35,7 @@ public class BoxFragment
     public List<BoxLine> Lines { get; } = new();
 
     // A5: resolved multicol geometry for column-rule painting (exported to
-    // Dom.LayoutBox by NgFragmentConverter).
+    // Dom.LayoutBox by AuroraFragmentConverter).
     public bool IsMultiColumn { get; set; }
     public int UsedColumnCount { get; set; }
     public float ColumnInlineSize { get; set; }

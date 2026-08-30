@@ -7,9 +7,8 @@ namespace UpBrowser.Rendering;
 
 /// <summary>
 /// Records painted selection (highlight) bounds for the current paint pass.
-/// Mirrors SelectionBoundsRecorder in
-/// blink/renderer/core/paint/selection_bounds_recorder.h/.cc, mapping the
-/// PaintController callback to a simple sink: the recorded bounds are appended
+/// Mirrors SelectionBoundsRecorder, mapping the PaintController callback to a
+/// simple sink: the recorded bounds are appended
 /// to <see cref="SelectionBoundsSink.Rects"/> at dispose time (i.e. after the
 /// enclosing painting completes), matching the reference's destructor behavior.
 /// </summary>

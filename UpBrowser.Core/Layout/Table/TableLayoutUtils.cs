@@ -346,7 +346,7 @@ public static class TableLayoutUtils
                 {
                     var constraint = TableTypes.CreateCellInlineConstraint(new List<TableTypes.Column>(), startColumn, colspan, cell);
                     // Fold in content-based min/max sizes: the factory only
-                    // considers css widths, Blink additionally measures content.
+                    // considers css widths, the engine additionally measures content.
                     var (contentMin, contentMax) = ComputeContentMinMax(cell);
                     var cellBorderPadding = TableTypes.ComputeCellBorderPadding(cell);
                     float bpSum = cellBorderPadding.HorizontalSum;

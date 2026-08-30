@@ -1,4 +1,4 @@
-namespace UpBrowser.Core.Layout;
+﻿namespace UpBrowser.Core.Layout;
 
 /// <summary>
 /// Fragment tree mutator / cloner / repeater.
@@ -31,9 +31,9 @@ public sealed class FragmentRepeater
         for (int i = 0; i < clonedFragment.Children.Count; i++)
         {
             var child = clonedFragment.Children[i];
-            if (child.LayoutObject is LayoutNgBox)
+            if (child.LayoutObject is AuroraBox)
             {
-                var childResult = GetClonableLayoutResult((LayoutNgBox)child.LayoutObject, child);
+                var childResult = GetClonableLayoutResult((AuroraBox)child.LayoutObject, child);
                 childResult = Repeat(childResult);
                 clonedFragment.Children[i] = childResult.Fragment;
             }
@@ -44,7 +44,7 @@ public sealed class FragmentRepeater
     {
         LayoutResult clonedResult = LayoutResultExtensions.Clone(other);
         var clonedFragment = clonedResult.Fragment;
-        var layoutBox = (LayoutNgBox)clonedFragment.LayoutObject!;
+        var layoutBox = (AuroraBox)clonedFragment.LayoutObject!;
 
         if (_isFirstClone && clonedResult.Fragment.IsFirstForNode)
         {
@@ -71,7 +71,7 @@ public sealed class FragmentRepeater
         return clonedResult;
     }
 
-    private static LayoutResult GetClonableLayoutResult(LayoutNgBox layoutBox, BoxFragment fragment)
+    private static LayoutResult GetClonableLayoutResult(AuroraBox layoutBox, BoxFragment fragment)
     {
         var bt = fragment.BreakToken as BlockBreakToken;
         if (bt != null)
@@ -96,7 +96,7 @@ public sealed class FragmentRepeater
     }
 
     // Remove all cloned results, but keep the first original one(s).
-    private static void RemoveClonedResults(LayoutNgBox layoutBox)
+    private static void RemoveClonedResults(AuroraBox layoutBox)
     {
         for (uint idx = 0; idx < layoutBox.PhysicalFragmentCount; idx++)
         {
@@ -110,7 +110,7 @@ public sealed class FragmentRepeater
         throw new InvalidOperationException("No clonable result to remove");
     }
 
-    private static void UpdateBreakTokens(LayoutNgBox layoutBox)
+    private static void UpdateBreakTokens(AuroraBox layoutBox)
     {
         uint sequenceNumber = 0;
         uint fragmentCount = layoutBox.PhysicalFragmentCount;

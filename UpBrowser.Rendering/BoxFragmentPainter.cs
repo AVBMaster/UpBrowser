@@ -6,7 +6,7 @@ using UpBrowser.Core.Performance;
 namespace UpBrowser.Rendering;
 
 /// <summary>
-/// Blink PaintPhase enum — controls the paint order of elements.
+/// PaintPhase enum — controls the paint order of elements.
 /// Ported from paint_phase.h.
 /// </summary>
 public enum PaintPhase
@@ -39,7 +39,7 @@ public enum PaintPhase
     Mask
 }
 
-/// <summary>PaintPhase helpers from Blink's paint_phase.h.</summary>
+/// <summary>PaintPhase helpers.</summary>
 public static class PaintPhaseHelper
 {
     public static bool ShouldPaintSelfBlockBackground(PaintPhase phase) =>
@@ -56,7 +56,7 @@ public static class PaintPhaseHelper
 }
 
 /// <summary>
-/// Blink BoxFragmentPainter — paints elements in the correct CSS paint phase order.
+/// BoxFragmentPainter — paints elements in the correct CSS paint phase order.
 /// Translated from box_fragment_painter.cc.
 /// Paint order: Background → ForcedColorsBackplate → Float → Foreground → Outline
 /// </summary>
@@ -95,10 +95,10 @@ public class BoxFragmentPainter
     public void SetPasswordRevealed(bool r) => _paintVisitor.SetPasswordRevealed(r);
     public void SetSkipInputTextOverlay(bool skip) => _paintVisitor.SetSkipInputTextOverlay(skip);
 
-    // ─── Blink BoxFragmentPainter core ─────────────────────────────────────
+    // ─── BoxFragmentPainter core ─────────────────────────────────────
 
     /// <summary>
-    /// Paint the document using Blink's paint phase order.
+    /// Paint the document using the CSS paint phase order.
     /// Mirrors BoxFragmentPainter::Paint() + PaintAllPhasesAtomically().
     /// VisitElement paints the full element in correct internal order
     /// (background → border → foreground → outline), so only the Foreground
@@ -171,14 +171,14 @@ public class BoxFragmentPainter
     /// </summary>
     private void PaintAllPhasesAtomically(Element element, PaintPhase currentPhase)
     {
-        // Blink: if current phase is kSelectionDragImage or kTextClip, just paint normally.
+        // If current phase is kSelectionDragImage or kTextClip, just paint normally.
         if (currentPhase == PaintPhase.SelectionDragImage || currentPhase == PaintPhase.TextClip)
         {
             PaintElement(element, currentPhase);
             return;
         }
 
-        // Blink: if current phase is not kForeground, skip.
+        // If current phase is not kForeground, skip.
         if (currentPhase != PaintPhase.Foreground)
             return;
 

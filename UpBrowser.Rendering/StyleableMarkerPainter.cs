@@ -17,7 +17,7 @@ public enum TextMarkerThickness { Thin, Thick, None }
 
 /// <summary>
 /// A text marker for composition (input method) and suggestion underlines.
-/// Minimal mirror of blink's StyleableMarker (core/editing/markers/).
+/// Minimal mirror of StyleableMarker.
 /// </summary>
 public sealed class StyleableMarker
 {
@@ -33,8 +33,7 @@ public sealed class StyleableMarker
 
 /// <summary>
 /// Paints underlines for composition (input method) and suggestion markers.
-/// Mirrors StyleableMarkerPainter in
-/// blink/renderer/core/paint/styleable_marker_painter.h/.cc.
+/// Mirrors StyleableMarkerPainter.
 ///
 /// The Skia shader-based document-marker pattern (RecordMarker) is rendered as
 /// discrete wavy dash ops via the local <see cref="RecordSquigglePath"/>; solid,

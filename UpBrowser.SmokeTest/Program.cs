@@ -543,7 +543,7 @@ Console.WriteLine("=== 20. TableGroupedChildren + TableChildIterator ===");
         $"child order: {string.Join("->", order)} (expect CAPTION->THEAD->TBODY->TFOOT->CAPTION)");
 }
 
-Console.WriteLine("=== 21. NgFragmentConverter (NG pipeline → Dom.LayoutBox) ===");
+Console.WriteLine("=== 21. AuroraFragmentConverter (modern pipeline → Dom.LayoutBox) ===");
 {
     var doc21 = new Document();
     var container = doc21.CreateElement("div");
@@ -578,7 +578,7 @@ Console.WriteLine("=== 21. NgFragmentConverter (NG pipeline → Dom.LayoutBox) =
         Console.WriteLine($"    margin=({cf.MarginLeft},{cf.MarginTop},{cf.MarginRight},{cf.MarginBottom})");
     }
 
-    var layoutBox = NgFragmentConverter.ToLayoutBox(frag, container);
+    var layoutBox = AuroraFragmentConverter.ToLayoutBox(frag, container);
     Console.WriteLine($"  parent content: left={layoutBox.ContentBox.Left:F1} top={layoutBox.ContentBox.Top:F1} w={layoutBox.ContentBox.Width:F1} h={layoutBox.ContentBox.Height:F1}");
     if (layoutBox.Children.Count > 0)
     {
@@ -598,7 +598,7 @@ Console.WriteLine("=== 21. NgFragmentConverter (NG pipeline → Dom.LayoutBox) =
     }
 }
 
-Console.WriteLine("=== 22. LayoutEngine.LayoutNg (end-to-end NG pipeline) ===");
+Console.WriteLine("=== 22. LayoutEngine.LayoutAurora (end-to-end modern pipeline) ===");
 {
     var doc22 = new Document();
     var html = doc22.CreateElement("html");
@@ -618,8 +618,8 @@ Console.WriteLine("=== 22. LayoutEngine.LayoutNg (end-to-end NG pipeline) ===");
     doc22.DocumentElement = html;
 
     var engine = new LayoutEngine();
-    engine.LayoutNg(doc22, 400, 600);
-    Console.WriteLine($"  after LayoutNg: html.LayoutBox={html.LayoutBox != null} body.LayoutBox={body.LayoutBox != null} div.LayoutBox={div.LayoutBox != null}");
+    engine.LayoutAurora(doc22, 400, 600);
+    Console.WriteLine($"  after LayoutAurora: html.LayoutBox={html.LayoutBox != null} body.LayoutBox={body.LayoutBox != null} div.LayoutBox={div.LayoutBox != null}");
     if (html.LayoutBox != null)
         Console.WriteLine($"    html children={html.LayoutBox.Children.Count}");
     if (body.LayoutBox != null)
@@ -669,7 +669,7 @@ Console.WriteLine("=== 23. BlockLayoutAlgorithm dispatches flex/grid/table ===")
     doc23.DocumentElement = html23;
 
     var engine23 = new LayoutEngine();
-    engine23.LayoutNg(doc23, 400, 600);
+    engine23.LayoutAurora(doc23, 400, 600);
     Check(flexContainer.LayoutBox != null, "flex container has LayoutBox");
     Check(flexItem.LayoutBox != null, "flex item has LayoutBox (was dispatched to FlexLayoutAlgorithm)");
     Check(gridContainer.LayoutBox != null, "grid container has LayoutBox");
@@ -833,7 +833,7 @@ Console.WriteLine("=== 29. ListMarker (list items) ===");
     Check(hasMarker2, $"list item 2 has marker line: {hasMarker2}");
 }
 
-Console.WriteLine("=== 30. LayoutEngine.UseNgPipeline toggle ===");
+Console.WriteLine("=== 30. LayoutEngine single modern pipeline ===");
 {
     var doc30 = new Document();
     var html30 = doc30.CreateElement("html");
@@ -847,19 +847,12 @@ Console.WriteLine("=== 30. LayoutEngine.UseNgPipeline toggle ===");
     doc30.AppendChild(html30);
     doc30.DocumentElement = html30;
 
+    // There is a single layout path: the modern pipeline is the only one.
     var engine30 = new LayoutEngine();
-    Check(engine30.UseNgPipeline, "default: UseNgPipeline = true");
-
-    // With UseNgPipeline = true (NG pipeline), layout should produce LayoutBoxes.
     engine30.Layout(doc30, 400, 600);
-    Check(div30.LayoutBox != null, "legacy: div has LayoutBox");
-
-    // Reset and use NG pipeline.
-    var engine30Ng = new LayoutEngine { UseNgPipeline = true };
-    engine30Ng.Layout(doc30, 400, 600);
-    Check(div30.LayoutBox != null, "NG: div has LayoutBox (via LayoutNg)");
+    Check(div30.LayoutBox != null, "modern: div has LayoutBox");
     if (div30.LayoutBox != null)
-        Check(div30.LayoutBox.BorderBox.Width > 0, "NG: div has positive width");
+        Check(div30.LayoutBox.BorderBox.Width > 0, "modern: div has positive width");
 }
 
 Console.WriteLine("=== 31. Auto margins block centering ===");

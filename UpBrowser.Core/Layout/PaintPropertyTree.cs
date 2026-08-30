@@ -4,9 +4,9 @@ using UpBrowser.Core.Dom;
 namespace UpBrowser.Core.Layout;
 
 /// <summary>
-/// Blink-standard paint property tree. Maintains separate transform, clip, effect,
-/// and scroll trees that describe how an element is composited. Mirrors Blink's
-/// PaintPropertyTreeBuilder output.
+/// Engine-standard paint property tree. Maintains separate transform, clip, effect,
+/// and scroll trees that describe how an element is composited. Mirrors the
+/// paint property tree builder output.
 /// </summary>
 public class PaintPropertyTree
 {
@@ -89,7 +89,7 @@ public class ScrollNodeState
 }
 
 /// <summary>
-/// Builds the paint property tree for an element, mirroring Blink's FragmentPaintPropertyTreeBuilder.
+/// Builds the paint property tree for an element, mirroring the engine's fragment paint property tree builder.
 /// Computes transform, clip, effect, and scroll nodes based on the element's computed style.
 /// </summary>
 public class PaintPropertyTreeBuilder
@@ -230,7 +230,7 @@ public class PaintPropertyTreeBuilder
 }
 
 /// <summary>
-/// Walks the layout tree and builds paint property trees, mirroring Blink's PrePaintTreeWalk.
+/// Walks the layout tree and builds paint property trees, mirroring the engine's pre-paint tree walk.
 /// </summary>
 public class PrePaintTreeWalk
 {

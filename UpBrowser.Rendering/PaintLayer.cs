@@ -5,7 +5,7 @@ using UpBrowser.Core.Layout;
 namespace UpBrowser.Rendering;
 
 /// <summary>
-/// PaintLayer - manages stacking contexts and z-ordering, mirroring Blink's PaintLayer.
+/// PaintLayer - manages stacking contexts and z-ordering, mirroring the engine's PaintLayer.
 /// Maintains separate z-order lists for negative, auto, and positive z-index children,
 /// and provides the correct CSS paint order (background → negative-z → block bg → float →
 /// inline → auto-z → positive-z).
@@ -41,7 +41,7 @@ public class PaintLayer
     /// <summary>Paint data for this layer's fragment; used by the cull-rect updater.</summary>
     public Core.Paint.FragmentData? FragmentData { get; set; }
 
-    // Z-order lists (mirroring Blink's stacking node)
+    // Z-order lists (mirroring the engine's stacking node)
     public List<PaintLayer> NegativeZOrder { get; } = new();
     public List<PaintLayer> NormalFlow { get; } = new();
     public List<PaintLayer> PositiveZOrder { get; } = new();
@@ -191,7 +191,7 @@ public class PaintLayer
 
 /// <summary>
 /// Builds the paint layer tree following CSS stacking context rules.
-/// Mirrors Blink's PaintLayerTreeBuilder.
+/// Mirrors the engine's PaintLayerTreeBuilder.
 /// </summary>
 public class PaintLayerTree
 {
@@ -306,7 +306,7 @@ public class PaintLayerTree
 
 /// <summary>
 /// PaintPropertyTree - manages transform, clip, and effect trees for compositing.
-/// Mirrors Blink's PaintPropertyTreeBuilder output.
+/// Mirrors the engine's PaintPropertyTreeBuilder output.
 /// </summary>
 public class PaintPropertyTree
 {

@@ -4,7 +4,7 @@ using UpBrowser.Core.Performance;
 
 namespace UpBrowser.Core.Layout;
 
-/// <summary>Reason why an element's painting needs invalidation, mirroring Blink's PaintInvalidationReason.</summary>
+/// <summary>Reason why an element's painting needs invalidation, mirroring the engine's PaintInvalidationReason.</summary>
 public enum PaintInvalidationReason
 {
     None,
@@ -33,7 +33,7 @@ public enum PaintInvalidationReason
 
 /// <summary>
 /// Determines why an element's paint needs to be invalidated.
-/// Mirrors Blink's ObjectPaintInvalidator and PaintInvalidatorContext.
+/// Mirrors the engine's ObjectPaintInvalidator and PaintInvalidatorContext.
 /// </summary>
 public class PaintInvalidator
 {

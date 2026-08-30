@@ -6,8 +6,7 @@ namespace UpBrowser.Rendering;
 /// <summary>
 /// Represents a node in the stacked element tree (aka paint tree) for a
 /// stacking context. It caches the z-order lists used for painting and
-/// hit-testing. Mirrors PaintLayerStackingNode in
-/// blink/renderer/core/paint/paint_layer_stacking_node.h/.cc.
+/// hit-testing. Mirrors PaintLayerStackingNode.
 ///
 /// Only layers that are stacked (positioned, or stacking contexts themselves,
 /// or inline/flex/grid items with a non-auto z-index) are collected; the walk

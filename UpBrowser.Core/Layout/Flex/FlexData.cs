@@ -4,7 +4,7 @@ using UpBrowser.Core.Layout.Geometry;
 namespace UpBrowser.Core.Layout;
 
 /// <summary>
-/// A flex item in the NG flex layout algorithm. Mirrors NGFlexItem.
+/// A flex item in the engine's flex layout algorithm. Mirrors NGFlexItem.
 /// </summary>
 public class FlexItem
 {

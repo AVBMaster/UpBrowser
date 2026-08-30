@@ -52,11 +52,11 @@ if (itemEls is Element ie)
 }
 Console.WriteLine($"[thickness] ScrollbarMetrics={UpBrowser.Core.Dom.ScrollbarMetrics.ThicknessFor(target.ComputedStyle!):F1}");
 
-// ── Compare with legacy (non-NG) layout on a fresh document ──
+// ── Layout a fresh document with the single modern pipeline ──
 var dm2 = new DocumentManager();
 var load2 = dm2.LoadHtmlAsync(html, baseUrl, 1009, 730, 1f).GetAwaiter().GetResult();
-var legacyEngine = new LayoutEngine { UseNgPipeline = false };
-legacyEngine.Layout(load2.Document, 1009, 730);
+var layoutEngine2 = new LayoutEngine();
+layoutEngine2.Layout(load2.Document, 1009, 730);
 
 // ── Container ⑤ both-scroll: horizontal + vertical scrollbars ──
 static IEnumerable<Element> AllElements(Document doc)

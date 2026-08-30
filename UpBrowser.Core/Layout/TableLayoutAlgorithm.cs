@@ -1,13 +1,13 @@
-using System;
+﻿using System;
 using UpBrowser.Core.Dom;
 using SkiaSharp;
 
 namespace UpBrowser.Core.Layout;
 
 /// <summary>
-/// CSS Table Layout Algorithm — legacy compat façade. The actual column/row
+/// CSS Table Layout Algorithm 鈥?legacy compat fa莽ade. The actual column/row
 /// computation lives in <see cref="UpBrowser.Core.Layout.Table.TableLayoutAlgorithm"/>;
-/// this class builds the fragment tree with the NG table algorithm and converts
+/// this class builds the fragment tree with the modern table algorithm and converts
 /// it into legacy <see cref="LayoutBox"/>es for the painting pipeline.
 /// </summary>
 public class TableLayoutAlgorithm
@@ -84,12 +84,12 @@ public class TableLayoutAlgorithm
         box.Children.Clear();
         tableElement.LayoutBox = box;
 
-        // Convert the fragment tree (sections → rows → cells → content) into
+        // Convert the fragment tree (sections 鈫?rows 鈫?cells 鈫?content) into
         // absolute-positioned legacy LayoutBoxes. Fragment offsets are relative
-        // to the parent's content box, which NgFragmentConverter resolves.
+        // to the parent's content box, which AuroraFragmentConverter resolves.
         foreach (var child in frag.Children)
         {
-            var childBox = NgFragmentConverter.ToLayoutBox(child, child.Element, box);
+            var childBox = AuroraFragmentConverter.ToLayoutBox(child, child.Element, box);
             box.Children.Add(childBox);
         }
     }

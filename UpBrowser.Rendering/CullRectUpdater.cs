@@ -6,9 +6,8 @@ namespace UpBrowser.Rendering;
 /// <summary>
 /// Updates the cull rects of PaintLayer fragments (FragmentData.CullRect and
 /// FragmentData.ContentsCullRect), the visible-area optimization that limits
-/// painting to what is near the viewport. Mirrors CullRectUpdater in
-/// blink/renderer/core/paint/cull_rect_updater.h/.cc, simplified to this
-/// engine's paint model: there is no paint property tree, so cull rects are
+/// painting to what is near the viewport. Mirrors CullRectUpdater, simplified
+/// to this engine's paint model: there is no paint property tree, so cull rects are
 /// computed by intersecting each layer's border box with the input cull rect
 /// and expanding by the given ratio.
 /// </summary>

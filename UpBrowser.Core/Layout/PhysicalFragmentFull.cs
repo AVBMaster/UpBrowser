@@ -1,4 +1,4 @@
-using UpBrowser.Core.Dom;
+﻿using UpBrowser.Core.Dom;
 using UpBrowser.Core.Layout.Geometry;
 using UpBrowser.Core.Layout.Inline;
 using Geom = UpBrowser.Core.Layout.Geometry;
@@ -37,7 +37,7 @@ public static class PhysicalFragmentExtensions
 
     public static bool IsColumnSpanAll(this PhysicalFragment f)
     {
-        if (f.GetLayoutObject() is LayoutNgBox box)
+        if (f.GetLayoutObject() is AuroraBox box)
             return box.IsColumnSpanAll;
         return false;
     }
@@ -46,7 +46,7 @@ public static class PhysicalFragmentExtensions
     public static bool IsFloating(this PhysicalFragment f) => f.IsBox && f.Box == PhysicalFragment.BoxType.Floating;
     public static bool IsOutOfFlowPositioned(this PhysicalFragment f) => f.IsBox && f.Box == PhysicalFragment.BoxType.OutOfFlowPositioned;
     public static bool IsFloatingOrOutOfFlowPositioned(this PhysicalFragment f) => f.IsFloating() || f.IsOutOfFlowPositioned();
-    public static bool IsFixedPositioned(this PhysicalFragment f) => f.IsCSSBox() && f.LayoutObject is LayoutNgBox ngBox && ngBox.IsFixedPositioned();
+    public static bool IsFixedPositioned(this PhysicalFragment f) => f.IsCSSBox() && f.LayoutObject is AuroraBox ngBox && ngBox.IsFixedPositioned();
     public static bool IsPositioned(this PhysicalFragment f) => f.LayoutObject?.IsPositioned ?? false;
     public static bool IsLineForParallelFlow(this PhysicalFragment f) => f.IsLineForParallelFlow;
     public static bool IsInline(this PhysicalFragment f) => f.IsInlineBox() || f.IsAtomicInline();
@@ -81,7 +81,7 @@ public static class PhysicalFragmentExtensions
     public static bool IsImplicitAnchor(this PhysicalFragment f) => f.GetNode() is Element element && element.HasImplicitlyAnchoredElement();
 
     public static bool HasStickyConstrainedPosition(this PhysicalFragment f) => f.IsCSSBox() && f.LayoutObject != null && f.LayoutObject.StyleRef().HasStickyConstrainedPosition();
-    public static bool IsSnapArea(this PhysicalFragment f) => f.IsCSSBox() && f.LayoutObject is LayoutNgBox && f.LayoutObject.StyleRef().GetScrollSnapAlign() != default;
+    public static bool IsSnapArea(this PhysicalFragment f) => f.IsCSSBox() && f.LayoutObject is AuroraBox && f.LayoutObject.StyleRef().GetScrollSnapAlign() != default;
 
     public static ComputedStyle Style(this PhysicalFragment f) => f.LayoutObject?.EffectiveStyle(f.GetStyleVariant()) ?? ComputedStyle.CreateDefault();
     public static StyleVariant GetStyleVariant(this PhysicalFragment f) => f.StyleVariant;
@@ -321,7 +321,7 @@ public static class LayoutObjectSupportExtensions
     public static bool CreatesNewFormattingContext(this LayoutInputNode node) => node.Box?.IsFloating == true || node.Box?.IsScrollContainer == true;
     public static LayoutBox? GetLayoutBox(this LayoutInputNode node) => node.Box;
     public static bool IsAnonymous(this ConstraintSpace space) => false;
-    public static bool IsFixedPositioned(this LayoutNgBox box) => box.IsPositioned && box.StyleRef().Position == PositionType.Fixed;
+    public static bool IsFixedPositioned(this AuroraBox box) => box.IsPositioned && box.StyleRef().Position == PositionType.Fixed;
     public static bool IsVerticalWritingMode(this ComputedStyle style) => !style.IsHorizontalWritingMode();
     public static bool IsHorizontalWritingMode(this Geom.WritingMode mode) => mode == Geom.WritingMode.HorizontalTb;
     public static bool IsVerticalWritingMode(this Geom.WritingMode mode) => !mode.IsHorizontalWritingMode();
@@ -334,7 +334,7 @@ public static class LayoutObjectSupportExtensions
     public static bool CanContainFixedPositionObjects(this LayoutObject obj) => false;
     public static bool CanContainFixedPositionObjects(this LayoutInline inline) => false;
     public static LayoutObject? ContainingBlock(this LayoutInline inline) => inline.Parent;
-    public static bool IsColumnSpanAll(this LayoutNgBox box) => false;
+    public static bool IsColumnSpanAll(this AuroraBox box) => false;
     public static bool HasOrthogonalFallbackInlineSize(this LayoutResult result) => false;
     public static bool HasOrthogonalFallbackSizeDescendant(this LayoutResult result) => false;
     public static PhysicalFragment? GetPhysicalFragment(this LayoutResult result)

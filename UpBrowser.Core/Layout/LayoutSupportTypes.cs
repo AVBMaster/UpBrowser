@@ -3,7 +3,7 @@
 namespace UpBrowser.Core.Layout;
 
 /// <summary>
-/// Style difference flags - mirrors blink StyleDifference.
+/// Style difference flags - mirrors the engine's StyleDifference.
 /// </summary>
 [Flags]
 public enum StyleDifference
@@ -18,7 +18,7 @@ public enum StyleDifference
 }
 
 /// <summary>
-/// Paint info - minimal paint context mirroring blink PaintInfo.
+/// Paint info - minimal paint context mirroring the engine's PaintInfo.
 /// </summary>
 public sealed class PaintInfo
 {
@@ -31,7 +31,7 @@ public sealed class PaintInfo
 }
 
 /// <summary>
-/// Paint invalidator context - mirror of blink PaintInvalidatorContext.
+/// Paint invalidator context - mirror of the engine's PaintInvalidatorContext.
 /// Carries subtree flags and enclosing state down the invalidation walk.
 /// </summary>
 public sealed class PaintInvalidatorContext
@@ -68,7 +68,7 @@ public enum PaintInvalidationSubtreeFlags
 }
 
 /// <summary>
-/// Cursor directive - mirror of blink CursorDirective.
+/// Cursor directive - mirror of the engine's CursorDirective.
 /// </summary>
 public enum CursorDirective
 {
@@ -107,7 +107,7 @@ public sealed class AffineTransform
 }
 
 /// <summary>
-/// Paint layer type - mirror of blink PaintLayerType.
+/// Paint layer type - mirror of the engine's PaintLayerType.
 /// </summary>
 public enum PaintLayerType
 {
@@ -117,7 +117,7 @@ public enum PaintLayerType
 }
 
 /// <summary>
-/// Compositing reasons - mirror of blink CompositingReasons.
+/// Compositing reasons - mirror of the engine's CompositingReasons.
 /// </summary>
 [Flags]
 public enum CompositingReasons
@@ -132,14 +132,14 @@ public enum CompositingReasons
 }
 
 /// <summary>
-/// Wrapped image pointer - mirror of blink WrappedImagePtr.
+/// Wrapped image pointer - mirror of the engine's WrappedImagePtr.
 /// </summary>
 public sealed class WrappedImagePtr
 {
 }
 
 /// <summary>
-/// CanDeferInvalidation - mirror of blink CanDeferInvalidation.
+/// CanDeferInvalidation - mirror of the engine's CanDeferInvalidation.
 /// </summary>
 public enum CanDeferInvalidation
 {
@@ -148,7 +148,7 @@ public enum CanDeferInvalidation
 }
 
 /// <summary>
-/// Position - editing position placeholder mirroring blink Position.
+/// Position - editing position placeholder mirroring the engine's Position.
 /// </summary>
 public sealed class Position
 {
@@ -171,35 +171,35 @@ public sealed class PositionWithAffinity
 }
 
 /// <summary>
-/// Embedded content view - mirror of blink EmbeddedContentView base.
+/// Embedded content view - mirror of the engine's EmbeddedContentView base.
 /// </summary>
 public class EmbeddedContentView
 {
 }
 
 /// <summary>
-/// Web plugin container - mirror of blink WebPluginContainerImpl.
+/// Web plugin container - mirror of the engine's WebPluginContainerImpl.
 /// </summary>
 public sealed class WebPluginContainerImpl
 {
 }
 
 /// <summary>
-/// Font placeholder - mirror of blink Font.
+/// Font placeholder - mirror of the engine's Font.
 /// </summary>
 public sealed class Font
 {
 }
 
 /// <summary>
-/// Inline cursor - mirror of blink InlineCursor.
+/// Inline cursor - mirror of the engine's InlineCursor.
 /// </summary>
 public sealed class InlineCursor
 {
 }
 
 /// <summary>
-/// Line-relative rect used in painting - mirror of blink LineRelativeRect.
+/// Line-relative rect used in painting - mirror of the engine's LineRelativeRect.
 /// </summary>
 public readonly struct LineRelativeRect
 {

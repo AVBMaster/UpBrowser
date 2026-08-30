@@ -4,10 +4,10 @@ using UpBrowser.Core.Dom;
 namespace UpBrowser.Rendering;
 
 /// <summary>
-/// Blink InlineBoxFragmentPainter / InlineBoxFragmentPainterBase.
+/// Mirrors InlineBoxFragmentPainter / InlineBoxFragmentPainterBase.
 /// Paints the box-decoration background (box-shadow, background, border) of an
 /// inline box. Translated from inline_box_fragment_painter.cc.
-/// Paint order matches Blink: normal shadow → fill layers → inset shadow → border.
+/// Paint order: normal shadow → fill layers → inset shadow → border.
 /// </summary>
 public sealed class InlineBoxFragmentPainter
 {
@@ -23,21 +23,21 @@ public sealed class InlineBoxFragmentPainter
     }
 
     /// <summary>
-    /// Blink ComputedStyle::HasBoxDecorationBackground (computed_style.h:2404):
+    /// Mirror of ComputedStyle::HasBoxDecorationBackground (computed_style.h:2404):
     /// HasBackground() || HasBorderDecoration() || HasEffectiveAppearance() || BoxShadow().
     /// </summary>
     public static bool HasBoxDecorationBackground(ComputedStyle style) =>
         HasBackground(style) || HasBorderDecoration(style) || HasEffectiveAppearance(style) || style.BoxShadow != null;
 
     /// <summary>
-    /// Blink ComputedStyle::HasBackground (computed_style.cc:2245): background
+    /// Mirror of ComputedStyle::HasBackground (computed_style.cc:2245): background
     /// color is not fully transparent, or a background image is present.
     /// </summary>
     public static bool HasBackground(ComputedStyle style) =>
         (style.BackgroundColor.HasValue && style.BackgroundColor.Value.Alpha > 0) ||
         (style.BackgroundImage is { Count: > 0 } && style.BackgroundImage!.Any(s => s != "none"));
 
-    /// <summary>Blink HasBorderDecoration: any border edge has a visible style.</summary>
+    /// <summary>Mirror of HasBorderDecoration: any border edge has a visible style.</summary>
     public static bool HasBorderDecoration(ComputedStyle style) =>
         (style.BorderTopWidth > 0 && style.BorderTopStyle != BorderStyle.None) ||
         (style.BorderRightWidth > 0 && style.BorderRightStyle != BorderStyle.None) ||
@@ -45,7 +45,7 @@ public sealed class InlineBoxFragmentPainter
         (style.BorderLeftWidth > 0 && style.BorderLeftStyle != BorderStyle.None);
 
     /// <summary>
-    /// Blink HasEffectiveAppearance. This engine has no native appearance
+    /// Mirror of HasEffectiveAppearance. This engine has no native appearance
     /// support, so it always reports false (matching form-free inline boxes).
     /// </summary>
     public static bool HasEffectiveAppearance(ComputedStyle style) => false;
@@ -62,7 +62,7 @@ public sealed class InlineBoxFragmentPainter
     }
 
     /// <summary>
-    /// Blink InlineBoxFragmentPainter::PaintBackgroundBorderShadow
+    /// Mirror of InlineBoxFragmentPainter::PaintBackgroundBorderShadow
     /// (inline_box_fragment_painter.cc:128). Paints box-shadow, background and
     /// border of the inline box into <paramref name="borderRect"/>.
     /// </summary>
@@ -76,7 +76,7 @@ public sealed class InlineBoxFragmentPainter
     }
 
     /// <summary>
-    /// Blink InlineBoxFragmentPainterBase::PaintBoxDecorationBackground
+    /// Mirror of InlineBoxFragmentPainterBase::PaintBoxDecorationBackground
     /// (inline_box_fragment_painter.cc:334).
     /// </summary>
     private void PaintBoxDecorationBackground(Element element, ComputedStyle style, SKRect borderRect,
@@ -115,7 +115,7 @@ public sealed class InlineBoxFragmentPainter
     }
 
     /// <summary>
-    /// Blink InlineBoxFragmentPainterBase::PaintFillLayers
+    /// Mirror of InlineBoxFragmentPainterBase::PaintFillLayers
     /// (inline_box_fragment_painter.cc:367). Layers are painted back-to-front:
     /// the chain is recursed into first, then the current layer is painted.
     /// </summary>
@@ -130,7 +130,7 @@ public sealed class InlineBoxFragmentPainter
     }
 
     /// <summary>
-    /// Blink InlineBoxFragmentPainterBase::PaintFillLayer
+    /// Mirror of InlineBoxFragmentPainterBase::PaintFillLayer
     /// (inline_box_fragment_painter.cc:378). A single box paints the layer
     /// directly; an object spanning multiple lines paints its fill as a
     /// continuous strip clipped to this line's rect.
@@ -162,7 +162,7 @@ public sealed class InlineBoxFragmentPainter
     }
 
     /// <summary>
-    /// Blink InlineBoxFragmentPainterBase::GetBorderPaintType
+    /// Mirror of InlineBoxFragmentPainterBase::GetBorderPaintType
     /// (inline_box_fragment_painter.cc:291).
     /// </summary>
     private SlicePaintingType GetBorderPaintType(ComputedStyle style, SKRect adjustedFrameRect, bool objectHasMultipleBoxes)
@@ -173,7 +173,7 @@ public sealed class InlineBoxFragmentPainter
     }
 
     /// <summary>
-    /// Blink InlineBoxFragmentPainterBase::GetSlicePaintType
+    /// Mirror of InlineBoxFragmentPainterBase::GetSlicePaintType
     /// (inline_box_fragment_painter.cc:301). Border-image is not rendered in
     /// this engine, so there is never a nine-piece image; the border always
     /// paints without an image-strip clip.
@@ -187,7 +187,7 @@ public sealed class InlineBoxFragmentPainter
     }
 
     /// <summary>
-    /// Blink InlineBoxFragmentPainterBase::ComputeFragmentOffsetOnLine
+    /// Mirror of InlineBoxFragmentPainterBase::ComputeFragmentOffsetOnLine
     /// (inline_box_fragment_painter.cc:219). This engine gives each inline
     /// element a single box, so there is exactly one fragment per layout
     /// object: before and after are both zero.
@@ -202,7 +202,7 @@ public sealed class InlineBoxFragmentPainter
     }
 
     /// <summary>
-    /// Blink InlineBoxFragmentPainterBase::PaintRectForImageStrip
+    /// Mirror of InlineBoxFragmentPainterBase::PaintRectForImageStrip
     /// (inline_box_fragment_painter.cc:250). A fill/border image spanning
     /// multiple lines is painted as one continuous strip.
     /// </summary>
@@ -217,7 +217,7 @@ public sealed class InlineBoxFragmentPainter
     }
 
     /// <summary>
-    /// Blink InlineBoxFragmentPainterBase::ClipRectForNinePieceImageStrip
+    /// Mirror of InlineBoxFragmentPainterBase::ClipRectForNinePieceImageStrip
     /// (inline_box_fragment_painter.cc:269). Border-image outsets are not
     /// modeled (no border-image rendering), so the outsets are zero.
     /// </summary>

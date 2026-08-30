@@ -221,7 +221,7 @@ public class LineTruncator
 }
 
 /// <summary>
-/// Utility functions for computing caret rect in LayoutNG.
+/// Utility functions for computing caret rect in the modern layout pipeline.
 /// Mirrors caret_rect.h.
 /// </summary>
 public static class CaretRect

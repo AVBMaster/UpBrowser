@@ -1,4 +1,4 @@
-using UpBrowser.Core.Dom;
+﻿using UpBrowser.Core.Dom;
 using UpBrowser.Core.Layout.Geometry;
 using Geom = UpBrowser.Core.Layout.Geometry;
 
@@ -86,7 +86,7 @@ public abstract class LayoutFlowThread : LayoutBlockFlow
             // opaque to ancestor fragmentation contexts.
             if (constraint == AncestorSearchConstraint.IsolateUnbreakableContainers && container != null)
             {
-                if (container is LayoutNgBox box)
+                if (container is AuroraBox box)
                 {
                     // We're walking up the tree without knowing which fragmentation engine
                     // is being used, so we have to detect any engine mismatch ourselves.

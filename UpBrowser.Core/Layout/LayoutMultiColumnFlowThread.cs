@@ -1,4 +1,4 @@
-using UpBrowser.Core.Dom;
+﻿using UpBrowser.Core.Dom;
 using UpBrowser.Core.Layout.Geometry;
 using Geom = UpBrowser.Core.Layout.Geometry;
 
@@ -147,15 +147,15 @@ public sealed class LayoutMultiColumnFlowThread : LayoutFlowThread
     }
 
     // Return the first column set or spanner placeholder.
-    public LayoutNgBox? FirstMultiColumnBox()
+    public AuroraBox? FirstMultiColumnBox()
     {
-        return (LayoutNgBox?)NextSibling;
+        return (AuroraBox?)NextSibling;
     }
 
     // Return the last column set or spanner placeholder.
-    public LayoutNgBox? LastMultiColumnBox()
+    public AuroraBox? LastMultiColumnBox()
     {
-        LayoutNgBox? lastSiblingBox = MultiColumnBlockFlow().LastChildBox();
+        AuroraBox? lastSiblingBox = MultiColumnBlockFlow().LastChildBox();
         // The flow thread is the first child of the multicol container. If the flow
         // thread is also the last child, it means that there are no siblings; i.e.
         // we have no column boxes.
@@ -249,7 +249,7 @@ public sealed class LayoutMultiColumnFlowThread : LayoutFlowThread
         _isBeingEvacuated = true;
 
         // Remove all sets and spanners.
-        LayoutNgBox? columnBox;
+        AuroraBox? columnBox;
         while ((columnBox = FirstMultiColumnBox()) != null)
         {
             // Destroy the column box
@@ -415,7 +415,7 @@ public sealed class LayoutMultiColumnFlowThread : LayoutFlowThread
 
     // Remove the spanner placeholder and return true if the specified object is
     // no longer a valid spanner.
-    public bool RemoveSpannerPlaceholderIfNoLongerValid(LayoutNgBox spannerObjectInFlowThread)
+    public bool RemoveSpannerPlaceholderIfNoLongerValid(AuroraBox spannerObjectInFlowThread)
     {
         System.Diagnostics.Debug.Assert(spannerObjectInFlowThread.SpannerPlaceholder() != null);
         if (DescendantIsValidColumnSpanner(spannerObjectInFlowThread))
@@ -454,7 +454,7 @@ public sealed class LayoutMultiColumnFlowThread : LayoutFlowThread
     public void FinishLayoutFromNG(float flowThreadOffset)
     {
         _allColumnsHaveKnownHeight = true;
-        for (LayoutNgBox? columnBox = FirstMultiColumnBox(); columnBox != null; columnBox = (LayoutNgBox?)columnBox.NextSibling)
+        for (AuroraBox? columnBox = FirstMultiColumnBox(); columnBox != null; columnBox = (AuroraBox?)columnBox.NextSibling)
         {
             columnBox.NeedsLayout = false;
         }
@@ -490,7 +490,7 @@ public sealed class LayoutMultiColumnFlowThread : LayoutFlowThread
 
     protected override void ComputeIntrinsicLogicalWidths() { }
 
-    private void CreateAndInsertMultiColumnSet(LayoutNgBox? insertBefore = null)
+    private void CreateAndInsertMultiColumnSet(AuroraBox? insertBefore = null)
     {
         LayoutBlockFlow multicolContainer = MultiColumnBlockFlow();
         var newSet = LayoutMultiColumnSet.CreateAnonymous(this, multicolContainer.StyleRef());
@@ -513,16 +513,16 @@ public sealed class LayoutMultiColumnFlowThread : LayoutFlowThread
         System.Diagnostics.Debug.Assert(newSet.NextSiblingMultiColumnSet() == null || !newSet.NextSiblingMultiColumnSet().IsLayoutMultiColumnSet);
     }
 
-    private void CreateAndInsertSpannerPlaceholder(LayoutNgBox spannerObjectInFlowThread, LayoutObject? insertedBeforeInFlowThread)
+    private void CreateAndInsertSpannerPlaceholder(AuroraBox spannerObjectInFlowThread, LayoutObject? insertedBeforeInFlowThread)
     {
-        LayoutNgBox? insertBeforeColumnBox = null;
+        AuroraBox? insertBeforeColumnBox = null;
         LayoutMultiColumnSet? setToSplit = null;
         if (insertedBeforeInFlowThread != null)
         {
             // The spanner is inserted before something. Figure out what this entails.
             // If the next object is a spanner too, it means that we can simply insert a
             // new spanner placeholder in front of its placeholder.
-            insertBeforeColumnBox = (LayoutNgBox?)insertedBeforeInFlowThread.SpannerPlaceholder();
+            insertBeforeColumnBox = (AuroraBox?)insertedBeforeInFlowThread.SpannerPlaceholder();
             if (insertBeforeColumnBox == null)
             {
                 // The next object isn't a spanner; it's regular column content. Examine
@@ -541,7 +541,7 @@ public sealed class LayoutMultiColumnFlowThread : LayoutFlowThread
                     if (previousPlaceholder != null)
                     {
                         // Before us is another spanner. We belong right after it then.
-                        insertBeforeColumnBox = (LayoutNgBox?)previousPlaceholder.NextSibling;
+                        insertBeforeColumnBox = (AuroraBox?)previousPlaceholder.NextSibling;
                     }
                     else
                     {
@@ -550,7 +550,7 @@ public sealed class LayoutMultiColumnFlowThread : LayoutFlowThread
                         // can insert a new spanner placeholder between them.
                         setToSplit = MapDescendantToColumnSet(previousLayoutObject);
                         System.Diagnostics.Debug.Assert(setToSplit == MapDescendantToColumnSet(insertedBeforeInFlowThread));
-                        insertBeforeColumnBox = (LayoutNgBox?)setToSplit.NextSiblingMultiColumnSet();
+                        insertBeforeColumnBox = (AuroraBox?)setToSplit.NextSiblingMultiColumnSet();
                         // We've found out which set that needs to be split. Now proceed to
                         // inserting the spanner placeholder, and then insert a second column
                         // set.
@@ -572,8 +572,8 @@ public sealed class LayoutMultiColumnFlowThread : LayoutFlowThread
 
     private void DestroySpannerPlaceholder(LayoutMultiColumnSpannerPlaceholder placeholder)
     {
-        var nextColumnBox = (LayoutNgBox?)placeholder.NextSibling;
-        var previousColumnBox = (LayoutNgBox?)placeholder.PreviousSibling;
+        var nextColumnBox = (AuroraBox?)placeholder.NextSibling;
+        var previousColumnBox = (AuroraBox?)placeholder.PreviousSibling;
         if (nextColumnBox != null && nextColumnBox.IsLayoutMultiColumnSet() && previousColumnBox != null && previousColumnBox.IsLayoutMultiColumnSet())
         {
             // Need to merge two column sets.
@@ -620,7 +620,7 @@ public sealed class LayoutMultiColumnFlowThread : LayoutFlowThread
         // This looks like a spanner, but if we're inside something unbreakable or
         // something that establishes a new formatting context, it's not to be treated
         // as one.
-        for (LayoutNgBox? ancestor = descendant.Parent as LayoutNgBox; ancestor != null; ancestor = ancestor.ContainingBlock() as LayoutNgBox)
+        for (AuroraBox? ancestor = descendant.Parent as AuroraBox; ancestor != null; ancestor = ancestor.ContainingBlock() as AuroraBox)
         {
             if (ancestor is LayoutFlowThread)
             {
@@ -658,7 +658,7 @@ public sealed class LayoutMultiColumnFlowThread : LayoutFlowThread
             next = layoutObject.NextInPreOrder(descendant);
             if (ContainingColumnSpannerPlaceholder(layoutObject) != null)
                 continue; // Inside a column spanner. Nothing to do, then.
-            if (DescendantIsValidColumnSpanner(layoutObject) && layoutObject is LayoutNgBox box)
+            if (DescendantIsValidColumnSpanner(layoutObject) && layoutObject is AuroraBox box)
             {
                 // This layoutObject is a spanner, so it needs to establish a spanner
                 // placeholder.
@@ -674,7 +674,7 @@ public sealed class LayoutMultiColumnFlowThread : LayoutFlowThread
                 {
                     // If inserted right before a spanner, we need to make sure that there's
                     // a set for us there.
-                    LayoutNgBox? previous = (LayoutNgBox?)placeholder.PreviousSibling;
+                    AuroraBox? previous = (AuroraBox?)placeholder.PreviousSibling;
                     if (previous == null || !previous.IsLayoutMultiColumnSet())
                         CreateAndInsertMultiColumnSet(placeholder);
                 }
@@ -691,7 +691,7 @@ public sealed class LayoutMultiColumnFlowThread : LayoutFlowThread
             {
                 // Inserting at the end. Then we just need to make sure that there's a
                 // column set at the end.
-                LayoutNgBox? lastColumnBox = LastMultiColumnBox();
+                AuroraBox? lastColumnBox = LastMultiColumnBox();
                 if (lastColumnBox == null || !lastColumnBox.IsLayoutMultiColumnSet())
                     CreateAndInsertMultiColumnSet();
             }
@@ -752,13 +752,13 @@ public sealed class LayoutMultiColumnFlowThread : LayoutFlowThread
         LayoutMultiColumnSet? columnSetToRemove;
         if (adjacentNextSpannerPlaceholder != null)
         {
-            var sibling = (LayoutNgBox?)adjacentNextSpannerPlaceholder.PreviousSibling;
+            var sibling = (AuroraBox?)adjacentNextSpannerPlaceholder.PreviousSibling;
             System.Diagnostics.Debug.Assert(sibling != null && sibling.IsLayoutMultiColumnSet());
             columnSetToRemove = (LayoutMultiColumnSet)sibling;
         }
         else if (adjacentPreviousSpannerPlaceholder != null)
         {
-            var sibling = (LayoutNgBox?)adjacentPreviousSpannerPlaceholder.NextSibling;
+            var sibling = (AuroraBox?)adjacentPreviousSpannerPlaceholder.NextSibling;
             System.Diagnostics.Debug.Assert(sibling != null && sibling.IsLayoutMultiColumnSet());
             columnSetToRemove = (LayoutMultiColumnSet)sibling;
         }
@@ -866,7 +866,7 @@ public sealed class LayoutMultiColumnFlowThread : LayoutFlowThread
 
     private static LayoutObject? FirstLayoutObjectInSet(LayoutMultiColumnSet multicolSet)
     {
-        var sibling = (LayoutNgBox?)multicolSet.PreviousSiblingMultiColumnBox();
+        var sibling = (AuroraBox?)multicolSet.PreviousSiblingMultiColumnBox();
         if (sibling == null)
             return multicolSet.FlowThread()?.FirstChild();
         // Adjacent column content sets should not occur. We would have no way of
@@ -880,7 +880,7 @@ public sealed class LayoutMultiColumnFlowThread : LayoutFlowThread
 
     private static LayoutObject? LastLayoutObjectInSet(LayoutMultiColumnSet multicolSet)
     {
-        var sibling = (LayoutNgBox?)multicolSet.NextSiblingMultiColumnBox();
+        var sibling = (AuroraBox?)multicolSet.NextSiblingMultiColumnBox();
         // By right we should return lastLeafChild() here, but the caller doesn't
         // care, so just return nullptr.
         if (sibling == null)
@@ -927,20 +927,20 @@ public static class LayoutMultiColumnFlowThreadExtensions
         return null;
     }
 
-    public static LayoutNgBox? LastChildBox(this LayoutBlockFlow blockFlow)
+    public static AuroraBox? LastChildBox(this LayoutBlockFlow blockFlow)
     {
         if (blockFlow.Children.Count == 0) return null;
-        return blockFlow.Children[^1] as LayoutNgBox;
+        return blockFlow.Children[^1] as AuroraBox;
     }
 
-    public static LayoutNgBox? NextSiblingMultiColumnBox(this LayoutMultiColumnSet set)
+    public static AuroraBox? NextSiblingMultiColumnBox(this LayoutMultiColumnSet set)
     {
-        return set.NextSibling as LayoutNgBox;
+        return set.NextSibling as AuroraBox;
     }
 
-    public static LayoutNgBox? PreviousSiblingMultiColumnBox(this LayoutMultiColumnSet set)
+    public static AuroraBox? PreviousSiblingMultiColumnBox(this LayoutMultiColumnSet set)
     {
-        return set.PreviousSibling as LayoutNgBox;
+        return set.PreviousSibling as AuroraBox;
     }
 
     public static float LogicalBottom(this LayoutMultiColumnSet set)

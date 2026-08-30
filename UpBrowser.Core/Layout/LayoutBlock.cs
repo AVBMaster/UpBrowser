@@ -1,4 +1,4 @@
-using UpBrowser.Core.Dom;
+﻿using UpBrowser.Core.Dom;
 using UpBrowser.Core.Layout.Geometry;
 
 namespace UpBrowser.Core.Layout;
@@ -10,7 +10,7 @@ namespace UpBrowser.Core.Layout;
 /// block).
 /// http://www.w3.org/TR/CSS2/visuren.html#containing-block
 /// </summary>
-public class LayoutBlock : LayoutNgBox
+public class LayoutBlock : AuroraBox
 {
     private readonly List<LayoutObject> _children = new();
     private readonly HashSet<LayoutObject> _positionedDescendants = new();
@@ -156,7 +156,7 @@ public class LayoutBlock : LayoutNgBox
         {
             if (child.IsBox)
             {
-                var childBox = (LayoutNgBox)child;
+                var childBox = (AuroraBox)child;
                 AddContentsVisualOverflow(childBox.BorderBoxRect);
             }
         }

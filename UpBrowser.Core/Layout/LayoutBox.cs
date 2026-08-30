@@ -1,20 +1,20 @@
-using UpBrowser.Core.Dom;
+﻿using UpBrowser.Core.Dom;
 using UpBrowser.Core.Layout.Geometry;
 
 namespace UpBrowser.Core.Layout;
 
 /// <summary>
-/// LayoutNgBox - full CSS box model layout object. This is the C# port of
-/// Blink's <c>LayoutBox</c> (layout_box.h): it stores the CSS border-box rect
+/// AuroraBox - full CSS box model layout object. This is the engine's
+/// <c>LayoutBox</c> equivalent: it stores the CSS border-box rect
 /// (frame_location_ / frame_size_) and exposes the nested boxes (border /
 /// padding / content), overflow, scrolling and clipping helpers.
 /// </summary>
 /// <remarks>
-/// This class is named <c>LayoutNgBox</c> instead of <c>LayoutBox</c> to avoid
+/// This class is named <c>AuroraBox</c> instead of <c>LayoutBox</c> to avoid
 /// a name conflict with <c>UpBrowser.Core.Dom.LayoutBox</c>, the simple data
 /// container used for the DOM-facing layout results. See docs/layout_porting_tracker.md.
 /// </remarks>
-public abstract class LayoutNgBox : LayoutBoxModelObject
+public abstract class AuroraBox : LayoutBoxModelObject
 {
     private PhysicalOffset _frameLocation;
     private PhysicalSize _frameSize;
@@ -25,7 +25,7 @@ public abstract class LayoutNgBox : LayoutBoxModelObject
     private OverflowModel? _overflow;
     private readonly List<LayoutResult> _layoutResults = new();
 
-    protected LayoutNgBox(Node? node,
+    protected AuroraBox(Node? node,
         PhysicalSize? intrinsicSize = null,
         LayoutInline? inlineBoxWrapper = null)
         : base(node)
@@ -69,7 +69,7 @@ public abstract class LayoutNgBox : LayoutBoxModelObject
     public override bool IsScrollContainer => _isScrollContainer;
     public override bool CreatesNewFormattingContext => true;
     public override bool CanHaveChildren => true;
-    public override string GetName() => "LayoutNgBox";
+    public override string GetName() => "AuroraBox";
 
     public override bool IsFragmentLessBox => PhysicalFragmentCount == 0;
 
@@ -98,7 +98,7 @@ public abstract class LayoutNgBox : LayoutBoxModelObject
     public void SetLocation(float left, float top) => SetLocation(new PhysicalOffset(left, top));
     public void SetSize(float width, float height) => SetSize(new PhysicalSize(width, height));
 
-    public LayoutNgBox? LocationContainer() => Parent as LayoutNgBox;
+    public AuroraBox? LocationContainer() => Parent as AuroraBox;
 
     public float Width => _frameSize.Width;
     public float Height => _frameSize.Height;
@@ -122,11 +122,11 @@ public abstract class LayoutNgBox : LayoutBoxModelObject
 
     // ===== Sibling / parent access =====
 
-    public LayoutNgBox? FirstChildBox() => SlowFirstChild() as LayoutNgBox;
-    public LayoutNgBox? LastChildBox() => SlowLastChild() as LayoutNgBox;
-    public LayoutNgBox? PreviousSiblingBox() => PreviousSibling as LayoutNgBox;
-    public LayoutNgBox? NextSiblingBox() => NextSibling as LayoutNgBox;
-    public LayoutNgBox? ParentBox() => Parent as LayoutNgBox;
+    public AuroraBox? FirstChildBox() => SlowFirstChild() as AuroraBox;
+    public AuroraBox? LastChildBox() => SlowLastChild() as AuroraBox;
+    public AuroraBox? PreviousSiblingBox() => PreviousSibling as AuroraBox;
+    public AuroraBox? NextSiblingBox() => NextSibling as AuroraBox;
+    public AuroraBox? ParentBox() => Parent as AuroraBox;
 
     // ===== Box model rectangles =====
 
@@ -325,7 +325,7 @@ public abstract class LayoutNgBox : LayoutBoxModelObject
 }
 
 /// <summary>Helper extensions kept for parity with the multi-column code.</summary>
-public static class LayoutNgBoxExtensions
+public static class AuroraBoxExtensions
 {
     public static void ResetIfOnlyInk(this OverflowModel overflow)
     {

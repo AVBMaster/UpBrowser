@@ -6,7 +6,7 @@ namespace UpBrowser.Core.Layout;
 /// <summary>
 /// Lays out flex items in a flex formatting context.
 /// Implements the flex box layout algorithm: main/cross axis, flex-grow/shrink,
-/// justify-content, align-items, and wrapping. Mirrors Blink's FlexLayoutAlgorithm.
+/// justify-content, align-items, and wrapping. Mirrors the engine's FlexLayoutAlgorithm.
 /// </summary>
 public class FlexLayoutAlgorithm : LayoutAlgorithm
 {
@@ -172,7 +172,7 @@ public class FlexLayoutAlgorithm : LayoutAlgorithm
         var box = Builder.ToBoxFragment();
         box.Children.AddRange(Builder.Children);
 
-        // Build the NG-aligned flex line output (FlexData), consumable by
+        // Build the flex line output (FlexData), consumable by
         // FlexItemIterator.
         Lines.Clear();
         var lineOut = new FlexLine(_items.Count);

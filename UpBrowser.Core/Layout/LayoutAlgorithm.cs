@@ -6,7 +6,7 @@ namespace UpBrowser.Core.Layout;
 
 /// <summary>
 /// Base class for layout algorithms. Encapsulates the constraint space and produces
-/// a BoxFragment result. Mirrors the architecture of Blink's layout algorithms.
+/// a BoxFragment result. Mirrors the architecture of the engine's layout algorithms.
 /// </summary>
 public abstract class LayoutAlgorithm
 {
@@ -19,7 +19,7 @@ public abstract class LayoutAlgorithm
 
     /// <summary>
     /// Root element computed font-size — the rem basis. Flows from the root
-    /// ConstraintSpace established by <see cref="LayoutEngine.LayoutNg"/>.
+    /// ConstraintSpace established by <see cref="LayoutEngine.LayoutAurora"/>.
     /// </summary>
     protected float RootFontSize => Space.RootFontSize;
 

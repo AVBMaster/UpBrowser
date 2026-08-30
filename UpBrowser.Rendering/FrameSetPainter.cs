@@ -6,8 +6,7 @@ namespace UpBrowser.Rendering;
 
 /// <summary>
 /// Paints the frameset chrome: child frames plus the resize borders between
-/// them. Mirrors FrameSetPainter in
-/// blink/renderer/core/paint/frame_set_painter.h/.cc.
+/// them. Mirrors FrameSetPainter.
 ///
 /// DrawingRecorder / GraphicsContext are mapped to the existing paint-op
 /// layer: the caller provides the collection the painter appends DrawRectOps

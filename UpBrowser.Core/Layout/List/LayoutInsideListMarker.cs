@@ -3,7 +3,7 @@ using UpBrowser.Core.Dom;
 namespace UpBrowser.Core.Layout.List;
 
 /// <summary>
-/// A LayoutObject subclass for inside-positioned list markers in LayoutNG.
+/// A LayoutObject subclass for inside-positioned list markers in the modern layout pipeline.
 /// Mirrors layout_inside_list_marker.h/.cc.
 /// </summary>
 public class LayoutInsideListMarker : LayoutInline

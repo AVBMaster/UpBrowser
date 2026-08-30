@@ -1,9 +1,9 @@
 namespace UpBrowser.Core.Layout.Geometry;
 
 /// <summary>
-/// Helpers for scalar layout values. The port maps Blink's LayoutUnit directly
+/// Helpers for scalar layout values. The engine maps its layout unit directly
 /// onto C# float per the project convention, so these helpers mirror the
-/// LayoutUnit static API used by the inline layout port.
+/// layout-unit static API used by the inline layout engine.
 /// </summary>
 public static class LayoutUnitUtils
 {

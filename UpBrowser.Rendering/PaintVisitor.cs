@@ -396,7 +396,7 @@ _scrollableAreaPainter = new ScrollableAreaPainter(_displayList);
     }
 
     /// <summary>
-    /// Paints the document using Blink's stacking-context paint order.
+    /// Paints the document using the CSS stacking-context paint order.
     /// Builds a PaintLayer tree and paints each layer in CSS stacking order
     /// (background → negative z → block bg → float → inline → auto z → positive z).
     /// </summary>
@@ -427,7 +427,7 @@ _scrollableAreaPainter = new ScrollableAreaPainter(_displayList);
 
             // P2-2b: viewport culling at paint-layer granularity — a stacking
             // context whose subtree lies entirely outside the cull rect emits no
-            // ops at all (mirrors what CullRectUpdater feeds into Blink's layer
+            // ops at all (mirrors what CullRectUpdater feeds into layer
             // painting). Fixed/sticky descendants establish their own layers and
             // are tested independently, so they are never lost.
             if (_cullRect.HasValue)
@@ -2076,7 +2076,7 @@ private static SKBlendMode MixBlendModeToSkBlendMode(MixBlendModeType mode) => m
         }
 
         // IME composition underline — P2-2: routed through StyleableMarkerPainter
-        // (thick solid = Blink's default for the ACTIVE composition clause).
+        // (thick solid = the default for the ACTIVE composition clause).
         if (isFocused && _inputImeComposing && _inputImeComposition.Length > 0)
         {
             float compStartX = textX + MeasureTextWidth(effectText[..Math.Min(_inputCursorPos, displayText.Length)], fontSize, style.FontFamily) - scrollOffset;
@@ -2157,7 +2157,7 @@ private static SKBlendMode MixBlendModeToSkBlendMode(MixBlendModeType mode) => m
                 _overlayList.Add(PaintOpPool.GetPopClipOp());
         }
 
-        // Search input clear button (Blink: shown on focus/hover when there is a value)
+        // Search input clear button (shown on focus/hover when there is a value)
         if (hasClearButton)
         {
             var clearX = contentBox.Right - 14;
@@ -2185,7 +2185,7 @@ private static SKBlendMode MixBlendModeToSkBlendMode(MixBlendModeType mode) => m
             targetList.Add(xOp);
         }
 
-        // Number spin buttons (Blink: shown on focus/hover). Each half is a press target.
+        // Number spin buttons (shown on focus/hover). Each half is a press target.
         if (hasSpinButtons)
         {
             // Draw coords include the chrome/content Y offset; hit coords are in doc space.
@@ -2258,7 +2258,7 @@ private static SKBlendMode MixBlendModeToSkBlendMode(MixBlendModeType mode) => m
             targetList.Add(sepOp);
         }
 
-        // Password reveal toggle (Blink: eye icon shown on focus)
+        // Password reveal toggle (eye icon shown on focus)
         if (hasRevealButton)
         {
             float eyeX = contentBox.Right - 14;

@@ -4,8 +4,8 @@ using UpBrowser.Core.Layout.Geometry;
 namespace UpBrowser.Core.Layout.Inline;
 
 /// <summary>
-/// Text-align application for laid-out logical lines. Mirrors the alignment half
-/// of Blink's line breaker / ShapeResult spacing split: the line breaker records
+/// Text-align application for laid-out logical lines. Implements the alignment
+/// half of the engine's line breaker / shape-result spacing split: the line breaker records
 /// expansion opportunities (breakable space runs), and this pass distributes the
 /// free inline space into those opportunities (justify) or offsets the whole line
 /// (end/center) once the natural content width is known.
@@ -60,7 +60,7 @@ public static class JustificationUtils
         var dir = info.BaseDirection();
 
         // Map physical to logical for directional values (LTR base assumed for
-        // Start; RTL flips Left/Right like Blink's TextAlignLine logic).
+        // Start; RTL flips Left/Right like the engine's text-align-line logic).
         return align switch
         {
             TextAlignType.Left => IsLtr(dir) ? TextAlignType.Start : TextAlignType.End,

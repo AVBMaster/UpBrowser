@@ -1,4 +1,4 @@
-using UpBrowser.Core.Dom;
+﻿using UpBrowser.Core.Dom;
 using UpBrowser.Core.Layout.Geometry;
 
 namespace UpBrowser.Core.Layout;
@@ -9,7 +9,7 @@ namespace UpBrowser.Core.Layout;
 /// (e.g. an image, embedded document, applet). Mirrors layout_replaced.cc.
 /// http://www.w3.org/TR/CSS2/conform.html#defs
 /// </summary>
-public class LayoutReplaced : LayoutNgBox
+public class LayoutReplaced : AuroraBox
 {
     // These values are specified to be 300 and 150 pixels in the CSS 2.1 spec.
     // http://www.w3.org/TR/CSS2/visudet.html#inline-replaced-width

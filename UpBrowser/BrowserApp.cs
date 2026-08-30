@@ -480,7 +480,7 @@ namespace UpBrowser;
         };
         _scrollInteraction.OnScrollChanged = () =>
         {
-            // Lightweight scroll repaint — no ComputeStyles, no LayoutNg.
+            // Lightweight scroll repaint — no ComputeStyles.
             _scrollDirty = true;
             _input.NeedsRedraw = true;
         };

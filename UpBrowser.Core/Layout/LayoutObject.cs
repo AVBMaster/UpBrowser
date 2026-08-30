@@ -1,4 +1,4 @@
-using UpBrowser.Core.Dom;
+﻿using UpBrowser.Core.Dom;
 using UpBrowser.Core.Dom.Html;
 using UpBrowser.Core.Layout.Geometry;
 
@@ -287,12 +287,12 @@ public abstract class LayoutObject
     }
 
     /// <summary>Convenience function for getting to the nearest enclosing box of this object.</summary>
-    public LayoutNgBox? EnclosingBox()
+    public AuroraBox? EnclosingBox()
     {
         LayoutObject? current = this;
         while (current != null)
         {
-            if (current.IsBox) return (LayoutNgBox)current;
+            if (current.IsBox) return (AuroraBox)current;
             current = current.Parent;
         }
         return null;
@@ -613,7 +613,7 @@ public abstract class LayoutObject
     /// <summary>Return the offset from |container| to this object. Mirrors OffsetFromContainer().</summary>
     public virtual PhysicalOffset OffsetFromContainer(LayoutObject? container, int mode = 0)
     {
-        if (container == null || this is not LayoutNgBox box)
+        if (container == null || this is not AuroraBox box)
             return PhysicalOffset.Zero;
         if (box.ContainingBlock() != container && box.Container() != container)
             return PhysicalOffset.Zero;
@@ -623,7 +623,7 @@ public abstract class LayoutObject
     /// <summary>Returns the bounding box of this object in absolute coordinates.</summary>
     public PhysicalRect AbsoluteBoundingBoxRect()
     {
-        if (this is not LayoutNgBox box)
+        if (this is not AuroraBox box)
             return new PhysicalRect(LocalToAbsolutePoint(PhysicalOffset.Zero), PhysicalSize.Zero);
         return LocalToAbsoluteRect(box.BorderBoxRect);
     }
@@ -649,7 +649,7 @@ public abstract class LayoutObject
             return null;
 
         // Special-cased elements with a default association to a specific
-        // LayoutObject (mirrors the tag->renderer defaults in Blink).
+        // LayoutObject (mirrors the engine's tag->renderer defaults).
         switch (element.TagName)
         {
             case "IMG":

@@ -1,34 +1,18 @@
 using UpBrowser.Core.Dom;
 using GridImpl = UpBrowser.Core.Layout.Grid.GridLayoutAlgorithm;
-using System.Linq;
 
 namespace UpBrowser.Core.Layout;
 
 /// <summary>
 /// Adapter exposing the existing Grid layout implementation through the LayoutAlgorithm
-/// interface. Produces a BoxFragment tree from the grid container's LayoutBox tree.
+/// interface. Produces a BoxFragment tree from the grid container's LayoutBox tree,
+/// so the container conveys its own geometry but the pane re-converts fragments
+/// back into the Dom.LayoutBox model the painting pipeline consumes.
 /// </summary>
 public class GridLayoutAdapter : LayoutAlgorithm
 {
-    private readonly Func<Element, float, float, float, LayoutBox?, LayoutBox?> _createLayoutBox;
-    private readonly LayoutEngine _engine;
-
-    public GridLayoutAdapter(Element node, in ConstraintSpace space,
-        Func<Element, float, float, float, LayoutBox?, LayoutBox?>? createLayoutBox = null,
-        LayoutEngine? engine = null) : base(node, space)
+    public GridLayoutAdapter(Element node, in ConstraintSpace space) : base(node, space)
     {
-        _createLayoutBox = createLayoutBox ?? DefaultBoxFactory;
-        _engine = engine ?? new LayoutEngine();
-    }
-
-    private static LayoutBox DefaultBoxFactory(Element e, float x, float y, float w, LayoutBox? parent)
-    {
-        var box = new LayoutBox();
-        box.MarginBox = new SkiaSharp.SKRect(x, y, x + w, y + 16);
-        box.BorderBox = box.MarginBox;
-        box.PaddingBox = box.MarginBox;
-        box.ContentBox = box.MarginBox;
-        return box;
     }
 
     public override LayoutResult Layout()
@@ -45,8 +29,26 @@ public class GridLayoutAdapter : LayoutAlgorithm
 
         float availableWidth = ChildAvailableInlineSize;
 
-        var containerBox = Node.LayoutBox ?? _createLayoutBox(Node, PaddingLeft, PaddingTop, availableWidth, null);
-        var grid = new global::UpBrowser.Core.Layout.Grid.GridLayoutAlgorithm(TextMeasurer.Instance, _createLayoutBox, _engine);
+        // Local-geometry container: the grid algorithm positions items relative to
+        // this box's content box, and the item box produced here carries the real
+        // content height (row tracks + gaps) once the layout pass runs.
+        float contentWidth = availableWidth;
+        float contentHeight = Space.HasDefiniteBlockSize ? Space.AvailableBlockSize : 16f;
+        var containerBox = new LayoutBox
+        {
+            ContentBox = new SkiaSharp.SKRect(
+                BorderLeft + PaddingLeft, BorderTop + PaddingTop,
+                BorderLeft + PaddingLeft + contentWidth, BorderTop + PaddingTop + contentHeight),
+        };
+        containerBox.PaddingBox = new SkiaSharp.SKRect(
+            containerBox.ContentBox.Left - PaddingLeft, containerBox.ContentBox.Top - PaddingTop,
+            containerBox.ContentBox.Right + PaddingRight, containerBox.ContentBox.Bottom + PaddingBottom);
+        containerBox.BorderBox = new SkiaSharp.SKRect(
+            containerBox.PaddingBox.Left - BorderLeft, containerBox.PaddingBox.Top - BorderTop,
+            containerBox.PaddingBox.Right + BorderRight, containerBox.PaddingBox.Bottom + BorderBottom);
+        containerBox.MarginBox = containerBox.BorderBox;
+
+        var grid = new GridImpl(TextMeasurer.Instance, Space);
         grid.Layout(Node, containerBox, availableWidth);
 
         var box = new BoxFragment
@@ -66,8 +68,7 @@ public class GridLayoutAdapter : LayoutAlgorithm
             Element = Node,
         };
 
-        if (containerBox.Children != null)
-            CollectChildren(containerBox.Children, Node.Children.OfType<Element>().ToList(), box);
+        CollectChildren(containerBox, box);
 
         Builder.InlineSize = box.InlineSize;
         Builder.BlockSize = box.BlockSize;
@@ -76,22 +77,88 @@ public class GridLayoutAdapter : LayoutAlgorithm
         return LayoutResult.FromFragment(box);
     }
 
-    private static void CollectChildren(IReadOnlyList<LayoutBox> sources, List<Element> domChildren, BoxFragment target)
+    private static void CollectChildren(LayoutBox parent, BoxFragment target)
     {
-        for (int i = 0; i < sources.Count && i < domChildren.Count; i++)
+        foreach (var child in parent.Children)
         {
-            var child = sources[i];
+            // Reconstruct a fragment whose re-conversion reproduces the child box
+            // exactly: offsets are relative to the parent's content box (the
+            // converter adds the parent content origin and subtracts the margins),
+            // and the border/padding insets are carried so an item's own
+            // border-box/padding doesn't get lost.
+            float marginLeft = child.BorderBox.Left - child.MarginBox.Left;
+            float marginTop = child.BorderBox.Top - child.MarginBox.Top;
+
+            var element = child.Dimensions?.Element;
             var childFragment = new BoxFragment
             {
-                InlineOffset = child.MarginBox.Left,
-                BlockOffset = child.MarginBox.Top,
-                InlineSize = child.ContentBox.Width,
-                BlockSize = child.ContentBox.Height,
-                Element = domChildren[i],
+                InlineOffset = (child.BorderBox.Left - parent.ContentBox.Left) + marginLeft,
+                BlockOffset = (child.BorderBox.Top - parent.ContentBox.Top) + marginTop,
+                InlineSize = child.BorderBox.Width,
+                BlockSize = child.BorderBox.Height,
+                MarginLeft = marginLeft,
+                MarginTop = marginTop,
+                MarginRight = child.MarginBox.Right - child.BorderBox.Right,
+                MarginBottom = child.MarginBox.Bottom - child.BorderBox.Bottom,
+                BorderLeft = child.PaddingBox.Left - child.BorderBox.Left,
+                BorderTop = child.PaddingBox.Top - child.BorderBox.Top,
+                BorderRight = child.BorderBox.Right - child.PaddingBox.Right,
+                BorderBottom = child.BorderBox.Bottom - child.PaddingBox.Bottom,
+                PaddingLeft = child.ContentBox.Left - child.PaddingBox.Left,
+                PaddingTop = child.ContentBox.Top - child.PaddingBox.Top,
+                PaddingRight = child.PaddingBox.Right - child.ContentBox.Right,
+                PaddingBottom = child.PaddingBox.Bottom - child.ContentBox.Bottom,
+                IsFloating = child.IsFloating,
+                Element = element,
             };
+
+            if (child.IsMultiColumn)
+            {
+                childFragment.IsMultiColumn = true;
+                childFragment.UsedColumnCount = child.ColumnCount;
+                childFragment.ColumnInlineSize = child.ColumnWidth;
+                childFragment.ColumnProgression = child.ColumnWidth + child.ColumnGapSize;
+            }
+
+            RebuildLines(childFragment, child);
+
             target.Children.Add(childFragment);
-            if (child.Children != null && child.Children.Count > 0)
-                CollectChildren(child.Children, domChildren[i].Children.OfType<Element>().ToList(), childFragment);
+            if (child.Children.Count > 0)
+                CollectChildren(child, childFragment);
+        }
+    }
+
+    /// <summary>
+    /// Re-derive the fragment's cache of inline lines/runs from the already
+    /// converted lines, so text laid out inside a grid/flex item survives the
+    /// fragment round-trip (the painter consumes the reconverted Dom.LineBoxes).
+    /// </summary>
+    private static void RebuildLines(BoxFragment childFragment, LayoutBox child)
+    {
+        if (child.Lines == null || child.Lines.Count == 0) return;
+
+        foreach (var line in child.Lines)
+        {
+            var boxLine = new BoxLine
+            {
+                InlineOffset = line.X - child.BorderBox.Left,
+                BlockOffset = line.Y - child.BorderBox.Top,
+                InlineSize = line.Width,
+                BlockSize = line.Height,
+                BaselineOffset = line.Baseline - child.BorderBox.Top,
+            };
+            foreach (var run in line.Runs)
+                boxLine.Runs.Add(new BoxRun
+                {
+                    Text = run.IsText ? run.Text : null,
+                    Node = run.Node,
+                    Element = run.Node as Element,
+                    InlineOffset = run.X - line.X,
+                    InlineSize = run.Width,
+                    BlockSize = run.Height,
+                    BaselineOffset = run.Baseline,
+                });
+            childFragment.Lines.Add(boxLine);
         }
     }
 

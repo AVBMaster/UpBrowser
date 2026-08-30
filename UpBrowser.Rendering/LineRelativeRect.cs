@@ -5,8 +5,7 @@ namespace UpBrowser.Rendering;
 
 /// <summary>
 /// 2D offset (point/vector) in line-relative space, i.e. the physical space
-/// rotated for vertical 'writing-mode'. Mirrors LineRelativeOffset in
-/// blink/renderer/core/paint/line_relative_rect.h. Uses float coordinates
+/// rotated for vertical 'writing-mode'. Mirrors LineRelativeOffset. Uses float coordinates
 /// (UpBrowser has no LayoutUnit).
 /// </summary>
 public readonly struct LineRelativeOffset
@@ -36,8 +35,7 @@ public readonly struct LineRelativeOffset
 
 /// <summary>
 /// 2D rect in line-relative space (physical space rotated for 'writing-mode').
-/// Mirrors LineRelativeRect in blink/renderer/core/paint/line_relative_rect.h.
-/// Uses float coordinates.
+/// Mirrors LineRelativeRect. Uses float coordinates.
 /// </summary>
 public readonly struct LineRelativeRect
 {

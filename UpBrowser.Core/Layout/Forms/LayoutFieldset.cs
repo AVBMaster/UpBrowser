@@ -1,4 +1,4 @@
-using UpBrowser.Core.Dom;
+﻿using UpBrowser.Core.Dom;
 using UpBrowser.Core.Layout.Geometry;
 
 namespace UpBrowser.Core.Layout;
@@ -164,7 +164,7 @@ public class LayoutFieldset : LayoutBlockFlow
             float maxEnd = 0;
             foreach (var child in content.Children)
             {
-                if (child is LayoutNgBox box)
+                if (child is AuroraBox box)
                     maxEnd = Math.Max(maxEnd, box.X + box.Width);
             }
             return maxEnd;
@@ -180,7 +180,7 @@ public class LayoutFieldset : LayoutBlockFlow
             float maxEnd = 0;
             foreach (var child in content.Children)
             {
-                if (child is LayoutNgBox box)
+                if (child is AuroraBox box)
                     maxEnd = Math.Max(maxEnd, box.Y + box.Height);
             }
             return maxEnd;
