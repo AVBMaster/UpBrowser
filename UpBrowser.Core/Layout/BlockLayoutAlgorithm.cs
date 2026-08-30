@@ -1386,7 +1386,47 @@ public class BlockLayoutAlgorithm : LayoutAlgorithm
     private BoxStrut Padding() => _padding;
     private BoxStrut BorderScrollbarPadding() => _borderPadding;
 
-    private LogicalSize ChildAvailableSize() => new(ChildAvailableInlineSize, ChildAvailableBlockSize);
+    /// <summary>
+    /// Available size for in-flow children. Uses the box's own resolved inline
+    /// size (not the external Space.AvailableInlineSize) so fixed-width /
+    /// shrink-to-fit containers — inline-block, floats, explicit width — give
+    /// their children the correct content width. The scrollbar strut reserved
+    /// by <see cref="MaybeRelayoutForScrollbarSpace"/> is excluded as well.
+    /// </summary>
+    private LogicalSize ChildAvailableSize() => new(
+        Math.Max(0, OwnContentInlineSize()),
+        ChildAvailableBlockSize);
+
+    /// <summary>
+    /// Content inline size of this box as understood by its children: the
+    /// explicit/computed width adjusted for the CSS box model, or the outer
+    /// constraint space for auto/stretch boxes. Computed from the style alone
+    /// (before children are laid out), unlike <c>_inlineSize</c> which is only
+    /// resolved at the end of the algorithm.
+    /// </summary>
+    private float OwnContentInlineSize()
+    {
+        float own = float.NaN;
+        if (Style.Width is PixelLength px && px.Value > 0)
+        {
+            own = px.Value;
+            if (Style.BoxSizing == BoxSizingType.ContentBox)
+                own += _border.Left + _border.Right;
+        }
+        else if (Style.Width is PercentLength pct && Space.HasDefiniteInlineSize)
+        {
+            own = pct.Value * 0.01f * Space.AvailableInlineSize;
+            if (Style.BoxSizing == BoxSizingType.ContentBox)
+                own += _border.Left + _border.Right;
+        }
+        float maxW = Style.MaxWidth is PixelLength mw && mw.Value > 0 ? mw.Value : float.MaxValue;
+        if (Style.MaxWidth is PercentLength pctMax && pctMax.Value > 0 && Space.HasDefiniteInlineSize)
+            maxW = Math.Min(maxW, pctMax.Value * 0.01f * Space.AvailableInlineSize);
+
+        if (!float.IsNaN(own))
+            return Math.Max(0, Math.Min(own, maxW) - _borderPadding.HorizontalSum - Space.ScrollbarInline);
+        return ChildAvailableInlineSize;
+    }
 
     private float ContainerBfcBlockOffset() => _containerBfcBlockOffset ?? Space.GetBfcOffset().BlockOffset;
 

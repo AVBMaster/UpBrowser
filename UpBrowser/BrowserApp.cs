@@ -3568,8 +3568,10 @@ namespace UpBrowser;
 
         if (isVertical)
         {
-            // Compute thumb position (same as DrawScrollbar)
-            float trackHeight = pb.Height;
+            // Compute thumb position (same as DrawScrollbar). The vertical track
+            // shrinks when a horizontal bar is present, matching the painter.
+            bool hasHorz = box.ScrollContentWidth > box.ContentBox.Width;
+            float trackHeight = Math.Max(0, pb.Height - (hasHorz ? 12f : 0));
             float thumbRatio = box.ContentBox.Height / Math.Max(1, box.ScrollContentHeight);
             float thumbHeight = Math.Max(20, trackHeight * thumbRatio);
             float scrollRange = Math.Max(1, box.ScrollContentHeight - box.ContentBox.Height);
@@ -3597,7 +3599,10 @@ namespace UpBrowser;
         }
         else
         {
-            float trackWidth = pb.Width;
+            // The horizontal track shrinks when a vertical bar is present,
+            // matching the painter.
+            bool hasVert = box.ScrollContentHeight > box.ContentBox.Height;
+            float trackWidth = Math.Max(0, pb.Width - (hasVert ? 12f : 0));
             float thumbRatio = box.ContentBox.Width / Math.Max(1, box.ScrollContentWidth);
             float thumbWidth = Math.Max(20, trackWidth * thumbRatio);
             float scrollRange = Math.Max(1, box.ScrollContentWidth - box.ContentBox.Width);

@@ -635,11 +635,21 @@ bool hasClipPath = ClipPathClipper.HasClipPath(style.ClipPath);
             {
             if (needsClip)
             {
-                var clipRect = new SKRect(
-                    layoutBox.PaddingBox.Left,
-                    layoutBox.PaddingBox.Top + TotalOffsetY,
-                    layoutBox.PaddingBox.Right,
-                    layoutBox.PaddingBox.Bottom + TotalOffsetY);
+                // Scroll containers reserve scrollbar space (the content box was
+                // shrunken by the bar thickness during layout), so clip contents
+                // to the content box — content must never paint underneath the
+                // scrollbar strip. Plain overflow:hidden clips at the padding box.
+                var clipRect = isScrollContainer
+                    ? new SKRect(
+                        layoutBox.ContentBox.Left,
+                        layoutBox.ContentBox.Top + TotalOffsetY,
+                        layoutBox.ContentBox.Right,
+                        layoutBox.ContentBox.Bottom + TotalOffsetY)
+                    : new SKRect(
+                        layoutBox.PaddingBox.Left,
+                        layoutBox.PaddingBox.Top + TotalOffsetY,
+                        layoutBox.PaddingBox.Right,
+                        layoutBox.PaddingBox.Bottom + TotalOffsetY);
                 contentsPaintState.PushClip(clipRect);
             }
 

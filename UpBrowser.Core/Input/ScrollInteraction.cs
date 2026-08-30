@@ -139,28 +139,35 @@ public sealed class ScrollInteraction
 
                 bool vOvf = box.ScrollContentHeight > box.ContentBox.Height;
                 bool hOvf = box.ScrollContentWidth > box.ContentBox.Width;
+                bool hasV = vOvf || st.OverflowY == OverflowType.Scroll;
+                bool hasH = hOvf || st.OverflowX == OverflowType.Scroll;
 
                 var pb = box.PaddingBox;
 
-                // Vertical scrollbar strip
-                if (vOvf || st.OverflowY == OverflowType.Scroll)
+                // Vertical scrollbar strip — track shrinks when the horizontal
+                // bar is present, mirroring ScrollableAreaPainter geometry so
+                // thumb drag / track click reach the true bottom.
+                if (hasV)
                 {
+                    float trackH = Math.Max(0, pb.Height - (hasH ? thickness : 0));
                     float sbLeft = pb.Right - thickness;
                     if (pageX >= sbLeft && pageX <= pb.Right &&
-                        pageY >= pb.Top && pageY <= pb.Bottom)
+                        pageY >= pb.Top && pageY <= pb.Top + trackH)
                     {
-                        return BeginVerticalDrag(box, el, pageY, vOvf);
+                        return BeginVerticalDrag(box, el, pageY, trackH);
                     }
                 }
 
-                // Horizontal scrollbar strip
-                if (hOvf || st.OverflowX == OverflowType.Scroll)
+                // Horizontal scrollbar strip — track shrinks when the vertical
+                // bar is present, mirroring ScrollableAreaPainter geometry.
+                if (hasH)
                 {
+                    float trackW = Math.Max(0, pb.Width - (hasV ? thickness : 0));
                     float sbTop = pb.Bottom - thickness;
                     if (pageY >= sbTop && pageY <= pb.Bottom &&
-                        pageX >= pb.Left && pageX <= pb.Right)
+                        pageX >= pb.Left && pageX <= pb.Left + trackW)
                     {
-                        return BeginHorizontalDrag(box, el, pageX, hOvf);
+                        return BeginHorizontalDrag(box, el, pageX, trackW);
                     }
                 }
             }
@@ -169,10 +176,9 @@ public sealed class ScrollInteraction
         return false;
     }
 
-    private bool BeginVerticalDrag(LayoutBox box, Element containerEl, float pageY, bool hasOverflow)
+    private bool BeginVerticalDrag(LayoutBox box, Element containerEl, float pageY, float trackH)
     {
         var pb = box.PaddingBox;
-        float trackH = hasOverflow ? pb.Height : box.ContentBox.Height;
         float thumbRatio = box.ContentBox.Height / Math.Max(1, box.ScrollContentHeight);
         float thumbH = Math.Max(20f, trackH * Math.Min(1, thumbRatio));
         float maxScroll = Math.Max(1, box.ScrollContentHeight - box.ContentBox.Height);
@@ -205,10 +211,9 @@ public sealed class ScrollInteraction
         }
     }
 
-    private bool BeginHorizontalDrag(LayoutBox box, Element containerEl, float pageX, bool hasOverflow)
+    private bool BeginHorizontalDrag(LayoutBox box, Element containerEl, float pageX, float trackW)
     {
         var pb = box.PaddingBox;
-        float trackW = hasOverflow ? pb.Width : box.ContentBox.Width;
         float thumbRatio = box.ContentBox.Width / Math.Max(1, box.ScrollContentWidth);
         float thumbW = Math.Max(20f, trackW * Math.Min(1, thumbRatio));
         float maxScroll = Math.Max(1, box.ScrollContentWidth - box.ContentBox.Width);

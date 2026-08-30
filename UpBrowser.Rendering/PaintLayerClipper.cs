@@ -45,11 +45,16 @@ internal sealed class PaintLayerClipper
             if (style == null || box == null || !CreatesOverflowClip(style))
                 continue;
 
-            var clip = new SKRect(
-                box.PaddingBox.Left - ax,
-                box.PaddingBox.Top + contentOffsetY - ay,
-                box.PaddingBox.Right - ax,
-                box.PaddingBox.Bottom + contentOffsetY - ay);
+            var clip = (box.IsScrollContainer
+                    ? new SKRect(box.ContentBox.Left, box.ContentBox.Top,
+                        box.ContentBox.Right, box.ContentBox.Bottom)
+                    : new SKRect(box.PaddingBox.Left, box.PaddingBox.Top,
+                        box.PaddingBox.Right, box.PaddingBox.Bottom));
+            clip = new SKRect(
+                clip.Left - ax,
+                clip.Top + contentOffsetY - ay,
+                clip.Right - ax,
+                clip.Bottom + contentOffsetY - ay);
             if (clip.Width <= 0 || clip.Height <= 0)
                 continue;
 
