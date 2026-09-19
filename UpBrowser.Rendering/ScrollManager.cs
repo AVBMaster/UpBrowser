@@ -16,6 +16,14 @@ public class ScrollManager
     public float ContentWidth { get; private set; }
     public float ContentHeight { get; private set; }
 
+    /// <summary>
+    /// Master smooth-scrolling switch (mirrors the settings page toggle). When
+    /// false every wheel / key / programmatic scroll applies its offset instantly;
+    /// when true the scroll offset animates toward the requested target with an
+    /// Edge-like ease-out (~0.2 s per step, continuous under rapid wheel input).
+    /// </summary>
+    public bool SmoothEnabled { get; set; } = true;
+
     public bool CanScrollY => MaxScrollY > 0;
     public bool CanScrollX => MaxScrollX > 0;
     public float ScrollableHeight => Math.Max(0, ContentHeight - ViewportHeight);
@@ -26,12 +34,13 @@ public class ScrollManager
 
     // Physics constants
     private const float DecayLambda = 3.5f;
-    private const float WheelVelScale = 3.0f;
     private const float MinVel = 1f;
     private const float BounceK = 150f;
     private const float BounceDamp = 25f;
-    private const float SnapK = 60f;
-    private const float SnapDamp = 16f;
+    // Target-follow rate for the Edge-like ease-out chase. rate=10 closes 95% of
+    // the gap in ~0.3 s (a single 60px wheel notch glides visibly), while rapid
+    // wheel input keeps advancing the target so the motion stays continuous.
+    private const float SnapFollowRate = 10f;
 
     // State
     public bool IsSmoothScrollingY { get; private set; }
@@ -72,7 +81,9 @@ public class ScrollManager
     public bool UpdateSmoothScroll(float dt)
     {
         bool moving = false;
-        dt = Math.Min(dt, 0.05f);
+        // Accommodate low frame rates (e.g. 15fps) without slowing the animation;
+        // the exact exponential chase is stable for any dt.
+        dt = Math.Min(dt, 0.1f);
 
         // ── Vertical ──
         if (_snapY)
@@ -88,12 +99,15 @@ public class ScrollManager
             }
             else
             {
-                float accel = diff * SnapK - _velY * SnapDamp;
-                _velY += accel * dt;
-                _velY = Math.Clamp(_velY, -2000f, 2000f);
-                ScrollY += _velY * dt;
-                if (ScrollY < 0) { _velY *= -0.3f; ScrollY = 0; }
-                else if (ScrollY > MaxScrollY) { _velY *= -0.3f; ScrollY = MaxScrollY; }
+                // Exact exponential ease-out chase (Edge-like): closes a fixed
+                // fraction of the remaining gap per unit time, so a single step
+                // settles in ~0.2s. Uses 1-exp(-rate·dt) — always in (0,1), so it
+                // is stable at ANY frame rate (a naive diff*rate*dt overshoots and
+                // oscillates at low fps).
+                float t = 1f - MathF.Exp(-SnapFollowRate * dt);
+                ScrollY += diff * t;
+                if (ScrollY < 0) ScrollY = 0;
+                else if (ScrollY > MaxScrollY) ScrollY = MaxScrollY;
                 moving = true;
             }
         }
@@ -139,12 +153,10 @@ public class ScrollManager
             }
             else
             {
-                float accel = diff * SnapK - _velX * SnapDamp;
-                _velX += accel * dt;
-                _velX = Math.Clamp(_velX, -2000f, 2000f);
-                ScrollX += _velX * dt;
-                if (ScrollX < 0) { _velX *= -0.3f; ScrollX = 0; }
-                else if (ScrollX > MaxScrollX) { _velX *= -0.3f; ScrollX = MaxScrollX; }
+                float t = 1f - MathF.Exp(-SnapFollowRate * dt);
+                ScrollX += diff * t;
+                if (ScrollX < 0) ScrollX = 0;
+                else if (ScrollX > MaxScrollX) ScrollX = MaxScrollX;
                 moving = true;
             }
         }
@@ -179,14 +191,19 @@ public class ScrollManager
         return moving;
     }
 
-    // ── Wheel / impulse scrolling (velocity injection) ──
+    // ── Wheel / impulse scrolling ──
+    // Edge-like: each wheel delta advances the scroll TARGET; the animation chases
+    // it with the exponential ease-out. Rapid input keeps the target moving, so the
+    // content glides continuously; the last delta leaves a brief deceleration.
     public void ScrollBy(float delta, bool smooth = true)
     {
         float scrollAmount = -delta / 120.0f * 60.0f;
-        if (smooth)
+        if (smooth && SmoothEnabled)
         {
-            _velY += scrollAmount * WheelVelScale;
-            _snapY = false;
+            _snapTargetY += scrollAmount;
+            _snapTargetY = Math.Clamp(_snapTargetY, 0, MaxScrollY);
+            _velY = 0;
+            _snapY = true;
             _bounceY = false;
             IsSmoothScrollingY = true;
         }
@@ -194,35 +211,41 @@ public class ScrollManager
         {
             ScrollY = Math.Clamp(ScrollY + scrollAmount, 0, MaxScrollY);
             _velY = 0;
+            _snapY = _bounceY = false;
             IsSmoothScrollingY = false;
         }
     }
 
     public void ScrollBy(float deltaX, float deltaY, bool smooth = true)
     {
-        if (smooth)
+        if (smooth && SmoothEnabled)
         {
-            _velX += deltaX;
-            _velY += deltaY;
-            _snapX = _snapY = false;
+            _snapTargetX += deltaX;
+            _snapTargetY += deltaY;
+            _snapTargetX = Math.Clamp(_snapTargetX, 0, MaxScrollX);
+            _snapTargetY = Math.Clamp(_snapTargetY, 0, MaxScrollY);
+            _velX = _velY = 0;
+            if (Math.Abs(deltaX) > 0.5f) _snapX = true;
+            if (Math.Abs(deltaY) > 0.5f) _snapY = true;
             _bounceX = _bounceY = false;
-            if (Math.Abs(deltaX) > 0.5f) IsSmoothScrollingX = true;
-            if (Math.Abs(deltaY) > 0.5f) IsSmoothScrollingY = true;
+            IsSmoothScrollingX = _snapX;
+            IsSmoothScrollingY = _snapY;
         }
         else
         {
             ScrollX = Math.Clamp(ScrollX + deltaX, 0, MaxScrollX);
             ScrollY = Math.Clamp(ScrollY + deltaY, 0, MaxScrollY);
             _velX = _velY = 0;
+            _snapX = _snapY = _bounceX = _bounceY = false;
             IsSmoothScrollingX = IsSmoothScrollingY = false;
         }
     }
 
-    // ── Explicit target scrolling (PageUp/Down, Home/End, arrows) ──
+    // ── Explicit target scrolling (PageUp/Down, Home/End, arrows, JS scrollTo) ──
     public void ScrollTo(float y, bool smooth = true)
     {
         float target = Math.Clamp(y, 0, MaxScrollY);
-        if (smooth && Math.Abs(target - ScrollY) > 0.5f)
+        if (smooth && SmoothEnabled && Math.Abs(target - ScrollY) > 0.5f)
         {
             _snapTargetY = target;
             _velY = 0;
@@ -243,7 +266,7 @@ public class ScrollManager
     {
         _snapTargetX = Math.Clamp(x, 0, MaxScrollX);
         _snapTargetY = Math.Clamp(y, 0, MaxScrollY);
-        if (smooth && (Math.Abs(_snapTargetX - ScrollX) > 0.5f || Math.Abs(_snapTargetY - ScrollY) > 0.5f))
+        if (smooth && SmoothEnabled && (Math.Abs(_snapTargetX - ScrollX) > 0.5f || Math.Abs(_snapTargetY - ScrollY) > 0.5f))
         {
             if (Math.Abs(_snapTargetX - ScrollX) > 0.5f) { _snapX = true; _velX = 0; }
             if (Math.Abs(_snapTargetY - ScrollY) > 0.5f) { _snapY = true; _velY = 0; }

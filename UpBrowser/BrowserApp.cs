@@ -460,9 +460,18 @@ namespace UpBrowser;
             _window.TargetFrameTimeMs = _renderingSettings.TargetFps > 0
                 ? (float)(1000.0 / _renderingSettings.TargetFps)
                 : 1f;
+            // Smooth scrolling toggle: gate the page and element scroll physics so
+            // the setting takes effect immediately (OFF = instant wheel/keys).
+            _scroll.SmoothEnabled = _renderingSettings.SmoothScrolling;
+            _scrollInteraction.SmoothEnabled = _renderingSettings.SmoothScrolling;
             // 设置变更时使页面缓存失效，确保新设置生效
             _skiaRenderer.InvalidatePageCache();
         };
+
+        // Apply the loaded smooth-scrolling preference up front (the OnChanged
+        // handler above runs for later changes only).
+        _scroll.SmoothEnabled = _renderingSettings.SmoothScrolling;
+        _scrollInteraction.SmoothEnabled = _renderingSettings.SmoothScrolling;
 
         _renderingSettings.OnGpuChanged += (enable) =>
         {
@@ -1817,6 +1826,16 @@ namespace UpBrowser;
         int windowHeight = (int)(ph / _dpiScale);
 
         bool sizeChanged = windowWidth != _lastWindowWidth || windowHeight != _lastWindowHeight;
+
+        // Update smooth scrolling FIRST so scrollChanged below reflects THIS frame's
+        // motion — otherwise the first smooth-scroll frame renders one frame late,
+        // which is perceived as input/scroll delay.
+        if (dt > 0)
+        {
+            _scroll.UpdateSmoothScroll((float)dt);
+            UpdateElementSmoothScrolls((float)dt);
+        }
+
         bool scrollChanged = Math.Abs(_scroll.ScrollX - _lastScrollX) > 0.5f ||
                              Math.Abs(_scroll.ScrollY - _lastScrollY) > 0.5f;
 
@@ -1837,13 +1856,6 @@ namespace UpBrowser;
             // is idle. We multiply by 0.5 per frame, which means the velocity
             // signal is effectively zero after ~5 frames (~80 ms at 60 fps).
             _skiaRenderer.ReportScrollVelocity(0, 0);
-        }
-
-        // Update smooth scrolling (page-level + element-level)
-        if (dt > 0)
-        {
-            bool pageMoving = _scroll.UpdateSmoothScroll((float)dt);
-            UpdateElementSmoothScrolls((float)dt);
         }
 
         bool inputRecently = Environment.TickCount64 - _lastInputTimeTick < InputCooldownMs;
@@ -3770,9 +3782,14 @@ namespace UpBrowser;
     private void UpdateElementSmoothScrolls(float dt)
     {
         if (_currentLoad == null) return;
-        dt = Math.Min(dt, 0.05f);
+        // Clamp to ~15fps so low frame rates don't slow the physics; the spring
+        // stays stable (K·dt² < 1) within this bound and the velocity decay is exact.
+        dt = Math.Min(dt, 0.067f);
         bool anyChanged = false;
-        const float decayLambda = 3.5f;
+        // Decay lambda matches the element wheel velocity scale (10), so a wheel
+        // notch glides ~one notch over ~0.3 s with a clearly visible ease-out.
+        // The scrollIntoView smooth spring is a separate branch and is unaffected.
+        const float decayLambda = 10f;
         const float minVel = 1f;
         const float bounceK = 150f, bounceDamp = 25f;
         const float snapK = 60f, snapDamp = 16f;

@@ -287,6 +287,22 @@ public class DrawTextOp : PaintOp
     /// </summary>
     public static bool LayerBakeGrayscale;
 
+    /// <summary>
+    /// Requested AA tier, pushed by <see cref="SkiaRenderer"/> from
+    /// <see cref="RenderingSettings.AntiAliasing"/>. Drives both the glyph edging
+    /// and the hinting level, so the setting actually changes output instead of
+    /// being read and discarded.
+    /// </summary>
+    public static AntiAliasMode AntiAlias = AntiAliasMode.High;
+
+    /// <summary>
+    /// Whether LCD (subpixel) glyph edging may be requested. The page pipeline
+    /// always composites text through an SKPicture or a transparent tile bitmap,
+    /// where Skia silently falls back to grayscale — so this is only honoured for
+    /// draws that reach the opaque window surface directly (chrome, HUD).
+    /// </summary>
+    public static bool UseSubpixelAA;
+
     public override void Reset()
     {
         base.Reset();
@@ -379,7 +395,7 @@ public class DrawTextOp : PaintOp
             }
         }
 
-        MeasureTextWithFallback(canvas, paint, drawX, drawY, dryRun: false);
+        MeasureTextWithFallback(canvas, paint, drawX, drawY, dryRun: false, snapScale: sx);
 
         if (LineThrough)
         {
@@ -479,7 +495,7 @@ public class DrawTextOp : PaintOp
         }
     }
 
-    private float MeasureTextWithFallback(SKCanvas canvas, SKPaint paint, float x, float y, bool dryRun)
+    private float MeasureTextWithFallback(SKCanvas canvas, SKPaint paint, float x, float y, bool dryRun, float snapScale = 1f)
     {
         if (string.IsNullOrEmpty(Text)) return 0;
 
@@ -503,7 +519,7 @@ public class DrawTextOp : PaintOp
                     var font = CreateFont(currentTypeface);
                     float runWidth = MeasureRunWidth(run, currentTypeface);
                     if (!dryRun)
-                        canvas.DrawText(run, currentX, y, SKTextAlign.Left, font, paint);
+                        canvas.DrawText(run, SnapToDevice(currentX, snapScale), y, SKTextAlign.Left, font, paint);
                     currentX += runWidth;
 
                     currentTypeface = neededTypeface;
@@ -516,7 +532,7 @@ public class DrawTextOp : PaintOp
                 var font = CreateFont(currentTypeface);
                 float runWidth = MeasureRunWidth(run, currentTypeface);
                 if (!dryRun)
-                    canvas.DrawText(run, currentX, y, SKTextAlign.Left, font, paint);
+                    canvas.DrawText(run, SnapToDevice(currentX, snapScale), y, SKTextAlign.Left, font, paint);
                 currentX += runWidth;
             }
         }
@@ -893,7 +909,10 @@ public class DrawTextOp : PaintOp
 
     private static string FontIdentityKey(SKTypeface? typeface, float size, FontWeight weight, bool italic, float letterSpacing)
     {
-        return $"{typeface?.FamilyName ?? "?"}|{size}|{(int)weight}|{(italic ? 1 : 0)}|{letterSpacing}|{(LayerBakeGrayscale ? 1 : 0)}";
+        // AA tier and the LCD gate are part of font identity: two callers with
+        // different tiers must not share a cached SKFont.
+        int aa = ((int)AntiAlias << 1) | (UseSubpixelAA ? 1 : 0);
+        return $"{typeface?.FamilyName ?? "?"}|{size}|{(int)weight}|{(italic ? 1 : 0)}|{letterSpacing}|{(LayerBakeGrayscale ? 1 : 0)}|{aa}";
     }
 
     private SKFont CreateFont(SKTypeface typeface)
@@ -929,21 +948,41 @@ public class DrawTextOp : PaintOp
         }
 
         var font = new SKFont(actualTypeface, FontSize);
-        #if !SUPPORT_WINXP
-        if (LayerBakeGrayscale)
+        // NOTE: no #if SUPPORT_WINXP guard here. This project defines SUPPORT_WINXP,
+        // so anything inside `#if !SUPPORT_WINXP` is silently excluded from the
+        // build — which is how every glyph in the browser spent its whole life
+        // rasterised with Skia's defaults (no hinting at all) and read as soft.
+        if (UseSubpixelAA && !LayerBakeGrayscale)
         {
-            // Transparent layer bake: grayscale AA composites cleanly over any
-            // backdrop (no LCD color fringing).
-            font.Edging = SKFontEdging.Antialias;
-            font.Subpixel = false;
+            // Direct draw onto the window surface: LCD-filtered edges give the
+            // finest apparent resolution. Skia collapses this to grayscale
+            // whenever the device matrix is scaled or the destination is not
+            // opaque, so it is safe to request unconditionally.
+            font.Edging = SKFontEdging.SubpixelAntialias;
+            font.Subpixel = true;
+            font.Hinting = SKFontHinting.Normal;
         }
         else
         {
-            font.Edging = SKFontEdging.SubpixelAntialias;
-            font.Subpixel = true;
+            // Page content is composited through a picture / transparent tile, so
+            // glyphs must be grayscale to survive layering without colour fringing.
+            font.Edging = AntiAlias == AntiAliasMode.None
+                ? SKFontEdging.Alias     // aliased: glyph edges locked to the pixel grid
+                : SKFontEdging.Antialias;
+            font.Subpixel = false;
+            // Crispness comes from hinting: Full = Normal + stem snapping, which
+            // locks stems and counters to whole device pixels. CJK faces and
+            // italics stay at Normal — snapping a slanted or densely-stemmed
+            // outline reads as shimmer (see FontHelper.CrispHinting).
+            font.Hinting = AntiAlias switch
+            {
+                AntiAliasMode.High => Italic
+                    ? SKFontHinting.Normal
+                    : FontHelper.CrispHinting(actualTypeface),
+                AntiAliasMode.None => FontHelper.CrispHinting(actualTypeface),
+                _ => SKFontHinting.Normal,
+            };
         }
-        font.Hinting = SKFontHinting.Normal;
-        #endif
         lock (_textResourceLock)
         {
             if (_fontCache.Count >= MaxFontCacheSize)

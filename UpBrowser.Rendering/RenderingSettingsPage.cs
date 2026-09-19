@@ -123,8 +123,8 @@ public class RenderingSettingsPage
         _settings = settings;
         _dpiScale = dpiScale;
         _typeface = FontHelper.GetChineseTypeface() ?? SKTypeface.Default;
-        _smallFont = new SKFont(_typeface, 10);
-        _nameFont = new SKFont(_typeface, 14);
+        _smallFont = FontHelper.CrispHintedFont(_typeface, 10);
+        _nameFont = FontHelper.CrispHintedFont(_typeface, 14);
 
         // Pre-create reusable paints (avoid GC pressure)
         _cardBgPaint = new SKPaint { Style = SKPaintStyle.Fill, IsAntialias = true };
@@ -138,14 +138,14 @@ public class RenderingSettingsPage
         _bgPaint = new SKPaint { Color = new SKColor(255, 255, 255, 240), Style = SKPaintStyle.Fill, IsAntialias = true };
         _borderPaint = new SKPaint { Color = new SKColor(200, 200, 200, 200), Style = SKPaintStyle.Stroke, StrokeWidth = 1, IsAntialias = true };
         _headerBgPaint = new SKPaint { Color = new SKColor(26, 115, 232), Style = SKPaintStyle.Fill };
-        _headerFont = new SKFont(_typeface, 15);
+        _headerFont = FontHelper.CrispHintedFont(_typeface, 15);
         _headerPaint = new SKPaint { Color = SKColors.White, IsAntialias = true };
-        _labelFont = new SKFont(_typeface, 12);
-        _valueFont = new SKFont(_typeface, 12);
+        _labelFont = FontHelper.CrispHintedFont(_typeface, 12);
+        _valueFont = FontHelper.CrispHintedFont(_typeface, 12);
         _valuePaint = new SKPaint { Color = new SKColor(26, 115, 232), IsAntialias = true };
         _labelPaint = new SKPaint { Color = new SKColor(60, 64, 67), IsAntialias = true };
         _catPaint = new SKPaint { Color = new SKColor(26, 115, 232), IsAntialias = true };
-        _catFont = new SKFont(_typeface, 11);
+        _catFont = FontHelper.CrispHintedFont(_typeface, 11);
         _hoverPaint = new SKPaint { Color = new SKColor(232, 240, 254), Style = SKPaintStyle.Fill };
         _trackPaint = new SKPaint { Color = new SKColor(218, 220, 224), Style = SKPaintStyle.Fill };
         _fillPaint = new SKPaint { Color = new SKColor(26, 115, 232), Style = SKPaintStyle.Fill };

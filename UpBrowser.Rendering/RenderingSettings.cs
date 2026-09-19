@@ -29,7 +29,7 @@ public class RenderingSettings
     private bool _gpuAcceleration = true;
     private bool _vSync;
     private int _targetFps = 60;
-    private AntiAliasMode _antiAliasing = AntiAliasMode.Normal;
+    private AntiAliasMode _antiAliasing = AntiAliasMode.High;
     private bool _dirtyRegions = true;
     private bool _pictureCaching = true;
     private bool _tileCompositor = true;
@@ -38,7 +38,7 @@ public class RenderingSettings
     private bool _adaptiveTileSize;
     private bool _predictiveRasterization = true;
     private bool _compositorRecording;
-    private bool _smoothScrolling;
+    private bool _smoothScrolling = true;
     private float _resolutionScale = 1.0f;
     private bool _showFps;
     private bool _showSettingsButton = true;
@@ -361,7 +361,7 @@ public class RenderingSettings
                 _gpuAcceleration = false;
                 _vSync = false;
                 _targetFps = 60;
-                _antiAliasing = AntiAliasMode.Normal;
+                _antiAliasing = AntiAliasMode.High;
                 _dirtyRegions = true;
                 _pictureCaching = true;
                 _tileCompositor = true;

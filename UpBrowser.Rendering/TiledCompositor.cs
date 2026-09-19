@@ -77,6 +77,22 @@ public sealed class TiledCompositor : IDisposable
     private const int TileRoundUp = 64;
     /// <summary>Tile width/height must be an even multiple of this for compositing (kTileMinimalAlignment).</summary>
     private const int TileMinimalAlignment = 4;
+
+    /// <summary>
+    /// Sampling used when blitting a rasterised tile (or a cached scroll layer)
+    /// back onto the surface. Tiles are rasterised at
+    /// <c>pageSize * physicalScale</c> device pixels and drawn 1:1, so the blit
+    /// is a pure texel copy and Nearest is exact.
+    ///
+    /// Never switch this to Linear: bilinear would re-resample an already
+    /// rasterised raster, smearing every glyph and thin rule by up to half a
+    /// device pixel — the single biggest source of "the page looks soft". With
+    /// Nearest a fractional scroll offset simply shifts the texel grid, so text
+    /// stays hard-edged both at rest and mid-scroll, with no origin snapping and
+    /// no visible jump when the scroll settles.
+    /// </summary>
+    private static readonly SKSamplingOptions TileSampling = new(SKFilterMode.Nearest);
+
     /// <summary>Content smaller than this in both dimensions is rasterized as a single tile.</summary>
     private const int MaxUntiledLayerWidth = 1024;
     private const int MaxUntiledLayerHeight = 768;
@@ -609,7 +625,7 @@ if (PipelineTimings.TilesRasterized != null)
                 new SKRect(cx0, cy0,
                     cx0 + layerImage.Width,
                     cy0 + layerImage.Height),
-                new SKSamplingOptions(SKFilterMode.Linear), null);
+                TileSampling, null);
             canvas.Restore();
             DrawLiveScrollbar(canvas, info, physicalScale);
         });
@@ -737,7 +753,7 @@ if (PipelineTimings.TilesRasterized != null)
             // waste in deferred mode. Visible tiles are always composited.
             if (!isBackground || !DeferRasterization)
             {
-                canvas.DrawImage(tile.Image, tx * _tileW * physicalScale, ty * _tileH * physicalScale, new SKSamplingOptions(SKFilterMode.Linear), null);
+                canvas.DrawImage(tile.Image, tx * _tileW * physicalScale, ty * _tileH * physicalScale, TileSampling, null);
                 _drawCalls++;
             }
             _tilesReused++;
@@ -810,7 +826,7 @@ if (PipelineTimings.TilesRasterized != null)
         if (_currentBytes > _bytesHighWater) _bytesHighWater = _currentBytes;
         _tilesRasterized++;
 
-        canvas.DrawImage(img, tx * _tileW * physicalScale, ty * _tileH * physicalScale, new SKSamplingOptions(SKFilterMode.Linear), null);
+        canvas.DrawImage(img, tx * _tileW * physicalScale, ty * _tileH * physicalScale, TileSampling, null);
         _drawCalls++;
         return true;
     }

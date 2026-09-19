@@ -220,7 +220,7 @@ public class TaskManagerPage
             canvas.DrawRect(dlgX, dlgY + 6, _dialogWidth, _headerHeight - 6, headerBg);
         }
 
-        using (var headerFont = new SKFont(_typeface, 14))
+        using (var headerFont = FontHelper.CrispHintedFont(_typeface, 14))
         using (var headerPaint = new SKPaint { Color = SKColors.White, IsAntialias = true })
             canvas.DrawText("Task Manager", dlgX + 16, dlgY + 26, SKTextAlign.Left, headerFont, headerPaint);
 
@@ -235,7 +235,7 @@ public class TaskManagerPage
         string[] columnNames = { "Process", "Memory", "CPU", "DOM/Layout", "Pipeline(ms)", "Status" };
         float[] colStarts = { dlgX + 12, dlgX + 260, dlgX + 340, dlgX + 400, dlgX + 480, dlgX + 560 };
 
-        using (var colFont = new SKFont(_typeface, 12))
+        using (var colFont = FontHelper.CrispHintedFont(_typeface, 12))
         using (var colPaint = new SKPaint { Color = new SKColor(95, 99, 104), IsAntialias = true })
             for (int i = 0; i < columnNames.Length; i++)
                 canvas.DrawText(columnNames[i], colStarts[i], colY + 20, SKTextAlign.Left, colFont, colPaint);
@@ -252,9 +252,9 @@ public class TaskManagerPage
         canvas.Save();
         canvas.ClipRect(new SKRect(dlgX + 1, contentTop, dlgX + _dialogWidth - 1, contentBottom));
 
-        using var rowFont = new SKFont(_typeface, 13);
-        using var smallFont = new SKFont(_typeface, 11);
-        using var detailFont = new SKFont(_typeface, 11);
+        using var rowFont = FontHelper.CrispHintedFont(_typeface, 13);
+        using var smallFont = FontHelper.CrispHintedFont(_typeface, 11);
+        using var detailFont = FontHelper.CrispHintedFont(_typeface, 11);
         using var namePaint = new SKPaint { Color = new SKColor(32, 33, 36), IsAntialias = true };
         using var detailPaint = new SKPaint { Color = new SKColor(95, 99, 104), IsAntialias = true };
         using var microPaint = new SKPaint { Color = new SKColor(120, 124, 128), IsAntialias = true };
@@ -415,7 +415,7 @@ public class TaskManagerPage
             IsAntialias = true
         })
             canvas.DrawRoundRect(btnX, btnY, btnW, btnH, 4, 4, btnPaint);
-        using (var btnFont = new SKFont(_typeface, 12))
+        using (var btnFont = FontHelper.CrispHintedFont(_typeface, 12))
         using (var btnText = new SKPaint { Color = SKColors.White, IsAntialias = true })
         {
             string label = "End Process";
@@ -427,7 +427,7 @@ public class TaskManagerPage
         var p = Process.GetCurrentProcess();
         p.Refresh();
         double m = p.WorkingSet64 / (1024.0 * 1024.0);
-        using (var infoFont = new SKFont(_typeface, 10))
+        using (var infoFont = FontHelper.CrispHintedFont(_typeface, 10))
         using (var infoPaint = new SKPaint { Color = new SKColor(95, 99, 104), IsAntialias = true })
         {
             string info = $"Mem:{m:F0}MB CPU:{_currentCpuPercent:F1}% Tabs:{Math.Max(0, _rows.Count - 1)} " +

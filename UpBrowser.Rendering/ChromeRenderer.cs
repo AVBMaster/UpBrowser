@@ -138,12 +138,7 @@ public class ChromeRenderer : IImeSupport
         _font13 = FontHelper.CreateChineseFont(13);
         _font14 = FontHelper.CreateChineseFont(14);
         _font22 = FontHelper.CreateChineseFont(22);
-        _fontClose = new SKFont(_chineseTypeface ?? SKTypeface.Default, 10);
-        #if !SUPPORT_WINXP
-        _fontClose.Hinting = SKFontHinting.Normal;
-        _fontClose.Edging = SKFontEdging.SubpixelAntialias;
-        _fontClose.Subpixel = true;
-        #endif
+        _fontClose = FontHelper.CreateChineseFont(10);
 
         _tabBgPaint = new SKPaint { Color = SKColor.Parse("#F1F3F4"), Style = SKPaintStyle.Fill };
         _tabActivePaint = new SKPaint { Color = SKColors.White, Style = SKPaintStyle.Fill };
@@ -786,6 +781,11 @@ public class ChromeRenderer : IImeSupport
         if (string.IsNullOrEmpty(tab.TooltipText)) return;
 
         using var tooltipFont = new SKFont(_chineseTypeface ?? SKTypeface.Default, 12);
+        // The tooltip sits on a semi-transparent dark box, so LCD subpixel
+        // filtering would fringe the glyph edges; use grayscale AA instead.
+        tooltipFont.Edging = SKFontEdging.Antialias;
+        tooltipFont.Subpixel = false;
+        tooltipFont.Hinting = FontHelper.CrispHinting(tooltipFont.Typeface);
         using var tipBg = new SKPaint { Color = new SKColor(50, 50, 50, 230), Style = SKPaintStyle.Fill, IsAntialias = true };
         using var tipText = new SKPaint { Color = SKColors.White, IsAntialias = true };
 

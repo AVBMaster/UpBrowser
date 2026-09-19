@@ -902,14 +902,23 @@ bool hasClipPath = ClipPathClipper.HasClipPath(style.ClipPath);
             // against the surrounding page tiles/borders that reads as seam/shimmer.
             tc.Translate(-MathF.Round(contentBox.Left * scale) / scale,
                          -MathF.Round(contentBox.Top * scale) / scale);
-            // The layer bitmap is transparent; LCD (subpixel) antialiasing baked on
-            // a transparent backdrop would fringe color when composited over the
-            // container's colored background. Raster the layer text in grayscale AA
-            // so glyphs composite cleanly over any backdrop.
+            // LCD (subpixel) text needs an OPAQUE backdrop in the same raster or it
+            // fringes color when composited. If the container has a solid opaque
+            // background (no image/gradient), bake it into the layer and raster crisp
+            // subpixel text; otherwise fall back to grayscale AA so glyphs composite
+            // cleanly over the (transparent) backdrop.
+            bool solidOpaqueBg = style.BackgroundColor is { Alpha: >= 255 }
+                && (style.BackgroundImage == null || style.BackgroundImage.Count == 0
+                    || style.BackgroundImage!.All(s => s == "none"));
             bool savedGrayscale = DrawTextOp.LayerBakeGrayscale;
-            DrawTextOp.LayerBakeGrayscale = true;
+            DrawTextOp.LayerBakeGrayscale = !solidOpaqueBg;
             try
             {
+                if (solidOpaqueBg && style.BackgroundColor.HasValue)
+                {
+                    using var fill = new SKPaint { Color = style.BackgroundColor.Value, Style = SKPaintStyle.Fill, IsAntialias = true };
+                    tc.DrawRect(new SKRect(0, 0, Math.Max(1, contentW), Math.Max(1, contentH)), fill);
+                }
                 scratch.Execute(tc);
             }
             finally

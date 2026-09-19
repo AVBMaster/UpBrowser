@@ -41,6 +41,20 @@ public sealed class ScrollInteraction
     /// </summary>
     public Action<LayoutBox>? OnScrollChanged { get; set; }
 
+    /// <summary>
+    /// Master smooth-scrolling switch (mirrors the settings page toggle). When
+    /// false the wheel applies its offset instantly; when true it advances a scroll
+    /// TARGET that the element's spring animation chases (Edge-like ease-out).
+    /// </summary>
+    public bool SmoothEnabled { get; set; } = true;
+
+    /// <summary>
+    /// Wheel velocity scale for element smooth scrolling. Chosen so each 60px wheel
+    /// notch injects enough velocity to travel ~one notch with a visibly easing
+    /// glide (~0.3 s; the host's element decay lambda matches this scale).
+    /// </summary>
+    private const float ElementWheelVelScale = 10f;
+
     // ── Drag state ──
     private Element? _dragContainer;
     private bool _dragVertical;
@@ -87,9 +101,22 @@ public sealed class ScrollInteraction
                 {
                     float dy = (float)(-deltaY / 120.0 * 60.0);
                     float maxScroll = Math.Max(0, box.ScrollContentHeight - box.ContentBox.Height);
-                    box.ScrollY = Math.Clamp(box.ScrollY + dy, 0, maxScroll);
-                    box.IsSmoothScrollingY = false;
-                    box.ScrollVelY = 0;
+                    if (SmoothEnabled)
+                    {
+                        // Edge-like: inject a fast-decaying velocity. Each 60px notch
+                        // becomes ~60px of motion over ~0.25 s (the host's element
+                        // decay lambda is high), continuous under rapid wheel input.
+                        box.ScrollVelY += dy * ElementWheelVelScale;
+                        box.IsSmoothScrollingY = true;
+                        box.IsBouncingY = false;
+                        box.TargetScrollY = float.NaN;
+                    }
+                    else
+                    {
+                        box.ScrollY = Math.Clamp(box.ScrollY + dy, 0, maxScroll);
+                        box.IsSmoothScrollingY = false;
+                        box.ScrollVelY = 0;
+                    }
                     consumed = true;
                 }
                 if (deltaX != 0)
@@ -98,9 +125,19 @@ public sealed class ScrollInteraction
                     // deltaX scrolls right (content moves left).
                     float dx = (float)(deltaX / 120.0 * 60.0);
                     float maxScroll = Math.Max(0, box.ScrollContentWidth - box.ContentBox.Width);
-                    box.ScrollX = Math.Clamp(box.ScrollX + dx, 0, maxScroll);
-                    box.IsSmoothScrollingX = false;
-                    box.ScrollVelX = 0;
+                    if (SmoothEnabled)
+                    {
+                        box.ScrollVelX += dx * ElementWheelVelScale;
+                        box.IsSmoothScrollingX = true;
+                        box.IsBouncingX = false;
+                        box.TargetScrollX = float.NaN;
+                    }
+                    else
+                    {
+                        box.ScrollX = Math.Clamp(box.ScrollX + dx, 0, maxScroll);
+                        box.IsSmoothScrollingX = false;
+                        box.ScrollVelX = 0;
+                    }
                     consumed = true;
                 }
                 if (consumed) OnScrollChanged?.Invoke(box);

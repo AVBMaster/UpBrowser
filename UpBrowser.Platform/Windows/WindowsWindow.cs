@@ -585,9 +585,22 @@ public class WindowsWindow : IWindow
                 _backH = destH;
             }
 
-            NativeWindow.StretchDIBits(_backDC, 0, 0, destW, destH,
-                0, 0, width, height, pixels, ref bmi,
-                NativeWindow.DIB_RGB_COLORS, NativeWindow.SRCCOPY);
+            if (width == destW && height == destH)
+            {
+                // Device-pixel-accurate copy. SetDIBitsToDevice never filters, so
+                // the frame lands on screen exactly as Skia rasterised it.
+                NativeWindow.SetDIBitsToDevice(_backDC, 0, 0, destW, destH,
+                    0, 0, 0, height, pixels, ref bmi, NativeWindow.DIB_RGB_COLORS);
+            }
+            else
+            {
+                // ResolutionScale != 1: an intentional scale. COLORONCOLOR keeps
+                // colour while interpolating — never HALFTONE/BLACKONWHITE here.
+                NativeWindow.StretchDIBits(_backDC, 0, 0, destW, destH,
+                    0, 0, width, height, pixels, ref bmi,
+                    NativeWindow.DIB_RGB_COLORS, NativeWindow.SRCCOPY,
+                    NativeWindow.COLORONCOLOR);
+            }
             NativeWindow.BitBlt(hdc, 0, 0, destW, destH, _backDC, 0, 0, 0x00CC0020 /* SRCCOPY */);
         }
         finally

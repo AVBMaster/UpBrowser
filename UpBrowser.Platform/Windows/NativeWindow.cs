@@ -244,6 +244,10 @@ public static class NativeWindow
     [DllImport("gdi32.dll")]
     public static extern IntPtr SelectObject(IntPtr hdc, IntPtr hObject);
 
+    // The trailing iStretchMode is required: omitting it leaves the value
+    // undefined on the stack, and a HALFTONE (4) resolution makes GDI colour-
+    // halftone-interpolate every pixel on every frame — including a 1:1 copy —
+    // which softens the whole frame and shifts edge colours.
     [DllImport("gdi32.dll")]
     public static extern bool StretchDIBits(
         IntPtr hdc,
@@ -258,7 +262,23 @@ public static class NativeWindow
         byte[] lpBits,
         ref BITMAPINFO lpBitsInfo,
         uint usage,
-        uint rop);
+        uint rop,
+        int iStretchMode);
+
+    [DllImport("gdi32.dll")]
+    public static extern bool SetDIBitsToDevice(
+        IntPtr hdc,
+        int XDest,
+        int YDest,
+        int nWidth,
+        int nHeight,
+        int XSrc,
+        int YSrc,
+        int nSrcStart,
+        int nSrcLines,
+        byte[] lpBits,
+        ref BITMAPINFO lpBitsInfo,
+        uint usage);
 
     [DllImport("gdi32.dll")]
     public static extern bool DeleteDC(IntPtr hdc);
@@ -294,6 +314,13 @@ public static class NativeWindow
 
     public const uint DIB_RGB_COLORS = 0;
     public const uint SRCCOPY = 0x00CC0020;
+
+    // GDI stretch modes. BLACKONWHITE is a pixel-for-pixel copy (no filtering);
+    // COLORONCOLOR preserves colour while interpolating, so a genuine scale-up
+    // does not wash the palette. HALFTONE (4) and COLORONWHITE (2) are the modes
+    // that produce visible blur on text.
+    public const int BLACKONWHITE = 0;
+    public const int COLORONCOLOR = 1;
 
     [DllImport("user32.dll")]
     public static extern bool InvalidateRect(IntPtr hWnd, IntPtr lpRect, bool bErase);

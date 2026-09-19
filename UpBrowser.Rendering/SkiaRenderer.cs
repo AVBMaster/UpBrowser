@@ -112,6 +112,11 @@ public class SkiaRenderer : IDisposable
         _currentAaMode = _settings.AntiAliasing;
         _useDirtyRegions = _settings.DirtyRegions;
 
+        // Text raster quality. Ambient (single-threaded render), read by
+        // DrawTextOp.CreateFont at record/replay time.
+        DrawTextOp.AntiAlias = _settings.AntiAliasing;
+        DrawTextOp.UseSubpixelAA = _settings.AntiAliasing == AntiAliasMode.Subpixel;
+
         if (!_settings.DirtyRegions)
             _dirtyManager?.ClearDirtyRegions();
 
@@ -579,6 +584,8 @@ public class SkiaRenderer : IDisposable
 
         Canvas.Save();
 
+        float physicalScale = _dpiScale * resScale;
+
         // Clip to content area (logical coords in DPI-scaled space)
         Canvas.ClipRect(new SKRect(0, contentOffsetY, viewportWidth, contentOffsetY + viewportHeight));
 
@@ -592,11 +599,13 @@ public class SkiaRenderer : IDisposable
             // Tile compositor owns the transform stack and composites in physical
             // (device-pixel) space. The page-space viewport plus the page origin
             // (scroll + DPR + resolution anchoring) fully describe the mapping.
-            float physicalScale = _dpiScale * resScale;
-            // Keep the origin FRACTIONAL: integer-snapping it made the page step in
-            // whole device pixels during smooth scrolling (visible judder). A
-            // fractional origin moves tiles smoothly (mild motion blur); the content
-            // is crisp again whenever the scroll lands on a device-aligned position.
+            //
+            // The origin is kept EXACTLY fractional — never snapped. Snapping it
+            // makes the whole page jump by up to half a device pixel every frame
+            // the scroll velocity crosses the settle threshold, which reads as
+            // tearing. The compositor blits tiles with Nearest sampling, so a
+            // fractional origin shifts the texel grid instead of resampling it:
+            // text stays hard-edged while sliding and needs no second raster.
             float originX = scrollX * physicalScale;
             float originY = scrollY * physicalScale + contentOffsetY * _dpiScale * (resScale - 1f);
 
@@ -761,6 +770,10 @@ public class SkiaRenderer : IDisposable
         _fpsTypeface ??= FontHelper.GetChineseTypeface() ?? SKTypeface.Default;
 
         using var font = new SKFont(_fpsTypeface, 13);
+        // Drawn over a translucent black box, so grayscale AA avoids LCD fringing.
+        font.Edging = SKFontEdging.Antialias;
+        font.Subpixel = false;
+        font.Hinting = FontHelper.CrispHinting(font.Typeface);
         using var bgPaint = new SKPaint
         {
             Color = new SKColor(0, 0, 0, 180),

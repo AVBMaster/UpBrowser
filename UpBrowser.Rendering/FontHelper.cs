@@ -40,6 +40,58 @@ public static class FontHelper
             "Segoe UI Symbol");
     }
 
+    // Deliberately NOT wrapped in #if SUPPORT_WINXP: this project defines
+    // SUPPORT_WINXP in DefineConstants, so anything guarded by
+    // `#if !SUPPORT_WINXP` is excluded from the build. That is exactly how every
+    // UI font here went unhinted — no stem snapping at all — and read as soft.
+    private static void ConfigureText(SKFont font, bool linearMetrics = false)
+    {
+        font.Hinting = CrispHinting(font.Typeface);
+        // LCD is requested; Skia falls back to grayscale automatically whenever
+        // the backing surface is not opaque or the device matrix is scaled.
+        font.Edging = SKFontEdging.SubpixelAntialias;
+        font.Subpixel = true;
+        font.LinearMetrics = linearMetrics;
+    }
+
+    /// <summary>
+    /// Full hinting (= Normal + stem snapping) quantises stems to whole device
+    /// pixels — that is what makes small text read as sharp instead of soft. But
+    /// CJK ideographs pack many stems into one em box, so snapping them produces
+    /// visibly uneven stroke widths; those faces stay at Normal, which still
+    /// hints glyph origins to the grid without distorting the outline.
+    /// </summary>
+    public static SKFontHinting CrispHinting(SKTypeface? typeface) =>
+        IsCjkTypeface(typeface) ? SKFontHinting.Normal : SKFontHinting.Full;
+
+    private static bool IsCjkTypeface(SKTypeface? typeface)
+    {
+        if (typeface == null) return false;
+        if (ReferenceEquals(typeface, GetChineseTypeface())) return true;
+        var name = typeface.FamilyName ?? string.Empty;
+        foreach (var tag in CjkFamilyTags)
+            if (name.Contains(tag, StringComparison.OrdinalIgnoreCase))
+                return true;
+        return false;
+    }
+
+    private static readonly string[] CjkFamilyTags =
+    {
+        "YaHei", "JhengHei", "SimSun", "SimHei", "KaiTi", "FangSong",
+        "Songti", "STSong", "STHei", "STKaiti", "STFangsong", "PingFang",
+        "Hiragino", "Meiryo", "Yu Gothic", "MS Mincho", "MS Gothic",
+        "Batang", "Gungsuh", "Noto Sans CJK", "Noto Serif CJK",
+        "Noto Sans SC", "Noto Serif SC", "Source Han",
+        "WenQuanYi", "Droid Sans Fallback",
+    };
+
+    public static SKFont CrispHintedFont(SKTypeface typeface, float textSize)
+    {
+        var font = new SKFont(typeface, textSize);
+        ConfigureText(font);
+        return font;
+    }
+
     public static SKPaint CreateMonoPaint(float textSize = 12)
     {
         Initialize();
@@ -51,12 +103,7 @@ public static class FontHelper
         Initialize();
         var typeface = _monoTypeface ?? _chineseTypeface ?? _defaultTypeface ?? SKTypeface.Default;
         var font = new SKFont(typeface, textSize);
-        #if !SUPPORT_WINXP
-        font.Hinting = SKFontHinting.Normal;
-        font.Edging = SKFontEdging.SubpixelAntialias;
-        font.Subpixel = true;
-        font.LinearMetrics = true;
-        #endif
+        ConfigureText(font, linearMetrics: true);
         return font;
     }
 
@@ -65,12 +112,7 @@ public static class FontHelper
         Initialize();
         var typeface = _chineseTypeface ?? _monoTypeface ?? _defaultTypeface ?? SKTypeface.Default;
         var font = new SKFont(typeface, textSize);
-        #if !SUPPORT_WINXP
-        font.Hinting = SKFontHinting.Normal;
-        font.Edging = SKFontEdging.SubpixelAntialias;
-        font.Subpixel = true;
-        font.LinearMetrics = true;
-        #endif
+        ConfigureText(font, linearMetrics: true);
         return font;
     }
 
@@ -85,11 +127,7 @@ public static class FontHelper
         Initialize();
         var typeface = _chineseTypeface ?? _defaultTypeface ?? SKTypeface.Default;
         var font = new SKFont(typeface, textSize);
-        #if !SUPPORT_WINXP
-        font.Hinting = SKFontHinting.Normal;
-        font.Edging = SKFontEdging.SubpixelAntialias;
-        font.Subpixel = true;
-        #endif
+        ConfigureText(font);
         return font;
     }
 
@@ -104,11 +142,7 @@ public static class FontHelper
         Initialize();
         var typeface = _chineseTypeface ?? _defaultTypeface ?? SKTypeface.Default;
         var font = new SKFont(typeface, textSize);
-        #if !SUPPORT_WINXP
-        font.Hinting = SKFontHinting.Normal;
-        font.Edging = SKFontEdging.SubpixelAntialias;
-        font.Subpixel = true;
-        #endif
+        ConfigureText(font);
         return font;
     }
 
@@ -147,11 +181,7 @@ public static class FontHelper
         Initialize();
         var typeface = _emojiTypeface ?? _chineseTypeface ?? _defaultTypeface ?? SKTypeface.Default;
         var font = new SKFont(typeface, textSize);
-        #if !SUPPORT_WINXP
-        font.Hinting = SKFontHinting.Normal;
-        font.Edging = SKFontEdging.SubpixelAntialias;
-        font.Subpixel = true;
-        #endif
+        ConfigureText(font);
         return font;
     }
 

@@ -11,7 +11,9 @@ public static class RenderingSettingsConfig
     private static string GetConfigPath()
     {
         string appData;
-#if WINDOWS
+#if WINDOWS 
+        //WinXP没有这个API，需要使用WindowsFolderProvider.GetAppDataPath()来获取AppData路径
+        //这个方法会直接调用WinXP支持的SHGetFolderPath API来获取AppData路径
         appData = WindowsFolderProvider.GetAppDataPath();
 #else
         appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
@@ -27,10 +29,10 @@ public static class RenderingSettingsConfig
         public bool GpuAcceleration { get; set; } = true;
         public bool VSync { get; set; }
         public int TargetFps { get; set; } = 60;
-        public AntiAliasMode AntiAliasing { get; set; } = AntiAliasMode.Normal;
+        public AntiAliasMode AntiAliasing { get; set; } = AntiAliasMode.High;
         public bool DirtyRegions { get; set; } = true;
         public bool PictureCaching { get; set; } = true;
-        public bool SmoothScrolling { get; set; }
+        public bool SmoothScrolling { get; set; } = true;
         public float ResolutionScale { get; set; } = 1.0f;
         public bool ShowFps { get; set; }
         public string JsEngine { get; set; } = "Jint";
