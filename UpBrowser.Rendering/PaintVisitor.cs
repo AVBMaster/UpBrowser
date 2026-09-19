@@ -372,8 +372,11 @@ _scrollableAreaPainter = new ScrollableAreaPainter(_displayList);
         var key = $"{family}:{weight}";
         if (!_typefaceCache.TryGetValue(key, out var typeface))
         {
+            // family may be a CSS font-family LIST — resolve the first installed
+            // entry so the whole list doesn't fail the family lookup.
+            var fontName = PrimaryFamily(family);
             var families = _fontFamilies ?? SKFontManager.Default.FontFamilies.ToArray();
-            var index = Array.IndexOf(families, family);
+            var index = Array.IndexOf(families, fontName);
             if (index >= 0)
             {
                 var style = SKFontManager.Default.GetFontStyles(index);
@@ -384,6 +387,16 @@ _scrollableAreaPainter = new ScrollableAreaPainter(_displayList);
             _typefaceCache[key] = typeface ?? _defaultTypeface ?? SKTypeface.Default;
         }
         return typeface ?? _defaultTypeface ?? SKTypeface.Default;
+    }
+
+    /// <summary>First entry of a CSS font-family list (quotes/whitespace stripped).</summary>
+    private static string PrimaryFamily(string? fontFamily)
+    {
+        if (string.IsNullOrWhiteSpace(fontFamily)) return "sans-serif";
+        int comma = fontFamily.IndexOf(',');
+        var first = comma >= 0 ? fontFamily[..comma] : fontFamily;
+        first = first.Trim().Trim('"', '\'');
+        return first.Length == 0 ? "sans-serif" : first;
     }
 
     /// <summary>
@@ -754,11 +767,16 @@ bool hasClipPath = ClipPathClipper.HasClipPath(style.ClipPath);
             {
                 // Snap the scroll translate to the device pixel grid (logical
                 // offset = round(offset × scale) / scale) so a sub-pixel scroll
-                // position doesn't rasterize text at fractional device rows —
-                // the main source of the "blurry scrolled content" look.
+                // position doesn't rasterize text at fractional device rows. While
+                // the container is smooth-scrolling keep the fractional offset so
+                // re-rasterized content moves continuously (no 1px judder).
                 float scale = PhysicalScale <= 0.01f ? 1f : PhysicalScale;
-                float scrollOffsetX = -MathF.Round(layoutBox.ScrollX * scale) / scale;
-                float scrollOffsetY = -MathF.Round(layoutBox.ScrollY * scale) / scale;
+                float scrollOffsetX = layoutBox.IsSmoothScrollingX
+                    ? -layoutBox.ScrollX
+                    : -MathF.Round(layoutBox.ScrollX * scale) / scale;
+                float scrollOffsetY = layoutBox.IsSmoothScrollingY
+                    ? -layoutBox.ScrollY
+                    : -MathF.Round(layoutBox.ScrollY * scale) / scale;
                 if (scrollOffsetX != 0 || scrollOffsetY != 0)
                 {
                     var scrollBounds = new SKRect(
@@ -884,7 +902,20 @@ bool hasClipPath = ClipPathClipper.HasClipPath(style.ClipPath);
             // against the surrounding page tiles/borders that reads as seam/shimmer.
             tc.Translate(-MathF.Round(contentBox.Left * scale) / scale,
                          -MathF.Round(contentBox.Top * scale) / scale);
-            scratch.Execute(tc);
+            // The layer bitmap is transparent; LCD (subpixel) antialiasing baked on
+            // a transparent backdrop would fringe color when composited over the
+            // container's colored background. Raster the layer text in grayscale AA
+            // so glyphs composite cleanly over any backdrop.
+            bool savedGrayscale = DrawTextOp.LayerBakeGrayscale;
+            DrawTextOp.LayerBakeGrayscale = true;
+            try
+            {
+                scratch.Execute(tc);
+            }
+            finally
+            {
+                DrawTextOp.LayerBakeGrayscale = savedGrayscale;
+            }
             var img = SKImage.FromBitmap(bmp);
 
             // Scrollbar appearance (drawn LIVE by the compositor over the layer).

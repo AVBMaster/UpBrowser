@@ -69,11 +69,12 @@ internal sealed class PaintLayerClipper
 
             // A scrolled ancestor paints its contents at natural layout
             // positions; translate them back by the scroll origin so the
-            // fragment lands in the visible viewport of the container. The
-            // offset is snapped to the device pixel grid to keep text crisp.
+            // fragment lands in the visible viewport of the container. The offset
+            // is snapped to the device pixel grid to keep text crisp, except while
+            // the ancestor smooth-scrolls (fractional keeps motion continuous).
             float sx = box.ScrollX, sy = box.ScrollY;
-            sx = MathF.Round(sx * scale) / scale;
-            sy = MathF.Round(sy * scale) / scale;
+            sx = box.IsSmoothScrollingX ? sx : MathF.Round(sx * scale) / scale;
+            sy = box.IsSmoothScrollingY ? sy : MathF.Round(sy * scale) / scale;
             if (sx != 0 || sy != 0)
             {
                 var t = PaintOpPool.GetPushTransformOp();

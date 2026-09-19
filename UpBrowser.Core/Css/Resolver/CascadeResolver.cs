@@ -1436,10 +1436,13 @@ public class CascadeResolver
 
     private string ParseFontFamily(string value)
     {
+        // Keep the FULL font-family list (cleaned) so the renderer can fall back
+        // through every specified family instead of only the first one. Consumers
+        // that need a single family use the first entry (PrimaryFamily /
+        // FontFamily.Split(',')[0]).
         var families = value.Split(',', StringSplitOptions.RemoveEmptyEntries);
         if (families.Length == 0) return "Arial, sans-serif";
-        var first = families[0].Trim().Trim('"', '\'');
-        return string.IsNullOrEmpty(first) ? "Arial, sans-serif" : first;
+        return string.Join(",", families.Select(f => f.Trim().Trim('"', '\'')));
     }
 
     private float ParseLineHeight(string value, float fontSize)

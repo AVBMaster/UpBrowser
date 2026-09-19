@@ -150,17 +150,27 @@ public class FontFallbackChain
         var skWeight = ConvertWeight(weight);
         var skSlant = style == FontStyleType.Italic ? SKFontStyleSlant.Italic : SKFontStyleSlant.Upright;
 
-        if (_familyFallbacks.TryGetValue(family.ToLowerInvariant(), out var fallbacks))
+        // Walk the FULL CSS font-family list so a missing first family falls back
+        // to the next specified one (e.g. "MyFont, Arial, sans-serif") instead of
+        // jumping straight to the generic/default. Generic names map through the
+        // per-generic candidates.
+        foreach (var raw in family.Split(','))
         {
-            foreach (var candidate in fallbacks)
-            {
-                var tf = TryCreateTypeface(candidate, skWeight, skSlant);
-                if (tf != null) return tf;
-            }
-        }
+            string fam = raw.Trim().Trim('"', '\'').Trim();
+            if (fam.Length == 0) continue;
 
-        var direct = TryCreateTypeface(family, skWeight, skSlant);
-        if (direct != null) return direct;
+            if (_familyFallbacks.TryGetValue(fam.ToLowerInvariant(), out var fallbacks))
+            {
+                foreach (var candidate in fallbacks)
+                {
+                    var tf = TryCreateTypeface(candidate, skWeight, skSlant);
+                    if (tf != null) return tf;
+                }
+            }
+
+            var direct = TryCreateTypeface(fam, skWeight, skSlant);
+            if (direct != null) return direct;
+        }
 
         foreach (var candidate in _genericFallbacks)
         {

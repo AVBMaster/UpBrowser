@@ -279,6 +279,14 @@ public class DrawTextOp : PaintOp
     public bool EmphasisOver { get; set; } = true;
     public SKColor EmphasisColor { get; set; }
 
+    /// <summary>
+    /// When a text op is replayed into a TRANSPARENT layer bitmap (scroll-layer
+    /// content bake), LCD/subpixel antialiasing would fringe color once composited
+    /// over the container's colored background. Set during that raster so fonts use
+    /// grayscale AA instead. Ambient flag — rendering is single-threaded.
+    /// </summary>
+    public static bool LayerBakeGrayscale;
+
     public override void Reset()
     {
         base.Reset();
@@ -305,12 +313,7 @@ public class DrawTextOp : PaintOp
     {
         if (string.IsNullOrEmpty(Text)) return;
 
-        using var paint = new SKPaint
-        {
-            Color = Color,
-            Style = SKPaintStyle.Fill,
-            IsAntialias = true
-        };
+        var paint = GetTextPaint(Color);
 
         float x = X;
 
@@ -371,7 +374,7 @@ public class DrawTextOp : PaintOp
                 };
                 float shadowX = SnapToDevice(drawX + shadow.OffsetX, sx);
                 float shadowY = SnapToDevice(drawY + shadow.OffsetY, sy);
-                using var shadowFont = new SKFont(GetTypeface(), FontSize);
+                var shadowFont = CreateFont(GetTypeface());
                 canvas.DrawText(Text, shadowX, shadowY, SKTextAlign.Left, shadowFont, shadowPaint);
             }
         }
@@ -400,19 +403,14 @@ public class DrawTextOp : PaintOp
         var text = Text;
         if (string.IsNullOrEmpty(mark) || string.IsNullOrEmpty(text)) return;
 
-        using var markFont = CreateFont(GetTypefaceForChar(mark[0]));
+        var markFont = CreateFont(GetTypefaceForChar(mark[0]));
         float glyphCenterX = markFont.MeasureText(mark) / 2;
         var mm = markFont.Metrics;
         float ascent = -mm.Ascent;
         float descent = Math.Max(0, mm.Descent);
         float offset = EmphasisOver ? -(ascent + descent) : (descent + ascent);
 
-        using var markPaint = new SKPaint
-        {
-            Color = EmphasisColor.Alpha > 0 ? EmphasisColor : Color,
-            Style = SKPaintStyle.Fill,
-            IsAntialias = true
-        };
+        var markPaint = GetTextPaint(EmphasisColor.Alpha > 0 ? EmphasisColor : Color);
 
         float currentX = x;
         int len = text.Length;
@@ -441,7 +439,7 @@ public class DrawTextOp : PaintOp
     private float DrawEmphasisRun(SKCanvas canvas, SKPaint markPaint, SKFont markFont, string run, float x, float y, float offset, float glyphCenterX, SKTypeface typeface)
     {
         float currentX = x;
-        using var font = CreateFont(typeface);
+        var font = CreateFont(typeface);
         for (int i = 0; i < run.Length; i++)
         {
             char c = run[i];
@@ -502,8 +500,8 @@ public class DrawTextOp : PaintOp
                 if (neededTypeface != currentTypeface)
                 {
                     string run = text[runStart..i];
-                    using var font = CreateFont(currentTypeface);
-                    float runWidth = font.MeasureText(run) + (run.Length - 1) * LetterSpacing;
+                    var font = CreateFont(currentTypeface);
+                    float runWidth = MeasureRunWidth(run, currentTypeface);
                     if (!dryRun)
                         canvas.DrawText(run, currentX, y, SKTextAlign.Left, font, paint);
                     currentX += runWidth;
@@ -515,8 +513,8 @@ public class DrawTextOp : PaintOp
             else
             {
                 string run = text[runStart..i];
-                using var font = CreateFont(currentTypeface);
-                float runWidth = font.MeasureText(run) + (run.Length - 1) * LetterSpacing;
+                var font = CreateFont(currentTypeface);
+                float runWidth = MeasureRunWidth(run, currentTypeface);
                 if (!dryRun)
                     canvas.DrawText(run, currentX, y, SKTextAlign.Left, font, paint);
                 currentX += runWidth;
@@ -586,8 +584,8 @@ public class DrawTextOp : PaintOp
         if (run.Length == 0)
             return 0;
 
-        using var font = CreateFont(typeface);
-        float runWidth = font.MeasureText(run) + (run.Length - 1) * LetterSpacing;
+        var font = CreateFont(typeface);
+        float runWidth = MeasureRunWidth(run, typeface);
 
         using var blob = SKTextBlob.Create(run, font, new SKPoint(0, 0));
         var intervals = blob.GetIntercepts(upper, upper + stripe, interceptPaint);
@@ -606,6 +604,296 @@ public class DrawTextOp : PaintOp
         }
 
         return runWidth;
+    }
+
+    private SKTypeface GetTypefaceForChar(char c)
+    {
+        int codePoint = c;
+        bool isCjk = (c >= 0x4E00 && c <= 0x9FFF) || (c >= 0x3400 && c <= 0x4DBF) ||
+                     (c >= 0x20000 && c <= 0x2A6DF) || (c >= 0x2B740 && c <= 0x2B81F) ||
+                     (c >= 0x2B820 && c <= 0x2CEAF) || (c >= 0x3000 && c <= 0x303F) ||
+                     (c >= 0xFF00 && c <= 0xFFEF);
+        bool isEmoji = c >= 0x2600;
+        bool isSpecialSymbol = (c >= 0x2000 && c <= 0x206F) || (c >= 0x2100 && c <= 0x27BF) ||
+                               (c >= 0x2800 && c <= 0x28FF) || c == 0x00
+                               || c == 0x00A9 ||
+                               c == 0x00AE || (c >= 0x2190 && c <= 0x21FF) ||
+                               (c >= 0x2200 && c <= 0x22FF) || (c >= 0x2300 && c <= 0x23FF);
+
+        // First try matching from requested font family
+        if (!string.IsNullOrEmpty(FontFamily))
+        {
+            var familyTf = GetCachedFamilyTypeface();
+            if (familyTf != null && GlyphPresentCached(familyTf, codePoint))
+                return familyTf;
+        }
+
+        if (isCjk)
+            return GetCachedChineseTypeface();
+        if (isEmoji)
+            return GetCachedEmojiTypeface() ?? GetCachedChineseTypeface();
+        if (isSpecialSymbol)
+        {
+            // Use the fallback chain to find a font that actually contains the
+            // glyph — the default typeface (e.g. Arial) often lacks arrows, math
+            // symbols, etc. even though the character range is recognised.
+            var fallback = Core.Fonts.FontManager.GetFallbackTypeface(codePoint);
+            if (fallback != null)
+                return fallback;
+            return GetCachedDefaultTypeface();
+        }
+
+        var defaultTf = GetCachedDefaultTypeface();
+        if (GlyphPresentCached(defaultTf, codePoint))
+            return defaultTf;
+
+        return GetCachedChineseTypeface();
+    }
+
+    private static SKTypeface? _cachedChineseTypeface;
+    private static bool _isChineseTypefaceDisposed = false;
+
+    private static SKTypeface? _cachedDefaultTypeface;
+    private static bool _isDefaultTypefaceDisposed = false;
+
+    private static SKTypeface? _cachedEmojiTypeface;
+    private static bool _isEmojiTypefaceDisposed = false;
+
+    private static string[] _cachedFontFamilies = null!;
+    private static readonly object _fontFamiliesLock = new();
+    private static readonly Dictionary<string, SKTypeface> _globalTypefaceCache = new();
+    private static readonly LinkedList<string> _typefaceCacheOrder = new();
+    private const int MaxTypefaceCacheSize = 64;
+
+    // ── Shared text resources (SKFont / SKPaint) ────────────────────────────
+    // Text ops replay on every picture re-record (element scroll, layer re-bake,
+    // snapshot), and each replay used to allocate a fresh native SKFont + SKPaint
+    // per run. Caching them keyed by font identity keeps re-records allocation-free.
+    private static readonly object _textResourceLock = new();
+    private static readonly Dictionary<string, SKFont> _fontCache = new();
+    private static readonly LinkedList<string> _fontCacheOrder = new();
+    private const int MaxFontCacheSize = 512;
+    private static readonly Dictionary<uint, SKPaint> _textPaintCache = new();
+    private static readonly LinkedList<uint> _textPaintCacheOrder = new();
+    private const int MaxTextPaintCacheSize = 128;
+
+    // ── Per-character font fallback caches ──────────────────────────────────
+    // GetTypefaceForChar runs once per character per op execution; the family
+    // typeface lookup and the native ContainsGlyph check were redone every time.
+    // Cache the resolved family typeface and per-(typeface, codepoint) glyph
+    // presence so re-records hit two dictionary lookups instead of font manager
+    // round-trips.
+    private static readonly Dictionary<string, SKTypeface> _familyTypefaceCache = new();
+    private const int MaxFamilyTypefaceCacheSize = 64;
+    private static readonly Dictionary<SKTypeface, int> _typefaceIds = new(ReferenceEqualityComparer.Instance);
+    private static int _nextTypefaceId = 1;
+    private static readonly Dictionary<long, bool> _glyphPresenceCache = new();
+    private static readonly LinkedList<long> _glyphPresenceOrder = new();
+    private const int MaxGlyphPresenceCacheSize = 2048;
+
+    // Text run widths: each DrawTextOp measures every run twice (dry-run for
+    // alignment + real draw). Cache the width per (font identity, run) so the
+    // second pass and later re-records skip re-shaping.
+    private static readonly Dictionary<string, float> _runWidthCache = new();
+    private static readonly LinkedList<string> _runWidthOrder = new();
+    private const int MaxRunWidthCacheSize = 4096;
+
+    private float MeasureRunWidth(string run, SKTypeface typeface)
+    {
+        if (run.Length == 0) return 0;
+        if (run.Length > 256)
+        {
+            var f = CreateFont(typeface);
+            return f.MeasureText(run) + (run.Length - 1) * LetterSpacing;
+        }
+        string key = $"{typeface?.FamilyName}|{FontSize}|{(int)FontWeight}|{(Italic ? 1 : 0)}|{LetterSpacing}|{run}";
+        lock (_runWidthCache)
+        {
+            if (_runWidthCache.TryGetValue(key, out var width))
+            {
+                _runWidthOrder.Remove(key);
+                _runWidthOrder.AddFirst(key);
+                return width;
+            }
+        }
+        var font = CreateFont(typeface);
+        float w = font.MeasureText(run) + (run.Length - 1) * LetterSpacing;
+        lock (_runWidthCache)
+        {
+            if (_runWidthCache.Count >= MaxRunWidthCacheSize)
+            {
+                var last = _runWidthOrder.Last;
+                if (last != null)
+                {
+                    _runWidthCache.Remove(last.Value);
+                    _runWidthOrder.RemoveLast();
+                }
+            }
+            _runWidthCache[key] = w;
+            _runWidthOrder.Remove(key);
+            _runWidthOrder.AddFirst(key);
+        }
+        return w;
+    }
+
+    private SKTypeface GetCachedFamilyTypeface()
+    {
+        int styleIdx = FontWeight == FontWeight.Bold ? 1 : 0;
+        // Walk the FULL CSS font-family list and return the first family that is
+        // installed. Generic names (sans-serif / serif / monospace / ...) map to
+        // system defaults. Glyph presence is checked per-character by the caller,
+        // so per-glyph fallback to CJK/emoji still works.
+        foreach (var raw in FontFamily.Split(','))
+        {
+            string fontName = raw.Trim().Trim('"', '\'');
+            if (string.IsNullOrEmpty(fontName)) continue;
+            SKTypeface? tf = fontName.ToLowerInvariant() switch
+            {
+                "sans-serif" or "system-ui" or "cursive" or "fantasy" => GetCachedDefaultTypeface(),
+                "serif" => GetCachedSerifTypeface() ?? GetCachedDefaultTypeface(),
+                "monospace" => GetCachedMonoTypeface() ?? GetCachedDefaultTypeface(),
+                _ => GetFamilyTypeface(fontName, styleIdx),
+            };
+            if (tf != null) return tf;
+        }
+        return GetCachedDefaultTypeface();
+    }
+
+    /// <summary>Resolve one installed family to a typeface (cached, bounded).</summary>
+    private static SKTypeface GetFamilyTypeface(string fontName, int styleIdx)
+    {
+        string key = $"{fontName}|{styleIdx}";
+        lock (_glyphPresenceCache)
+        {
+            if (_familyTypefaceCache.TryGetValue(key, out var cached))
+                return cached;
+        }
+        SKTypeface? tf = null;
+        var families = GetFontFamilies();
+        var index = Array.IndexOf(families, fontName);
+        if (index >= 0)
+        {
+            var styles = SKFontManager.Default.GetFontStyles(index);
+            if (styleIdx >= styles.Count) styleIdx = 0;
+            tf = styles.CreateTypeface(styleIdx);
+        }
+        if (tf != null)
+        {
+            lock (_glyphPresenceCache)
+            {
+                if (_familyTypefaceCache.Count >= MaxFamilyTypefaceCacheSize)
+                {
+                    var oldest = _familyTypefaceCache.Keys.First();
+                    _familyTypefaceCache.Remove(oldest);
+                }
+                _familyTypefaceCache[key] = tf;
+            }
+        }
+        return tf ?? SKTypeface.Default;
+    }
+
+    private static SKTypeface? _cachedSerifTypeface;
+    private static bool _isSerifTypefaceDisposed;
+    private static SKTypeface? _cachedMonoTypeface;
+    private static bool _isMonoTypefaceDisposed;
+
+    private static SKTypeface? GetCachedSerifTypeface()
+    {
+        if (_cachedSerifTypeface != null && !_isSerifTypefaceDisposed)
+        {
+            try { return _cachedSerifTypeface; }
+            catch (ObjectDisposedException) { _isSerifTypefaceDisposed = true; _cachedSerifTypeface = null; }
+        }
+        var families = GetFontFamilies();
+        foreach (var fontName in new[] { "Times New Roman", "Georgia", "SimSun", "Nimbus Roman" })
+        {
+            var index = Array.IndexOf(families, fontName);
+            if (index >= 0)
+            {
+                var tf = SKFontManager.Default.GetFontStyles(index).CreateTypeface(0);
+                if (tf != null && tf.FamilyName != null)
+                {
+                    _cachedSerifTypeface = tf;
+                    _isSerifTypefaceDisposed = false;
+                    return tf;
+                }
+            }
+        }
+        return null;
+    }
+
+    private static SKTypeface? GetCachedMonoTypeface()
+    {
+        if (_cachedMonoTypeface != null && !_isMonoTypefaceDisposed)
+        {
+            try { return _cachedMonoTypeface; }
+            catch (ObjectDisposedException) { _isMonoTypefaceDisposed = true; _cachedMonoTypeface = null; }
+        }
+        var families = GetFontFamilies();
+        foreach (var fontName in new[] { "Consolas", "Courier New", "DejaVu Sans Mono", "Liberation Mono", "Menlo", "Monaco" })
+        {
+            var index = Array.IndexOf(families, fontName);
+            if (index >= 0)
+            {
+                var tf = SKFontManager.Default.GetFontStyles(index).CreateTypeface(0);
+                if (tf != null && tf.FamilyName != null)
+                {
+                    _cachedMonoTypeface = tf;
+                    _isMonoTypefaceDisposed = false;
+                    return tf;
+                }
+            }
+        }
+        return null;
+    }
+
+    private static int TypefaceId(SKTypeface typeface)
+    {
+        lock (_glyphPresenceCache)
+        {
+            if (_typefaceIds.TryGetValue(typeface, out var id)) return id;
+            id = _nextTypefaceId++;
+            _typefaceIds[typeface] = id;
+            return id;
+        }
+    }
+
+    private static bool GlyphPresentCached(SKTypeface typeface, int codepoint)
+    {
+        long key = ((long)TypefaceId(typeface) << 21) | (uint)codepoint;
+        lock (_glyphPresenceCache)
+        {
+            if (_glyphPresenceCache.TryGetValue(key, out var present))
+            {
+                _glyphPresenceOrder.Remove(key);
+                _glyphPresenceOrder.AddFirst(key);
+                return present;
+            }
+        }
+        bool result;
+        using (var f = new SKFont(typeface, 12))
+            result = f.ContainsGlyph(codepoint);
+        lock (_glyphPresenceCache)
+        {
+            if (_glyphPresenceCache.Count >= MaxGlyphPresenceCacheSize)
+            {
+                var last = _glyphPresenceOrder.Last;
+                if (last != null)
+                {
+                    _glyphPresenceCache.Remove(last.Value);
+                    _glyphPresenceOrder.RemoveLast();
+                }
+            }
+            _glyphPresenceCache[key] = result;
+            _glyphPresenceOrder.Remove(key);
+            _glyphPresenceOrder.AddFirst(key);
+        }
+        return result;
+    }
+
+    private static string FontIdentityKey(SKTypeface? typeface, float size, FontWeight weight, bool italic, float letterSpacing)
+    {
+        return $"{typeface?.FamilyName ?? "?"}|{size}|{(int)weight}|{(italic ? 1 : 0)}|{letterSpacing}|{(LayerBakeGrayscale ? 1 : 0)}";
     }
 
     private SKFont CreateFont(SKTypeface typeface)
@@ -628,87 +916,85 @@ public class DrawTextOp : PaintOp
                 if (tf != null) actualTypeface = tf;
             }
         }
-        var font = new SKFont(actualTypeface, FontSize);
-        #if !SUPPORT_WINXP
-        font.Edging = SKFontEdging.SubpixelAntialias;
-        font.Subpixel = true;
-        font.Hinting = SKFontHinting.Normal;
-        #endif
-        return font;
-    }
 
-    private SKTypeface GetTypefaceForChar(char c)
-    {
-        int codePoint = c;
-        bool isCjk = (c >= 0x4E00 && c <= 0x9FFF) || (c >= 0x3400 && c <= 0x4DBF) ||
-                     (c >= 0x20000 && c <= 0x2A6DF) || (c >= 0x2B740 && c <= 0x2B81F) ||
-                     (c >= 0x2B820 && c <= 0x2CEAF) || (c >= 0x3000 && c <= 0x303F) ||
-                     (c >= 0xFF00 && c <= 0xFFEF);
-        bool isEmoji = c >= 0x2600;
-        bool isSpecialSymbol = (c >= 0x2000 && c <= 0x206F) || (c >= 0x2100 && c <= 0x27BF) ||
-                               (c >= 0x2800 && c <= 0x28FF) || c == 0x00
-                               || c == 0x00A9 ||
-                               c == 0x00AE || (c >= 0x2190 && c <= 0x21FF) ||
-                               (c >= 0x2200 && c <= 0x22FF) || (c >= 0x2300 && c <= 0x23FF);
-
-        // First try matching from requested font family
-        if (!string.IsNullOrEmpty(FontFamily))
+        string key = FontIdentityKey(actualTypeface, FontSize, FontWeight, Italic, LetterSpacing);
+        lock (_textResourceLock)
         {
-            var fontName = FontFamily.Split(',')[0].Trim().Trim('"', '\'');
-            var families = GetFontFamilies();
-            var index = Array.IndexOf(families, fontName);
-            if (index >= 0)
+            if (_fontCache.TryGetValue(key, out var cached))
             {
-                var styles = SKFontManager.Default.GetFontStyles(index);
-                int styleIdx = FontWeight == FontWeight.Bold ? 1 : 0;
-                if (styleIdx >= styles.Count) styleIdx = 0;
-                var tf = styles.CreateTypeface(styleIdx);
-                if (tf != null)
-                {
-                    using var checkFont = new SKFont(tf, 12);
-                    if (checkFont.ContainsGlyph(codePoint))
-                        return tf;
-                }
+                _fontCacheOrder.Remove(key);
+                _fontCacheOrder.AddFirst(key);
+                return cached;
             }
         }
 
-        if (isCjk)
-            return GetCachedChineseTypeface();
-        if (isEmoji)
-            return GetCachedEmojiTypeface() ?? GetCachedChineseTypeface();
-        if (isSpecialSymbol)
+        var font = new SKFont(actualTypeface, FontSize);
+        #if !SUPPORT_WINXP
+        if (LayerBakeGrayscale)
         {
-            // Use the fallback chain to find a font that actually contains the
-            // glyph — the default typeface (e.g. Arial) often lacks arrows, math
-            // symbols, etc. even though the character range is recognised.
-            var fallback = Core.Fonts.FontManager.GetFallbackTypeface(codePoint);
-            if (fallback != null)
-                return fallback;
-            return GetCachedDefaultTypeface();
+            // Transparent layer bake: grayscale AA composites cleanly over any
+            // backdrop (no LCD color fringing).
+            font.Edging = SKFontEdging.Antialias;
+            font.Subpixel = false;
         }
-
-        var defaultTf = GetCachedDefaultTypeface();
-        using var defaultCheckFont = new SKFont(defaultTf, 12);
-        if (defaultCheckFont.ContainsGlyph(codePoint))
-            return defaultTf;
-
-        return GetCachedChineseTypeface();
+        else
+        {
+            font.Edging = SKFontEdging.SubpixelAntialias;
+            font.Subpixel = true;
+        }
+        font.Hinting = SKFontHinting.Normal;
+        #endif
+        lock (_textResourceLock)
+        {
+            if (_fontCache.Count >= MaxFontCacheSize)
+            {
+                var last = _fontCacheOrder.Last;
+                if (last != null)
+                {
+                    if (_fontCache.Remove(last.Value, out var evicted))
+                        evicted.Dispose();
+                    _fontCacheOrder.RemoveLast();
+                }
+            }
+            _fontCache[key] = font;
+            _fontCacheOrder.Remove(key);
+            _fontCacheOrder.AddFirst(key);
+        }
+        return font;
     }
 
-    private static SKTypeface? _cachedChineseTypeface;
-    private static bool _isChineseTypefaceDisposed = false;
-
-    private static SKTypeface? _cachedDefaultTypeface;
-    private static bool _isDefaultTypefaceDisposed = false;
-
-    private static SKTypeface? _cachedEmojiTypeface;
-    private static bool _isEmojiTypefaceDisposed = false;
-
-    private static string[] _cachedFontFamilies = null!;
-    private static readonly object _fontFamiliesLock = new();
-    private static readonly Dictionary<string, SKTypeface> _globalTypefaceCache = new();
-    private static readonly LinkedList<string> _typefaceCacheOrder = new();
-    private const int MaxTypefaceCacheSize = 64;
+    /// <summary>Reusable fill paint for a color (avoids a native SKPaint per op).</summary>
+    private static SKPaint GetTextPaint(SKColor color)
+    {
+        uint key = (uint)((color.Alpha << 24) | (color.Red << 16) | (color.Green << 8) | color.Blue);
+        lock (_textResourceLock)
+        {
+            if (_textPaintCache.TryGetValue(key, out var cached))
+            {
+                _textPaintCacheOrder.Remove(key);
+                _textPaintCacheOrder.AddFirst(key);
+                return cached;
+            }
+        }
+        var paint = new SKPaint { Color = color, Style = SKPaintStyle.Fill, IsAntialias = true };
+        lock (_textResourceLock)
+        {
+            if (_textPaintCache.Count >= MaxTextPaintCacheSize)
+            {
+                var last = _textPaintCacheOrder.Last;
+                if (last != null)
+                {
+                    if (_textPaintCache.Remove(last.Value, out var evicted))
+                        evicted.Dispose();
+                    _textPaintCacheOrder.RemoveLast();
+                }
+            }
+            _textPaintCache[key] = paint;
+            _textPaintCacheOrder.Remove(key);
+            _textPaintCacheOrder.AddFirst(key);
+        }
+        return paint;
+    }
 
     private static void CacheTypeface(string key, SKTypeface tf)
     {
@@ -1351,10 +1637,11 @@ public sealed class DrawScrollLayerOp : PaintOp
 
         canvas.Save();
         canvas.ClipRect(ContentBox);
-        // Snap the live scroll translate to the device grid (logical coords,
-        // device = logical × scale) so fractional offsets stay pixel-crisp.
-        float tx = MathF.Round(sx * scale) / scale;
-        float ty = MathF.Round(sy * scale) / scale;
+        // Snap the live scroll translate to the device grid only when the container
+        // is not smooth-scrolling (smooth scroll keeps a fractional offset so the
+        // layer moves continuously instead of 1px juddering).
+        float tx = IsBaked || Box.IsSmoothScrollingX ? sx : MathF.Round(sx * scale) / scale;
+        float ty = IsBaked || Box.IsSmoothScrollingY ? sy : MathF.Round(sy * scale) / scale;
         if (tx != 0 || ty != 0)
             canvas.Translate(-tx, -ty);
         // The layer is a DEVICE-resolution bitmap (content × scale); draw it 1:1

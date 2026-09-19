@@ -593,12 +593,12 @@ public class SkiaRenderer : IDisposable
             // (device-pixel) space. The page-space viewport plus the page origin
             // (scroll + DPR + resolution anchoring) fully describe the mapping.
             float physicalScale = _dpiScale * resScale;
-            // Snap the origin to the device pixel grid: cached tiles composite at
-            // tx*tile*scale - origin, so a fractional origin samples them at
-            // sub-pixel offsets (blurry). Rounding is what real browsers do when
-            // scrolling — scroll is quantized to whole device pixels at paint.
-            float originX = MathF.Round(scrollX * physicalScale);
-            float originY = MathF.Round(scrollY * physicalScale + contentOffsetY * _dpiScale * (resScale - 1f));
+            // Keep the origin FRACTIONAL: integer-snapping it made the page step in
+            // whole device pixels during smooth scrolling (visible judder). A
+            // fractional origin moves tiles smoothly (mild motion blur); the content
+            // is crisp again whenever the scroll lands on a device-aligned position.
+            float originX = scrollX * physicalScale;
+            float originY = scrollY * physicalScale + contentOffsetY * _dpiScale * (resScale - 1f);
 
             var physicalViewport = new SKRect(
                 scrollX * physicalScale,

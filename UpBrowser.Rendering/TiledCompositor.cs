@@ -587,20 +587,23 @@ if (PipelineTimings.TilesRasterized != null)
             var box = info.Box;
             float sx = info.IsBaked ? 0f : box.ScrollX;
             float sy = info.IsBaked ? 0f : box.ScrollY;
-            // Draw the layer at its device-grid position. The layer was baked with
-            // its translate SNAPPED to the device grid (BuildScrollLayer), so image
-            // pixel u holds content at page round(cb.Left*scale)/scale + u/scale;
-            // drawing pixel 0 at round(cb.Left*scale) maps every baked texel to a
-            // whole device pixel — crisp and aligned with the surrounding page.
-            // The live scroll translate is snapped too so a fractional scroll
-            // offset never re-samples the bitmap (scroll-blur/shimmer).
+            // Scroll offset is snapped to the device grid only when the container is
+            // NOT smooth-scrolling: at rest this keeps the baked bitmap texel-for-
+            // texel crisp, while mid-smooth-scroll the fractional offset moves the
+            // layer continuously (no 1px judder). Wheel scrolls are integer anyway.
+            float devSx = info.IsBaked || box.IsSmoothScrollingX ? sx * physicalScale : MathF.Round(sx * physicalScale);
+            float devSy = info.IsBaked || box.IsSmoothScrollingY ? sy * physicalScale : MathF.Round(sy * physicalScale);
+            // The layer was baked with its translate SNAPPED to the device grid
+            // (BuildScrollLayer), so image pixel u holds content at page
+            // round(cb.Left*scale)/scale + u/scale; drawing pixel 0 at
+            // round(cb.Left*scale) maps every baked texel to a whole device pixel.
             float cx0 = MathF.Round(cb.Left * physicalScale);
             float cy0 = MathF.Round(cb.Top * physicalScale);
             canvas.Save();
             canvas.ClipRect(new SKRect(
                 cb.Left * physicalScale, cb.Top * physicalScale,
                 cb.Right * physicalScale, cb.Bottom * physicalScale));
-            canvas.Translate(-MathF.Round(sx * physicalScale), -MathF.Round(sy * physicalScale));
+            canvas.Translate(-devSx, -devSy);
             var layerImage = info.Image;
             canvas.DrawImage(layerImage,
                 new SKRect(cx0, cy0,
