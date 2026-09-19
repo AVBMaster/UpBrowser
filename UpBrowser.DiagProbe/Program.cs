@@ -1,4 +1,4 @@
-ï»¿using SkiaSharp;
+using SkiaSharp;
 using UpBrowser.Core.Dom;
 using UpBrowser.Core.Dom.Parser;
 using UpBrowser.Core.Css;
@@ -6,7 +6,7 @@ using UpBrowser.Core.Input;
 using UpBrowser.Core.Layout;
 using UpBrowser.Rendering;
 
-// â”€â”€ Load the real test page through the same pipeline as the app shell â”€â”€
+// ©¤©¤ Load the real test page through the same pipeline as the app shell ©¤©¤
 string htmlPath = Path.GetFullPath("test_scroll_interactive.html");
 if (!File.Exists(htmlPath))
     htmlPath = Path.GetFullPath(Path.Combine("..", "..", "..", "..", "test_scroll_interactive.html"));
@@ -52,13 +52,13 @@ if (itemEls is Element ie)
 }
 Console.WriteLine($"[thickness] ScrollbarMetrics={UpBrowser.Core.Dom.ScrollbarMetrics.ThicknessFor(target.ComputedStyle!):F1}");
 
-// â”€â”€ Layout a fresh document with the single modern pipeline â”€â”€
+// ©¤©¤ Layout a fresh document with the single modern pipeline ©¤©¤
 var dm2 = new DocumentManager();
 var load2 = dm2.LoadHtmlAsync(html, baseUrl, 1009, 730, 1f).GetAwaiter().GetResult();
 var layoutEngine2 = new LayoutEngine();
 layoutEngine2.Layout(load2.Document, 1009, 730);
 
-// â”€â”€ Container â‘¤ both-scroll: horizontal + vertical scrollbars â”€â”€
+// ©¤©¤ Container ¢Ý both-scroll: horizontal + vertical scrollbars ©¤©¤
 static IEnumerable<Element> AllElements(Document doc)
 {
     if (doc.DocumentElement != null)
@@ -125,15 +125,15 @@ Console.WriteLine($"[geom] thumbTop={thumbTop:F1} thumbH={thumbH:F1} maxScroll={
 var scrollInt = new ScrollInteraction();
 scrollInt.SetDocument(load.Document);
 bool scrollFired = false;
-scrollInt.OnScrollChanged = () => scrollFired = true;
+scrollInt.OnScrollChanged = (_) => scrollFired = true;
 
-// â”€â”€ Simulate drag: mousedown on thumb, move up 40px â”€â”€
+// ©¤©¤ Simulate drag: mousedown on thumb, move up 40px ©¤©¤
 bool grabbed = scrollInt.HandleMouseDown(grabX, grabY);
 Console.WriteLine($"[down] grabbed={grabbed}");
 scrollInt.HandleMouseMove(grabX, grabY + 40);
 Console.WriteLine($"[move] scrollY={box.ScrollY:F1} (expect ~{maxScroll * (40f / (trackH - thumbH)):F1}) eventFired={scrollFired}");
 
-// â”€â”€ Rebuild display list like BrowserApp B1 branch and rasterize â”€â”€
+// ©¤©¤ Rebuild display list like BrowserApp B1 branch and rasterize ©¤©¤
 SKBitmap Rasterize(float contentOffsetY)
 {
     var visitor = new PaintVisitor(contentOffsetY, null, null,
@@ -176,7 +176,7 @@ Console.WriteLine($"[render] content region ({rx0},{ry0})-({rx1},{ry1}): {diffPx
 
 Console.WriteLine($"[verdict] grabbed={grabbed} scrolled={box.ScrollY > 0} contentMoved={diffPx > total * 0.05} -> {(grabbed && box.ScrollY > 0 && diffPx > total * 0.05 ? "PASS" : "FAIL")}");
 
-// â”€â”€ Horizontal scrollbar placeholder on container â‘¤ (both-scroll) â”€â”€
+// ©¤©¤ Horizontal scrollbar placeholder on container ¢Ý (both-scroll) ©¤©¤
 if (bothEl?.LayoutBox is { } bb3)
 {
     var b3 = bothEl.LayoutBox;
@@ -186,7 +186,7 @@ if (bothEl?.LayoutBox is { } bb3)
     var bothInt = new ScrollInteraction();
     bothInt.SetDocument(load.Document);
     bool hFired = false;
-    bothInt.OnScrollChanged = () => hFired = true;
+    bothInt.OnScrollChanged = (_) => hFired = true;
     bothInt.HandleWheel(240 * 8, 0, b3.BorderBox.Left + 5, b3.BorderBox.Top + 5); // scroll far right
 
     var vis = new PaintVisitor(0, null, null, SKFontManager.Default.FontFamilies.ToArray(), baseUrl, 1009, 730);

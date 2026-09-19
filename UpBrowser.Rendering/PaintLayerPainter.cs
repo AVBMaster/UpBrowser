@@ -26,9 +26,29 @@ internal sealed class PaintLayerPainter
         var style = _layer.Style;
         if (layoutBox == null || style == null) return;
 
-        var pushedStates = _clipper.PushAncestorStates(element, contentOffsetY);
+        // A layered scroll container paints its background statically and its
+        // scrollable content via the cached DrawScrollLayerOp (live scroll); its
+        // descendant layers are skipped by the tree walk. Everything else keeps
+        // the inline paint path.
+        bool layered = false;
+        if (layoutBox.IsScrollContainer)
+        {
+            _visitor.EnsureScrollLayer(element, layoutBox, style);
+            layered = ScrollLayerCache.IsLayered(layoutBox);
+        }
+
+        var pushedStates = _clipper.PushAncestorStates(element, contentOffsetY, _visitor.PhysicalScale);
 
         PaintLayerBackground(element, layoutBox, style, contentOffsetY);
+
+        if (layered)
+        {
+            // The scroll-layer op keeps the content visible to direct/snapshot
+            // renderers; the tile compositor draws the cached layer LIVE each frame.
+            _visitor.EmitScrollLayerOp(layoutBox);
+            _clipper.Pop(pushedStates, layoutBox.BorderBox);
+            return;
+        }
 
         PaintLayerContent(element, layoutBox, style, contentOffsetY);
 

@@ -22,9 +22,11 @@ internal sealed class PaintLayerClipper
     /// Pushes ancestor clips and scroll translations for <paramref name="element"/>
     /// and returns the stack of pushed state kinds (outermost first) that must be
     /// popped after painting the layer. The element's own clip/scroll is
-    /// intentionally excluded; VisitElement owns it.
+    /// intentionally excluded; VisitElement owns it. <paramref name="physicalScale"/>
+    /// (DPR × resolution scale) snaps the scroll translation to the device grid so
+    /// sub-pixel offsets don't smear content rasterized through it.
     /// </summary>
-    public List<bool> PushAncestorStates(Element element, float contentOffsetY)
+    public List<bool> PushAncestorStates(Element element, float contentOffsetY, float physicalScale = 1f)
     {
         // Collect ancestors element → root, then replay root → element so
         // outer clips/transforms nest before inner ones.
@@ -37,6 +39,7 @@ internal sealed class PaintLayerClipper
         // Accumulated scroll translation of ancestors already pushed; inner
         // clip rects live in that translated space and must be adjusted.
         float ax = 0, ay = 0;
+        float scale = physicalScale <= 0.01f ? 1f : physicalScale;
 
         foreach (var ancestor in ancestors)
         {
@@ -66,8 +69,11 @@ internal sealed class PaintLayerClipper
 
             // A scrolled ancestor paints its contents at natural layout
             // positions; translate them back by the scroll origin so the
-            // fragment lands in the visible viewport of the container.
+            // fragment lands in the visible viewport of the container. The
+            // offset is snapped to the device pixel grid to keep text crisp.
             float sx = box.ScrollX, sy = box.ScrollY;
+            sx = MathF.Round(sx * scale) / scale;
+            sy = MathF.Round(sy * scale) / scale;
             if (sx != 0 || sy != 0)
             {
                 var t = PaintOpPool.GetPushTransformOp();

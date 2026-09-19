@@ -84,6 +84,13 @@ public sealed class TileRasterizer
         if (_pending.TryDequeue(out var key))
         {
             _inFlight[key] = 0;
+            // Mark the tile as being rasterized so the TileManager eviction /
+            // memory-budget passes (which skip Rasterizing tiles) do not free or
+            // evict it while it is in flight. This is the only place the state is
+            // entered; it is cleared by Complete -> MarkReady/MarkFailed. Mirrors
+            // the reference behaviour of never evicting a tile with active work.
+            var tile = _tiles.GetOrCreate(key);
+            tile.State = TileState.Rasterizing;
             Interlocked.Increment(ref _started);
             return key;
         }
@@ -143,6 +150,15 @@ public sealed class TileRasterizer
 
     public void Clear()
     {
+        // Drop any still-in-flight work and release the Rasterizing marker on
+        // any tiles still held by the manager, so a subsequent InvalidateAll /
+        // Clear does not leave them permanently protected from eviction or
+        // resurrect stale tiles from a previously cleared generation.
+        foreach (var key in _inFlight.Keys)
+        {
+            if (_tiles.TryGet(key, out var t) && t is not null && t.State == TileState.Rasterizing)
+                t.State = TileState.Dirty;
+        }
         _pending.Clear();
         _inFlight.Clear();
     }
@@ -186,6 +202,17 @@ public sealed class PredictiveTileScheduler
     {
         _velocity = new ScrollVelocity { Vx = vx, Vy = vy, SampledAt = DateTime.UtcNow };
         _lastUpdate = DateTime.UtcNow;
+    }
+
+    /// <summary>
+    /// Drop all pending/in-flight predictive raster work and reset the velocity
+    /// sample. Used when the underlying tile cache is invalidated so stale keys
+    /// from a previous content generation are not rasterized back in.
+    /// </summary>
+    public void ClearPending()
+    {
+        _raster.Clear();
+        _velocity = default;
     }
 
     /// <summary>

@@ -25,6 +25,15 @@ public class WindowsWindow : IWindow
     private float _dpiScale = 1.0f;
     private float _targetFrameTimeMs = 16.0f;
 
+    // Memory-DC back buffer so the full frame is composed off-screen and blitted
+    // to the window in one atomic BitBlt — a direct StretchDIBits to the client DC
+    // each frame tears and flickers on high-activity pages.
+    private IntPtr _backDC = IntPtr.Zero;
+    private IntPtr _backBmp = IntPtr.Zero;
+    private IntPtr _backOldBmp = IntPtr.Zero;
+    private int _backW;
+    private int _backH;
+
     private Action<char>? _onChar;
     private Action<char>? _onImeChar;
     private Func<char, Key, bool>? _onKeyDownWithChar;
@@ -560,11 +569,31 @@ public class WindowsWindow : IWindow
         int destW = clientRect.Right - clientRect.Left;
         int destH = clientRect.Bottom - clientRect.Top;
 
-        NativeWindow.StretchDIBits(hdc, 0, 0, destW, destH,
-            0, 0, width, height, pixels, ref bmi,
-            NativeWindow.DIB_RGB_COLORS, NativeWindow.SRCCOPY);
+        try
+        {
+            // Compose into the cached back buffer, then present with one BitBlt so
+            // the screen never observes a partially updated frame.
+            if (destW <= 0 || destH <= 0) return;
+            if (_backDC == IntPtr.Zero || _backBmp == IntPtr.Zero || _backW != destW || _backH != destH)
+            {
+                if (_backBmp != IntPtr.Zero) NativeWindow.DeleteObject(_backBmp);
+                if (_backDC != IntPtr.Zero) { NativeWindow.SelectObject(_backDC, _backOldBmp); NativeWindow.DeleteDC(_backDC); }
+                _backDC = NativeWindow.CreateCompatibleDC(hdc);
+                _backBmp = NativeWindow.CreateCompatibleBitmap(hdc, destW, destH);
+                _backOldBmp = NativeWindow.SelectObject(_backDC, _backBmp);
+                _backW = destW;
+                _backH = destH;
+            }
 
-        NativeWindow.ReleaseDC(_hwnd, hdc);
+            NativeWindow.StretchDIBits(_backDC, 0, 0, destW, destH,
+                0, 0, width, height, pixels, ref bmi,
+                NativeWindow.DIB_RGB_COLORS, NativeWindow.SRCCOPY);
+            NativeWindow.BitBlt(hdc, 0, 0, destW, destH, _backDC, 0, 0, 0x00CC0020 /* SRCCOPY */);
+        }
+        finally
+        {
+            NativeWindow.ReleaseDC(_hwnd, hdc);
+        }
     }
 
     public void Close()
@@ -574,7 +603,26 @@ public class WindowsWindow : IWindow
             NativeWindow.DestroyWindow(_hwnd);
             _hwnd = IntPtr.Zero;
         }
+        ReleaseBackBuffer();
         _isRunning = false;
+    }
+
+    private void ReleaseBackBuffer()
+    {
+        if (_backBmp != IntPtr.Zero)
+        {
+            NativeWindow.DeleteObject(_backBmp);
+            _backBmp = IntPtr.Zero;
+        }
+        if (_backDC != IntPtr.Zero)
+        {
+            // Restore the original bitmap before deleting the memory DC.
+            NativeWindow.SelectObject(_backDC, _backOldBmp);
+            NativeWindow.DeleteDC(_backDC);
+            _backDC = IntPtr.Zero;
+        }
+        _backOldBmp = IntPtr.Zero;
+        _backW = _backH = 0;
     }
 
     public void Dispose()

@@ -28,6 +28,16 @@ public class SkiaRenderer : IDisposable
     private TiledCompositor? _tiledCompositor;
     private bool _useTileCompositor;
 
+    /// <summary>True when the tile compositor is active for the page pipeline.</summary>
+    public bool TileCompositorActive => _useTileCompositor && _tiledCompositor != null;
+
+    /// <summary>
+    /// True when the tile compositor still has deferred raster work queued after
+    /// this frame. BrowserApp must request another frame so the finishing tiles
+    /// get composited; consumed (reset) by BrowserApp after each frame.
+    /// </summary>
+    public bool PendingTileRepaint { get; set; }
+
     private DirtyRegionManager? _dirtyManager;
     private bool _useDirtyRegions;
 
@@ -401,6 +411,18 @@ public class SkiaRenderer : IDisposable
     }
 
     /// <summary>
+    /// Adopt a rebuilt display list whose change is confined to rects already
+    /// region-invalidated on the compositor. The cache generation is preserved
+    /// and the recorded picture is refreshed so synchronous/deferred tiles
+    /// rasterize the new content. Returned a no-op without the tile compositor.
+    /// </summary>
+    public void AdoptRebuiltDisplayList(DisplayList displayList)
+    {
+        _currentDisplayList = displayList;
+        _tiledCompositor?.AdoptRebuiltDisplayList(displayList);
+    }
+
+    /// <summary>
     /// Optional integration with the shared performance hub. When set, the
     /// tile compositor routes its tile-state through <c>hub.Tiles</c>, the
     /// predictive pre-raster work through <c>hub.PredictiveScheduler</c>, and
@@ -429,7 +451,11 @@ public class SkiaRenderer : IDisposable
         _lastScrollVx = vx;
         _lastScrollVy = vy;
         _lastScrollVelocityNanos = Clock.NowNanos();
-        _tiledCompositor?.UpdateScrollVelocity(vx, vy);
+        // The predictive scheduler computes its look-ahead band from the viewport
+        // handed to it, which is in physical device pixels. Scale the CSS-pixel
+        // velocity so the extrapolated band lands in the same space.
+        float ps = _dpiScale * (_settings?.ResolutionScale ?? 1.0f);
+        _tiledCompositor?.UpdateScrollVelocity(vx * ps, vy * ps);
     }
 
     /// <summary>
@@ -444,6 +470,32 @@ public class SkiaRenderer : IDisposable
             _tiledCompositor.InvalidateRect(pageRect);
         if (_dirtyManager != null && _useDirtyRegions)
             _dirtyManager.Invalidate(pageRect);
+    }
+
+    /// <summary>
+    /// Synchronously rasterize all the tiles covering <paramref name="pageRect"/>
+    /// so the region is cached before the next <see cref="RenderWithScroll"/> call
+    /// and composites on the same frame. Used for region-scoped element-scroll
+    /// repaints: deferring the scrolled container's tiles would push their update
+    /// 1+ frames late and expose tearing/seams between updated and retained tiles
+    /// mid-scroll.
+    /// </summary>
+    public void PrerasterizePageRect(SKRect pageRect)
+    {
+        if (!TileCompositorActive) return;
+        float resScale = _settings?.ResolutionScale ?? 1.0f;
+        float physicalScale = _dpiScale * resScale;
+        _tiledCompositor.RasterizeRectSynchronous(pageRect, physicalScale);
+    }
+
+    /// <summary>
+    /// Declare the rect that will be re-rasterized this frame so the recorded
+    /// picture culls to the change instead of the whole viewport. See
+    /// <see cref="TiledCompositor.SetChangeRegion"/>.
+    /// </summary>
+    public void SetChangeRegion(SKRect pageRect)
+    {
+        _tiledCompositor?.SetChangeRegion(pageRect);
     }
 
     public void InvalidatePageCache()
@@ -513,7 +565,7 @@ public class SkiaRenderer : IDisposable
         Canvas.Restore();
     }
 
-    public void RenderWithScroll(DisplayList displayList, float contentOffsetY, float scrollX, float scrollY, float viewportWidth, float viewportHeight, DisplayList? overlayList = null)
+    public void RenderWithScroll(DisplayList displayList, float contentOffsetY, float scrollX, float scrollY, float viewportWidth, float viewportHeight, DisplayList? overlayList = null, SKColor? backgroundFill = null, bool interactiveScrollFrame = false)
     {
         _currentDisplayList = displayList;
 
@@ -535,22 +587,74 @@ public class SkiaRenderer : IDisposable
         Canvas.Translate(0, contentOffsetY * (1f / resScale - 1f));
         Canvas.Translate(-scrollX, -scrollY);
 
-        bool useCaching = _settings?.PictureCaching ?? true;
-        if (useCaching && !_pictureDirty && _cachedPicture != null)
+        if (_useTileCompositor && _tiledCompositor != null)
         {
-            Canvas.DrawPicture(_cachedPicture);
+            // Tile compositor owns the transform stack and composites in physical
+            // (device-pixel) space. The page-space viewport plus the page origin
+            // (scroll + DPR + resolution anchoring) fully describe the mapping.
+            float physicalScale = _dpiScale * resScale;
+            // Snap the origin to the device pixel grid: cached tiles composite at
+            // tx*tile*scale - origin, so a fractional origin samples them at
+            // sub-pixel offsets (blurry). Rounding is what real browsers do when
+            // scrolling — scroll is quantized to whole device pixels at paint.
+            float originX = MathF.Round(scrollX * physicalScale);
+            float originY = MathF.Round(scrollY * physicalScale + contentOffsetY * _dpiScale * (resScale - 1f));
+
+            var physicalViewport = new SKRect(
+                scrollX * physicalScale,
+                (scrollY + contentOffsetY) * physicalScale,
+                (scrollX + viewportWidth / resScale) * physicalScale,
+                (scrollY + contentOffsetY + viewportHeight / resScale) * physicalScale);
+
+            _tiledCompositor.DeferRasterization = true;
+            _tiledCompositor.Render(Canvas, physicalViewport, physicalScale, originX, originY, displayList, backgroundFill);
+
+            // Pre-rasterize the band in the direction of travel so fast scrolling
+            // finds its tiles already cached (no white pop-in). The band is
+            // velocity-driven; when the viewport is not moving it matches the
+            // viewport and the pump is skipped.
+            var band = _tiledCompositor.ComputePredictiveBand(physicalViewport);
+            if (band != physicalViewport)
+            {
+                _tiledCompositor.SetPredictedViewport(band);
+                _tiledCompositor.PumpPredictiveTiles(Canvas, TiledCompositor.MaxBackgroundTilesPerFrame);
+            }
+            else
+            {
+                _tiledCompositor.SetPredictedViewport(default);
+            }
+
+            // Fill the deferred-raster queue under a time budget (no synchronous
+            // tile raster on the main thread), then request another frame while
+            // the backlog remains or a tile finished so it gets composited. On an
+            // interactive element-scroll frame the scrolled container was already
+            // re-rasterized synchronously above, so skip the drain entirely — it
+            // would only stall the frame; the retained surface plus the deferred
+            // drain on subsequent frames composites the leftover page-scroll band.
+            int filled = 0;
+            if (!interactiveScrollFrame)
+                filled = _tiledCompositor.RasterDeferred();
+            PendingTileRepaint = _tiledCompositor.HasPendingRasterWork || filled > 0;
         }
         else
         {
-            var contentRect = new SKRect(0, 0, Math.Max(viewportWidth, 10000f), Math.Max(viewportHeight, 10000f));
-            var recorder = new SKPictureRecorder();
-            var recordCanvas = recorder.BeginRecording(contentRect);
-            displayList.Execute(recordCanvas);
-            _cachedPicture?.Dispose();
-            _cachedPicture = recorder.EndRecording();
-            _pictureDirty = false;
+            bool useCaching = _settings?.PictureCaching ?? true;
+            if (useCaching && !_pictureDirty && _cachedPicture != null)
+            {
+                Canvas.DrawPicture(_cachedPicture);
+            }
+            else
+            {
+                var contentRect = new SKRect(0, 0, Math.Max(viewportWidth, 10000f), Math.Max(viewportHeight, 10000f));
+                var recorder = new SKPictureRecorder();
+                var recordCanvas = recorder.BeginRecording(contentRect);
+                displayList.Execute(recordCanvas, contentRect);
+                _cachedPicture?.Dispose();
+                _cachedPicture = recorder.EndRecording();
+                _pictureDirty = false;
 
-            Canvas.DrawPicture(_cachedPicture);
+                Canvas.DrawPicture(_cachedPicture);
+            }
         }
 
         // Composite input overlay (text/cursor/selection) in the same transformed context
@@ -606,7 +710,7 @@ public class SkiaRenderer : IDisposable
         var contentRect = new SKRect(0, 0, 10000f, 10000f);
         var recorder = new SKPictureRecorder();
         var recordCanvas = recorder.BeginRecording(contentRect);
-        displayList.Execute(recordCanvas);
+        displayList.Execute(recordCanvas, contentRect);
         _cachedPicture?.Dispose();
         _cachedPicture = recorder.EndRecording();
         Canvas.DrawPicture(_cachedPicture);

@@ -1306,6 +1306,129 @@ public class DrawShadowOp : PaintOp
 
 public enum ImageFit { Fill, Contain, Cover, None, ScaleDown }
 
+/// <summary>
+/// Renders a cached scroll-container layer plus its live scrollbar in one draw.
+/// The layer image holds the container's full scrollable content at scroll = 0
+/// (content-box local coordinates); Execute re-bakes the CURRENT scroll at record
+/// time, so the compositor re-records the (cull-filtered) picture whenever a
+/// scroll offset changes instead of re-painting the whole page.
+/// </summary>
+public sealed class DrawScrollLayerOp : PaintOp
+{
+    public SKImage? Image;
+    public UpBrowser.Core.Dom.LayoutBox Box = null!;
+    public SKRect ContentBox;      // page coords
+    public SKRect PaddingBox;      // page coords (scrollbar strip lives here)
+    public float ScrollbarThickness = 12f;
+    public SKColor TrackColor = new(240, 240, 240);
+    public SKColor ThumbColor = new(180, 180, 180);
+    public float ThumbRadius = 5f;
+    public bool ShowVertical;
+    public bool ShowHorizontal;
+    /// <summary>True when the layer image already bakes the current scroll (sticky/
+    /// z-index containers): no live translate is applied.</summary>
+    public bool IsBaked;
+    /// <summary>Device pixel ratio (DPR × resolution scale) the canvas maps
+    /// logical→device at. Used to snap the scroll translate and draw rect to the
+    /// device grid so the cached bitmap is never sampled at sub-pixel offsets.</summary>
+    public float PhysicalScale = 1f;
+
+    public override void Reset()
+    {
+        base.Reset();
+        // The layer image is owned by ScrollLayerCache, never by this op.
+        Image = null;
+        Box = null!;
+        PhysicalScale = 1f;
+    }
+
+    public override void Execute(SKCanvas canvas)
+    {
+        if (Image == null) return;
+        float scale = PhysicalScale <= 0.01f ? 1f : PhysicalScale;
+        float sx = IsBaked ? 0f : Box.ScrollX;
+        float sy = IsBaked ? 0f : Box.ScrollY;
+
+        canvas.Save();
+        canvas.ClipRect(ContentBox);
+        // Snap the live scroll translate to the device grid (logical coords,
+        // device = logical × scale) so fractional offsets stay pixel-crisp.
+        float tx = MathF.Round(sx * scale) / scale;
+        float ty = MathF.Round(sy * scale) / scale;
+        if (tx != 0 || ty != 0)
+            canvas.Translate(-tx, -ty);
+        // The layer is a DEVICE-resolution bitmap (content × scale); draw it 1:1
+        // aligned to the device grid so no sub-pixel sampling smears the content.
+        // The layer was baked with its translate SNAPPED to the device grid, so
+        // image texel u holds content at round(ContentBox.Left*scale)/scale + u/scale;
+        // draw texel 0 at that same snapped logical position so every baked pixel
+        // maps to a whole device pixel (crisp, aligned with the page ops).
+        float left = SnapToDevice(ContentBox.Left, scale);
+        float top = SnapToDevice(ContentBox.Top, scale);
+        canvas.DrawImage(Image,
+            new SKRect(left, top,
+                left + Image.Width / scale,
+                top + Image.Height / scale),
+            new SKSamplingOptions(SKFilterMode.Linear), null);
+        canvas.Restore();
+
+        DrawScrollbar(canvas);
+    }
+
+    private void DrawScrollbar(SKCanvas canvas)
+    {
+        if (!ShowVertical && !ShowHorizontal) return;
+        using var trackPaint = new SKPaint { Color = TrackColor, Style = SKPaintStyle.Fill };
+        using var thumbPaint = new SKPaint { Color = ThumbColor, Style = SKPaintStyle.Fill, IsAntialias = true };
+        float thickness = ScrollbarThickness;
+
+        float vRange = Math.Max(1f, Box.ScrollContentHeight - Box.ContentBox.Height);
+        float hRange = Math.Max(1f, Box.ScrollContentWidth - Box.ContentBox.Width);
+
+        if (ShowVertical)
+        {
+            float trackX = PaddingBox.Right - thickness;
+            float trackY = PaddingBox.Top;
+            float trackH = Math.Max(0f, PaddingBox.Height - (ShowHorizontal ? thickness : 0f));
+            canvas.DrawRect(new SKRect(trackX, trackY, PaddingBox.Right, trackY + trackH), trackPaint);
+            if (trackH > 0)
+            {
+                float ratio = Box.ContentBox.Height / Math.Max(1f, Box.ScrollContentHeight);
+                float thumbH = Math.Min(trackH, Math.Max(20f, trackH * Math.Min(1f, ratio)));
+                float pos = Math.Clamp(Box.ScrollY, 0f, vRange);
+                float thumbY = trackY + (trackH - thumbH) * (pos / vRange);
+                canvas.DrawRoundRect(new SKRect(trackX + 2, thumbY + 1, PaddingBox.Right - 2, thumbY + thumbH - 1), ThumbRadius, ThumbRadius, thumbPaint);
+            }
+        }
+
+        if (ShowHorizontal)
+        {
+            float trackX = PaddingBox.Left;
+            float trackY = PaddingBox.Bottom - thickness;
+            float trackW = Math.Max(0f, PaddingBox.Width - (ShowVertical ? thickness : 0f));
+            canvas.DrawRect(new SKRect(trackX, trackY, trackX + trackW, PaddingBox.Bottom), trackPaint);
+            if (trackW > 0)
+            {
+                float ratio = Box.ContentBox.Width / Math.Max(1f, Box.ScrollContentWidth);
+                float thumbW = Math.Min(trackW, Math.Max(20f, trackW * Math.Min(1f, ratio)));
+                float pos = Math.Clamp(Box.ScrollX, 0f, hRange);
+                float thumbX = trackX + (trackW - thumbW) * (pos / hRange);
+                canvas.DrawRoundRect(new SKRect(thumbX + 1, trackY + 2, thumbX + thumbW - 1, PaddingBox.Bottom - 2), ThumbRadius, ThumbRadius, thumbPaint);
+            }
+        }
+
+        if (ShowVertical && ShowHorizontal)
+        {
+            // Scrollbar corner where the two tracks meet (matches ScrollableAreaPainter).
+            canvas.DrawRect(new SKRect(
+                PaddingBox.Right - thickness,
+                PaddingBox.Bottom - thickness,
+                PaddingBox.Right,
+                PaddingBox.Bottom), trackPaint);
+        }
+    }
+}
+
 public static class PaintOpPool
 {
     private const int MaxPoolSize = 500;
@@ -1522,6 +1645,83 @@ public class DisplayList
                 // ignore alignment errors
             }
             snapshot[i].Execute(canvas);
+        }
+    }
+
+    /// <summary>
+    /// Execute only the ops whose bounds intersect <paramref name="cull"/>.
+    /// Op <see cref="PaintOp.Execute"/> is not free (font/text shaping, image
+    /// alignment, paint setup), so skipping clipped-out ops is what keeps a
+    /// per-frame re-record (element scroll) O(changed region) instead of O(page).
+    /// </summary>
+    public void Execute(SKCanvas canvas, SKRect cull, bool skipScrollLayerOps = false)
+    {
+        if (cull.IsEmpty)
+        {
+            Execute(canvas);
+            return;
+        }
+        List<PaintOp> snapshot;
+        lock (_lock) snapshot = new List<PaintOp>(_ops);
+        for (int i = 0; i < snapshot.Count; i++)
+        {
+            var op = snapshot[i];
+            // Layered scroll containers are composited LIVE by the tile compositor
+            // (DrawLiveScrollLayers), so the recorded picture leaves a hole where
+            // they are; replaying the op here would double-draw the layer.
+            if (skipScrollLayerOps && op is DrawScrollLayerOp)
+                continue;
+            if (!op.Bounds.IntersectsWith(cull))
+                continue;
+            try
+            {
+                op.AlignBounds(canvas);
+            }
+            catch
+            {
+                // ignore alignment errors
+            }
+            op.Execute(canvas);
+        }
+    }
+
+    /// <summary>
+    /// Remove every op whose bounds are fully contained in <paramref name="region"/>
+    /// (returned to the pool). Used by the element-scroll fast path to drop a scrolled
+    /// container's stale ops before its subtree is re-painted at the new offset.
+    /// Structural state ops (clips / transforms / layers) are KEPT: removing a clip
+    /// while its governed content stays in the list would rasterize that content
+    /// unclipped — the "content floats out of the scroller" artifact.
+    /// </summary>
+    public void RemoveOpsContainedIn(SKRect region)
+    {
+        lock (_lock)
+        {
+            List<PaintOp> kept = new(_ops.Count);
+            for (int i = 0; i < _ops.Count; i++)
+            {
+                var op = _ops[i];
+                if (op is PushClipOp or PopClipOp or PushTransformOp or PopTransformOp
+                    or PushLayerOp or PopLayerOp)
+                {
+                    kept.Add(op);
+                    continue;
+                }
+                if (!op.Bounds.IsEmpty
+                    && op.Bounds.Left >= region.Left && op.Bounds.Right <= region.Right
+                    && op.Bounds.Top >= region.Top && op.Bounds.Bottom <= region.Bottom)
+                {
+                    PaintOpPool.ReturnOp(op);
+                    continue;
+                }
+                kept.Add(op);
+            }
+            if (kept.Count != _ops.Count)
+            {
+                _ops = kept;
+                _isSorted = false;
+                _spatialGrid?.Clear();
+            }
         }
     }
 

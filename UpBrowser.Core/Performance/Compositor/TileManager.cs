@@ -85,7 +85,6 @@ public sealed class TileManager
 
     private readonly Config _config;
     private readonly ConcurrentDictionary<TileKey, Tile> _tiles = new();
-    private readonly ConcurrentQueue<Tile> _evictionCandidates = new();
     private long _allocated;
     private long _evicted;
     private long _rasterized;
@@ -191,7 +190,6 @@ public sealed class TileManager
             if (t.State == TileState.Rasterizing) continue;
             if (!Intersects(t.PageRectPx, activeRegion))
             {
-                _evictionCandidates.Enqueue(t);
                 if (_tiles.TryRemove(kv.Key, out var removed))
                 {
                     removed.ReleaseImage();
@@ -208,6 +206,13 @@ public sealed class TileManager
     public int EnforceMemoryBudget()
     {
         int evicted = 0;
+        // TODO(audit): this budget is enforced on tile count only, not on actual
+        // bytes of the backing SKImage. The reference tracks a byte-based memory
+        // usage (MemoryUsage::memory_bytes) and frees tiles until the byte limit
+        // (and resource count) is satisfied. Tiles here are uniform in size
+        // (SizePixels from config), so count == bytes for steady state; this is an
+        // accepted adaptation, but a per-tile byte budget should be added if
+        // non-uniform tile sizes are ever introduced.
         var cap = _config.MaxTilesInMemory;
         while (_tiles.Count > cap)
         {
@@ -235,7 +240,6 @@ public sealed class TileManager
     {
         foreach (var t in _tiles.Values) t.ReleaseImage();
         _tiles.Clear();
-        _evictionCandidates.Clear();
         Interlocked.Exchange(ref _allocated, 0);
     }
 

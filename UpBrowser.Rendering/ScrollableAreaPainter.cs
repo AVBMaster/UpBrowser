@@ -23,6 +23,7 @@ internal sealed class ScrollableAreaPainter
     private static readonly SKColor DefaultThumbColor = new(180, 180, 180);
 
     private readonly DisplayList _displayList;
+    private readonly CustomScrollbarTheme _customTheme;
 
     // Resolved theme for the current Paint() call.
     private float _thickness = AutoThickness;
@@ -34,6 +35,7 @@ internal sealed class ScrollableAreaPainter
     public ScrollableAreaPainter(DisplayList displayList)
     {
         _displayList = displayList;
+        _customTheme = new CustomScrollbarTheme(displayList);
     }
 
     public void Paint(LayoutBox box, ComputedStyle style, float contentOffsetY, bool canResize = false)
@@ -41,6 +43,15 @@ internal sealed class ScrollableAreaPainter
         // scrollbar-width: none — scrolling stays functional, bars disappear.
         if (style.ScrollbarWidth == ScrollbarWidthType.None)
             return;
+
+        // If the element carries ::-webkit-scrollbar-* pseudo styles, delegate the
+        // whole bar to the custom theme; it paints only the styled parts. All other
+        // cases keep the classic platform-neutral scrollbar path below.
+        if (style.ScrollbarCustom is { HasAny: true })
+        {
+            _customTheme.Paint(box, style, contentOffsetY, canResize);
+            return;
+        }
 
         ResolveTheme(style);
 

@@ -1484,6 +1484,14 @@ public class ChromeRenderer : IImeSupport
         float vH = scrollManager.ViewportHeight;
         float vW = scrollManager.ViewportWidth;
 
+        // Opaque white backdrop under the translucent scrollbar paints. The page
+        // surface is reused across retained frames (the page-area clear is
+        // skipped while the deferred tile rasterizer has backlog), so a purely
+        // translucent track/thumb would accumulate on every frame until the strip
+        // turned black. The backdrop keeps the strip clean every frame no matter
+        // which compositing path is active.
+        using var backdropPaint = new SKPaint { Color = SKColors.White, Style = SKPaintStyle.Fill };
+
         if (scrollManager.CanScrollY && vH > 0)
         {
             float sbL = width - ScrollManager.ScrollbarWidth;
@@ -1491,6 +1499,8 @@ public class ChromeRenderer : IImeSupport
             float tH = vH;
             float cH = scrollManager.ContentHeight;
             if (cH <= vH) return;
+
+            canvas.DrawRect(sbL, tTop, ScrollManager.ScrollbarWidth, tH, backdropPaint);
 
             using var trackPaint = new SKPaint { Color = new SKColor(0, 0, 0, 8), Style = SKPaintStyle.Fill };
             canvas.DrawRoundRect(sbL + 2, tTop, ScrollManager.ScrollbarWidth - 4, tH, 3, 3, trackPaint);
@@ -1513,6 +1523,8 @@ public class ChromeRenderer : IImeSupport
             float tW = scrollManager.CanScrollY ? vW - ScrollManager.ScrollbarWidth : vW;
             float cW = scrollManager.ContentWidth;
             if (cW <= vW) return;
+
+            canvas.DrawRect(tL, sbT, tW, ScrollManager.ScrollbarWidth, backdropPaint);
 
             using var trackPaint = new SKPaint { Color = new SKColor(0, 0, 0, 8), Style = SKPaintStyle.Fill };
             canvas.DrawRoundRect(tL, sbT + 2, tW, ScrollManager.ScrollbarWidth - 4, 3, 3, trackPaint);

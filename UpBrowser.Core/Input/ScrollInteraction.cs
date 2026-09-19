@@ -5,8 +5,8 @@ namespace UpBrowser.Core.Input;
 /// <summary>
 /// Unified scroll interaction controller for the rendering engine.
 ///
-/// Handles all user-driven scrolling — mouse wheel, scrollbar thumb drag,
-/// track click, and hover state — for every scroll container in the document
+/// Handles all user-driven scrolling �?mouse wheel, scrollbar thumb drag,
+/// track click, and hover state �?for every scroll container in the document
 /// (inner overflow containers AND the root/page scroller).
 ///
 /// The host application wires platform input events to this controller and
@@ -35,8 +35,11 @@ public sealed class ScrollInteraction
 {
     private Document? _document;
 
-    /// <summary>Raised after any ScrollX/Y value changes and a repaint is needed.</summary>
-    public Action? OnScrollChanged { get; set; }
+    /// <summary>
+    /// Raised after any ScrollX/Y value changes with the scrolled container's box,
+    /// so the host can request the right kind of repaint (element vs page).
+    /// </summary>
+    public Action<LayoutBox>? OnScrollChanged { get; set; }
 
     // ── Drag state ──
     private Element? _dragContainer;
@@ -70,8 +73,7 @@ public sealed class ScrollInteraction
             {
                 // #1 fix: the mouse must be within the container's VISIBLE area.
                 // Descendant elements inside an overflow container have layout
-                // positions extending beyond the container's visible bounds —
-                // without this check, the wheel would trigger for containers
+                // positions extending beyond the container's visible bounds �?                // without this check, the wheel would trigger for containers
                 // the mouse isn't actually over.
                 var bb = box.BorderBox;
                 if (pageX < bb.Left || pageX > bb.Right || pageY < bb.Top || pageY > bb.Bottom)
@@ -101,7 +103,7 @@ public sealed class ScrollInteraction
                     box.ScrollVelX = 0;
                     consumed = true;
                 }
-                if (consumed) OnScrollChanged?.Invoke();
+                if (consumed) OnScrollChanged?.Invoke(box);
                 return consumed;
             }
             el = el.ParentElement;
@@ -110,7 +112,7 @@ public sealed class ScrollInteraction
     }
 
     // ════════════════════════════════════════════════════════════════
-    // Mouse down — scrollbar thumb grab or track jump
+    // Mouse down �?scrollbar thumb grab or track jump
     // ════════════════════════════════════════════════════════════════
 
     /// <summary>
@@ -144,7 +146,7 @@ public sealed class ScrollInteraction
 
                 var pb = box.PaddingBox;
 
-                // Vertical scrollbar strip — track shrinks when the horizontal
+                // Vertical scrollbar strip �?track shrinks when the horizontal
                 // bar is present, mirroring ScrollableAreaPainter geometry so
                 // thumb drag / track click reach the true bottom.
                 if (hasV)
@@ -158,7 +160,7 @@ public sealed class ScrollInteraction
                     }
                 }
 
-                // Horizontal scrollbar strip — track shrinks when the vertical
+                // Horizontal scrollbar strip �?track shrinks when the vertical
                 // bar is present, mirroring ScrollableAreaPainter geometry.
                 if (hasH)
                 {
@@ -206,7 +208,7 @@ public sealed class ScrollInteraction
             // Track click: jump so that clicked point becomes thumb center.
             float frac = Math.Clamp((localY - thumbH / 2) / Math.Max(1, trackH - thumbH), 0, 1);
             box.ScrollY = frac * maxScroll;
-            OnScrollChanged?.Invoke();
+            OnScrollChanged?.Invoke(box);
             return true;
         }
     }
@@ -238,13 +240,13 @@ public sealed class ScrollInteraction
         {
             float frac = Math.Clamp((localX - thumbW / 2) / Math.Max(1, trackW - thumbW), 0, 1);
             box.ScrollX = frac * maxScroll;
-            OnScrollChanged?.Invoke();
+            OnScrollChanged?.Invoke(box);
             return true;
         }
     }
 
     // ════════════════════════════════════════════════════════════════
-    // Mouse move — drag update + hover tracking
+    // Mouse move �?drag update + hover tracking
     // ════════════════════════════════════════════════════════════════
 
     /// <summary>Handle mousemove. Updates drag position if dragging.</summary>
@@ -265,7 +267,7 @@ public sealed class ScrollInteraction
                 box.ScrollY = newScroll;
                 box.IsSmoothScrollingY = false;
                 box.ScrollVelY = 0;
-                OnScrollChanged?.Invoke();
+                OnScrollChanged?.Invoke(box);
             }
         }
         else
@@ -281,12 +283,12 @@ public sealed class ScrollInteraction
                 box.ScrollX = newScroll;
                 box.IsSmoothScrollingX = false;
                 box.ScrollVelX = 0;
-                OnScrollChanged?.Invoke();
+                OnScrollChanged?.Invoke(box);
             }
         }
     }
 
-    /// <summary>Handle mouseup — end drag.</summary>
+    /// <summary>Handle mouseup �?end drag.</summary>
     public void HandleMouseUp()
     {
         _dragging = false;

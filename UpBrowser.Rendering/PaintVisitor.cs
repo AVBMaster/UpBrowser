@@ -23,6 +23,7 @@ private readonly ScrollableAreaPainter _scrollableAreaPainter;
     private readonly ReplacedPainter _replacedPainter;
     private readonly HighlightPainter _highlightPainter;
     private readonly MaskPainter _maskPainter;
+    private readonly LinkHighlightImpl _linkHighlight;
     public DisplayList OverlayList => _overlayList;
     private readonly DisplayList _overlayList = new();
     private SKTypeface _defaultTypeface = SKTypeface.Default;
@@ -65,6 +66,22 @@ private readonly ScrollableAreaPainter _scrollableAreaPainter;
     private float _inputScrollOffset;
     private float _textareaScrollY;
     private bool _textareaUserScroll;
+    /// <summary>When building a scroll-layer raster, do not bake the container's
+    /// scroll translate (content is emitted at scroll = 0).</summary>
+    private bool _skipScrollBake;
+    /// <summary>When building a scroll-layer raster, do not paint the container's
+    /// scrollbar (the live DrawScrollLayerOp draws it at the current offset).</summary>
+    private bool _skipScrollbar;
+    /// <summary>The scroll container whose own background/border/outline must be
+    /// excluded from the layer raster (its decorations are painted statically by the
+    /// main pass).</summary>
+    private Element? _skipSelfDecorationsRoot;
+    /// <summary>
+    /// Device pixel ratio (DPR × resolution scale) the compositor rasterizes at.
+    /// Scroll layers are rasterized at this resolution so they are pixel-sharp
+    /// instead of being upscaled (blurry) like a logical-resolution bitmap.
+    /// </summary>
+    public float PhysicalScale { get; set; } = 1f;
 
     public PaintVisitor(float contentOffsetY = 0,
         Dictionary<string, SKTypeface>? sharedTypefaceCache = null,
@@ -88,6 +105,7 @@ _scrollableAreaPainter = new ScrollableAreaPainter(_displayList);
         _replacedPainter = new ReplacedPainter(_displayList, _imageCache, baseUrl);
         _highlightPainter = new HighlightPainter(_displayList);
         _maskPainter = new MaskPainter(_imageCache, baseUrl);
+        _linkHighlight = new LinkHighlightImpl(_displayList);
         _defaultTypeface = FontHelper.GetChineseTypeface() ?? SKTypeface.Default;
         _typefaceCache = sharedTypefaceCache ?? new Dictionary<string, SKTypeface>();
         _fontFamilies = fontFamilies;
@@ -95,6 +113,23 @@ _scrollableAreaPainter = new ScrollableAreaPainter(_displayList);
     }
 
     public void SetFocusedElement(Core.Dom.Element? element) => _focusedElement = element;
+
+    /// <summary>
+    /// Opt-in link tap-flash overlay. NOT invoked by the default paint pipeline;
+    /// the app/input layer calls this (typically during pointer-down on an
+    /// anchor) to paint a translucent rounded flash around the box. The default
+    /// look can be tuned via the optional parameters.
+    /// </summary>
+    public void PaintLinkHighlight(Core.Dom.Element element, float radius = LinkHighlightImpl.DefaultRadius,
+        float outset = LinkHighlightImpl.DefaultOutset, SkiaSharp.SKColor? color = null)
+    {
+        var box = element.LayoutBox;
+        if (box == null) return;
+        var bounds = box.MarginBox;
+        bounds.Left += TotalOffsetX;
+        bounds.Top += TotalOffsetY;
+        _linkHighlight.Paint(bounds, radius, outset, color);
+    }
     public void SetSkipInputTextOverlay(bool skip) => _skipInputTextOverlay = skip;
     public void SetPasswordRevealed(bool revealed) => _passwordRevealed = revealed;
     public void SetMouseState(float x, float y, bool isDown, string? pressedControl = null)
@@ -352,6 +387,14 @@ _scrollableAreaPainter = new ScrollableAreaPainter(_displayList);
     }
 
     /// <summary>
+    /// Effective view (canvas) background color after propagation/blending. The
+    /// tile compositor fills its dead-viewport strips with this so overscrolled
+    /// blank areas blend seamlessly with the page background instead of a hard
+    /// white that may not match a tinted page.
+    /// </summary>
+    public SKColor ViewBackgroundColor { get; private set; } = SKColors.White;
+
+    /// <summary>
     /// Transliteration of ViewPainter::PaintBoxDecorationBackground (view_painter.cc).
     /// Paints the canvas (viewport/document) background: the base background color
     /// (white, matching SkiaRenderer's canvas.Clear) blended with the propagated
@@ -364,10 +407,14 @@ _scrollableAreaPainter = new ScrollableAreaPainter(_displayList);
             document, _viewportWidth, _viewportHeight, _contentOffsetY);
         if (background == null) return;
 
+        var bgStyle = background.Style;
+        var effective = ViewPainter.Blend(SKColors.White, bgStyle.BackgroundColor ?? SKColors.Transparent);
+        if (effective.Alpha > 0)
+            ViewBackgroundColor = effective;
+
         // Propagated background-image layers paint over the same rect. CSS
         // background-clip is ignored for the canvas — layers expand to cover the
         // whole canvas (see view_painter.cc PaintRootElementGroup).
-        var bgStyle = background.Style;
         var bgRect = background.CanvasRect;
         bool hasImage = bgStyle.BackgroundImage is { Count: > 0 } && bgStyle.BackgroundImage!.Any(s => s != "none");
         if (hasImage)
@@ -425,6 +472,14 @@ _scrollableAreaPainter = new ScrollableAreaPainter(_displayList);
         {
             if (layer.Element == root || processed.Contains(layer.Element)) continue;
 
+            // Layers nested inside a layered scroll container are already baked
+            // into its cached image — painting them again would double it.
+            if (IsInsideLayeredScroller(layer.Element))
+            {
+                processed.Add(layer.Element);
+                continue;
+            }
+
             // P2-2b: viewport culling at paint-layer granularity — a stacking
             // context whose subtree lies entirely outside the cull rect emits no
             // ops at all (mirrors what CullRectUpdater feeds into layer
@@ -469,6 +524,28 @@ _scrollableAreaPainter = new ScrollableAreaPainter(_displayList);
     /// margin). Null disables culling — headless snapshots paint the full page.
     /// </summary>
     public void SetCullRect(SKRect? pageSpaceRect) => _cullRect = pageSpaceRect;
+
+    /// <summary>
+    /// Paint a single element subtree into this visitor's display list (page
+    /// space, current scroll offsets). Used by the element-scroll fast path to
+    /// re-paint one scroll container in isolation instead of walking the whole
+    /// document — bounded to the subtree, never the page.
+    /// </summary>
+    public void PaintElementSubtree(Element element, Document? document, SKRect? cullRect = null)
+    {
+        if (document != null)
+            _currentDocument = document;
+        var savedCull = _cullRect;
+        _cullRect = cullRect;
+        try
+        {
+            VisitElement(element);
+        }
+        finally
+        {
+            _cullRect = savedCull;
+        }
+    }
 
     private static bool LayerHasPaintableContent(PaintLayer layer) => false;
 
@@ -560,7 +637,8 @@ bool hasClipPath = ClipPathClipper.HasClipPath(style.ClipPath);
             }
 
             bool isInline = style.Display == DisplayType.Inline;
-            if (!isInline && !isVisibilityHidden)
+            bool skipSelfDecorations = ReferenceEquals(element, _skipSelfDecorationsRoot);
+            if (!isInline && !isVisibilityHidden && !skipSelfDecorations)
             {
                 bool transfersToView = _currentDocument != null &&
                     ViewPainter.BackgroundTransfersToView(element, _currentDocument);
@@ -629,6 +707,25 @@ bool hasClipPath = ClipPathClipper.HasClipPath(style.ClipPath);
             bool hasOverflowHidden = style.Overflow == OverflowType.Hidden || style.OverflowX == OverflowType.Hidden || style.OverflowY == OverflowType.Hidden;
             bool isScrollContainer = layoutBox.IsScrollContainer &&
                 (layoutBox.ScrollContentHeight > layoutBox.ContentBox.Height || layoutBox.ScrollContentWidth > layoutBox.ContentBox.Width);
+
+            // ── Scroll-layer fast path ─────────────────────────────────────────
+            // Eligible scroll containers are rasterized once into a cached layer
+            // (scroll = 0) and drawn via DrawScrollLayerOp at the live scroll
+            // offset. Their content is therefore NOT emitted into the page's
+            // display list, so element scrolling never re-paints the document.
+            bool layerEligible = isScrollContainer && !_skipScrollBake && !_skipScrollbar
+                && ScrollLayerEligible(element, layoutBox, style);
+            if (layerEligible && !ScrollLayerCache.IsLayered(layoutBox))
+                BuildScrollLayer(element, layoutBox, style);
+            if (layerEligible && ScrollLayerCache.IsLayered(layoutBox))
+            {
+                // Layered container: emit the scroll-layer op (used by direct /
+                // snapshot renderers) and leave a hole in the tiled page — the tile
+                // compositor draws the cached layer LIVE at the current scroll.
+                EmitScrollLayerOp(layoutBox);
+            }
+            else
+            {
             bool needsClip = hasOverflowHidden || isScrollContainer;
             using (var contentsPaintState = new ScopedPaintState(
                 _displayList, objectPaintState.PaintOffset, objectPaintState.CullRect))
@@ -653,10 +750,15 @@ bool hasClipPath = ClipPathClipper.HasClipPath(style.ClipPath);
                 contentsPaintState.PushClip(clipRect);
             }
 
-            if (isScrollContainer)
+            if (isScrollContainer && !_skipScrollBake)
             {
-                float scrollOffsetX = -layoutBox.ScrollX;
-                float scrollOffsetY = -layoutBox.ScrollY;
+                // Snap the scroll translate to the device pixel grid (logical
+                // offset = round(offset × scale) / scale) so a sub-pixel scroll
+                // position doesn't rasterize text at fractional device rows —
+                // the main source of the "blurry scrolled content" look.
+                float scale = PhysicalScale <= 0.01f ? 1f : PhysicalScale;
+                float scrollOffsetX = -MathF.Round(layoutBox.ScrollX * scale) / scale;
+                float scrollOffsetY = -MathF.Round(layoutBox.ScrollY * scale) / scale;
                 if (scrollOffsetX != 0 || scrollOffsetY != 0)
                 {
                     var scrollBounds = new SKRect(
@@ -672,6 +774,11 @@ bool hasClipPath = ClipPathClipper.HasClipPath(style.ClipPath);
             bool hasStickyOffset = (stickyOffsetX != 0 || stickyOffsetY != 0);
             if (hasStickyOffset)
             {
+                // Snap the sticky translate to the device grid too, so a sticky
+                // header stays crisp while its scrolled container moves.
+                float scale = PhysicalScale <= 0.01f ? 1f : PhysicalScale;
+                stickyOffsetX = MathF.Round(stickyOffsetX * scale) / scale;
+                stickyOffsetY = MathF.Round(stickyOffsetY * scale) / scale;
                 contentsPaintState.PushTransform(
                     SKMatrix.CreateTranslation(stickyOffsetX, stickyOffsetY), offsetBorderBox);
             }
@@ -688,7 +795,7 @@ bool hasClipPath = ClipPathClipper.HasClipPath(style.ClipPath);
 
             // Draw scrollbar for scroll containers:
             //  overflow: scroll → always show; overflow: auto → only when content overflows
-            if (layoutBox.IsScrollContainer)
+            if (layoutBox.IsScrollContainer && !_skipScrollbar)
             {
                 bool overflowXScroll = style.OverflowX == OverflowType.Scroll || style.Overflow == OverflowType.Scroll;
                 bool overflowYScroll = style.OverflowY == OverflowType.Scroll || style.Overflow == OverflowType.Scroll;
@@ -721,6 +828,182 @@ bool hasClipPath = ClipPathClipper.HasClipPath(style.ClipPath);
                 VisitElement(childElement);
         }
 
+            } // end else (inline scroll-container paint path)
+
+    }
+
+    /// <summary>
+    /// Rasterize the scrollable content of an eligible scroll container once per
+    /// layout into a cached layer image (content-box local, scroll = 0). Runs a
+    /// dedicated sub-painter over the container's subtree so the page's display
+    /// list never contains the scrolling content; on element scroll the compositor
+    /// re-bakes this layer at the live scroll offset instead of re-painting.
+    /// </summary>
+    private void BuildScrollLayer(Element element, LayoutBox box, ComputedStyle style)
+    {
+        try
+        {
+            // Containers with sticky / z-index children cannot encode their live
+            // offset at scroll = 0, so their layer bakes the CURRENT scroll and is
+            // rebuilt each scroll frame (bounded to this subtree, never the page).
+            bool bakeScroll = ScrollLayerCache.SubtreeNeedsBake(box);
+            var sub = new PaintVisitor(_contentOffsetY, _typefaceCache, _imageCache,
+                _fontFamilies, _baseUrl, _viewportWidth, _viewportHeight)
+            {
+                _skipScrollBake = !bakeScroll,
+                _skipScrollbar = true,
+                _skipSelfDecorationsRoot = element,
+                _currentDocument = _currentDocument,
+                PhysicalScale = PhysicalScale,
+            };
+            sub.VisitElement(element);
+            var scratch = sub.GetDisplayList();
+            scratch.SortByZIndex();
+
+            // Raster at DEVICE resolution so the cached layer is not upscaled
+            // (blurry) on high-DPI displays.
+            float scale = PhysicalScale <= 0.01f ? 1f : PhysicalScale;
+            float contentW = box.ScrollContentWidth;
+            float contentH = box.ScrollContentHeight;
+            int pw = Math.Max(1, (int)MathF.Ceiling(contentW * scale));
+            int ph = Math.Max(1, (int)MathF.Ceiling(contentH * scale));
+            var contentBox = new SKRect(
+                box.ContentBox.Left, box.ContentBox.Top + TotalOffsetY,
+                box.ContentBox.Right, box.ContentBox.Bottom + TotalOffsetY);
+
+            var info = new SKImageInfo(pw, ph, SKColorType.Rgba8888, SKAlphaType.Premul);
+            using var bmp = new SKBitmap(info);
+            using var tc = new SKCanvas(bmp);
+            tc.Clear(SKColors.Transparent);
+            tc.Scale(scale, scale);
+            // Snap the raster origin to the device pixel grid: content at integer
+            // layout positions then lands on whole device pixels inside the bitmap
+            // (crisp). The compositor draws the layer back at the same snapped
+            // origin (DrawLiveScrollLayers uses round(contentBox*scale)), so each
+            // baked texel maps to a whole screen pixel — no up-to-half-pixel offset
+            // against the surrounding page tiles/borders that reads as seam/shimmer.
+            tc.Translate(-MathF.Round(contentBox.Left * scale) / scale,
+                         -MathF.Round(contentBox.Top * scale) / scale);
+            scratch.Execute(tc);
+            var img = SKImage.FromBitmap(bmp);
+
+            // Scrollbar appearance (drawn LIVE by the compositor over the layer).
+            float thickness = Core.Dom.ScrollbarMetrics.ThicknessFor(style);
+            var paddingBox = new SKRect(
+                box.PaddingBox.Left, box.PaddingBox.Top + TotalOffsetY,
+                box.PaddingBox.Right, box.PaddingBox.Bottom + TotalOffsetY);
+            bool hasV = box.ScrollContentHeight > box.ContentBox.Height
+                || style.OverflowY == OverflowType.Scroll || style.Overflow == OverflowType.Scroll;
+            bool hasH = box.ScrollContentWidth > box.ContentBox.Width
+                || style.OverflowX == OverflowType.Scroll || style.Overflow == OverflowType.Scroll;
+            bool widthNone = style.ScrollbarWidth == ScrollbarWidthType.None;
+            // Custom ::-webkit-scrollbar-track/thumb colors take precedence over the
+            // standard scrollbar-color, so a layered container's LIVE scrollbar looks
+            // identical to the classic inline one.
+            var track = style.ScrollbarCustom?.Track?.Background
+                        ?? style.ScrollbarTrackColor ?? new SKColor(240, 240, 240);
+            var thumb = style.ScrollbarCustom?.Thumb?.Background
+                        ?? style.ScrollbarThumbColor ?? new SKColor(180, 180, 180);
+            float radius = style.ScrollbarCustom?.Thumb?.BorderRadius ?? MathF.Max(0f, thickness / 2f - 1f);
+
+            ScrollLayerCache.Register(box, img, contentBox, pw, ph,
+                paddingBox, thickness, track, thumb, radius,
+                widthNone ? false : hasV, widthNone ? false : hasH, bakeScroll);
+        }
+        catch
+        {
+            // Layering failed (e.g. allocation) — drop the whole layer set so every
+            // container falls back to the inline repaint path next walk.
+            ScrollLayerCache.ClearAll();
+        }
+    }
+
+    /// <summary>
+    /// Emit the scroll-layer op so DIRECT rendering paths (non-tile picture,
+    /// snapshots) also see the container's content. The tile compositor ignores the
+    /// op's baked offset and draws the layer LIVE every frame instead.
+    /// </summary>
+    internal void EmitScrollLayerOp(LayoutBox box)
+    {
+        if (!ScrollLayerCache.TryGetInfo(box, out var info)) return;
+        var op = new DrawScrollLayerOp
+        {
+            Image = info.Image,
+            Box = box,
+            ContentBox = info.ContentBox,
+            PaddingBox = info.PaddingBox,
+            ScrollbarThickness = info.ScrollbarThickness,
+            TrackColor = info.TrackColor,
+            ThumbColor = info.ThumbColor,
+            ThumbRadius = info.ThumbRadius,
+            ShowVertical = info.ShowVertical,
+            ShowHorizontal = info.ShowHorizontal,
+            IsBaked = info.IsBaked,
+            PhysicalScale = PhysicalScale,
+            Bounds = info.PaddingBox,
+        };
+        _displayList.Add(op);
+    }
+
+    /// <summary>
+    /// Ensure an eligible scroll container has a cached layer image, building one
+    /// (once per layout) when it does not. Containers that cannot be layered keep
+    /// the inline repaint path. The document root / body (page scroller) and any
+    /// element without an explicit overflow:auto/scroll are never layered.
+    /// </summary>
+    internal void EnsureScrollLayer(Element element, LayoutBox box, ComputedStyle style, bool forceRebuild = false)
+    {
+        if (_skipScrollBake) return;
+        if (!ScrollLayerEligible(element, box, style)) return;
+        if (!forceRebuild && ScrollLayerCache.IsLayered(box)) return;
+        BuildScrollLayer(element, box, style);
+    }
+
+    /// <summary>
+    /// Rebuild a baked-mode scroll layer (sticky / z-index children) at its CURRENT
+    /// scroll offset. Called by the host on every element-scroll frame; bounded to
+    /// this container's subtree, never the whole page.
+    /// </summary>
+    public void RebuildScrollLayer(LayoutBox box)
+    {
+        if (box == null || !ScrollLayerCache.IsLayered(box) || !ScrollLayerCache.TryGetInfo(box, out var info) || !info.IsBaked)
+            return;
+        var element = box.Dimensions?.Element;
+        if (element == null) return;
+        var style = element.ComputedStyle;
+        if (style == null) return;
+        BuildScrollLayer(element, box, style);
+    }
+
+    /// <summary>Shared eligibility gate for the scroll-layer fast path.</summary>
+    private bool ScrollLayerEligible(Element element, LayoutBox box, ComputedStyle style)
+    {
+        if (element == _currentDocument?.DocumentElement || element == _currentDocument?.Body)
+            return false;
+        bool explicitScroller = style.OverflowY == OverflowType.Auto || style.OverflowY == OverflowType.Scroll
+            || style.OverflowX == OverflowType.Auto || style.OverflowX == OverflowType.Scroll
+            || style.Overflow == OverflowType.Auto || style.Overflow == OverflowType.Scroll;
+        if (!explicitScroller) return false;
+        // Custom ::-webkit-scrollbar styles are supported: BuildScrollLayer extracts
+        // the bar thickness + track/thumb colors + radius into the layer entry, and
+        // the compositor draws the bar LIVE with them. (The live bar renders a flat
+        // track + rounded thumb — equivalent look to the classic inline theme.)
+        return ScrollLayerCache.Enabled
+            && ScrollLayerCache.IsLayerable(box)
+            && ScrollLayerCache.SubtreeIsSimple(box);
+    }
+
+    /// <summary>True when <paramref name="element"/> lies inside a layered scroll container.</summary>
+    private static bool IsInsideLayeredScroller(Element element)
+    {
+        if (!ScrollLayerCache.HasAny) return false;
+        for (var ancestor = element.ParentElement; ancestor != null; ancestor = ancestor.ParentElement)
+        {
+            var b = ancestor.LayoutBox;
+            if (b != null && ScrollLayerCache.IsLayered(b))
+                return true;
+        }
+        return false;
     }
 
     /// <summary>

@@ -31,6 +31,32 @@ namespace UpBrowser;
     private readonly ScrollManager _scroll;
     private readonly ScrollInteraction _scrollInteraction = new();
     private bool _scrollDirty;
+    private bool _compositorBacklogLast;
+    /// <summary>
+    /// True when the previous frame finished with deferred tile raster work still
+    /// pending or just completed (PendingTileRepaint). Drives the retained-surface
+    /// decision before the frame renders.
+    /// </summary>
+    private bool _pendingTileWorkLast;
+    /// <summary>
+    /// True when the pending relayout was triggered by a HOVER change (mouse
+    /// over a new element / select-option highlight) — a small, localized change.
+    /// When the frame rebuilds for this alone, the tile cache is preserved and
+    /// only the hovered region is re-rasterized, instead of dropping and re-tiling
+    /// the whole page over several frames (the "pixelated flicker" seen while the
+    /// mouse crosses scroll containers).
+    /// </summary>
+    private bool _hoverRelayoutPending;
+    /// <summary>Page-space rect (chrome offset applied) that changed on hover; the
+    /// union of the old and new hovered element boxes.</summary>
+    private SKRect _hoverDirtyRect;
+    /// <summary>Document for which <see cref="_documentHasHoverRules"/> was computed
+    /// (invalidated when a new document loads).</summary>
+    private Core.Dom.Document? _hoverRulesDoc;
+    /// <summary>Cached: does the current document contain any :hover CSS rule?
+    /// When false, hover changes can't affect computed styles, so they need no
+    /// relayout (only checkbox/radio paint-time hover feedback does).</summary>
+    private bool _documentHasHoverRules;
     private readonly DocumentManager _docManager;
     private readonly InputHandler _input;
     private readonly LayoutEngine _layout = new();
@@ -45,6 +71,10 @@ namespace UpBrowser;
     private DisplayList _displayList = new();
     private float _lastLayoutWidth;
     private string _currentHtml = "";
+    /// <summary>True once the page area has been composited at least once; retained
+    /// frames before that must paint the page background instead of holding onto
+    /// an uninitialized surface.</summary>
+    private bool _everRenderedPage;
 
     // Performance-integrated layout engine (wraps the regular LayoutEngine with
     // LayoutCache + DirtyFlags so clean subtrees can skip work).
@@ -111,6 +141,16 @@ namespace UpBrowser;
     private bool _elemScrollDragVertical;
     private float _elemScrollDragStart;
     private float _elemScrollDragStartScroll;
+    /// <summary>
+    /// Set when an element scroll offset changed without any layout/style change.
+    /// The render loop rebuilds the display list via paint only (skipping the
+    /// style+layout pass) and region-invalidates the scrolled containers so their
+    /// tiles re-raster while every other tile survives — avoiding the all-tile
+    /// drop that made element scrollbars lag and flicker.
+    /// </summary>
+    private bool _elementScrollDirty;
+    private readonly List<SKRect> _pendingElementScrollRects = new();
+    private readonly List<UpBrowser.Core.Dom.LayoutBox> _pendingElementScrollBoxes = new();
 
     // Textarea scroll state (user wheel/thumb scroll vs caret-following viewport)
     private bool _textareaUserScroll;
@@ -478,11 +518,22 @@ namespace UpBrowser;
             float pageY = my - _contentOffset + _scroll.ScrollY;
             return _scrollInteraction.HandleWheel(dx, dy, pageX, pageY);
         };
-        _scrollInteraction.OnScrollChanged = () =>
+        _scrollInteraction.OnScrollChanged = (box) =>
         {
-            // Lightweight scroll repaint — no ComputeStyles.
-            _scrollDirty = true;
-            _input.NeedsRedraw = true;
+            // Element scrollbar wheel/drag: route through the element-scroll path
+            // (layered fast path or paint-only rebuild). Only the document root /
+            // body keeps the page-scroll path.
+            var doc = _currentLoad?.Document;
+            if (ReferenceEquals(box, doc?.DocumentElement?.LayoutBox) ||
+                ReferenceEquals(box, doc?.Body?.LayoutBox))
+            {
+                _scrollDirty = true;
+                _input.NeedsRedraw = true;
+            }
+            else
+            {
+                MarkElementScrollDirty(box);
+            }
         };
         _input.OnImeChar = HandleImeChar;
         _input.OnImeTargetChanged = UpdateImeTarget;
@@ -1640,14 +1691,22 @@ namespace UpBrowser;
         _displayList.Clear();
 
         _cachedPaintVisitor = new PaintVisitor(_contentOffset, _sharedTypefaceCache, _sharedImageCache, _fontFamilies, _currentBaseUrl, windowWidth, windowHeight);
+        _cachedPaintVisitor.PhysicalScale = _dpiScale * _renderingSettings.ResolutionScale;
         // P2-2b: viewport culling — only layers intersecting the visible page
         // rect (+300px bleed) emit paint ops. Refreshed on every rebuild.
-        float cullTop = _scroll.ScrollY - 300f;
-        float cullLeft = _scroll.ScrollX - 300f;
-        _cachedPaintVisitor.SetCullRect(new SKRect(
-            cullLeft, cullTop,
-            cullLeft + windowWidth + 600f,
-            cullTop + windowHeight + _contentOffset + 600f));
+        // With the tile compositor active the display list must cover the whole
+        // page so any tile (visible or lazily filled below the viewport) finds
+        // its ops; viewport culling would make off-screen tiles rasterize empty
+        // and stay cached blank.
+        if (!_skiaRenderer.TileCompositorActive)
+        {
+            float cullTop = _scroll.ScrollY - 300f;
+            float cullLeft = _scroll.ScrollX - 300f;
+            _cachedPaintVisitor.SetCullRect(new SKRect(
+                cullLeft, cullTop,
+                cullLeft + windowWidth + 600f,
+                cullTop + windowHeight + _contentOffset + 600f));
+        }
         _cachedPaintVisitor.SetFocusedElement(_focusedElement);
         _cachedPaintVisitor.SetSkipInputTextOverlay(true);
         _cachedPaintVisitor.SetPasswordRevealed(_passwordRevealed);
@@ -1830,9 +1889,38 @@ namespace UpBrowser;
         float contentViewportHeight = windowHeight - _contentOffset - _chrome.GetStatusBarHeight() - currentDevToolsHeight;
 
         bool needsFullRebuild = sizeChanged || windowWidth != _lastLayoutWidth || _pendingRelayout || devToolsChanged;
+
+        // Interactive element-scroll frames skip the deferred background raster
+        // drain (the scrolled container is flushed synchronously below), so the
+        // frame stays bounded and the scroll feels immediate.
+        bool interactiveScrollFrame = false;
+
+        // Retained compositing: keep the previous frame's page pixels wherever the
+        // tile compositor cannot yet fill this frame — a scroll exposes regions with
+        // no ready tile, and dropping/clearing there shows a white flash. Retain on
+        // every frame that changes the page or still has pending/just-completed tile
+        // work; tiles that complete land on the next repaint. Frames with nothing
+        // pending clear so overlay/caret changes stay crisp.
+        bool tileBacklogRetained =
+            _skiaRenderer.TileCompositorActive && !devToolsChanged &&
+            (needsFullRebuild || scrollChanged || _scrollDirty || _elementScrollDirty ||
+             _compositorBacklogLast || _pendingTileWorkLast);
         if (needsFullRebuild)
         {
+            // Layout/content changed: cached scroll layers are stale, rebuild them
+            // (the paint walk below re-registers every layered container).
+            ScrollLayerCache.ClearAll();
             _lastLayoutWidth = windowWidth;
+
+            // A relayout triggered ONLY by a hover change is a small, localized
+            // update: the rest of the page is pixel-identical, so keep the tile
+            // cache and re-raster just the hovered region synchronously. Dropping
+            // every tile (InvalidateAll) here makes the whole page re-tile over
+            // several deferred frames — visible as "pixelated flicker" while the
+            // mouse crosses scroll containers.
+            bool hoverOnlyRebuild = _hoverRelayoutPending
+                && !sizeChanged && !devToolsChanged && !_jsEngine.NeedsReLayout;
+            _hoverRelayoutPending = false;
 
             if (_pendingRelayout)
             {
@@ -1872,10 +1960,170 @@ namespace UpBrowser;
             _scroll.UpdateScroll(contentWidth, contentHeight, windowWidth, contentViewportHeight);
 
             _window.UpdateImeCompositionWindow();
+
+            if (hoverOnlyRebuild && _skiaRenderer.TileCompositorActive
+                && _hoverDirtyRect.Width > 0 && _hoverDirtyRect.Height > 0)
+            {
+                // Hover-only rebuild: adopt the new display list without bumping the
+                // cache generation, drop just the tiles over the hovered region and
+                // re-raster them synchronously. Everything else survives the frame,
+                // so the page updates atomically instead of re-tiling over frames.
+                _skiaRenderer.AdoptRebuiltDisplayList(_displayList);
+                _skiaRenderer.InvalidatePageRect(_hoverDirtyRect);
+                _skiaRenderer.SetChangeRegion(_hoverDirtyRect);
+                _skiaRenderer.PrerasterizePageRect(_hoverDirtyRect);
+            }
+        }
+        else if (_elementScrollDirty && _currentLoad != null)
+        {
+            // Element scroll offsets changed but layout/styles didn't. When the
+            // scrolled containers were rasterized as scroll LAYERS (cached content
+            // + live scroll offset), the display list and recorded picture are
+            // already scroll-invariant: the only work is re-baking the picture at
+            // the new offset and re-rastering the container's tiles — NO document
+            // repaint. Containers that could not be layered fall back to the
+            // paint-only rebuild (scroll baked into ops), which is still correct.
+            _elementScrollDirty = false;
+
+            bool allLayered = _skiaRenderer.TileCompositorActive
+                && _pendingElementScrollBoxes.Count > 0
+                && _pendingElementScrollBoxes.All(ScrollLayerCache.IsLayered);
+
+            if (allLayered)
+            {
+                // Layered containers are composited LIVE by the compositor at their
+                // current scroll offset (ScrollLayerCache) — scrolling them needs no
+                // tile invalidation, no re-record, no flush. Sticky / z-index layers
+                // (IsBaked) are rebuilt from their subtree at the current scroll,
+                // but only when the device-quantized offset actually moved — the
+                // baked image is already within one device pixel otherwise.
+                interactiveScrollFrame = true;
+                float bakedScale = _dpiScale * _renderingSettings.ResolutionScale;
+                foreach (var bb in _pendingElementScrollBoxes)
+                {
+                    if (ScrollLayerCache.TryGetInfo(bb, out var info)
+                        && info.IsBaked
+                        && ScrollLayerCache.BakedOffsetChanged(bb, bakedScale))
+                    {
+                        _cachedPaintVisitor?.RebuildScrollLayer(bb);
+                    }
+                }
+            }
+            else
+            {
+            // Only the paint walk is needed to rebuild the display list (scroll
+            // offsets are applied as paint-time transforms); style+layout would be
+            // wasted work. The scrolled containers are region-invalidated so only
+            // their tiles re-raster and the rest of the cache survives.
+            float sbW = _scroll.CanScrollY ? 12f : 0f;
+            int lw = Math.Max(100, windowWidth - (int)sbW);
+            int vh = Math.Max(100, (int)contentViewportHeight);
+
+            // ── Fast path: single non-layered scroller with an opaque background ──
+            // Only that container's subtree changed; re-paint it in isolation
+            // (O(container), no O(document) layer-tree rebuild per frame) and
+            // swap its ops into the existing display list. The opaque background
+            // guarantees the freshly painted subtree fully covers the container's
+            // previous pixels, so nothing ghosts through tile transparency. Any
+            // failure falls back to the full-document rebuild below.
+            bool subtreeFastPath = false;
+            if (_pendingElementScrollBoxes.Count == 1)
+            {
+                try
+                {
+                    subtreeFastPath = TrySubtreeRepaintScrollContainer(_pendingElementScrollBoxes[0], lw, vh);
+                }
+                catch
+                {
+                    subtreeFastPath = false;
+                }
+            }
+
+            if (!subtreeFastPath)
+            {
+            PaintOpPool.Clear();
+            _displayList.Clear();
+            _cachedPaintVisitor = new PaintVisitor(_contentOffset, _sharedTypefaceCache,
+                _sharedImageCache, _fontFamilies, _currentBaseUrl, lw, vh);
+            _cachedPaintVisitor.PhysicalScale = _dpiScale * _renderingSettings.ResolutionScale;
+            _cachedPaintVisitor.SetSkipInputTextOverlay(true);
+            _cachedPaintVisitor.SetCullRect(new SKRect(
+                _scroll.ScrollX - 300, _scroll.ScrollY - 300,
+                _scroll.ScrollX + windowWidth + 300, _scroll.ScrollY + contentViewportHeight + 600));
+
+            _cachedPaintVisitor.VisitDocumentStacking(_currentLoad.Document);
+            _displayList = _cachedPaintVisitor.GetDisplayList();
+            _displayList.SortByZIndex();
+            }
+
+            interactiveScrollFrame = true;
+            foreach (var rect in _pendingElementScrollRects)
+            {
+                if (rect.Width <= 0 || rect.Height <= 0) continue;
+                _skiaRenderer.InvalidatePageRect(rect);
+            }
+            if (_skiaRenderer.TileCompositorActive)
+            {
+                // Publish the rebuilt display list to the compositor BEFORE the
+                // flush, and force its recorded picture to be re-created. The
+                // synchronous re-raster below must replay the NEW content; if the
+                // old picture were reused the flushed tiles would cache stale
+                // (pre-scroll) pixels and the container would appear frozen.
+                _skiaRenderer.AdoptRebuiltDisplayList(_displayList);
+                // Re-raster synchronously only the ON-SCREEN slice of each scrolled
+                // container (plus one tile of margin so the emerging edge strip is
+                // covered). Off-screen container tiles were dropped above and are
+                // lazily re-rastered by the visible pass when they enter the viewport,
+                // so a tall container cannot stall the frame.
+                float tileMargin = _skiaRenderer.Compositor?.TileSize ?? TiledCompositor.DefaultTileSize;
+                var flushCull2 = new SKRect(
+                    -tileMargin, _contentOffset - tileMargin,
+                    windowWidth + tileMargin, _contentOffset + contentViewportHeight + tileMargin);
+                for (int i = 0; i < _pendingElementScrollRects.Count; i++)
+                {
+                    var rect = _pendingElementScrollRects[i];
+                    if (rect.Width <= 0 || rect.Height <= 0) continue;
+                    var onScreen = SKRect.Intersect(rect, flushCull2);
+                    if (onScreen.Width <= 0 || onScreen.Height <= 0) continue;
+                    // The change-only recorded picture culls to this region, but a
+                    // scrolled container's content ops carry UNTRANSLATED bounds
+                    // (the scroll is applied as a paint-time transform). Content that
+                    // draws into the on-screen slice lives at positions shifted by
+                    // the box's scroll offset, so include that shifted band too —
+                    // otherwise a container scrolled beyond one tile renders empty/
+                    // stale below the fold (ghosted through the retained surface).
+                    LayoutBox? sb = i < _pendingElementScrollBoxes.Count ? _pendingElementScrollBoxes[i] : null;
+                    var cullRegion = onScreen;
+                    if (sb != null && (sb.ScrollX != 0 || sb.ScrollY != 0))
+                    {
+                        cullRegion = SKRect.Union(onScreen, new SKRect(
+                            onScreen.Left + sb.ScrollX,
+                            onScreen.Top + sb.ScrollY,
+                            onScreen.Right + sb.ScrollX,
+                            onScreen.Bottom + sb.ScrollY));
+                    }
+                    _skiaRenderer.SetChangeRegion(cullRegion);
+                    _skiaRenderer.PrerasterizePageRect(onScreen);
+                }
+            }
+            }
+            _pendingElementScrollRects.Clear();
+            _pendingElementScrollBoxes.Clear();
         }
         else if (_scrollDirty && _currentLoad != null)
         {
-            // ── Llightweight scroll-only repaint ──
+            if (_skiaRenderer.TileCompositorActive)
+            {
+                // Tiles are cached in page space — a scroll only changes the page
+                // origin, so skip the display-list rebuild and tile-cache
+                // invalidation. Reusing the cached tiles makes scroll instant and
+                // avoids the re-raster blank flash; the rebuilt cull-limited
+                // display list is only needed for the direct picture path.
+                _scrollDirty = false;
+            }
+            else
+            {
+            // ── Lightweight scroll-only repaint ──
             // Scroll offset changed but layout/styles haven't. Just regenerate
             // the display list from existing LayoutBoxes with current ScrollY
             // transforms. Much faster than a full rebuild.
@@ -1889,6 +2137,7 @@ namespace UpBrowser;
             _displayList.Clear();
             _cachedPaintVisitor = new PaintVisitor(_contentOffset, _sharedTypefaceCache,
                 _sharedImageCache, _fontFamilies, _currentBaseUrl, lw, vh);
+            _cachedPaintVisitor.PhysicalScale = _dpiScale * _renderingSettings.ResolutionScale;
             _cachedPaintVisitor.SetSkipInputTextOverlay(true);
             _cachedPaintVisitor.SetCullRect(new SKRect(
                 _scroll.ScrollX - 300, _scroll.ScrollY - 300,
@@ -1899,6 +2148,7 @@ namespace UpBrowser;
             _displayList.SortByZIndex();
 
             _skiaRenderer.InvalidatePageCache();
+            }
         }
         else if (_input.NeedsRedraw && _cachedPaintVisitor != null)
         {
@@ -1944,7 +2194,20 @@ namespace UpBrowser;
         _lastDevToolsHeight = currentDevToolsHeight;
         _lastDevToolsVisible = _devTools.Visible;
 
-        _skiaRenderer.Canvas.Clear(SKColors.White);
+        if (!tileBacklogRetained)
+            _skiaRenderer.Canvas.Clear(SKColors.White);
+        else if (!_everRenderedPage)
+        {
+            // First-ever frame: there is no previous surface to retain, so seed
+            // the page area with its background before the tiles composite over it.
+            using var seedBg = new SKPaint
+            {
+                Color = _cachedPaintVisitor?.ViewBackgroundColor ?? SKColors.White,
+                Style = SKPaintStyle.Fill,
+            };
+            _skiaRenderer.Canvas.DrawRect(
+                0, _contentOffset, windowWidth, _contentOffset + contentViewportHeight, seedBg);
+        }
 
         var title = _currentLoad.Document.Title ?? "UpBrowser";
         var currentUrl = _chrome.GetCurrentUrl();
@@ -1975,7 +2238,15 @@ namespace UpBrowser;
         _skiaRenderer.RenderWithScroll(_displayList, _contentOffset,
             _scroll.ScrollX, _scroll.ScrollY,
             windowWidth, contentViewportHeight,
-            _cachedPaintVisitor?.OverlayList);
+            _cachedPaintVisitor?.OverlayList,
+            _cachedPaintVisitor?.ViewBackgroundColor ?? SKColors.White,
+            interactiveScrollFrame);
+
+        // Remember whether the deferred tile rasterizer still has backlog, so the
+        // next frame knows to retain the page pixels instead of clearing them.
+        _compositorBacklogLast = _skiaRenderer.Compositor?.HasPendingRasterWork ?? false;
+        _pendingTileWorkLast = _skiaRenderer.PendingTileRepaint;
+        _everRenderedPage = true;
 
         _chrome.RenderScrollbars(_skiaRenderer.Canvas, windowWidth, windowHeight, _scroll);
 
@@ -2157,6 +2428,12 @@ namespace UpBrowser;
 
         _input.NeedsRedraw = false;
         if (_input.IsMouseDown()) _input.NeedsRedraw = true;
+        // 瓦片合成器可能还有延迟栅格的瓦片未画完：请求再渲染一帧将其合成上屏
+        if (_skiaRenderer.PendingTileRepaint)
+        {
+            _skiaRenderer.PendingTileRepaint = false;
+            _input.NeedsRedraw = true;
+        }
         // 进度条刚被清除时，强制再渲染一帧来清除残留的进度条图像
         if (_chrome.IsProgressJustCleared)
             _input.NeedsRedraw = true;
@@ -3407,14 +3684,87 @@ namespace UpBrowser;
                     box.IsSmoothScrollingX = false;
                     box.ScrollVelX = 0;
                 }
-                // Force display-list rebuild so new ScrollY takes visual effect.
-                _pendingRelayout = true;
+                // Element scroll without layout — paint-only rebuild suffices.
+                MarkElementScrollDirty(box);
                 _input.NeedsRedraw = true;
                 return true;
             }
             el = el.ParentElement;
         }
         return false;
+    }
+
+    /// <summary>
+    /// Mark that element scrolling changed (see <see cref="_elementScrollDirty"/>):
+    /// accumulate the scrolled container's op-space padding box and request a frame.
+    /// </summary>
+    private void MarkElementScrollDirty(LayoutBox box)
+    {
+        var pb = box.PaddingBox;
+        _pendingElementScrollRects.Add(new SKRect(pb.Left, pb.Top + _contentOffset, pb.Right, pb.Bottom + _contentOffset));
+        _pendingElementScrollBoxes.Add(box);
+        _elementScrollDirty = true;
+        _input.NeedsRedraw = true;
+    }
+
+    /// <summary>
+    /// Element-scroll fast path for a single NON-layered scroll container: re-paints
+    /// only the container's subtree (O(container), no O(document) layer-tree rebuild)
+    /// and swaps its ops into the existing page display list, replacing the stale
+    /// ones. Requires an OPAQUE container background so the freshly painted subtree
+    /// fully covers the container's previous pixels — re-rasterized tiles are
+    /// transparent where ops are missing and the retained surface would otherwise
+    /// ghost the old content through the gaps. Nested eligible scrollers keep their
+    /// own live layers (never double-painted). Returns false when the fast path
+    /// cannot apply and the caller must fall back to the full-document rebuild.
+    /// </summary>
+    private bool TrySubtreeRepaintScrollContainer(LayoutBox box, int lw, int vh)
+    {
+        if (_currentLoad == null || _displayList == null) return false;
+        var element = box.Dimensions?.Element;
+        var style = element?.ComputedStyle;
+        if (element == null || style == null) return false;
+        if (style.BackgroundColor is not { Alpha: >= 255 }) return false;
+
+        float scale = _dpiScale * _renderingSettings.ResolutionScale;
+        var cb = box.ContentBox;
+        // The removal region is the container's COLUMN STRIP: its X extent spans the
+        // content box (narrow, so neighboring / full-width elements at other columns
+        // are NOT swallowed), while both extents cover the ENTIRE scrollable content
+        // (ops carry UNTRANSLATED layout positions, so scrolled-out content still
+        // lives inside the box's scroll bounds). Removing all of them — content
+        // scrolled above/below/left/right of the visible box — is what stops stale
+        // content from rasterizing unclipped ("floating out" over the page).
+        const float yMargin = 512f;
+        const float xBleed = 8f;
+        float regionLeft = cb.Left - xBleed;
+        float regionTop = cb.Top + _contentOffset - yMargin;
+        float regionRight = Math.Max(cb.Right, cb.Left + box.ScrollContentWidth) + xBleed;
+        float regionBottom = Math.Max(cb.Bottom, cb.Top + box.ScrollContentHeight) + _contentOffset + yMargin;
+        var region = new SKRect(regionLeft, regionTop, regionRight, regionBottom);
+
+        // Drop the container's stale ops (background, borders, content, scrollbar)
+        // so the re-painted subtree replaces them instead of stacking on top.
+        _displayList.RemoveOpsContainedIn(region);
+
+        var sub = new PaintVisitor(_contentOffset, _sharedTypefaceCache,
+            _sharedImageCache, _fontFamilies, _currentBaseUrl, lw, vh)
+        {
+            PhysicalScale = scale,
+        };
+        sub.SetSkipInputTextOverlay(true);
+        sub.PaintElementSubtree(element, _currentLoad.Document, region);
+        var subList = sub.GetDisplayList();
+        if (subList.Count == 0)
+        {
+            // The subtree produced nothing (shouldn't happen for a painted
+            // container) — do not commit a blank region; let the caller rebuild.
+            return false;
+        }
+        subList.SortByZIndex();
+        _displayList.AddRange(subList.EnumerateOps());
+        _displayList.SortByZIndex();
+        return true;
     }
 
     private void UpdateElementSmoothScrolls(float dt)
@@ -3552,12 +3902,16 @@ namespace UpBrowser;
                     box.ScrollVelX *= 0.8f;
                 }
 
-                if (changed) anyChanged = true;
+                if (changed)
+            {
+                anyChanged = true;
+                MarkElementScrollDirty(box);
+            }
             }
             foreach (var child in box.Children)
                 pending.Enqueue(child);
         }
-        if (anyChanged) _pendingRelayout = true;
+        if (anyChanged) _elementScrollDirty = true;
     }
 
     private void HandleElementScrollbarClick(LayoutBox box, bool isVertical, float x, float y)
@@ -3676,7 +4030,7 @@ namespace UpBrowser;
                 _elemScrollDragBox.IsSmoothScrollingY = false;
                 _elemScrollDragBox.ScrollVelY = 0;
                 _elemScrollDragBox.ScrollY = target;
-                _pendingRelayout = true;
+                MarkElementScrollDirty(_elemScrollDragBox);
             }
             else
             {
@@ -3689,7 +4043,7 @@ namespace UpBrowser;
                 _elemScrollDragBox.IsSmoothScrollingX = false;
                 _elemScrollDragBox.ScrollVelX = 0;
                 _elemScrollDragBox.ScrollX = target;
-                _pendingRelayout = true;
+                MarkElementScrollDirty(_elemScrollDragBox);
             }
             return;
         }
@@ -3803,7 +4157,35 @@ namespace UpBrowser;
                 ptr.IsHovered = true;
                 ptr = ptr.ParentElement;
             }
-            _pendingRelayout = true;
+
+            // A hover change only needs a style/relayout round-trip when it can
+            // actually affect rendering: the document has :hover rules, or the
+            // hovered chain contains a checkbox/radio (their visuals read
+            // IsHovered at paint time). Otherwise nothing changes visually, so
+            // skip the relayout entirely — every mouse move over a hover-free
+            // page previously rebuilt + re-tiled the whole document.
+            if (!ReferenceEquals(_hoverRulesDoc, _currentLoad?.Document))
+            {
+                _documentHasHoverRules = _currentLoad?.StyleComputer?.HasHoverRules() ?? false;
+                _hoverRulesDoc = _currentLoad?.Document;
+            }
+            bool hoverAffectsPaint = _documentHasHoverRules
+                || ChainContainsHoverFormControl(element);
+
+            if (hoverAffectsPaint)
+            {
+                // Record the changed region (old + new hovered element ancestor
+                // chains) so the frame can re-raster only that area instead of
+                // re-tiling the page. :hover applies to the whole chain, so all
+                // their boxes are dirty.
+                _hoverDirtyRect = default;
+                for (var p = oldHover; p != null; p = p.ParentElement)
+                    _hoverDirtyRect = UnionHoverRect(_hoverDirtyRect, p.LayoutBox?.BorderBox);
+                for (var p = element; p != null; p = p.ParentElement)
+                    _hoverDirtyRect = UnionHoverRect(_hoverDirtyRect, p.LayoutBox?.BorderBox);
+                _hoverRelayoutPending = true;
+                _pendingRelayout = true;
+            }
         }
 
         // Update select dropdown option hover highlight
@@ -3824,6 +4206,8 @@ namespace UpBrowser;
             if (newHover != _selectHoverIndex)
             {
                 _selectHoverIndex = newHover;
+                _hoverDirtyRect = _selectDropdownRect;
+                _hoverRelayoutPending = true;
                 _pendingRelayout = true;
             }
         }
@@ -3840,6 +4224,38 @@ namespace UpBrowser;
             };
             _jsEngine.DispatchEvent(element, moveEvt);
         }
+    }
+
+    /// <summary>Grow <paramref name="acc"/> to include <paramref name="box"/> (page
+    /// space, chrome offset applied). Empty/absent inputs leave it unchanged.</summary>
+    private SKRect UnionHoverRect(SKRect acc, SKRect? box)
+    {
+        if (!box.HasValue || box.Value.Width <= 0 || box.Value.Height <= 0)
+            return acc;
+        var r = new SKRect(box.Value.Left, box.Value.Top + _contentOffset,
+            box.Value.Right, box.Value.Bottom + _contentOffset);
+        if (acc.Width <= 0 || acc.Height <= 0)
+            return r;
+        return SKRect.Union(acc, r);
+    }
+
+    /// <summary>True when <paramref name="element"/> or any ancestor is a checkbox /
+    /// radio input — the only page paint that reads IsHovered directly (hover
+    /// feedback ring), so a hover over them needs a repaint even without :hover rules.</summary>
+    private static bool ChainContainsHoverFormControl(Core.Dom.Element? element)
+    {
+        for (var p = element; p != null; p = p.ParentElement)
+        {
+            if (!p.TagName.Equals("INPUT", StringComparison.OrdinalIgnoreCase))
+                continue;
+            var t = p.GetAttribute("type");
+            if (t != null && (t.Equals("checkbox", StringComparison.OrdinalIgnoreCase)
+                || t.Equals("radio", StringComparison.OrdinalIgnoreCase)))
+            {
+                return true;
+            }
+        }
+        return false;
     }
 
     private void HandleDomMouseUp(float x, float y)

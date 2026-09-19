@@ -515,7 +515,7 @@ class Program
             }
             dl.BuildSpatialGrid();
 
-            compositor.Render(canvas, new SKRect(0, 0, 128, 128), 1.0f, dl);
+            compositor.Render(canvas, new SKRect(0, 0, 128, 128), 1.0f, displayList: dl);
 
             var mid = bmp.GetPixel(64, 64);
             Assert(mid.Red > 200 && mid.Blue > 200, $"mid={mid} expected magenta after live DL swap");

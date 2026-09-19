@@ -1,6 +1,7 @@
 using SkiaSharp;
 using UpBrowser.Core.Dom;
 using UpBrowser.Core.Layout;
+using UpBrowser.Core.Css;
 
 namespace UpBrowser.Rendering;
 
@@ -54,6 +55,60 @@ internal sealed class HighlightPainter
         op.BorderLeftWidth = 0;
         op.BorderRightWidth = 0;
         op.Bounds = rect.Value;
+        _displayList.Add(op);
+    }
+
+    /// <summary>
+    /// Emits the highlight overlay for a highlighted range given its fragment
+    /// rects. Adjacent fragments on the same line are merged into continuous
+    /// overlay rects (mirroring highlight_overlay.cc geometry), so a multi-run
+    /// selection paints one seamless band per line instead of gap-ridden boxes.
+    /// The tint is resolved from the element's computed style (inverting fg/bg,
+    /// or honoring an explicit ::selection background override when provided).
+    /// </summary>
+    public void PaintOverlaySelection(IEnumerable<SKRect> fragmentRects,
+        ComputedStyle style, SKColor? selectionBackgroundOverride = null)
+    {
+        var merged = HighlightOverlay.ComputeOverlayRects(fragmentRects);
+        var tint = HighlightOverlay.ResolveSelectionTint(style, selectionBackgroundOverride);
+        foreach (var rect in merged)
+            EmitHighlightRect(rect, tint);
+    }
+
+    /// <summary>
+    /// Emits a spellcheck/marker underline or overline decoration over the given
+    /// run, using the decoration geometry helpers (thickness, offset) and the
+    /// coordinating color resolved from the style. Underlines are drawn with the
+    /// style's text-decoration color when present, otherwise a fixed marker red.
+    /// </summary>
+    public void PaintMarkerDecoration(SKRect runBounds, ComputedStyle style, bool underline = true)
+    {
+        float thickness = style.TextDecorationThickness > 0 ? style.TextDecorationThickness : 0f;
+        float offset = underline ? 1.5f : 0f;
+        var rects = HighlightOverlay.ComputeMarkerDecorationRects(
+            runBounds, thickness, offset, style.FontSize, underline);
+
+        SKColor color = SKColors.Red;
+        if (style.TextDecorationColor != default && style.TextDecorationColor.Alpha > 0)
+            color = style.TextDecorationColor;
+
+        foreach (var rect in rects)
+            EmitHighlightRect(rect, color);
+    }
+
+    /// <summary>Shared op-emitting helper for overlay/spec geometries.</summary>
+    private void EmitHighlightRect(SKRect rect, SKColor color)
+    {
+        if (rect.Width <= 0 || rect.Height <= 0)
+            return;
+        var op = PaintOpPool.GetDrawRectOp();
+        op.Rect = rect;
+        op.FillColor = color;
+        op.BorderTopWidth = 0;
+        op.BorderBottomWidth = 0;
+        op.BorderLeftWidth = 0;
+        op.BorderRightWidth = 0;
+        op.Bounds = rect;
         _displayList.Add(op);
     }
 
