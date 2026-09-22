@@ -1002,7 +1002,7 @@ public class ColumnLayoutAlgorithm : LayoutAlgorithm
         if (style.ColumnGap is PixelLength pl)
             return pl.Value;
         if (style.ColumnGap is PercentLength pcl)
-            return pcl.Value * 0.01f * availableInlineSize;
+            return pcl.Value * availableInlineSize;
         return 16; // Default 1em
     }
 

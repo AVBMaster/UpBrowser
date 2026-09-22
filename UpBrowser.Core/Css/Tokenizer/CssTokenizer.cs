@@ -531,7 +531,6 @@ public class CssTokenizer
     {
         if (NextCharsAreNumber('-'))
         {
-            Reconsume();
             return ConsumeNumericToken();
         }
         if (Peek(1) == '-' && Peek(2) == '>')
@@ -541,7 +540,6 @@ public class CssTokenizer
         }
         if (NextCharsAreIdentifier('-'))
         {
-            Reconsume();
             return ConsumeIdentLikeToken();
         }
         Consume();
@@ -551,17 +549,11 @@ public class CssTokenizer
     private CssParserToken Hash()
     {
         Consume();
-        if (NextCharsAreIdentifier())
+        char c = Peek();
+        if (IsNameChar(c) || (c == '\\' && NextTwoCharsAreValidEscape()))
         {
+            bool isId = NextCharsAreIdentifier();
             string name = ConsumeName();
-            bool isId = true;
-            for (int i = 0; i < name.Length; i++)
-            {
-                char c = name[i];
-                if (IsDigit(c) || c == '-') { isId = false; break; }
-                if (!IsNameStart(c)) { isId = false; break; }
-                break;
-            }
             return CssParserToken.CreateHash(name, isId ? HashTokenType.Id : HashTokenType.Unrestricted);
         }
         return CssParserToken.CreateDelimiter('#');
@@ -569,25 +561,23 @@ public class CssTokenizer
 
     private CssParserToken LetterU()
     {
-        if (_unicodeRangesAllowed && Peek(1) == '+')
+        if (_unicodeRangesAllowed && Peek() == 'u' || _unicodeRangesAllowed && Peek() == 'U')
         {
-            char c2 = Peek(1);
-            if (c2 == '+')
+            if (Peek(1) == '+')
             {
                 char c3 = Peek(2);
                 if (IsHexDigit(c3) || c3 == '?')
                     return ConsumeUnicodeRange();
             }
         }
-        Reconsume();
         return ConsumeIdentLikeToken();
     }
 
-    private CssParserToken BlockStart(CssTokenType blockType)
+    private CssParserToken BlockStart(CssTokenType startType)
     {
-        _blockStack.Add(blockType);
+        _blockStack.Add(EndFor(startType));
         Consume();
-        return blockType switch
+        return startType switch
         {
             CssTokenType.LeftParenthesisToken => CssParserToken.CreateLeftParen(),
             CssTokenType.LeftSquareBracketToken => CssParserToken.CreateLeftSquare(),
@@ -598,7 +588,7 @@ public class CssTokenizer
 
     private CssParserToken BlockEnd(CssTokenType endType, CssTokenType startType)
     {
-        if (_blockStack.Count > 0 && _blockStack[^1] == startType)
+        if (_blockStack.Count > 0 && _blockStack[^1] == endType)
             _blockStack.RemoveAt(_blockStack.Count - 1);
         Consume();
         return endType switch
@@ -610,11 +600,29 @@ public class CssTokenizer
         };
     }
 
+    private static CssTokenType EndFor(CssTokenType startType) => startType switch
+    {
+        CssTokenType.LeftParenthesisToken => CssTokenType.RightParenthesisToken,
+        CssTokenType.LeftSquareBracketToken => CssTokenType.RightSquareBracketToken,
+        CssTokenType.LeftBraceToken => CssTokenType.RightBraceToken,
+        _ => CssTokenType.EofToken
+    };
+
     private CssParserToken NextToken(bool skipComments)
     {
         _tokenCount++;
         _prevPos = _pos;
+        int tokenLine = _line;
+        int tokenColumn = _column;
 
+        CssParserToken result = NextTokenCore(skipComments);
+        result.Line = tokenLine;
+        result.Column = tokenColumn;
+        return result;
+    }
+
+    private CssParserToken NextTokenCore(bool skipComments)
+    {
         while (_pos < _input.Length)
         {
             char c = Peek();
@@ -645,7 +653,7 @@ public class CssTokenizer
                     return CssParserToken.CreateDelimiter('$');
 
                 case '(':
-                    return BlockStart(CssTokenType.RightParenthesisToken);
+                    return BlockStart(CssTokenType.LeftParenthesisToken);
 
                 case ')':
                     return BlockEnd(CssTokenType.RightParenthesisToken, CssTokenType.LeftParenthesisToken);
@@ -658,7 +666,6 @@ public class CssTokenizer
                 case '+':
                     if (NextCharsAreNumber('+'))
                     {
-                        Reconsume();
                         return ConsumeNumericToken();
                     }
                     Consume();
@@ -671,7 +678,6 @@ public class CssTokenizer
                 case '-':
                     if (NextCharsAreNumber('-'))
                     {
-                        Reconsume();
                         return ConsumeNumericToken();
                     }
                     if (Peek(1) == '-' && Peek(2) == '>')
@@ -681,7 +687,6 @@ public class CssTokenizer
                     }
                     if (NextCharsAreIdentifier('-'))
                     {
-                        Reconsume();
                         return ConsumeIdentLikeToken();
                     }
                     Consume();
@@ -690,7 +695,6 @@ public class CssTokenizer
                 case '.':
                     if (NextCharsAreNumber('.'))
                     {
-                        Reconsume();
                         return ConsumeNumericToken();
                     }
                     Consume();
@@ -748,12 +752,11 @@ public class CssTokenizer
                     return CssParserToken.CreateDelimiter('@');
 
                 case '[':
-                    return BlockStart(CssTokenType.RightSquareBracketToken);
+                    return BlockStart(CssTokenType.LeftSquareBracketToken);
 
                 case '\\':
                     if (NextTwoCharsAreValidEscape())
                     {
-                        Reconsume();
                         return ConsumeIdentLikeToken();
                     }
                     Consume();
@@ -768,7 +771,7 @@ public class CssTokenizer
                     return CssParserToken.CreateDelimiter('^');
 
                 case '{':
-                    return BlockStart(CssTokenType.RightBraceToken);
+                    return BlockStart(CssTokenType.LeftBraceToken);
 
                 case '|':
                     Consume();
@@ -791,17 +794,14 @@ public class CssTokenizer
                 default:
                     if (IsDigit(c))
                     {
-                        Reconsume();
                         return ConsumeNumericToken();
                     }
                     if (IsNameStart(c))
                     {
-                        Reconsume();
                         return ConsumeIdentLikeToken();
                     }
                     if (c == '\uFFFD')
                     {
-                        Reconsume();
                         return ConsumeIdentLikeToken();
                     }
                     Consume();

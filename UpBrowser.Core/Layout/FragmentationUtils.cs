@@ -36,14 +36,37 @@ public static class AbsoluteUtils
 
         float inlineSize = availableSize.InlineSize;
         float blockSize = availableSize.BlockSize;
+        bool borderBox = style.BoxSizing == BoxSizingType.BorderBox;
 
         if (style.Width is PixelLength pw)
-            inlineSize = pw.Value;
+        {
+            inlineSize = borderBox
+                ? Math.Max(borderPadding.HorizontalSum, pw.Value)
+                : pw.Value + borderPadding.HorizontalSum;
+        }
+        else if (style.Width is PercentLength pctW)
+        {
+            float baseSize = pctW.Value * availableSize.InlineSize;
+            inlineSize = borderBox
+                ? Math.Max(borderPadding.HorizontalSum, baseSize)
+                : baseSize + borderPadding.HorizontalSum;
+        }
         else if (left > 0 && right > 0)
             inlineSize = Math.Max(0, availableSize.InlineSize - left - right);
 
         if (style.Height is PixelLength ph)
-            blockSize = ph.Value;
+        {
+            blockSize = borderBox
+                ? Math.Max(borderPadding.VerticalSum, ph.Value)
+                : ph.Value + borderPadding.VerticalSum;
+        }
+        else if (style.Height is PercentLength pctH)
+        {
+            float baseSize = pctH.Value * availableSize.BlockSize;
+            blockSize = borderBox
+                ? Math.Max(borderPadding.VerticalSum, baseSize)
+                : baseSize + borderPadding.VerticalSum;
+        }
         else if (top > 0 && bottom > 0)
             blockSize = Math.Max(0, availableSize.BlockSize - top - bottom);
 

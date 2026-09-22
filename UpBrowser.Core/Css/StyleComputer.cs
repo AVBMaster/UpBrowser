@@ -1,27 +1,44 @@
 ﻿using UpBrowser.Core.Dom;
+using UpBrowser.Core.Css.Cascade;
 using UpBrowser.Core.Css.Resolver;
+using UpBrowser.Core.Css.Rules;
+using CascadeOrigin = UpBrowser.Core.Css.Resolver.CascadeOrigin;
 
 namespace UpBrowser.Core.Css;
 
 /// <summary>
 /// StyleComputer - public API for computing styles on a document.
-/// Delegates to CascadeResolver for the actual cascade resolution.
-/// Maintains backward compatibility with the existing API.
+/// Delegates to the Prism <see cref="StyleResolver"/> for the actual cascade
+/// resolution. Retains the submitted sheets (in both the token model and the
+/// legacy string model) so <see cref="HasHoverRules"/> stays a cheap string scan.
 /// </summary>
 public class StyleComputer
 {
-    private readonly CascadeResolver _resolver = new();
     private readonly List<Stylesheet> _stylesheets = new();
+    private StyleSheetContents? _uaSheet;
+    private readonly List<StyleSheetContents> _authorSheets = new();
 
-    public void AddStylesheet(Stylesheet stylesheet)
+    public void AddStylesheet(Stylesheet stylesheet, CascadeOrigin origin = CascadeOrigin.Author)
     {
         _stylesheets.Add(stylesheet);
-        _resolver.AddStylesheet(stylesheet);
+
+        // Prefer the token-parsed sheet attached by CssParser.Parse so the modern
+        // pipeline never re-parses the CSS text. The legacy model is retained only
+        // for the string scans (HasHoverRules).
+        var modern = stylesheet.ModernContents;
+        if (modern == null) return;
+        if (origin == CascadeOrigin.UserAgent)
+            _uaSheet = modern;
+        else
+            _authorSheets.Add(modern);
     }
 
     public void ComputeStyles(Document document, float viewportWidth = 1024f, float viewportHeight = 768f, string colorScheme = "light")
     {
-        _resolver.ResolveStyles(document, viewportWidth, viewportHeight, colorScheme);
+        var resolver = new StyleResolver(uaSheet: _uaSheet);
+        resolver.AddStyleSheets(_authorSheets);
+        resolver.SetViewport(viewportWidth, viewportHeight, colorScheme);
+        resolver.ResolveDocument(document);
     }
 
     /// <summary>

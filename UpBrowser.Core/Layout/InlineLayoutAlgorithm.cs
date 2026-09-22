@@ -141,8 +141,10 @@ public class InlineLayoutAlgorithm : LayoutAlgorithm
         var stateStack = new InlineLayoutStateStack();
         var builder = new LogicalLineBuilder(inlineNode, Space, null, stateStack);
 
-        // text-overflow: ellipsis support via LineTruncator.
-        bool useEllipsis = Style.TextOverflow is TextOverflowType.Ellipsis;
+        // text-overflow: ellipsis support via LineTruncator. Per spec it only
+        // applies when the block clips overflow (overflow != visible).
+        bool useEllipsis = Style.TextOverflow is TextOverflowType.Ellipsis
+            && Style.Overflow is not OverflowType.Visible;
         var itemsBuilder = new FragmentItemsBuilder();
 
         foreach (var info in lines)

@@ -1,701 +1,305 @@
-using System.Text.RegularExpressions;
+using UpBrowser.Core.Css.Matcher;
+using UpBrowser.Core.Css.Properties;
+using UpBrowser.Core.Css.Rules;
+using UpBrowser.Core.Css.Tokenizer;
 using UpBrowser.Core.Dom;
 
 namespace UpBrowser.Core.Css;
 
+/// <summary>
+/// Entry point for parsing CSS text into the legacy <see cref="Stylesheet"/> model.
+/// The heavy lifting is delegated to the token-based <see cref="CssParserImpl"/> so
+/// parsing is robust against strings, comments, escapes and nested at-rules.
+/// </summary>
 public class CssParser
 {
-    private static readonly Regex CommentRegex = new(@"/\*.*?\*/", RegexOptions.Singleline);
-    private static readonly Regex PropertyRegex = new(@"^([\-a-z]+)\s*:\s*(.+)$", RegexOptions.IgnoreCase);
-
     public Stylesheet Parse(string cssText)
     {
         var stylesheet = new Stylesheet();
         if (string.IsNullOrEmpty(cssText)) return stylesheet;
 
-        cssText = CommentRegex.Replace(cssText, "");
-
-        var cleaned = new System.Text.StringBuilder(cssText.Length);
-        bool inString = false;
-        char stringChar = '\0';
-        for (int i = 0; i < cssText.Length; i++)
-        {
-            char c = cssText[i];
-            if (inString)
-            {
-                if (c == stringChar && (i == 0 || cssText[i - 1] != '\\'))
-                {
-                    inString = false;
-                    continue;
-                }
-                cleaned.Append(c);
-                continue;
-            }
-            if (c == '\'' || c == '"')
-            {
-                inString = true;
-                stringChar = c;
-                continue;
-            }
-            cleaned.Append(c);
-        }
-        cssText = cleaned.ToString();
-
-        int pos = 0;
-        ParseRuleList(cssText, ref pos, stylesheet);
-
-        stylesheet.Rules.Sort((a, b) =>
-        {
-            int cmp = a.Specificity.a.CompareTo(b.Specificity.a);
-            if (cmp != 0) return cmp;
-            cmp = a.Specificity.b.CompareTo(b.Specificity.b);
-            if (cmp != 0) return cmp;
-            cmp = a.Specificity.c.CompareTo(b.Specificity.c);
-            if (cmp != 0) return cmp;
-            return a.Specificity.d.CompareTo(b.Specificity.d);
-        });
+        var contents = CssParserImpl.ParseStyleSheet(cssText, CssParserContext.Default());
+        stylesheet.ModernContents = contents;
+        ConvertRules(contents.ChildRules, stylesheet);
         return stylesheet;
     }
 
-    private void ParseRuleList(string css, ref int pos, Stylesheet stylesheet)
+    /// <summary>Converts token-parsed rules into the legacy model consumed by the cascade.</summary>
+    private static void ConvertRules(IReadOnlyList<StyleRuleBase> source, Stylesheet target)
     {
-        while (pos < css.Length)
+        foreach (var rule in source)
         {
-            SkipWhitespace(css, ref pos);
-            if (pos >= css.Length) break;
-
-            if (css[pos] == '}') { pos++; continue; }
-
-            if (css[pos] == '@')
+            switch (rule)
             {
-                int start = pos;
-                pos++;
-                int identStart = pos;
-                while (pos < css.Length && (char.IsLetterOrDigit(css[pos]) || css[pos] == '-')) pos++;
-                string atName = css[identStart..pos].ToLowerInvariant();
-
-                SkipWhitespace(css, ref pos);
-
-                if (atName == "media")
+                case StyleRule styleRule:
+                    ConvertStyleRule(styleRule, target.Rules);
+                    break;
+                case StyleRuleMedia media:
                 {
-                    var condition = ReadUntilBrace(css, ref pos);
-                    if (pos < css.Length && css[pos] == '{')
+                    var mediaRule = new MediaRule { Condition = media.ConditionText };
+                    ConvertGroupChildren(media.ChildRules, mediaRule);
+                    target.MediaRules.Add(mediaRule);
+                    break;
+                }
+                case StyleRuleSupports supports:
+                {
+                    var supportsRule = new SupportsRule { Condition = supports.ConditionText };
+                    ConvertGroupChildren(supports.ChildRules, supportsRule);
+                    target.SupportsRules.Add(supportsRule);
+                    break;
+                }
+                case StyleRuleLayerBlock layer:
+                {
+                    var layerRule = new LayerRule { Name = layer.LayerName.Count > 0 ? string.Join(".", layer.LayerName) : null };
+                    ConvertGroupChildren(layer.ChildRules, layerRule);
+                    target.LayerRules.Add(layerRule);
+                    break;
+                }
+                case StyleRuleContainer container:
+                {
+                    var containerRule = new ContainerRule { Condition = container.ConditionText };
+                    ConvertGroupChildren(container.ChildRules, containerRule);
+                    target.ContainerRules.Add(containerRule);
+                    break;
+                }
+                case StyleRuleScope scope:
+                {
+                    var scopeRule = new ScopeRule
                     {
-                        pos++;
-                        var rule = new MediaRule { Condition = condition.Trim() };
-                        int depth = 1;
-                        int blockStart = pos;
-                        while (pos < css.Length && depth > 0)
+                        ScopeRoot = scope.ScopeRoot,
+                        ScopeLimit = scope.ScopeLimit,
+                    };
+                    ConvertGroupChildren(scope.ChildRules, scopeRule);
+                    target.ScopeRules.Add(scopeRule);
+                    break;
+                }
+                case StyleRuleStartingStyle starting:
+                {
+                    var startingRule = new StartingStyleRule();
+                    ConvertGroupChildren(starting.ChildRules, startingRule);
+                    target.StartingStyleRules.Add(startingRule);
+                    break;
+                }
+                case StyleRuleFontFace fontFace:
+                    target.FontFaceRules.Add(new FontFaceRule
+                    {
+                        Properties = ConvertPropertySet(fontFace.Properties)
+                    });
+                    break;
+                case StyleRuleImport import:
+                    target.ImportRules.Add(new ImportRule
+                    {
+                        Url = import.Url,
+                        MediaCondition = import.MediaCondition,
+                    });
+                    break;
+                case StyleRuleKeyframes keyframes:
+                {
+                    var kfRule = new KeyframesRule { Name = keyframes.Name };
+                    foreach (var kf in keyframes.Keyframes)
+                    {
+                        kfRule.Keyframes.Add(new KeyframeBlock
                         {
-                            if (css[pos] == '{') depth++;
-                            else if (css[pos] == '}') depth--;
-                            pos++;
-                        }
-                        string blockContent = css[blockStart..(pos - 1)];
-                        int innerPos = 0;
-                        ParseRuleList(blockContent, ref innerPos, rule, stylesheet);
-                        stylesheet.MediaRules.Add(rule);
+                            Selector = kf.Key,
+                            Properties = ConvertPropertySet(kf.Properties),
+                        });
                     }
+                    target.KeyframesRules.Add(kfRule);
+                    break;
                 }
-                else if (atName == "import")
-                {
-                    var urlPart = ReadUntilSemicolon(css, ref pos);
-                    var rule = new ImportRule();
-                    urlPart = urlPart.Trim();
-                    if (urlPart.StartsWith("url("))
-                        rule.Url = urlPart[4..^1].Trim().Trim('"', '\'');
-                    else
-                        rule.Url = urlPart.Trim().Trim('"', '\'');
-                    var semiIdx = css.IndexOf(';', pos);
-                    if (semiIdx > 0)
-                    {
-                        var afterUrl = css[pos..semiIdx].Trim();
-                        if (!string.IsNullOrEmpty(afterUrl))
-                            rule.MediaCondition = afterUrl;
-                        pos = semiIdx + 1;
-                    }
-                    else
-                    {
-                        pos = css.IndexOf(';', pos) + 1;
-                    }
-                    stylesheet.ImportRules.Add(rule);
-                }
-                else if (atName == "font-face")
-                {
-                    SkipWhitespace(css, ref pos);
-                    if (pos < css.Length && css[pos] == '{')
-                    {
-                        pos++;
-                        int depth = 1;
-                        int blockStart = pos;
-                        while (pos < css.Length && depth > 0)
-                        {
-                            if (css[pos] == '{') depth++;
-                            else if (css[pos] == '}') depth--;
-                            pos++;
-                        }
-                        string blockContent = css[blockStart..(pos - 1)];
-                        var (props, _) = ParsePropertiesWithImportance(blockContent);
-                        stylesheet.FontFaceRules.Add(new FontFaceRule { Properties = props });
-                    }
-                }
-                else if (atName == "keyframes" || atName == "-webkit-keyframes" || atName == "-moz-keyframes")
-                {
-                    SkipWhitespace(css, ref pos);
-                    int nameStart = pos;
-                    while (pos < css.Length && css[pos] != '{') pos++;
-                    string name = css[nameStart..pos].Trim();
-                    if (pos < css.Length && css[pos] == '{')
-                    {
-                        pos++;
-                        var rule = new KeyframesRule { Name = name };
-                        int depth = 1;
-                        int blockStart = pos;
-                        while (pos < css.Length && depth > 0)
-                        {
-                            if (css[pos] == '{') depth++;
-                            else if (css[pos] == '}') depth--;
-                            pos++;
-                        }
-                        string blockContent = css[blockStart..(pos - 1)];
-                        int innerPos = 0;
-                        ParseKeyframeBlocks(blockContent, ref innerPos, rule);
-                        stylesheet.KeyframesRules.Add(rule);
-                    }
-                }
-                else if (atName == "supports")
-                {
-                    var condition = ReadUntilBrace(css, ref pos);
-                    if (pos < css.Length && css[pos] == '{')
-                    {
-                        pos++;
-                        var rule = new SupportsRule { Condition = condition.Trim() };
-                        int depth = 1;
-                        int blockStart = pos;
-                        while (pos < css.Length && depth > 0)
-                        {
-                            if (css[pos] == '{') depth++;
-                            else if (css[pos] == '}') depth--;
-                            pos++;
-                        }
-                        string blockContent = css[blockStart..(pos - 1)];
-                        int innerPos = 0;
-                        ParseRuleList(blockContent, ref innerPos, rule, stylesheet);
-                        stylesheet.SupportsRules.Add(rule);
-                    }
-                }
-                else if (atName == "layer")
-                {
-                    SkipWhitespace(css, ref pos);
-                    string? layerName = null;
-                    if (pos < css.Length && css[pos] != '{')
-                    {
-                        int nameStart = pos;
-                        while (pos < css.Length && css[pos] != '{' && css[pos] != ';') pos++;
-                        layerName = css[nameStart..pos].Trim();
-                        if (pos < css.Length && css[pos] == ';') { pos++; continue; }
-                    }
-                    if (pos < css.Length && css[pos] == '{')
-                    {
-                        pos++;
-                        var rule = new LayerRule { Name = layerName };
-                        int depth = 1;
-                        int blockStart = pos;
-                        while (pos < css.Length && depth > 0)
-                        {
-                            if (css[pos] == '{') depth++;
-                            else if (css[pos] == '}') depth--;
-                            pos++;
-                        }
-                        string blockContent = css[blockStart..(pos - 1)];
-                        int innerPos = 0;
-                        ParseRuleList(blockContent, ref innerPos, rule, stylesheet);
-                        stylesheet.LayerRules.Add(rule);
-                    }
-                }
-                else
-                {
-                    SkipUntilSemicolonOrBrace(css, ref pos);
-                }
-            }
-            else
-            {
-                int ruleStart = pos;
-                SkipUntilBrace(css, ref pos);
-                string selectorPart = css[ruleStart..pos].Trim();
-                if (pos < css.Length && css[pos] == '{')
-                {
-                    pos++;
-                    int depth = 1;
-                    int blockStart = pos;
-                    while (pos < css.Length && depth > 0)
-                    {
-                        if (css[pos] == '{') depth++;
-                        else if (css[pos] == '}') depth--;
-                        pos++;
-                    }
-                    string bodyPart = css[blockStart..(pos - 1)].Trim();
-
-                    if (!string.IsNullOrEmpty(selectorPart))
-                    {
-                        var selectors = ParseSelectors(selectorPart);
-                        var (properties, importantProps) = ParsePropertiesWithImportance(bodyPart);
-                        foreach (var selector in selectors)
-                        {
-                            var rule = new CssRule
-                            {
-                                Selector = selector,
-                                Specificity = CalculateSpecificity(selector),
-                                Properties = new Dictionary<string, string>(properties),
-                                ImportantProperties = new HashSet<string>(importantProps, StringComparer.OrdinalIgnoreCase)
-                            };
-                            stylesheet.Rules.Add(rule);
-                        }
-                    }
-                }
+                case StyleRuleProperty propertyRule:
+                    target.PropertyRules.Add(new PropertyRule { Name = propertyRule.Name });
+                    break;
+                case StyleRuleCounterStyle counterStyle:
+                    target.CounterStyleRules.Add(new CounterStyleRule { Name = counterStyle.Name });
+                    break;
+                case StyleRuleNamespace ns:
+                    target.NamespaceRules.Add(new NamespaceRule { Prefix = ns.Prefix, Uri = ns.NamespaceUri });
+                    break;
             }
         }
     }
 
-    private void ParseRuleList(string css, ref int pos, CssAtRule parentRule, Stylesheet stylesheet)
+    private static void ConvertStyleRule(StyleRule styleRule, List<CssRule> target)
     {
-        while (pos < css.Length)
+        if (styleRule.Selectors.Count == 0) return;
+        var props = ConvertPropertySet(styleRule.Properties);
+
+        foreach (var selector in styleRule.Selectors)
         {
-            SkipWhitespace(css, ref pos);
-            if (pos >= css.Length) break;
-            if (css[pos] == '}') break;
-
-            if (css[pos] == '@')
+            selector.ComputeSpecificity();
+            var rule = new CssRule
             {
-                pos++;
-                int identStart = pos;
-                while (pos < css.Length && (char.IsLetterOrDigit(css[pos]) || css[pos] == '-')) pos++;
-                string atName = css[identStart..pos].ToLowerInvariant();
+                Selector = selector.ToComplexText(),
+                Specificity = (selector.SpecificityA, selector.SpecificityB, selector.SpecificityC, 0),
+                Properties = props,
+                ImportantProperties = styleRule.Properties.PropertyCount > 0
+                    ? CollectImportant(styleRule.Properties)
+                    : new HashSet<string>(),
+                OriginalSelectorText = styleRule.OriginalSelectorText,
+            };
+            target.Add(rule);
+        }
+    }
 
-                SkipWhitespace(css, ref pos);
+    private static HashSet<string> CollectImportant(CssPropertyValueSet set)
+    {
+        var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var prop in set.Properties)
+            if (prop.IsImportant)
+                result.Add(prop.Name.ToCssString());
+        return result;
+    }
 
-                if (atName == "import")
-                {
-                    var urlPart = ReadUntilSemicolon(css, ref pos);
-                    var rule = new ImportRule();
-                    urlPart = urlPart.Trim();
-                    if (urlPart.StartsWith("url("))
-                        rule.Url = urlPart[4..^1].Trim().Trim('"', '\'');
-                    else
-                        rule.Url = urlPart.Trim().Trim('"', '\'');
-                    pos = css.IndexOf(';', pos) + 1;
-                    stylesheet.ImportRules.Add(rule);
-                }
-                else if (atName == "font-face")
-                {
-                    SkipWhitespace(css, ref pos);
-                    if (pos < css.Length && css[pos] == '{')
-                    {
-                        pos++;
-                        int depth = 1;
-                        int blockStart = pos;
-                        while (pos < css.Length && depth > 0)
-                        {
-                            if (css[pos] == '{') depth++;
-                            else if (css[pos] == '}') depth--;
-                            pos++;
-                        }
-                        string blockContent = css[blockStart..(pos - 1)];
-                        var (props, _) = ParsePropertiesWithImportance(blockContent);
-                        stylesheet.FontFaceRules.Add(new FontFaceRule { Properties = props });
-                    }
-                }
-                else
-                {
-                    SkipUntilSemicolonOrBrace(css, ref pos);
-                }
+    private static Dictionary<string, string> ConvertPropertySet(CssPropertyValueSet set)
+    {
+        var dict = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var prop in set.Properties)
+            dict[prop.Name.ToCssString()] = prop.Value.CssText();
+        return dict;
+    }
+
+    private static void ConvertGroupChildren(IReadOnlyList<StyleRuleBase> children, CssAtRuleGroup target)
+    {
+        foreach (var child in children)
+        {
+            if (child is StyleRule sr)
+                ConvertStyleRule(sr, target.Rules);
+            else if (child is StyleRuleMedia m)
+            {
+                var sub = new MediaRule { Condition = m.ConditionText };
+                ConvertGroupChildren(m.ChildRules, sub);
+                target.SubMediaRules.Add(sub);
             }
-            else
+            else if (child is StyleRuleSupports s)
             {
-                int ruleStart = pos;
-                SkipUntilBrace(css, ref pos);
-                string selectorPart = css[ruleStart..pos].Trim();
-                if (pos < css.Length && css[pos] == '{')
-                {
-                    pos++;
-                    int depth = 1;
-                    int blockStart = pos;
-                    while (pos < css.Length && depth > 0)
-                    {
-                        if (css[pos] == '{') depth++;
-                        else if (css[pos] == '}') depth--;
-                        pos++;
-                    }
-                    string bodyPart = css[blockStart..(pos - 1)].Trim();
-
-                    if (!string.IsNullOrEmpty(selectorPart))
-                    {
-                        var selectors = ParseSelectors(selectorPart);
-                        var (properties, importantProps) = ParsePropertiesWithImportance(bodyPart);
-
-                        if (parentRule is MediaRule mediaRule)
-                        {
-                            foreach (var selector in selectors)
-                            {
-                                mediaRule.Rules.Add(new CssRule
-                                {
-                                    Selector = selector,
-                                    Specificity = CalculateSpecificity(selector),
-                                    Properties = new Dictionary<string, string>(properties),
-                                    ImportantProperties = new HashSet<string>(importantProps, StringComparer.OrdinalIgnoreCase)
-                                });
-                            }
-                        }
-                        else if (parentRule is SupportsRule supportsRule)
-                        {
-                            foreach (var selector in selectors)
-                            {
-                                supportsRule.Rules.Add(new CssRule
-                                {
-                                    Selector = selector,
-                                    Specificity = CalculateSpecificity(selector),
-                                    Properties = new Dictionary<string, string>(properties),
-                                    ImportantProperties = new HashSet<string>(importantProps, StringComparer.OrdinalIgnoreCase)
-                                });
-                            }
-                        }
-                        else if (parentRule is LayerRule layerRule)
-                        {
-                            foreach (var selector in selectors)
-                            {
-                                layerRule.Rules.Add(new CssRule
-                                {
-                                    Selector = selector,
-                                    Specificity = CalculateSpecificity(selector),
-                                    Properties = new Dictionary<string, string>(properties),
-                                    ImportantProperties = new HashSet<string>(importantProps, StringComparer.OrdinalIgnoreCase)
-                                });
-                            }
-                        }
-                    }
-                }
+                var sub = new SupportsRule { Condition = s.ConditionText };
+                ConvertGroupChildren(s.ChildRules, sub);
+                target.SubSupportsRules.Add(sub);
+            }
+            else if (child is StyleRuleLayerBlock l)
+            {
+                var sub = new LayerRule { Name = l.LayerName.Count > 0 ? string.Join(".", l.LayerName) : null };
+                ConvertGroupChildren(l.ChildRules, sub);
+                target.SubLayerRules.Add(sub);
+            }
+            else if (child is StyleRuleContainer c)
+            {
+                var sub = new ContainerRule { Condition = c.ConditionText };
+                ConvertGroupChildren(c.ChildRules, sub);
+                target.SubContainerRules.Add(sub);
+            }
+            else if (child is StyleRuleScope sc)
+            {
+                var sub = new ScopeRule { ScopeRoot = sc.ScopeRoot, ScopeLimit = sc.ScopeLimit };
+                ConvertGroupChildren(sc.ChildRules, sub);
+                target.SubScopeRules.Add(sub);
+            }
+            else if (child is StyleRuleStartingStyle st)
+            {
+                var sub = new StartingStyleRule();
+                ConvertGroupChildren(st.ChildRules, sub);
+                target.SubStartingStyleRules.Add(sub);
             }
         }
     }
 
-    private void ParseKeyframeBlocks(string css, ref int pos, KeyframesRule rule)
-    {
-        while (pos < css.Length)
-        {
-            SkipWhitespace(css, ref pos);
-            if (pos >= css.Length) break;
-            if (css[pos] == '}') break;
-
-            int selStart = pos;
-            SkipUntilBrace(css, ref pos);
-            string selector = css[selStart..pos].Trim();
-            if (pos < css.Length && css[pos] == '{')
-            {
-                pos++;
-                int depth = 1;
-                int blockStart = pos;
-                while (pos < css.Length && depth > 0)
-                {
-                    if (css[pos] == '{') depth++;
-                    else if (css[pos] == '}') depth--;
-                    pos++;
-                }
-                string body = css[blockStart..(pos - 1)].Trim();
-                var (props, _) = ParsePropertiesWithImportance(body);
-                rule.Keyframes.Add(new KeyframeBlock
-                {
-                    Selector = selector,
-                    Properties = props
-                });
-            }
-        }
-    }
-
-    private void SkipWhitespace(string css, ref int pos)
-    {
-        while (pos < css.Length && char.IsWhiteSpace(css[pos])) pos++;
-    }
-
-    private string ReadUntilBrace(string css, ref int pos)
-    {
-        int start = pos;
-        while (pos < css.Length && css[pos] != '{') pos++;
-        return css[start..pos];
-    }
-
-    private string ReadUntilSemicolon(string css, ref int pos)
-    {
-        int start = pos;
-        while (pos < css.Length && css[pos] != ';' && css[pos] != '{') pos++;
-        return css[start..pos];
-    }
-
-    private void SkipUntilBrace(string css, ref int pos)
-    {
-        while (pos < css.Length && css[pos] != '{' && css[pos] != '}') pos++;
-    }
-
-    private void SkipUntilSemicolonOrBrace(string css, ref int pos)
-    {
-        int depth = 0;
-        while (pos < css.Length)
-        {
-            if (css[pos] == '{') depth++;
-            else if (css[pos] == '}')
-            {
-                if (depth == 0) break;
-                depth--;
-            }
-            else if (css[pos] == ';' && depth == 0) { pos++; return; }
-            pos++;
-        }
-        if (pos < css.Length) pos++;
-    }
-
-    private List<string> ParseSelectors(string selectorText)
-    {
-        var selectors = new List<string>();
-        var current = "";
-        int parenDepth = 0;
-
-        for (int i = 0; i < selectorText.Length; i++)
-        {
-            char c = selectorText[i];
-            if (c == '(') parenDepth++;
-            else if (c == ')') parenDepth--;
-            else if (c == ',' && parenDepth == 0)
-            {
-                if (!string.IsNullOrWhiteSpace(current))
-                    selectors.Add(current.Trim());
-                current = "";
-            }
-            else current += c;
-        }
-
-        if (!string.IsNullOrWhiteSpace(current))
-            selectors.Add(current.Trim());
-
-        return selectors;
-    }
-
-    public (Dictionary<string, string> properties, HashSet<string> importantProps) ParsePropertiesWithImportance(string body)
-    {
-        var properties = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        var importantProps = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var declarations = body.Split(';', StringSplitOptions.RemoveEmptyEntries);
-
-        foreach (var decl in declarations)
-        {
-            var match = PropertyRegex.Match(decl.Trim());
-            if (match.Success)
-            {
-                var name = match.Groups[1].Value.ToLowerInvariant();
-                var value = match.Groups[2].Value.Trim();
-                if (value.EndsWith("!important", StringComparison.OrdinalIgnoreCase))
-                {
-                    value = value[..^"!important".Length].Trim();
-                    importantProps.Add(name);
-                }
-                properties[name] = value;
-            }
-        }
-
-        return (properties, importantProps);
-    }
-
-    private Dictionary<string, string> ParseProperties(string body)
-    {
-        return ParsePropertiesWithImportance(body).properties;
-    }
-
-    private (int a, int b, int c, int d) CalculateSpecificity(string selector)
-    {
-        int a = 0, b = 0, c = 0, d = 0;
-        int i = 0;
-
-        while (i < selector.Length)
-        {
-            char ch = selector[i];
-
-            if (ch == '#')
-            {
-                a++;
-                i++;
-                while (i < selector.Length && IsIdentChar(selector[i])) i++;
-            }
-            else if (ch == '.')
-            {
-                b++;
-                i++;
-                while (i < selector.Length && IsIdentChar(selector[i])) i++;
-            }
-            else if (ch == '[')
-            {
-                b++;
-                int depth = 1;
-                i++;
-                while (i < selector.Length && depth > 0)
-                {
-                    if (selector[i] == '[') depth++;
-                    else if (selector[i] == ']') depth--;
-                    i++;
-                }
-            }
-            else if (ch == ':')
-            {
-                if (i + 1 < selector.Length && selector[i + 1] == ':')
-                { d++; i += 2; }
-                else { i++; }
-
-                int nameStart = i;
-                while (i < selector.Length && selector[i] != '(' && selector[i] != ' ') i++;
-                string pseudoName = selector[nameStart..i].ToLowerInvariant();
-
-                // :is(), :not(), :has() use the highest specificity of their arguments
-                // :where() has zero specificity
-                bool isZeroSpec = pseudoName == "where";
-                bool isArgSpec = pseudoName == "is" || pseudoName == "not" || pseudoName == "has";
-
-                if (!isZeroSpec && !isArgSpec)
-                    c++;
-
-                if (i < selector.Length && selector[i] == '(')
-                {
-                    int parenDepth = 1;
-                    int argStart = i + 1;
-                    i++;
-                    while (i < selector.Length && parenDepth > 0)
-                    {
-                        if (selector[i] == '(') parenDepth++;
-                        else if (selector[i] == ')') parenDepth--;
-                        i++;
-                    }
-                    string args = selector[argStart..(i - 1)];
-
-                    if (isArgSpec)
-                    {
-                        // Compute max specificity across all arguments
-                        (int a, int b, int c, int d) argMax = (0, 0, 0, 0);
-                        foreach (var arg in SplitSelectorsForSpecificity(args))
-                        {
-                            var argSpec = CalculateSpecificity(arg.Trim());
-                            if (argSpec.a > argMax.a ||
-                                (argSpec.a == argMax.a && argSpec.b > argMax.b) ||
-                                (argSpec.a == argMax.a && argSpec.b == argMax.b && argSpec.c > argMax.c) ||
-                                (argSpec.a == argMax.a && argSpec.b == argMax.b && argSpec.c == argMax.c && argSpec.d > argMax.d))
-                            {
-                                argMax = argSpec;
-                            }
-                        }
-                        a += argMax.a;
-                        b += argMax.b;
-                        c += argMax.c;
-                        d += argMax.d;
-                    }
-                    // :where() adds nothing
-                }
-            }
-            else if (ch == '*') { d++; i++; }
-            else if (IsIdentStart(ch))
-            {
-                while (i < selector.Length && IsIdentChar(selector[i])) i++;
-                if (i < selector.Length && selector[i] == '(')
-                {
-                    int depth = 1;
-                    i++;
-                    while (i < selector.Length && depth > 0)
-                    {
-                        if (selector[i] == '(') depth++;
-                        else if (selector[i] == ')') depth--;
-                        i++;
-                    }
-                }
-                else d++;
-            }
-            else if (ch == ' ' || ch == '>' || ch == '+' || ch == '~')
-            { i++; }
-            else i++;
-        }
-
-        return (a, b, c, d);
-    }
-
-    private List<string> SplitSelectorsForSpecificity(string args)
-    {
-        var parts = new List<string>();
-        int depth = 0;
-        int start = 0;
-        for (int i = 0; i < args.Length; i++)
-        {
-            if (args[i] == '(') depth++;
-            else if (args[i] == ')') depth--;
-            else if (args[i] == ',' && depth == 0)
-            {
-                parts.Add(args[start..i].Trim());
-                start = i + 1;
-            }
-        }
-        if (start < args.Length)
-            parts.Add(args[start..].Trim());
-        return parts;
-    }
-
-    private bool IsIdentStart(char c) => char.IsLetter(c) || c == '_';
-    private bool IsIdentChar(char c) => char.IsLetterOrDigit(c) || c == '_' || c == '-';
-
+    /// <summary>
+    /// Parse an inline style attribute value into a property dictionary.
+    /// Uses the tokenizer so values containing ';' inside strings or functions
+    /// (e.g. <c>content: "a;b"</c>) are handled correctly.
+    /// </summary>
     public Dictionary<string, string> ParseInlineStyle(string styleText)
     {
-        var properties = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        if (string.IsNullOrWhiteSpace(styleText)) return properties;
+        var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        if (string.IsNullOrWhiteSpace(styleText)) return result;
 
-        var declarations = styleText.Split(';', StringSplitOptions.RemoveEmptyEntries);
-        foreach (var decl in declarations)
+        var set = CssParserImpl.ParseDeclarationBlock(styleText, CssParserContext.Default());
+        foreach (var prop in set.Properties)
         {
-            var colonIndex = decl.IndexOf(':');
-            if (colonIndex > 0)
-            {
-                var name = decl[..colonIndex].Trim().ToLowerInvariant();
-                var value = decl[(colonIndex + 1)..].Trim();
-                properties[name] = value;
-            }
+            if (prop.Value != null)
+                result[prop.Name.ToCssString()] = prop.Value.CssText();
         }
+        return result;
+    }
 
-        return properties;
+    /// <summary>
+    /// Parses a declaration block body into property / importance pairs.
+    /// String- and function-aware so values such as <c>content: "a;b"</c> survive.
+    /// </summary>
+    public (Dictionary<string, string> properties, HashSet<string> importantProps) ParsePropertiesWithImportance(string body)
+    {
+        var props = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var important = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        var set = CssParserImpl.ParseDeclarationBlock(body, CssParserContext.Default());
+        foreach (var prop in set.Properties)
+        {
+            if (prop.Value == null) continue;
+            var name = prop.Name.ToCssString();
+            props[name] = prop.Value.CssText();
+            if (prop.IsImportant)
+                important.Add(name);
+        }
+        return (props, important);
     }
 }
 
-public class Stylesheet
-{
-    public List<CssRule> Rules { get; } = new();
-    public List<MediaRule> MediaRules { get; } = new();
-    public List<FontFaceRule> FontFaceRules { get; } = new();
-    public List<ImportRule> ImportRules { get; } = new();
-    public List<KeyframesRule> KeyframesRules { get; } = new();
-    public List<SupportsRule> SupportsRules { get; } = new();
-    public List<LayerRule> LayerRules { get; } = new();
-
-    public void AddRule(CssRule rule) => Rules.Add(rule);
-}
-
+/// <summary>Base class for CSS rules parsed from a stylesheet.</summary>
 public abstract class CssAtRule
 {
     public string? MediaCondition { get; set; }
 }
 
-public class MediaRule : CssAtRule
+/// <summary>Base for group rules that own a nested rule list.</summary>
+public abstract class CssAtRuleGroup : CssAtRule
+{
+    public List<CssRule> Rules { get; } = new();
+    public List<MediaRule> SubMediaRules { get; } = new();
+    public List<SupportsRule> SubSupportsRules { get; } = new();
+    public List<LayerRule> SubLayerRules { get; } = new();
+    public List<ContainerRule> SubContainerRules { get; } = new();
+    public List<ScopeRule> SubScopeRules { get; } = new();
+    public List<StartingStyleRule> SubStartingStyleRules { get; } = new();
+}
+
+public class MediaRule : CssAtRuleGroup
 {
     public string Condition { get; set; } = "";
-    public List<CssRule> Rules { get; set; } = new();
+}
+
+public class ContainerRule : CssAtRuleGroup
+{
+    public string Condition { get; set; } = "";
+}
+
+public class SupportsRule : CssAtRuleGroup
+{
+    public string Condition { get; set; } = "";
+}
+
+public class LayerRule : CssAtRuleGroup
+{
+    public string? Name { get; set; }
+}
+
+public class ScopeRule : CssAtRuleGroup
+{
+    public string ScopeRoot { get; set; } = "";
+    public string ScopeLimit { get; set; } = "";
+}
+
+public class StartingStyleRule : CssAtRuleGroup
+{
 }
 
 public class FontFaceRule : CssAtRule
 {
-    public Dictionary<string, string> Properties { get; set; } = new();
+    public Dictionary<string, string> Properties { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 }
 
 public class ImportRule : CssAtRule
 {
-    public new string? MediaCondition { get; set; }
     public string Url { get; set; } = "";
 }
 
@@ -708,768 +312,58 @@ public class KeyframesRule : CssAtRule
 public class KeyframeBlock
 {
     public string Selector { get; set; } = "";
-    public Dictionary<string, string> Properties { get; set; } = new();
+    public Dictionary<string, string> Properties { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 }
 
-public class SupportsRule : CssAtRule
+public class PropertyRule : CssAtRule
 {
-    public string Condition { get; set; } = "";
-    public List<CssRule> Rules { get; set; } = new();
+    public string Name { get; set; } = "";
 }
 
-public class LayerRule : CssAtRule
+public class CounterStyleRule : CssAtRule
 {
-    public string? Name { get; set; }
-    public List<CssRule> Rules { get; set; } = new();
+    public string Name { get; set; } = "";
+}
+
+public class NamespaceRule : CssAtRule
+{
+    public string? Prefix { get; set; }
+    public string Uri { get; set; } = "";
+}
+
+public class Stylesheet
+{
+    /// <summary>
+    /// The token-parsed model backing this legacy sheet. Set by
+    /// <see cref="CssParser.Parse"/> so the modern pipeline can reuse the same
+    /// parse result instead of re-tokenizing the CSS text.
+    /// </summary>
+    public StyleSheetContents? ModernContents { get; set; }
+
+    public List<CssRule> Rules { get; } = new();
+    public List<MediaRule> MediaRules { get; } = new();
+    public List<ContainerRule> ContainerRules { get; } = new();
+    public List<FontFaceRule> FontFaceRules { get; } = new();
+    public List<ImportRule> ImportRules { get; } = new();
+    public List<KeyframesRule> KeyframesRules { get; } = new();
+    public List<SupportsRule> SupportsRules { get; } = new();
+    public List<LayerRule> LayerRules { get; } = new();
+    public List<ScopeRule> ScopeRules { get; } = new();
+    public List<StartingStyleRule> StartingStyleRules { get; } = new();
+    public List<PropertyRule> PropertyRules { get; } = new();
+    public List<CounterStyleRule> CounterStyleRules { get; } = new();
+    public List<NamespaceRule> NamespaceRules { get; } = new();
+
+    public void AddRule(CssRule rule) => Rules.Add(rule);
 }
 
 public class CssRule
 {
     public string Selector { get; set; } = string.Empty;
     public (int a, int b, int c, int d) Specificity { get; set; }
-    public Dictionary<string, string> Properties { get; set; } = new();
-    public HashSet<string> ImportantProperties { get; set; } = new();
+    public Dictionary<string, string> Properties { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+    public HashSet<string> ImportantProperties { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+    public string OriginalSelectorText { get; set; } = "";
 
     public bool IsPropertyImportant(string prop) => ImportantProperties.Contains(prop);
-}
-
-public class CssSelector
-{
-    public SelectorType Type { get; set; }
-    public string? TagName { get; set; }
-    public string? Namespace { get; set; }
-    public string? Id { get; set; }
-    public List<string> Classes { get; } = new();
-    public string? AttributeName { get; set; }
-    public string? AttributeValue { get; set; }
-    public AttributeMatchType AttributeMatch { get; set; }
-    public PseudoClassType? PseudoClass { get; set; }
-    public string? PseudoClassArgument { get; set; }
-    public PseudoElementType? PseudoElement { get; set; }
-
-    public CssSelector? Parent { get; set; }
-    public CombinatorType Combinator { get; set; }
-
-    public (int a, int b, int c, int d) Specificity { get; set; }
-
-    public static CssSelector Parse(string selector)
-    {
-        selector = selector.Trim();
-        // Handle comma-separated groups: "div, .foo, #bar"
-        if (selector.Contains(','))
-        {
-            var groups = selector.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-            if (groups.Length > 0)
-            {
-                var first = ParseSelectorChain(groups[0]);
-                // Chain remaining groups via a parent pointer so Matches checks all
-                var current = first;
-                for (int i = 1; i < groups.Length; i++)
-                {
-                    var next = ParseSelectorChain(groups[i]);
-                    // Walk to the end of the current chain and link
-                    var last = current;
-                    while (last.Parent != null) last = last.Parent;
-                    last.Combinator = CombinatorType.Group;
-                    last.Parent = next;
-                    current = next;
-                }
-                return first;
-            }
-        }
-        return ParseSelectorChain(selector);
-    }
-
-    private static CssSelector ParseSelectorChain(string selector)
-    {
-        var parts = new List<(CombinatorType, string)>();
-        var current = "";
-        CombinatorType currentComb = CombinatorType.Descendant;
-
-        for (int i = 0; i < selector.Length; i++)
-        {
-            char c = selector[i];
-            if (c == ' ' || c == '\t' || c == '\n')
-            {
-                if (!string.IsNullOrEmpty(current))
-                {
-                    parts.Add((currentComb, current.Trim()));
-                    currentComb = CombinatorType.Descendant;
-                    current = "";
-                }
-            }
-            // The +, > and ~ combinators may be surrounded by whitespace; when
-            // current is already empty (whitespace flushed it) only the combinator
-            // is recorded, no empty compound is emitted.
-            else if (c == '>') { if (!string.IsNullOrEmpty(current)) { parts.Add((currentComb, current.Trim())); current = ""; } currentComb = CombinatorType.Child; }
-            else if (c == '+') { if (!string.IsNullOrEmpty(current)) { parts.Add((currentComb, current.Trim())); current = ""; } currentComb = CombinatorType.AdjacentSibling; }
-            else if (c == '~') { if (!string.IsNullOrEmpty(current)) { parts.Add((currentComb, current.Trim())); current = ""; } currentComb = CombinatorType.GeneralSibling; }
-            else current += c;
-        }
-        if (!string.IsNullOrEmpty(current)) parts.Add((currentComb, current.Trim()));
-
-        if (parts.Count == 0) return new CssSelector { Type = SelectorType.Universal };
-
-        // A complex selector is matched right-to-left: the RIGHTMOST compound is
-        // the root (the element the rule applies to), and each compound's Parent
-        // chains to the LEFT (ancestor) compound with that root compound's
-        // Combinator describing the relation ('.w > div' => root=div,
-        // div.Combinator=Child, div.Parent=.w). Previously the LEFTMOST compound
-        // was made the root, so the matcher checked the ancestor's type/class
-        // against the child element and combinators like '>' never worked.
-        CssSelector? root = null;
-        CssSelector? prev = null;
-
-        for (int i = parts.Count - 1; i >= 0; i--)
-        {
-            var (comb, part) = parts[i];
-            var sel = ParseSimpleSelector(part);
-            sel.Combinator = comb;
-
-            if (root == null) root = sel;
-            else prev!.Parent = sel;
-            prev = sel;
-        }
-
-        if (root != null)
-        {
-            CalculateChainSpecificity(root);
-        }
-
-        return root ?? new CssSelector { Type = SelectorType.Universal };
-    }
-
-    private static void CalculateChainSpecificity(CssSelector selector)
-    {
-        var (a, b, c, d) = CalculateSimpleSpecificity(selector);
-        selector.Specificity = (a, b, c, d);
-
-        if (selector.Parent != null)
-        {
-            CalculateChainSpecificity(selector.Parent);
-            var parentSpec = selector.Parent.Specificity;
-            selector.Specificity = (a + parentSpec.a, b + parentSpec.b, c + parentSpec.c, d + parentSpec.d);
-        }
-    }
-
-    private static (int a, int b, int c, int d) CalculateSimpleSpecificity(CssSelector selector)
-    {
-        int a = 0, b = 0, c = 0, d = 0;
-
-        if (!string.IsNullOrEmpty(selector.Id))
-            a++;
-
-        b += selector.Classes.Count;
-
-        if (!string.IsNullOrEmpty(selector.AttributeName))
-            b++;
-
-        if (selector.PseudoClass.HasValue)
-            c++;
-
-        if (selector.PseudoElement.HasValue)
-            d++;
-
-        if (selector.Type == SelectorType.Tag && !string.IsNullOrEmpty(selector.TagName))
-            d++;
-        else if (selector.Type == SelectorType.Universal)
-            d++;
-
-        return (a, b, c, d);
-    }
-
-    private static CssSelector ParseSimpleSelector(string selector)
-    {
-        var s = new CssSelector();
-
-        if (selector == "*" || string.IsNullOrEmpty(selector))
-        {
-            s.Type = SelectorType.Universal;
-            return s;
-        }
-
-        if (selector == "&")
-        {
-            s.Type = SelectorType.Nesting;
-            return s;
-        }
-
-        int i = 0;
-        char first = selector[0];
-
-        if (first == '#')
-        {
-            s.Type = SelectorType.Id;
-            int idEnd = selector.IndexOfAny(new[] { ':', '.', '#', '[' }, 1);
-            s.Id = idEnd < 0 ? selector[1..] : selector[1..idEnd];
-            i = 1;
-        }
-        else if (first == '.')
-        {
-            s.Type = SelectorType.Class;
-            int classEnd = selector.IndexOfAny(new[] { ':', '.', '#', '[' }, 1);
-            string className = classEnd < 0 ? selector[1..] : selector[1..classEnd];
-            s.Classes.Add(className);
-            i = 1;
-        }
-        else if (first == ':')
-        {
-            int doubleColon = selector.StartsWith("::") ? 1 : 0;
-            int pseudoStart = doubleColon + 1;
-            int parenIdx = selector.IndexOf('(');
-            int pseudoEnd = parenIdx > 0 ? parenIdx : selector.Length;
-
-            var pseudo = selector[pseudoStart..pseudoEnd].ToLowerInvariant();
-
-            if (doubleColon > 0)
-            {
-                s.Type = SelectorType.PseudoElement;
-                s.PseudoElement = ParsePseudoElementType(pseudo);
-            }
-            else
-            {
-                s.Type = SelectorType.PseudoClass;
-                if (parenIdx > 0)
-                {
-                    var arg = selector[(parenIdx + 1)..^1].Trim();
-                    s.PseudoClassArgument = arg;
-                }
-                s.PseudoClass = ParsePseudoClassType(pseudo);
-            }
-            i = selector.Length;
-        }
-        else if (first == '[')
-        {
-            s.Type = SelectorType.Attribute;
-            var inner = selector[1..^1];
-            var eqIdx = inner.IndexOf('=');
-            if (eqIdx > 0)
-            {
-                s.AttributeName = inner[..eqIdx];
-                s.AttributeValue = inner[(eqIdx + 1)..].Trim('"', '\'');
-                int opIdx = eqIdx - 1;
-                if (opIdx >= 0)
-                {
-                    char op = inner[opIdx];
-                    s.AttributeMatch = op switch
-                    {
-                        '~' => AttributeMatchType.WhitespaceSeparated,
-                        '^' => AttributeMatchType.StartsWith,
-                        '$' => AttributeMatchType.EndsWith,
-                        '*' => AttributeMatchType.Contains,
-                        '|' => AttributeMatchType.DashSeparator,
-                        _ => AttributeMatchType.Exact
-                    };
-                    if (op == '~' || op == '^' || op == '$' || op == '*' || op == '|')
-                        s.AttributeName = inner[..opIdx];
-                }
-                else
-                {
-                    s.AttributeMatch = AttributeMatchType.Exact;
-                }
-            }
-            else
-            {
-                s.AttributeName = inner;
-                s.AttributeMatch = AttributeMatchType.Exact;
-            }
-            i = selector.Length;
-        }
-        else
-        {
-            s.Type = SelectorType.Tag;
-            var pipeIdx = selector.IndexOf('|');
-            var bracketIdx = selector.IndexOf('[');
-
-            if (pipeIdx > 0 && (bracketIdx < 0 || pipeIdx < bracketIdx))
-            {
-                s.Namespace = selector[..pipeIdx].ToLowerInvariant();
-                var rest = selector[(pipeIdx + 1)..];
-                if (rest == "*")
-                {
-                    s.Type = SelectorType.Universal;
-                    s.TagName = null;
-                }
-                else
-                {
-                    s.TagName = rest.ToLowerInvariant();
-                }
-                i = selector.Length;
-            }
-            else if (bracketIdx > 0)
-            {
-                s.TagName = selector[..bracketIdx].ToLowerInvariant();
-                var inner = selector[(bracketIdx + 1)..^1];
-                var eqIdx = inner.IndexOf('=');
-                if (eqIdx > 0)
-                {
-                    s.AttributeName = inner[..eqIdx];
-                    s.AttributeValue = inner[(eqIdx + 1)..].Trim('"', '\'');
-                    s.AttributeMatch = AttributeMatchType.Exact;
-                }
-                else
-                {
-                    s.AttributeName = inner;
-                }
-            }
-            else
-            {
-                int pseudoOrIdx = selector.IndexOfAny(new[] { ':', '.', '#', '[' });
-                s.TagName = pseudoOrIdx < 0 ? selector.ToLowerInvariant() : selector[..pseudoOrIdx].ToLowerInvariant();
-            }
-        }
-
-        while (i < selector.Length)
-        {
-            char c = selector[i];
-            if (c == '.')
-            {
-                int end = i + 1;
-                while (end < selector.Length && (char.IsLetterOrDigit(selector[end]) || selector[end] == '-')) end++;
-                s.Classes.Add(selector[(i + 1)..end]);
-                i = end;
-            }
-            else if (c == '#')
-            {
-                int end = i + 1;
-                while (end < selector.Length && (char.IsLetterOrDigit(selector[end]) || selector[end] == '-')) end++;
-                s.Id = selector[(i + 1)..end];
-                i = end;
-            }
-            else if (c == ':')
-            {
-                int doubleColon = (i + 1 < selector.Length && selector[i + 1] == ':') ? 1 : 0;
-                int pseudoStart = i + 1 + doubleColon;
-                int parenIdx = selector.IndexOf('(', pseudoStart);
-                int pseudoEnd = parenIdx > 0 ? parenIdx : selector.Length;
-
-                var pseudo = selector[pseudoStart..pseudoEnd].ToLowerInvariant();
-
-                if (doubleColon > 0)
-                {
-                    s.PseudoElement = ParsePseudoElementType(pseudo);
-                }
-                else
-                {
-                    if (parenIdx > 0)
-                    {
-                        var endParen = selector.IndexOf(')', parenIdx);
-                        s.PseudoClassArgument = endParen > 0 ? selector[(parenIdx + 1)..endParen].Trim() : "";
-                    }
-                    s.PseudoClass = ParsePseudoClassType(pseudo);
-                }
-                var skipTo = selector.Length;
-                if (parenIdx > 0)
-                {
-                    var endParen = selector.IndexOf(')', parenIdx);
-                    if (endParen > 0) skipTo = endParen + 1;
-                }
-                else
-                {
-                    skipTo = pseudoEnd;
-                }
-                i = skipTo;
-            }
-            else i++;
-        }
-
-        return s;
-    }
-
-    private static PseudoClassType? ParsePseudoClassType(string name)
-    {
-        return name switch
-        {
-            "active" => PseudoClassType.Active,
-            "any-link" => PseudoClassType.AnyLink,
-            "autofill" => PseudoClassType.AutoFill,
-            "before" => PseudoClassType.Before,
-            "checked" => PseudoClassType.Checked,
-            "default" => PseudoClassType.Default,
-            "defined" => PseudoClassType.Defined,
-            "disabled" => PseudoClassType.Disabled,
-            "empty" => PseudoClassType.Empty,
-            "enabled" => PseudoClassType.Enabled,
-            "first" => PseudoClassType.First,
-            "first-child" => PseudoClassType.FirstChild,
-            "first-of-type" => PseudoClassType.FirstOfType,
-            "focus" => PseudoClassType.Focus,
-            "focus-visible" => PseudoClassType.FocusVisible,
-            "focus-within" => PseudoClassType.FocusWithin,
-            "fullscreen" => PseudoClassType.Fullscreen,
-            "hover" => PseudoClassType.Hover,
-            "in-range" => PseudoClassType.InRange,
-            "indeterminate" => PseudoClassType.Indeterminate,
-            "invalid" => PseudoClassType.Invalid,
-            "last-child" => PseudoClassType.LastChild,
-            "last-of-type" => PseudoClassType.LastOfType,
-            "left" => PseudoClassType.Left,
-            "link" => PseudoClassType.Link,
-            "modal" => PseudoClassType.Modal,
-            "only-child" => PseudoClassType.OnlyChild,
-            "only-of-type" => PseudoClassType.OnlyOfType,
-            "optional" => PseudoClassType.Optional,
-            "out-of-range" => PseudoClassType.OutOfRange,
-            "placeholder-shown" => PseudoClassType.PlaceholderShown,
-            "popover-open" => PseudoClassType.PopoverOpen,
-            "read-only" => PseudoClassType.ReadOnly,
-            "read-write" => PseudoClassType.ReadWrite,
-            "required" => PseudoClassType.Required,
-            "right" => PseudoClassType.Right,
-            "root" => PseudoClassType.Root,
-            "scope" => PseudoClassType.Scope,
-            "target" => PseudoClassType.Target,
-            "user-invalid" => PseudoClassType.UserInvalid,
-            "user-valid" => PseudoClassType.UserValid,
-            "valid" => PseudoClassType.Valid,
-            "visited" => PseudoClassType.Visited,
-            "after" => PseudoClassType.After,
-            "not" => PseudoClassType.Not,
-            "nth-child" => PseudoClassType.NthChild,
-            "nth-last-child" => PseudoClassType.NthLastChild,
-            "nth-of-type" => PseudoClassType.NthOfType,
-            "nth-last-of-type" => PseudoClassType.NthLastOfType,
-            "is" => PseudoClassType.Is,
-            "where" => PseudoClassType.Where,
-            "has" => PseudoClassType.Has,
-            "lang" => PseudoClassType.Lang,
-            "dir" => PseudoClassType.Dir,
-            "state" => PseudoClassType.State,
-            _ => null
-        };
-    }
-
-    private static PseudoElementType ParsePseudoElementType(string name)
-    {
-        return name switch
-        {
-            "before" => PseudoElementType.Before,
-            "after" => PseudoElementType.After,
-            "backdrop" => PseudoElementType.Backdrop,
-            "file-selector-button" => PseudoElementType.FileSelectorButton,
-            "first-letter" => PseudoElementType.FirstLetter,
-            "first-line" => PseudoElementType.FirstLine,
-            "grammar-error" => PseudoElementType.GrammarError,
-            "marker" => PseudoElementType.Marker,
-            "placeholder" => PseudoElementType.Placeholder,
-            "selection" => PseudoElementType.Selection,
-            "spelling-error" => PseudoElementType.SpellingError,
-            "view-transition" => PseudoElementType.ViewTransition,
-            "view-transition-group" => PseudoElementType.ViewTransitionGroup,
-            "view-transition-image-pair" => PseudoElementType.ViewTransitionImagePair,
-            "view-transition-new" => PseudoElementType.ViewTransitionNew,
-            "view-transition-old" => PseudoElementType.ViewTransitionOld,
-            _ => PseudoElementType.Before
-        };
-    }
-
-    public bool Matches(Element element, Element? parent)
-    {
-        // A selector chain linked via Parent with Group combinator acts as an OR.
-        // e.g. "div, .foo" -> first=div (Combinator=Group, Parent=.foo)
-        // Matches returns true if ANY group matches.
-        if (Combinator == CombinatorType.Group && Parent != null)
-            return MatchesSimple(this, element) || Parent.Matches(element, parent);
-
-        // This selector must match the element itself.
-        if (!MatchesSimple(this, element)) return false;
-
-        if (Parent == null) return true;
-
-        // Match the ancestor chain (Parent side) using this selector's combinator.
-        switch (Combinator)
-        {
-            case CombinatorType.Child:
-            {
-                var childParent = element.ParentElement;
-                return childParent != null && Parent.Matches(childParent, childParent.ParentElement);
-            }
-
-            case CombinatorType.Descendant:
-            {
-                var ancestor = element.ParentElement;
-                while (ancestor != null)
-                {
-                    if (Parent.Matches(ancestor, ancestor.ParentElement))
-                        return true;
-                    ancestor = ancestor.ParentElement;
-                }
-                return false;
-            }
-
-            case CombinatorType.AdjacentSibling:
-                return element.PreviousSibling is Element prevSibling &&
-                       Parent.Matches(prevSibling, prevSibling.ParentElement);
-
-            case CombinatorType.GeneralSibling:
-            {
-                var siblings = element.Parent?.Children.OfType<Element>() ?? Enumerable.Empty<Element>();
-                return siblings
-                    .TakeWhile(s => s != element)
-                    .Any(s => Parent.Matches(s, s.ParentElement));
-            }
-
-            default:
-                return true;
-        }
-    }
-    private bool MatchesSimple(CssSelector selector, Element element)
-    {
-        return selector.Type switch
-        {
-            SelectorType.Universal => true,
-            SelectorType.Nesting => true,
-            SelectorType.Tag => MatchTag(selector, element),
-            SelectorType.Id => element.Id == selector.Id,
-            SelectorType.Class => selector.Classes.All(c => element.HasClass(c)),
-            SelectorType.Attribute => MatchAttribute(selector, element),
-            SelectorType.PseudoClass => MatchesPseudoClass(selector, element),
-            SelectorType.PseudoElement => selector.PseudoElement is PseudoElementType.Before or PseudoElementType.After,
-            _ => true
-        };
-    }
-
-    private bool MatchTag(CssSelector selector, Element element)
-    {
-        var tagMatch = selector.TagName == null || element.TagName.Equals(selector.TagName, StringComparison.OrdinalIgnoreCase);
-        if (!tagMatch) return false;
-
-        if (selector.Namespace != null)
-        {
-            var elNs = element.NamespaceUri ?? "";
-            if (selector.Namespace == "*") return true;
-            if (selector.Namespace == "ns")
-                return elNs == "http://www.w3.org/2000/svg" || elNs == "http://www.w3.org/1998/Math/MathML";
-            return elNs.EndsWith(selector.Namespace, StringComparison.OrdinalIgnoreCase);
-        }
-        return true;
-    }
-
-    private bool MatchAttribute(CssSelector selector, Element element)
-    {
-        if (selector.AttributeName == null) return true;
-        var attrValue = element.GetAttribute(selector.AttributeName);
-        if (attrValue == null) return false;
-
-        return selector.AttributeMatch switch
-        {
-            AttributeMatchType.Exact => attrValue == selector.AttributeValue,
-            AttributeMatchType.WhitespaceSeparated => (selector.AttributeValue == null) || attrValue.Split(' ').Contains(selector.AttributeValue),
-            AttributeMatchType.StartsWith => attrValue.StartsWith(selector.AttributeValue ?? ""),
-            AttributeMatchType.EndsWith => attrValue.EndsWith(selector.AttributeValue ?? ""),
-            AttributeMatchType.Contains => attrValue.Contains(selector.AttributeValue ?? ""),
-            AttributeMatchType.DashSeparator => attrValue == selector.AttributeValue || attrValue.StartsWith((selector.AttributeValue ?? "") + "-"),
-            _ => true
-        };
-    }
-
-    private bool MatchesPseudoClass(CssSelector selector, Element element)
-    {
-        if (selector.PseudoClass == null) return false;
-
-        return selector.PseudoClass switch
-        {
-            PseudoClassType.FirstChild => element.ParentElement?.Children.OfType<Element>().FirstOrDefault() == element,
-            PseudoClassType.LastChild => element.ParentElement?.Children.OfType<Element>().LastOrDefault() == element,
-            PseudoClassType.FirstOfType => IsFirstOfType(element),
-            PseudoClassType.LastOfType => IsLastOfType(element),
-            PseudoClassType.OnlyChild => element.ParentElement?.Children.OfType<Element>().Count() == 1,
-            PseudoClassType.OnlyOfType => element.ParentElement?.Children.OfType<Element>().Count(e => e.TagName == element.TagName) == 1,
-            PseudoClassType.NthChild => MatchesNth(selector.PseudoClassArgument, element, false),
-            PseudoClassType.NthLastChild => MatchesNth(selector.PseudoClassArgument, element, true),
-            PseudoClassType.NthOfType => MatchesNthOfType(selector.PseudoClassArgument, element, false),
-            PseudoClassType.NthLastOfType => MatchesNthOfType(selector.PseudoClassArgument, element, true),
-            PseudoClassType.Root => element.Parent is Document,
-            PseudoClassType.Empty => element.Children.Count == 0 && string.IsNullOrEmpty(element.TextContent),
-            PseudoClassType.Link => element.TagName == "A" && element.HasAttribute("href"),
-            PseudoClassType.Visited => element.TagName == "A" && element.HasAttribute("href"),
-            PseudoClassType.Active => element.IsFocused,
-            PseudoClassType.Hover => element.IsHovered,
-            PseudoClassType.Focus => element.IsFocused,
-            PseudoClassType.FocusVisible => element.IsFocused,
-            PseudoClassType.FocusWithin => IsFocusWithin(element),
-            PseudoClassType.Enabled => !element.HasAttribute("disabled") && IsFormLike(element),
-            PseudoClassType.Disabled => element.HasAttribute("disabled"),
-            PseudoClassType.Checked => element.HasAttribute("checked") || element.HasAttribute("selected"),
-            PseudoClassType.Required => element.HasAttribute("required"),
-            PseudoClassType.Optional => !element.HasAttribute("required") && IsFormLike(element),
-            PseudoClassType.Valid => true,
-            PseudoClassType.Invalid => false,
-            PseudoClassType.InRange => true,
-            PseudoClassType.OutOfRange => false,
-            PseudoClassType.UserValid => true,
-            PseudoClassType.UserInvalid => false,
-            PseudoClassType.Default => element.HasAttribute("checked") || element.HasAttribute("selected"),
-            PseudoClassType.Indeterminate => false,
-            PseudoClassType.PlaceholderShown => element.HasAttribute("placeholder") && string.IsNullOrEmpty(element.Value),
-            PseudoClassType.ReadOnly => element.HasAttribute("readonly"),
-            PseudoClassType.ReadWrite => !element.HasAttribute("readonly") && IsFormLike(element),
-            PseudoClassType.Target => false,
-            PseudoClassType.Scope => true,
-            PseudoClassType.Defined => true,
-            PseudoClassType.AnyLink => element.TagName == "A" && element.HasAttribute("href"),
-            PseudoClassType.AutoFill => false,
-            PseudoClassType.Modal => false,
-            PseudoClassType.PopoverOpen => false,
-            PseudoClassType.Fullscreen => false,
-            PseudoClassType.Not => true,
-            PseudoClassType.Is => true,
-            PseudoClassType.Where => true,
-            PseudoClassType.Has => true,
-            PseudoClassType.Lang => MatchesLang(selector.PseudoClassArgument, element),
-            PseudoClassType.Dir => MatchesDir(selector.PseudoClassArgument, element),
-            PseudoClassType.State => false,
-            PseudoClassType.First => false,
-            PseudoClassType.Left => false,
-            PseudoClassType.Right => false,
-            PseudoClassType.Before => true,
-            PseudoClassType.After => true,
-            _ => true
-        };
-    }
-
-    private static bool IsFormLike(Element element) => element.TagName is "INPUT" or "TEXTAREA" or "SELECT" or "BUTTON" or "OPTION" or "DATALIST" or "METEr" or "PROGRESS";
-
-    private static bool IsFirstOfType(Element element)
-    {
-        var siblings = element.ParentElement?.Children.OfType<Element>() ?? Enumerable.Empty<Element>();
-        return siblings.FirstOrDefault(e => e.TagName == element.TagName) == element;
-    }
-
-    private static bool IsLastOfType(Element element)
-    {
-        var siblings = element.ParentElement?.Children.OfType<Element>() ?? Enumerable.Empty<Element>();
-        return siblings.LastOrDefault(e => e.TagName == element.TagName) == element;
-    }
-
-    private static bool IsFocusWithin(Element element)
-    {
-        if (element.IsFocused) return true;
-        return element.Children.OfType<Element>().Any(IsFocusWithin);
-    }
-
-    private static bool MatchesNth(string? argument, Element element, bool fromEnd)
-    {
-        if (string.IsNullOrEmpty(argument)) return false;
-
-        int index;
-        if (fromEnd)
-        {
-            var all = element.ParentElement?.Children.OfType<Element>().Reverse().ToList() ?? new List<Element>();
-            index = all.IndexOf(element) + 1;
-        }
-        else
-        {
-            var all = element.ParentElement?.Children.OfType<Element>().ToList() ?? new List<Element>();
-            index = all.IndexOf(element) + 1;
-        }
-
-        if (index <= 0) return false;
-
-        var trimmed = argument.Trim().ToLowerInvariant();
-
-        if (trimmed == "odd") return index % 2 == 1;
-        if (trimmed == "even") return index % 2 == 0;
-
-        var match = Regex.Match(trimmed, @"^\s*(?:([+-]?\d*)\s*[nN]\s*([+-]\s*\d+)?|([+-]?\d+))\s*$");
-        if (!match.Success) return int.TryParse(trimmed, out var exact) && index == exact;
-
-        if (!string.IsNullOrEmpty(match.Groups[3].Value))
-            return index == int.Parse(match.Groups[3].Value);
-
-        int a = string.IsNullOrEmpty(match.Groups[1].Value) ? 1 : (match.Groups[1].Value == "-" ? -1 : int.Parse(match.Groups[1].Value));
-        int b = string.IsNullOrEmpty(match.Groups[2].Value) ? 0 : int.Parse(match.Groups[2].Value.Replace(" ", ""));
-
-        if (a == 0) return index == b;
-
-        var n = (index - b) / (double)a;
-        return n >= 0 && Math.Abs(n - Math.Round(n)) < 0.0001;
-    }
-
-    private static bool MatchesNthOfType(string? argument, Element element, bool fromEnd)
-    {
-        if (string.IsNullOrEmpty(argument)) return false;
-
-        int index;
-        var sameType = element.ParentElement?.Children.OfType<Element>().Where(e => e.TagName == element.TagName).ToList() ?? new List<Element>();
-
-        if (fromEnd)
-        {
-            sameType.Reverse();
-        }
-
-        index = sameType.IndexOf(element) + 1;
-        if (index <= 0) return false;
-
-        var trimmed = argument.Trim().ToLowerInvariant();
-
-        if (trimmed == "odd") return index % 2 == 1;
-        if (trimmed == "even") return index % 2 == 0;
-
-        var match = Regex.Match(trimmed, @"^\s*(?:([+-]?\d*)\s*[nN]\s*([+-]\s*\d+)?|([+-]?\d+))\s*$");
-        if (!match.Success) return int.TryParse(trimmed, out var exact) && index == exact;
-
-        if (!string.IsNullOrEmpty(match.Groups[3].Value))
-            return index == int.Parse(match.Groups[3].Value);
-
-        int a = string.IsNullOrEmpty(match.Groups[1].Value) ? 1 : (match.Groups[1].Value == "-" ? -1 : int.Parse(match.Groups[1].Value));
-        int b = string.IsNullOrEmpty(match.Groups[2].Value) ? 0 : int.Parse(match.Groups[2].Value.Replace(" ", ""));
-
-        if (a == 0) return index == b;
-
-        var n = (index - b) / (double)a;
-        return n >= 0 && Math.Abs(n - Math.Round(n)) < 0.0001;
-    }
-
-    private static bool MatchesLang(string? argument, Element element)
-    {
-        if (string.IsNullOrEmpty(argument)) return false;
-        var lang = element.GetAttribute("lang");
-        if (lang == null) return false;
-        return lang.Equals(argument, StringComparison.OrdinalIgnoreCase) ||
-               lang.StartsWith(argument + "-", StringComparison.OrdinalIgnoreCase);
-    }
-
-    private static bool MatchesDir(string? argument, Element element)
-    {
-        if (string.IsNullOrEmpty(argument)) return false;
-        var dir = element.GetAttribute("dir");
-        if (dir == null) return false;
-        return dir.Equals(argument, StringComparison.OrdinalIgnoreCase);
-    }
-}
-
-public enum SelectorType { Universal, Tag, Id, Class, Attribute, PseudoClass, PseudoElement, Nesting }
-public enum CombinatorType { Descendant, Child, AdjacentSibling, GeneralSibling, Group }
-public enum AttributeMatchType { Exact, WhitespaceSeparated, StartsWith, EndsWith, Contains, DashSeparator }
-public enum PseudoClassType
-{
-    Hover, Active, Focus, FocusVisible, FocusWithin,
-    FirstChild, LastChild, FirstOfType, LastOfType,
-    OnlyChild, OnlyOfType,
-    NthChild, NthLastChild, NthOfType, NthLastOfType,
-    Root, Empty,
-    Link, Visited, AnyLink,
-    Enabled, Disabled, Checked, Required, Optional,
-    Valid, Invalid, InRange, OutOfRange,
-    UserValid, UserInvalid,
-    Default, Indeterminate,
-    PlaceholderShown, ReadOnly, ReadWrite,
-    Target, Scope, Defined,
-    Not, Is, Where, Has,
-    Lang, Dir,
-    Before, After,
-    First, Left, Right,
-    AutoFill, Modal, PopoverOpen, Fullscreen,
-    State,
-    // Legacy aliases
-    FirstLine, FirstLetter
-}
-public enum PseudoElementType
-{
-    Before, After, Backdrop, FileSelectorButton,
-    FirstLetter, FirstLine, GrammarError,
-    Marker, Placeholder, Selection, SpellingError,
-    ViewTransition, ViewTransitionGroup, ViewTransitionImagePair,
-    ViewTransitionNew, ViewTransitionOld
 }

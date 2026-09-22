@@ -8,7 +8,8 @@ public enum CascadeOrigin
     User,
     Author,
     Animation,
-    Transition
+    Transition,
+    JsModified
 }
 
 /// <summary>CSS cascade priority: encodes the full cascade order per CSS Cascading 4.</summary>
@@ -20,8 +21,12 @@ public readonly struct CascadePriority : IEquatable<CascadePriority>
     public readonly int Position;
     public readonly bool IsImportant;
     public readonly uint Generation;
+    public readonly int SpecificityA;
+    public readonly int SpecificityB;
+    public readonly int SpecificityC;
 
-    public CascadePriority(CascadeOrigin origin, int layerOrder, int treeOrder, int position, bool isImportant, uint generation = 0)
+    public CascadePriority(CascadeOrigin origin, int layerOrder, int treeOrder, int position, bool isImportant, uint generation = 0,
+        int specificityA = 0, int specificityB = 0, int specificityC = 0)
     {
         Origin = origin;
         LayerOrder = layerOrder;
@@ -29,10 +34,14 @@ public readonly struct CascadePriority : IEquatable<CascadePriority>
         Position = position;
         IsImportant = isImportant;
         Generation = generation;
+        SpecificityA = specificityA;
+        SpecificityB = specificityB;
+        SpecificityC = specificityC;
     }
 
     public CascadePriority WithGeneration(uint generation) =>
-        new(Origin, LayerOrder, TreeOrder, Position, IsImportant, generation);
+        new(Origin, LayerOrder, TreeOrder, Position, IsImportant, generation,
+            SpecificityA, SpecificityB, SpecificityC);
 
     public bool IsRelevant => Origin != CascadeOrigin.None;
 
@@ -51,6 +60,9 @@ public readonly struct CascadePriority : IEquatable<CascadePriority>
         if (a.LayerOrder != b.LayerOrder)
             return a.LayerOrder.CompareTo(b.LayerOrder);
 
+        int specCmp = CompareSpecificity(a, b);
+        if (specCmp != 0) return specCmp;
+
         if (a.TreeOrder != b.TreeOrder)
             return a.TreeOrder.CompareTo(b.TreeOrder);
 
@@ -58,6 +70,13 @@ public readonly struct CascadePriority : IEquatable<CascadePriority>
             return a.Position.CompareTo(b.Position);
 
         return 0;
+    }
+
+    private static int CompareSpecificity(CascadePriority a, CascadePriority b)
+    {
+        if (a.SpecificityA != b.SpecificityA) return a.SpecificityA.CompareTo(b.SpecificityA);
+        if (a.SpecificityB != b.SpecificityB) return a.SpecificityB.CompareTo(b.SpecificityB);
+        return a.SpecificityC.CompareTo(b.SpecificityC);
     }
 
     private static int OriginRank(CascadeOrigin origin) => origin switch
@@ -68,13 +87,16 @@ public readonly struct CascadePriority : IEquatable<CascadePriority>
         CascadeOrigin.Author => 2,
         CascadeOrigin.Animation => 3,
         CascadeOrigin.Transition => 4,
+        CascadeOrigin.JsModified => 5,
         _ => 0
     };
 
     public bool Equals(CascadePriority other) =>
         Origin == other.Origin && LayerOrder == other.LayerOrder &&
         TreeOrder == other.TreeOrder && Position == other.Position &&
-        IsImportant == other.IsImportant && Generation == other.Generation;
+        IsImportant == other.IsImportant && Generation == other.Generation &&
+        SpecificityA == other.SpecificityA && SpecificityB == other.SpecificityB &&
+        SpecificityC == other.SpecificityC;
 
     public override bool Equals(object? obj) => obj is CascadePriority p && Equals(p);
     public override int GetHashCode() => HashCode.Combine(Origin, LayerOrder, TreeOrder, Position, IsImportant);

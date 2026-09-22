@@ -15,12 +15,15 @@ internal static class NinePieceImagePainter
     public static bool HasBorderImage(ComputedStyle style) =>
         !string.IsNullOrEmpty(style.BorderImageSource) && style.BorderImageSource != "none";
 
-    public static void Paint(DisplayList displayList, ImageCache imageCache, ComputedStyle style, SKRect borderRect)
+    public static void Paint(DisplayList displayList, ImageCache imageCache, ComputedStyle style, SKRect borderRect, string? baseUrl = null)
     {
         var source = style.BorderImageSource;
         if (string.IsNullOrEmpty(source) || source == "none") return;
 
         var url = ParseUrl(source);
+        if (url == null) return;
+
+        url = UrlResolver.Resolve(url, baseUrl);
         if (url == null) return;
 
         var task = imageCache.GetImageAsync(url);
@@ -32,12 +35,12 @@ internal static class NinePieceImagePainter
         float imgH = image.Height;
         if (imgW <= 0 || imgH <= 0) return;
 
-        // Parse border-image-slice
-        var slice = ParseBoxValues(style.BorderImageSlice, 100f, 100f);
-        float sliceTop = slice.top * imgH / 100f;
-        float sliceRight = slice.right * imgW / 100f;
-        float sliceBottom = slice.bottom * imgH / 100f;
-        float sliceLeft = slice.left * imgW / 100f;
+        // Parse border-image-slice (numbers are px, % of image edge-to-edge)
+        var sliceSides = ParseBoxStrings(style.BorderImageSlice, "100%");
+        float sliceTop = ResolveSlice(sliceSides.top, imgH);
+        float sliceRight = ResolveSlice(sliceSides.right, imgW);
+        float sliceBottom = ResolveSlice(sliceSides.bottom, imgH);
+        float sliceLeft = ResolveSlice(sliceSides.left, imgW);
 
         // Clamp slices to image dimensions
         sliceTop = Math.Clamp(sliceTop, 0, imgH);
@@ -45,12 +48,13 @@ internal static class NinePieceImagePainter
         sliceBottom = Math.Clamp(sliceBottom, 0, imgH);
         sliceLeft = Math.Clamp(sliceLeft, 0, imgW);
 
-        // Parse border-image-width (default to border widths)
-        var borderWidth = ParseBoxValues(style.BorderImageWidth, 1f, 1f);
-        float bwTop = ResolveWidth(borderWidth.top, style.BorderTopWidth, sliceTop, borderRect.Height);
-        float bwRight = ResolveWidth(borderWidth.right, style.BorderRightWidth, sliceRight, borderRect.Width);
-        float bwBottom = ResolveWidth(borderWidth.bottom, style.BorderBottomWidth, sliceBottom, borderRect.Height);
-        float bwLeft = ResolveWidth(borderWidth.left, style.BorderLeftWidth, sliceLeft, borderRect.Width);
+        // Parse border-image-width: auto -> border width, number -> x border
+        // width, % -> of the border-box extent, px -> pixels.
+        var widthSides = ParseBoxStrings(style.BorderImageWidth, "auto");
+        float bwTop = ResolveWidthSide(widthSides.top, style.BorderTopWidth, borderRect.Height);
+        float bwRight = ResolveWidthSide(widthSides.right, style.BorderRightWidth, borderRect.Width);
+        float bwBottom = ResolveWidthSide(widthSides.bottom, style.BorderBottomWidth, borderRect.Height);
+        float bwLeft = ResolveWidthSide(widthSides.left, style.BorderLeftWidth, borderRect.Width);
 
         // Parse border-image-outset
         var outset = ParseBoxValues(style.BorderImageOutset, 0f, 0f);
@@ -154,6 +158,21 @@ internal static class NinePieceImagePainter
         return (v1, v2, v3, v4);
     }
 
+    /// <summary>
+    /// Expands a 1-to-4 side value list into top/right/bottom/left strings
+    /// without resolving units, so each side keeps its own unit semantics.
+    /// </summary>
+    private static (string top, string right, string bottom, string left) ParseBoxStrings(string value, string defaultSide)
+    {
+        if (string.IsNullOrEmpty(value)) return (defaultSide, defaultSide, defaultSide, defaultSide);
+        var parts = value.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        string p1 = parts.Length > 0 ? parts[0] : defaultSide;
+        string p2 = parts.Length > 1 ? parts[1] : p1;
+        string p3 = parts.Length > 2 ? parts[2] : p1;
+        string p4 = parts.Length > 3 ? parts[3] : p2;
+        return (p1, p2, p3, p4);
+    }
+
     private static float ParseValue(string? s, float defaultValue)
     {
         if (string.IsNullOrEmpty(s)) return defaultValue;
@@ -162,10 +181,44 @@ internal static class NinePieceImagePainter
         return defaultValue;
     }
 
-    private static float ResolveWidth(float value, float borderWidth, float slice, float extent)
+    private enum MeasureKind { Auto, Number, Percent, Length }
+
+    private static (MeasureKind Kind, float Value) ParseMeasure(string s)
     {
-        if (value == 0) return borderWidth;
-        return value;
+        if (string.IsNullOrWhiteSpace(s) || s.Equals("auto", StringComparison.OrdinalIgnoreCase))
+            return (MeasureKind.Auto, 0);
+        if (s.EndsWith("%") && float.TryParse(s[..^1], out var pct))
+            return (MeasureKind.Percent, pct);
+        if (s.EndsWith("px", StringComparison.OrdinalIgnoreCase) && s.Length > 2 && float.TryParse(s[..^2], out var px))
+            return (MeasureKind.Length, px);
+        if (float.TryParse(s, out var num))
+            return (MeasureKind.Number, num);
+        return (MeasureKind.Auto, 0);
+    }
+
+    /// <summary>border-image-slice: % of the image extent, bare numbers/px are pixels.</summary>
+    private static float ResolveSlice(string side, float imageExtent)
+    {
+        var (kind, value) = ParseMeasure(side);
+        return kind switch
+        {
+            MeasureKind.Percent => value / 100f * imageExtent,
+            MeasureKind.Auto => imageExtent,
+            _ => value,
+        };
+    }
+
+    /// <summary>border-image-width: auto/border width, number x border width, % of border-box extent, px pixels.</summary>
+    private static float ResolveWidthSide(string side, float borderWidth, float extent)
+    {
+        var (kind, value) = ParseMeasure(side);
+        return kind switch
+        {
+            MeasureKind.Auto => borderWidth,
+            MeasureKind.Number => value * borderWidth,
+            MeasureKind.Percent => value / 100f * extent,
+            _ => value,
+        };
     }
 
     private static (string horizontal, string vertical) ParseRepeat(string repeat)

@@ -678,8 +678,7 @@ public class DocumentHost
     {
         try
         {
-            var parsed = CssSelector.Parse(selector);
-            return parsed.Matches(el, el.ParentElement);
+            return CssSelectorMatcher.Matches(selector, el);
         }
         catch
         {

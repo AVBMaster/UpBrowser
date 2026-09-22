@@ -151,9 +151,12 @@ public class CssSelectorParser
             stream.Current.Type == CssTokenType.RightBraceToken)
             return null;
 
-        // Check for combinator
-        var combinator = ParseCombinator(stream);
-        if (combinator != CssSelectorRelation.SubSelector)
+        // Whitespace or a combinator terminates the current compound. Peek without
+        // consuming so ParseComplexSelector can still read the combinator from the
+        // stream (a simple selector list never contains whitespace).
+        if (stream.Current.Type == CssTokenType.WhitespaceToken ||
+            stream.Current.Type == CssTokenType.CommentToken ||
+            IsCombinatorNext(stream))
             return null;
 
         var token = stream.Current;
@@ -277,32 +280,39 @@ public class CssSelectorParser
         string? argument = null;
         List<CssSelector>? selectorList = null;
 
-        if (stream.Current.Type == CssTokenType.FunctionToken)
-        {
-            stream.Next();
-            // Parse arguments
-            if (PseudoHasSelectorList(pseudoType))
+            if (stream.Current.Type == CssTokenType.FunctionToken)
             {
-                selectorList = new List<CssSelector>();
-                if (pseudoType is CssPseudoType.NthChild or CssPseudoType.NthLastChild)
+                stream.Next();
+                // Parse arguments
+                if (PseudoHasSelectorList(pseudoType))
                 {
-                    // Parse An+B [of selector-list]
-                    var argStream = new CssParserTokenStream(CollectTokensUntilParen(stream));
-                    argument = ParseAnPlusB(argStream);
-                    if (argStream.Current.Type == CssTokenType.IdentToken &&
-                        argStream.Current.Value.Equals("of", StringComparison.OrdinalIgnoreCase))
+                    selectorList = new List<CssSelector>();
+                    if (pseudoType is CssPseudoType.NthChild or CssPseudoType.NthLastChild)
                     {
-                        // Parse selector list after "of"
-                        argStream.Next();
-                        selectorList = ParseSelectorList(argStream.Current.Value);
+                        // Parse An+B [of selector-list]
+                        var argStream = new CssParserTokenStream(CollectTokensUntilParen(stream));
+                        argument = ParseAnPlusB(argStream);
+                        if (argStream.Current.Type == CssTokenType.IdentToken &&
+                            argStream.Current.Value.Equals("of", StringComparison.OrdinalIgnoreCase))
+                        {
+                            // Parse selector list after "of"
+                            argStream.Next();
+                            var rest = new System.Text.StringBuilder();
+                            while (argStream.Current.Type != CssTokenType.EofToken &&
+                                   argStream.Current.Type != CssTokenType.RightParenthesisToken)
+                            {
+                                rest.Append(argStream.Current.ToCssText());
+                                argStream.Next();
+                            }
+                            selectorList = ParseSelectorList(rest.ToString());
+                        }
+                    }
+                    else
+                    {
+                        var argText = CollectTokensUntilParen(stream);
+                        selectorList = ParseSelectorList(argText);
                     }
                 }
-                else
-                {
-                    var argText = CollectTokensUntilParen(stream);
-                    selectorList = ParseSelectorList(argText);
-                }
-            }
             else
             {
                 if (stream.Current.Type == CssTokenType.RightParenthesisToken)
@@ -352,7 +362,7 @@ public class CssSelectorParser
             }
             else
             {
-                result.Append(stream.Current.Value);
+                result.Append(stream.Current.ToCssText());
             }
             stream.Next();
         }
@@ -365,9 +375,10 @@ public class CssSelectorParser
         var result = new System.Text.StringBuilder();
         while (stream.Current.Type != CssTokenType.EofToken && stream.Current.Type != CssTokenType.RightParenthesisToken)
         {
-            result.Append(stream.Current.Value);
             if (stream.Current.Type == CssTokenType.WhitespaceToken)
                 result.Append(' ');
+            else
+                result.Append(stream.Current.ToCssText());
             stream.Next();
         }
         return result.ToString().Trim();
@@ -439,7 +450,13 @@ public class CssSelectorParser
 
     private static CssSelectorRelation ParseCombinator(CssParserTokenStream stream)
     {
-        SkipWhitespace(stream);
+        bool hadWhitespace = false;
+        while (stream.Current.Type == CssTokenType.WhitespaceToken ||
+               stream.Current.Type == CssTokenType.CommentToken)
+        {
+            hadWhitespace = true;
+            stream.Next();
+        }
 
         if (stream.Current.Type == CssTokenType.DelimiterToken)
         {
@@ -460,34 +477,14 @@ public class CssSelectorParser
             }
         }
 
-        // Check for whitespace combinator (descendant)
-        if (stream.Current.Type == CssTokenType.WhitespaceToken)
+        // Whitespace before another compound is a descendant combinator. Trailing
+        // whitespace before EOF / comma / brace is not a combinator.
+        if (hadWhitespace)
         {
-            // Look ahead past whitespace
-            int savePos = stream.Offset;
-            var saveToken = stream.Current;
-            stream.Next();
-            SkipWhitespace(stream);
-
             if (stream.Current.IsEof || stream.Current.Type == CssTokenType.CommaToken ||
                 stream.Current.Type == CssTokenType.RightBraceToken ||
                 stream.Current.Type == CssTokenType.LeftBraceToken)
-            {
-                // Trailing whitespace is not a combinator
                 return CssSelectorRelation.SubSelector;
-            }
-
-            return CssSelectorRelation.Descendant;
-        }
-
-        if (stream.Current.Type == CssTokenType.WhitespaceToken)
-        {
-            stream.Next();
-            if (stream.Current.Type == CssTokenType.DelimiterToken &&
-                (stream.Current.Value == ">" || stream.Current.Value == "+" || stream.Current.Value == "~"))
-            {
-                return ParseCombinator(stream);
-            }
             return CssSelectorRelation.Descendant;
         }
 
@@ -499,6 +496,23 @@ public class CssSelectorParser
         while (stream.Current.Type == CssTokenType.WhitespaceToken ||
                stream.Current.Type == CssTokenType.CommentToken)
             stream.Next();
+    }
+
+    /// <summary>True if the next meaningful token is a combinator (&gt;, +, ~), without consuming it.</summary>
+    private static bool IsCombinatorNext(CssParserTokenStream stream)
+    {
+        if (stream.Current.Type == CssTokenType.DelimiterToken &&
+            (stream.Current.Value == ">" || stream.Current.Value == "+" || stream.Current.Value == "~"))
+            return true;
+
+        if (stream.Current.Type == CssTokenType.WhitespaceToken ||
+            stream.Current.Type == CssTokenType.CommentToken)
+        {
+            var la = stream.LookAhead();
+            return la.Type == CssTokenType.DelimiterToken &&
+                   (la.Value == ">" || la.Value == "+" || la.Value == "~");
+        }
+        return false;
     }
 
     private static bool PseudoHasSelectorList(CssPseudoType type) => type switch

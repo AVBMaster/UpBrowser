@@ -82,11 +82,13 @@ public class OutOfFlowChildCandidate
 public class OutOfFlowLayoutPart
 {
     private readonly BoxFragmentBuilder _containerBuilder;
+    private readonly ConstraintSpace _space;
     private readonly List<OutOfFlowChildCandidate> _candidates = new();
 
-    public OutOfFlowLayoutPart(BoxFragmentBuilder containerBuilder)
+    public OutOfFlowLayoutPart(BoxFragmentBuilder containerBuilder, in ConstraintSpace space = default)
     {
         _containerBuilder = containerBuilder;
+        _space = space;
     }
 
     public void AddCandidate(OutOfFlowChildCandidate candidate) => _candidates.Add(candidate);
@@ -111,8 +113,17 @@ public class OutOfFlowLayoutPart
             var style = GetStyleOf(candidate.Box);
             if (style == null) continue;
 
+            // Border/padding of the OOF box itself: the resolved width/height are
+            // content-box values (content-box is the CSS default), so the border
+            // box extent is width/height + borders + padding.
+            var border = LengthUtils.ComputeBorders(style);
+            var padding = LengthUtils.ComputePadding(_space, style);
+            var bp = new BoxStrut(
+                border.Top + padding.Top, border.Right + padding.Right,
+                border.Bottom + padding.Bottom, border.Left + padding.Left);
+
             // Compute the border box size of the OOF box.
-            var (inlineSize, blockSize) = AbsoluteUtils.ComputeOutOfFlowSize(style, containerContentSize, new BoxStrut(0, 0, 0, 0));
+            var (inlineSize, blockSize) = AbsoluteUtils.ComputeOutOfFlowSize(style, containerContentSize, bp);
 
             // Determine position.
             var (x, y) = AbsoluteUtils.ComputeOutOfFlowPosition(style, inlineSize, blockSize, containerContentSize);
@@ -121,16 +132,42 @@ public class OutOfFlowLayoutPart
             // "static" placement).
             ApplyStaticPosition(candidate, style, inlineSize, blockSize, containerContentSize, ref x, ref y);
 
-            // Create the fragment for this OOF box.
-            var fragment = new BoxFragment
+            // Create the fragment for this OOF box. The element is laid out with
+            // its real algorithm (block/flex/grid/replaced) so children render,
+            // then sized to the computed border box above.
+            var element = GetElementOf(candidate.Box);
+            BoxFragment fragment;
+            if (element != null)
             {
-                InlineSize = inlineSize,
-                BlockSize = blockSize,
-                InlineOffset = x + _containerBuilder.PaddingLeft,
-                BlockOffset = y + _containerBuilder.PaddingTop,
-                Element = GetElementOf(candidate.Box),
-                IsOutOfFlowPositioned = true,
-            };
+                float contentInline = Math.Max(0, inlineSize - bp.HorizontalSum);
+                float contentBlock = Math.Max(0, blockSize - bp.VerticalSum);
+                bool hasDefiniteBlock = style.Height is PixelLength or PercentLength;
+                var childSpace = new ConstraintSpace(
+                    availableInlineSize: contentInline,
+                    availableBlockSize: hasDefiniteBlock ? contentBlock : float.PositiveInfinity,
+                    isFixedInlineSize: true,
+                    isFixedBlockSize: hasDefiniteBlock
+                );
+                var result = BlockLayoutAlgorithm.LayoutAtomicInlineRoot(element, childSpace);
+                fragment = result.Fragment;
+                fragment.InlineSize = inlineSize;
+                fragment.BlockSize = blockSize;
+                fragment.InlineOffset = x + _containerBuilder.PaddingLeft;
+                fragment.BlockOffset = y + _containerBuilder.PaddingTop;
+                fragment.IsOutOfFlowPositioned = true;
+            }
+            else
+            {
+                fragment = new BoxFragment
+                {
+                    InlineSize = inlineSize,
+                    BlockSize = blockSize,
+                    InlineOffset = x + _containerBuilder.PaddingLeft,
+                    BlockOffset = y + _containerBuilder.PaddingTop,
+                    Element = element,
+                    IsOutOfFlowPositioned = true,
+                };
+            }
 
             _containerBuilder.Children.Add(fragment);
         }

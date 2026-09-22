@@ -37,6 +37,11 @@ public class StyleRule : StyleRuleBase
     public bool IsLazyParsed { get; set; }
     public Func<CssPropertyValueSet>? LazyParser { get; set; }
 
+    /// <summary>The verbatim selector text as written in the stylesheet. Kept so
+    /// consumers can inspect the original (vendor-prefixed) spelling, e.g.
+    /// "::-webkit-scrollbar" or ":hover".</summary>
+    public string OriginalSelectorText { get; set; } = "";
+
     public StyleRule() : base(RuleType.Style) { }
 
     public string SelectorText =>

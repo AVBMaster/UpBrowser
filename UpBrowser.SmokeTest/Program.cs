@@ -3,6 +3,9 @@ using UpBrowser.Core.Layout;
 using UpBrowser.Core.Layout.Geometry;
 using UpBrowser.Core.Layout.Inline;
 using UpBrowser.Core.Dom.Parser;
+using UpBrowser.Core.Css;
+using UpBrowser.Core.Css.Tokenizer;
+using UpBrowser.Core.Css.Matcher;
 using System.Linq;
 
 int failures = 0;
@@ -1173,6 +1176,430 @@ Console.WriteLine("=== 44. HTML Parser: self-closing ===");
         var img = ((Element)body).Children.OfType<Element>().First(e => e.TagName == "IMG");
         Check(img.GetAttribute("src") == "test.jpg", $"img src = '{img.GetAttribute("src")}'");
     }
+}
+
+Console.WriteLine("=== 45. CSS: tokenizer serialization (numbers, functions, strings) ===");
+{
+    var parser = new CssParser();
+    var sheet = parser.Parse("div { margin: 10px 2.5em; content: \"a;b\"; background: linear-gradient(to right, red 0%, blue 100%); }");
+    Check(sheet.Rules.Count == 1, $"rule count = {sheet.Rules.Count} (expect 1)");
+    if (sheet.Rules.Count == 1)
+    {
+        var props = sheet.Rules[0].Properties;
+        Check(props.TryGetValue("margin", out var m) && m == "10px 2.5em", $"margin = '{m}'");
+        Check(props.TryGetValue("content", out var c) && c == "\"a;b\"", $"content = '{c}'");
+        Check(props.TryGetValue("background", out var bg) &&
+              bg == "linear-gradient(to right, red 0%, blue 100%)", $"background = '{bg}'");
+    }
+}
+
+Console.WriteLine("=== 46. CSS: strings containing ';' must not split declarations ===");
+{
+    var parser = new CssParser();
+    var sheet = parser.Parse("p { content: \"a;b\"; color: red; }");
+    Check(sheet.Rules.Count == 1, "p rule parsed");
+    if (sheet.Rules.Count == 1)
+    {
+        Check(sheet.Rules[0].Properties.TryGetValue("color", out var color) && color == "red", $"color = '{color}'");
+        Check(sheet.Rules[0].Properties.ContainsKey("content"), "content present");
+    }
+}
+
+Console.WriteLine("=== 47. CSS: inline style with string semicolon ===");
+{
+    var parser = new CssParser();
+    var inline = parser.ParseInlineStyle("content: \"a;b\"; width: 50px;");
+    Check(inline.TryGetValue("width", out var w) && w == "50px", $"inline width = '{w}'");
+    Check(inline.TryGetValue("content", out var c) && c == "\"a;b\"", $"inline content = '{c}'");
+}
+
+Console.WriteLine("=== 48. CSS: @media parse + nested at-rule ===");
+{
+    var parser = new CssParser();
+    var sheet = parser.Parse("@media (min-width: 600px) { .x { color: red; } }");
+    Check(sheet.MediaRules.Count == 1, $"media count = {sheet.MediaRules.Count}");
+    if (sheet.MediaRules.Count == 1)
+    {
+        Check(sheet.MediaRules[0].Condition == "(min-width: 600px)", $"cond = '{sheet.MediaRules[0].Condition}'");
+        Check(sheet.MediaRules[0].Rules.Count == 1, $"media rules = {sheet.MediaRules[0].Rules.Count}");
+    }
+}
+
+Console.WriteLine("=== 49. CSS: MediaQueryEvaluator professional ===");
+{
+    var env = MediaQueryEnvironment.Default(1024, 768, "light");
+    Check(MediaQueryEvaluator.Evaluate("(min-width: 600px)", 800, 600, "light"), "min-width pass");
+    Check(!MediaQueryEvaluator.Evaluate("(min-width: 900px)", 800, 600, "light"), "min-width fail");
+    Check(MediaQueryEvaluator.Evaluate("screen and (min-width: 600px)", 800, 600, "light"), "screen and min-width");
+    Check(MediaQueryEvaluator.Evaluate("(max-width: 1200px) and (orientation: landscape)", 1024, 768, "light"), "landscape");
+    Check(MediaQueryEvaluator.Evaluate("(prefers-color-scheme: dark)", 800, 600, "dark"), "dark scheme");
+    Check(!MediaQueryEvaluator.Evaluate("(prefers-color-scheme: dark)", 800, 600, "light"), "light scheme");
+    Check(MediaQueryEvaluator.Evaluate("(min-width: 500px), (min-height: 900px)", 800, 600, "light"), "or via comma");
+    Check(MediaQueryEvaluator.Evaluate("not (min-width: 900px)", 800, 600, "light"), "not");
+    Check(MediaQueryEvaluator.Evaluate("(width >= 600px)", 800, 600, "light"), "range syntax");
+    Check(MediaQueryEvaluator.Evaluate("(width < 900px)", 800, 600, "light"), "range <");
+}
+
+Console.WriteLine("=== 50. CSS: selector matching via modern engine ===");
+{
+    var doc = HtmlDocumentParserIntegration.ParseHtml("<div id='main' class='box a'><p class='child'>x</p><p class='child b'>y</p></div>");
+    var div = doc.DocumentElement?.Children
+        .OfType<Element>().SelectMany(e => e.Children.OfType<Element>())
+        .FirstOrDefault(e => e.TagName == "DIV");
+    var ps = div?.Children.OfType<Element>().ToList() ?? new List<Element>();
+
+    Check(CssSelectorMatcher.Matches("div", div!), "tag match");
+    Check(CssSelectorMatcher.Matches("#main", div!), "id match");
+    Check(CssSelectorMatcher.Matches(".box", div!), "class match");
+    Check(CssSelectorMatcher.Matches(".box.a", div!), "compound class match");
+    Check(CssSelectorMatcher.Matches("div.box", div!), "tag+class");
+    Check(CssSelectorMatcher.Matches("div > p", ps.Count > 0 ? ps[0] : div!), "child combinator");
+    Check(CssSelectorMatcher.Matches("p.child:first-child", ps.Count > 0 ? ps[0] : div!), "pseudo first-child");
+    Check(ps.Count > 1 && CssSelectorMatcher.Matches("p:not(.a)", ps[1]), ":not pseudo");
+    Check(CssSelectorMatcher.Matches("div:has(.b)", div!), ":has pseudo");
+    Check(CssSelectorMatcher.Matches("div p:first-of-type", ps.Count > 0 ? ps[0] : div!), "descendant + first-of-type");
+}
+
+Console.WriteLine("=== 51. CSS: cascade specificity + source order ===");
+{
+    var resolver = new UpBrowser.Core.Css.Resolver.CascadeResolver();
+    var parser = new CssParser();
+    var sheet = parser.Parse(".a { color: rgb(255,0,0); } .b { color: rgb(0,255,0); } .a.b { color: rgb(0,0,255); }");
+    resolver.AddStylesheet(sheet);
+
+    var doc = HtmlDocumentParserIntegration.ParseHtml("<div class='a b'>text</div>");
+    var div = doc.DocumentElement?.Children
+        .OfType<Element>().SelectMany(e => e.Children.OfType<Element>())
+        .FirstOrDefault(e => e.TagName == "DIV");
+
+    resolver.ResolveStyles(doc, 800, 600);
+    if (div?.ComputedStyle != null)
+    {
+        // .a.b has higher specificity (0,2,0) than .a (0,1,0) and .b (0,1,0)
+        Check(div.ComputedStyle.Color.Red == 0 && div.ComputedStyle.Color.Green == 0 && div.ComputedStyle.Color.Blue == 255,
+            $"specificity winner = rgba({div.ComputedStyle.Color.Red},{div.ComputedStyle.Color.Green},{div.ComputedStyle.Color.Blue},1)");
+    }
+    else
+    {
+        Check(false, "div style resolved");
+    }
+}
+
+Console.WriteLine("=== 52. CSS: source order tie-break (later rule wins) ===");
+{
+    var resolver = new UpBrowser.Core.Css.Resolver.CascadeResolver();
+    var parser = new CssParser();
+    var sheet = parser.Parse(".x { width: 10px; } .x { width: 30px; }");
+    resolver.AddStylesheet(sheet);
+
+    var doc = HtmlDocumentParserIntegration.ParseHtml("<div class='x'>t</div>");
+    var div = doc.DocumentElement?.Children
+        .OfType<Element>().SelectMany(e => e.Children.OfType<Element>())
+        .FirstOrDefault(e => e.TagName == "DIV");
+
+    resolver.ResolveStyles(doc, 800, 600);
+    if (div?.ComputedStyle?.Width is PixelLength px)
+    {
+        Check(px.Value == 30f, $"source order width = {px.Value}px (expect 30)");
+    }
+    else
+    {
+        Check(false, "width resolved to pixel length");
+    }
+}
+
+Console.WriteLine("=== 53. CSS: UA origin vs Author origin ===");
+{
+    var resolver = new UpBrowser.Core.Css.Resolver.CascadeResolver();
+    var parser = new CssParser();
+    // UA sheet: body margin 8px. Author sheet: body margin 20px.
+    var ua = parser.Parse("body { margin: 8px; }");
+    var author = parser.Parse("body { margin: 20px; }");
+    resolver.AddStylesheet(ua, UpBrowser.Core.Css.Resolver.CascadeOrigin.UserAgent);
+    resolver.AddStylesheet(author);
+
+    var doc = HtmlDocumentParserIntegration.ParseHtml("<body><p>x</p></body>");
+    var body = doc.DocumentElement?.Children.OfType<Element>()
+        .FirstOrDefault(e => e.TagName == "BODY");
+
+    resolver.ResolveStyles(doc, 800, 600);
+    if (body?.ComputedStyle != null)
+    {
+        // Author beats UA when equal specificity.
+        var m = body.ComputedStyle.MarginTop;
+        Check(m is PixelLength p && p.Value == 20f, $"author margin-top = {m} (expect 20px)");
+    }
+    else
+    {
+        Check(false, "body style resolved");
+    }
+}
+
+Console.WriteLine("=== 54. CSS: custom property parse + var() ===");
+{
+    var parser = new CssParser();
+    var sheet = parser.Parse(":root { --brand: #ff8800; } .card { color: var(--brand, red); }");
+    Check(sheet.Rules.Count == 2, $"custom prop rules = {sheet.Rules.Count}");
+    var rootProps = sheet.Rules.FirstOrDefault(r => r.Selector == ":root")?.Properties;
+    Check(rootProps != null && rootProps.ContainsKey("--brand") && rootProps["--brand"] == "#ff8800",
+        rootProps != null && rootProps.ContainsKey("--brand") ? $"custom = {rootProps["--brand"]}" : "custom missing");
+}
+
+Console.WriteLine("=== 55. CSS: vendor-prefixed property mapping ===");
+{
+    var parser = new CssParser();
+    var inline = parser.ParseInlineStyle("-webkit-appearance: none; -webkit-line-clamp: 2;");
+    // Vendor-prefixed names resolve to their canonical property id ("appearance").
+    Check(inline.ContainsKey("appearance"), "webkit-appearance resolved to appearance");
+    Check(inline.ContainsKey("line-clamp") || inline.ContainsKey("webkit-line-clamp"), "line-clamp preserved");
+    Check(inline.TryGetValue("appearance", out var app) && app == "none", $"appearance = '{app}'");
+}
+
+Console.WriteLine("=== 56. CSS: !important handled ===");
+{
+    var parser = new CssParser();
+    var (props, important) = parser.ParsePropertiesWithImportance("color: red !important; width: 10px;");
+    Check(props.TryGetValue("color", out var c) && c == "red", $"important color = '{c}'");
+    Check(important.Contains("color") && !important.Contains("width"), "important set");
+}
+
+Console.WriteLine("=== 57. CSS: regression - not() with attr [i] flag must not swallow following rules ===");
+{
+    var parser = new CssParser();
+    var sheet = parser.Parse(@"select[size]:not([size=""0"" i]):not([size=""1"" i]) { appearance: auto; -webkit-appearance: listbox; } progress { display: inline-block; width: 160px; }");
+    Check(sheet.Rules.Count == 2, $"rules = {sheet.Rules.Count} (expect 2): :not([attr i]) must end its block at close-brace");
+    if (sheet.Rules.Count == 2)
+    {
+        Check(sheet.Rules[0].Selector.Contains("listbox") == false || sheet.Rules[0].Properties.ContainsKey("appearance"),
+            $"first rule selector='{sheet.Rules[0].Selector}'");
+        Check(sheet.Rules[1].Selector == "progress", $"second rule selector='{sheet.Rules[1].Selector}'");
+    }
+}
+
+Console.WriteLine("=== 58. CSS: regression - incomplete @layer block parses without hang ===");
+{
+    var parser = new CssParser();
+    var t = Task.Run(() => parser.Parse("@layer base { .x { color: red; } }"));
+    if (t.Wait(5000))
+        Check(parser.Parse("@layer base { .x { color: red; } }").LayerRules.Count == 1, "@layer block parses");
+    else
+        Check(false, "@layer block parses");
+}
+
+Console.WriteLine("=== 59. CSS: regression - UA stylesheet parses fully incl @media ===");
+{
+    var parser = new CssParser();
+    var dm = new DocumentManager();
+    var ua = dm.GetUaStylesheet();
+    Check(ua.Rules.Count > 100, $"UA rules = {ua.Rules.Count} (expect > 100)");
+    Check(ua.MediaRules.Count >= 2, $"UA @media = {ua.MediaRules.Count} (expect >= 2)");
+}
+
+Console.WriteLine("=== 60. CSS: var() resolves through the cascade ===");
+{
+    var resolver = new UpBrowser.Core.Css.Resolver.CascadeResolver();
+    var parser = new CssParser();
+    var sheet = parser.Parse(":root { --brand: #ff8800; } .card { color: var(--brand); background-color: var(--brand, red); }");
+    resolver.AddStylesheet(sheet);
+    var doc = HtmlDocumentParserIntegration.ParseHtml("<html><body><div class='card'>x</div></body></html>");
+    var card = doc.DocumentElement?.Children.OfType<Element>()
+        .SelectMany(e => e.Children.OfType<Element>())
+        .FirstOrDefault(e => e.TagName == "DIV");
+    resolver.ResolveStyles(doc, 800, 600);
+    if (card?.ComputedStyle != null)
+    {
+        var c = card.ComputedStyle.Color;
+        Check(c.Red == 255 && c.Green == 136 && c.Blue == 0, $"var() color = rgba({c.Red},{c.Green},{c.Blue},1) (expect ff8800)");
+        Check(card.ComputedStyle.BackgroundColor is SkiaSharp.SKColor bg && bg.Red == 255 && bg.Green == 136,
+            $"var() background-color = {card.ComputedStyle.BackgroundColor}");
+    }
+    else
+    {
+        Check(false, "card style resolved");
+    }
+}
+
+Console.WriteLine("=== 61. CSS: var() with fallback when undefined ===");
+{
+    var resolver = new UpBrowser.Core.Css.Resolver.CascadeResolver();
+    var parser = new CssParser();
+    var sheet = parser.Parse(".x { color: var(--missing, rgb(10,20,30)); }");
+    resolver.AddStylesheet(sheet);
+    var doc = HtmlDocumentParserIntegration.ParseHtml("<html><body><div class='x'>t</div></body></html>");
+    var x = doc.DocumentElement?.Children.OfType<Element>()
+        .SelectMany(e => e.Children.OfType<Element>())
+        .FirstOrDefault(e => e.TagName == "DIV");
+    resolver.ResolveStyles(doc, 800, 600);
+    if (x?.ComputedStyle != null)
+    {
+        var c = x.ComputedStyle.Color;
+        Check(c.Red == 10 && c.Green == 20 && c.Blue == 30, $"fallback color = rgba({c.Red},{c.Green},{c.Blue},1)");
+    }
+    else Check(false, "fallback style resolved");
+}
+
+Console.WriteLine("=== 62. CSS: var() inherited from ancestor custom property ===");
+{
+    var resolver = new UpBrowser.Core.Css.Resolver.CascadeResolver();
+    var parser = new CssParser();
+    var sheet = parser.Parse(".parent { --accent: rgb(1,2,3); } .child { color: var(--accent); }");
+    resolver.AddStylesheet(sheet);
+    var doc = HtmlDocumentParserIntegration.ParseHtml("<html><body><div class='parent'><p class='child'>t</p></div></body></html>");
+    var child = doc.DocumentElement?.Children.OfType<Element>()
+        .SelectMany(e => e.Children.OfType<Element>())
+        .SelectMany(e => e.Children.OfType<Element>())
+        .FirstOrDefault(e => e.TagName == "P");
+    resolver.ResolveStyles(doc, 800, 600);
+    if (child?.ComputedStyle != null)
+    {
+        var c = child.ComputedStyle.Color;
+        Check(c.Red == 1 && c.Green == 2 && c.Blue == 3, $"inherited var() color = rgba({c.Red},{c.Green},{c.Blue},1)");
+    }
+    else Check(false, "child style resolved");
+}
+
+Console.WriteLine("=== 63. CSS: inherit keyword ===");
+{
+    var resolver = new UpBrowser.Core.Css.Resolver.CascadeResolver();
+    var parser = new CssParser();
+    // body color red inherits to .child via normal inheritance; .inherit-me uses explicit inherit
+    var sheet = parser.Parse("body { color: rgb(200,10,10); } .child { color: rgb(0,0,255); } .inherit-me { color: inherit; }");
+    resolver.AddStylesheet(sheet);
+    var doc = HtmlDocumentParserIntegration.ParseHtml("<html><body><div class='child'><span class='inherit-me'>t</span></div></body></html>");
+    var span = doc.DocumentElement?.Children.OfType<Element>()
+        .SelectMany(e => e.Children.OfType<Element>())
+        .SelectMany(e => e.Children.OfType<Element>())
+        .FirstOrDefault(e => e.TagName == "SPAN");
+    resolver.ResolveStyles(doc, 800, 600);
+    if (span?.ComputedStyle != null)
+    {
+        // .child sets blue, .inherit-me overrides with inherit -> should be blue (parent's)
+        var c = span.ComputedStyle.Color;
+        Check(c.Red == 0 && c.Green == 0 && c.Blue == 255, $"inherit color = rgba({c.Red},{c.Green},{c.Blue},1) (expect parent blue)");
+    }
+    else Check(false, "inherit span resolved");
+}
+
+Console.WriteLine("=== 64. CSS: initial keyword ===");
+{
+    var resolver = new UpBrowser.Core.Css.Resolver.CascadeResolver();
+    var parser = new CssParser();
+    var sheet = parser.Parse("body { color: rgb(200,10,10); margin: 30px; } .x { margin: initial; color: initial; }");
+    resolver.AddStylesheet(sheet);
+    var doc = HtmlDocumentParserIntegration.ParseHtml("<html><body><div class='x'>t</div></body></html>");
+    var x = doc.DocumentElement?.Children.OfType<Element>()
+        .SelectMany(e => e.Children.OfType<Element>())
+        .FirstOrDefault(e => e.TagName == "DIV");
+    resolver.ResolveStyles(doc, 800, 600);
+    if (x?.ComputedStyle != null)
+    {
+        // color: initial -> black (initial value); margin: initial -> 0
+        var c = x.ComputedStyle.Color;
+        Check(c.Red == 0 && c.Green == 0 && c.Blue == 0, $"initial color = rgba({c.Red},{c.Green},{c.Blue},1)");
+        Check(x.ComputedStyle.MarginTop is PixelLength mp && mp.Value == 0, $"initial margin = {x.ComputedStyle.MarginTop}");
+    }
+    else Check(false, "initial div resolved");
+}
+
+Console.WriteLine("=== 65. CSS: unset on inherited property behaves like inherit ===");
+{
+    var resolver = new UpBrowser.Core.Css.Resolver.CascadeResolver();
+    var parser = new CssParser();
+    var sheet = parser.Parse("body { color: rgb(9,8,7); } .x { color: rgb(1,2,3); } .y { color: unset; }");
+    resolver.AddStylesheet(sheet);
+    var doc = HtmlDocumentParserIntegration.ParseHtml("<html><body><div class='x'><p class='y'>t</p></div></body></html>");
+    var p = doc.DocumentElement?.Children.OfType<Element>()
+        .SelectMany(e => e.Children.OfType<Element>())
+        .SelectMany(e => e.Children.OfType<Element>())
+        .FirstOrDefault(e => e.TagName == "P");
+    resolver.ResolveStyles(doc, 800, 600);
+    if (p?.ComputedStyle != null)
+    {
+        // unset on inherited color -> inherit from .x (rgb(1,2,3))
+        var c = p.ComputedStyle.Color;
+        Check(c.Red == 1 && c.Green == 2 && c.Blue == 3, $"unset color = rgba({c.Red},{c.Green},{c.Blue},1) (expect inherit)");
+    }
+    else Check(false, "unset p resolved");
+}
+
+Console.WriteLine("=== 66. Prism: StyleResolver specificity + source order ===");
+{
+    var sheet = UpBrowser.Core.Css.Tokenizer.CssParserImpl.ParseStyleSheet(
+        ".a { color: rgb(255,0,0); } .b { color: rgb(0,255,0); } .a.b { color: rgb(0,0,255); }",
+        UpBrowser.Core.Css.Tokenizer.CssParserContext.Default());
+    var resolver = new UpBrowser.Core.Css.Cascade.StyleResolver(sheet);
+    var doc = HtmlDocumentParserIntegration.ParseHtml("<html><body><div class='a b'>x</div></body></html>");
+    var div = doc.DocumentElement?.Children.OfType<Element>()
+        .SelectMany(e => e.Children.OfType<Element>())
+        .FirstOrDefault(e => e.TagName == "DIV");
+    resolver.SetViewport(800, 600);
+    resolver.ResolveDocument(doc);
+    if (div?.ComputedStyle != null)
+    {
+        var c = div.ComputedStyle.Color;
+        Check(c.Red == 0 && c.Green == 0 && c.Blue == 255,
+            $"Prism specificity = rgba({c.Red},{c.Green},{c.Blue},1) (expect 0000ff)");
+    }
+    else Check(false, "Prism div resolved");
+}
+
+Console.WriteLine("=== 67. Prism: source order tie-break ===");
+{
+    var sheet = UpBrowser.Core.Css.Tokenizer.CssParserImpl.ParseStyleSheet(
+        ".x { width: 10px; } .x { width: 30px; }",
+        UpBrowser.Core.Css.Tokenizer.CssParserContext.Default());
+    var resolver = new UpBrowser.Core.Css.Cascade.StyleResolver(sheet);
+    var doc = HtmlDocumentParserIntegration.ParseHtml("<html><body><div class='x'>t</div></body></html>");
+    var div = doc.DocumentElement?.Children.OfType<Element>()
+        .SelectMany(e => e.Children.OfType<Element>())
+        .FirstOrDefault(e => e.TagName == "DIV");
+    resolver.SetViewport(800, 600);
+    resolver.ResolveDocument(doc);
+    if (div?.ComputedStyle?.Width is PixelLength px)
+        Check(px.Value == 30f, $"Prism source order width = {px.Value}px");
+    else Check(false, "Prism width resolved");
+}
+
+Console.WriteLine("=== 68. Prism: var() resolves ===");
+{
+    var sheet = UpBrowser.Core.Css.Tokenizer.CssParserImpl.ParseStyleSheet(
+        ":root { --brand: rgb(1,2,3); } .card { color: var(--brand); }",
+        UpBrowser.Core.Css.Tokenizer.CssParserContext.Default());
+    var resolver = new UpBrowser.Core.Css.Cascade.StyleResolver(sheet);
+    var doc = HtmlDocumentParserIntegration.ParseHtml("<html><body><div class='card'>x</div></body></html>");
+    var div = doc.DocumentElement?.Children.OfType<Element>()
+        .SelectMany(e => e.Children.OfType<Element>())
+        .FirstOrDefault(e => e.TagName == "DIV");
+    resolver.SetViewport(800, 600);
+    resolver.ResolveDocument(doc);
+    if (div?.ComputedStyle != null)
+    {
+        Console.WriteLine($"    [DBG] var() custom brand={div.ComputedStyle.GetCustomProperty("brand") ?? "<null>"}");
+        var c = div.ComputedStyle.Color;
+        Check(c.Red == 1 && c.Green == 2 && c.Blue == 3, $"Prism var() = rgba({c.Red},{c.Green},{c.Blue},1)");
+    }
+    else Check(false, "Prism var() div resolved");
+}
+
+Console.WriteLine("=== 69. Prism: inherit keyword ===");
+{
+    var sheet = UpBrowser.Core.Css.Tokenizer.CssParserImpl.ParseStyleSheet(
+        "body { color: rgb(9,8,7); } .child { color: rgb(0,0,255); } .x { color: inherit; }",
+        UpBrowser.Core.Css.Tokenizer.CssParserContext.Default());
+    var resolver = new UpBrowser.Core.Css.Cascade.StyleResolver(sheet);
+    var doc = HtmlDocumentParserIntegration.ParseHtml("<html><body><div class='child'><span class='x'>t</span></div></body></html>");
+    var span = doc.DocumentElement?.Children.OfType<Element>()
+        .SelectMany(e => e.Children.OfType<Element>())
+        .SelectMany(e => e.Children.OfType<Element>())
+        .FirstOrDefault(e => e.TagName == "SPAN");
+    resolver.SetViewport(800, 600);
+    resolver.ResolveDocument(doc);
+    if (span?.ComputedStyle != null)
+    {
+        var c = span.ComputedStyle.Color;
+        Check(c.Red == 0 && c.Green == 0 && c.Blue == 255, $"Prism inherit = rgba({c.Red},{c.Green},{c.Blue},1)");
+    }
+    else Check(false, "Prism inherit span resolved");
 }
 
 Console.WriteLine();

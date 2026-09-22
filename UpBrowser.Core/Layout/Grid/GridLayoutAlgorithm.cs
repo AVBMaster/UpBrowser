@@ -44,7 +44,7 @@ public class GridLayoutAlgorithm
 
         _containerWidth = containerBox.ContentBox.Width;
         _containerHeight = containerBox.ContentBox.Height;
-        _containerHeightAuto = !_space.HasDefiniteBlockSize;
+        _containerHeightAuto = _containerStyle.Height is not PixelLength;
 
         float rowGap = _containerStyle.RowGap.ToPixels(_containerStyle.FontSize, _rootFontSize, _viewportWidth, _viewportHeight);
         float columnGap = _containerStyle.ColumnGap.ToPixels(_containerStyle.FontSize, _rootFontSize, _viewportWidth, _viewportHeight);
@@ -59,6 +59,12 @@ public class GridLayoutAlgorithm
 
         // Track sizing algorithm
         ResolveTracks(explicitColumns, items, _containerWidth, columnGap, isColumn: true);
+
+        // Lay every item out once at its resolved column width BEFORE row track
+        // sizing: an auto row must be the max content height of its items, and
+        // PositionItems reuses these boxes instead of laying out a second time.
+        MeasureItems(items, explicitColumns, columnGap, containerBox);
+
         ResolveTracks(explicitRows, items, _containerHeight, rowGap, isColumn: false);
 
         PositionItems(items, explicitColumns, explicitRows, containerBox, columnGap, rowGap);
@@ -250,8 +256,12 @@ public class GridLayoutAlgorithm
         int maxCol = explicitColCount;
         int maxRow = explicitRowCount;
 
-        // Collect items with explicit placement first
+        // Collect items with explicit placement first. Items that only set one
+        // of the two axes (e.g. grid-column but no grid-row) are "axis-locked":
+        // they keep their definite column/row and are auto-placed on the other.
         var explicitItems = new List<GridItem>();
+        var columnLockedItems = new List<GridItem>();
+        var rowLockedItems = new List<GridItem>();
         var autoItems = new List<GridItem>();
 
         foreach (var child in container.Children)
@@ -261,6 +271,9 @@ public class GridLayoutAlgorithm
             if (childStyle == null || childStyle.Display == DisplayType.None) continue;
 
             var item = new GridItem { Element = childElement };
+            // GridItem fields default to 1..2; start from "auto" so a missing
+            // axis is detected as unspecified (0) for auto-placement purposes.
+            item.ColumnStart = 0; item.ColumnEnd = 0; item.RowStart = 0; item.RowEnd = 0;
             var style = childElement.ComputedStyle!;
             bool hasExplicit = false;
 
@@ -290,23 +303,46 @@ public class GridLayoutAlgorithm
                 item.ColumnStart = 0; item.ColumnEnd = 0; item.RowStart = 0; item.RowEnd = 0;
             }
 
-            // Resolve spans
+            // Resolve spans on the explicitly-optional grid axes. An item that
+            // only sets a column (or only a row) is placed on that axis and
+            // auto-placed on the other; defaulting the missing axis to row/col 1
+            // here would stack e.g. several ".item { grid-column: 3 }" items onto
+            // a single row, so the missing axis is left undefined for the
+            // auto-placement step instead (CSS Grid auto-placement).
             if (item.ColumnEnd <= item.ColumnStart && item.ColumnEnd != 0) item.ColumnEnd = item.ColumnStart + 1;
             if (item.RowEnd <= item.RowStart && item.RowEnd != 0) item.RowEnd = item.RowStart + 1;
             if (item.ColumnEnd == 0 && item.ColumnStart != 0) item.ColumnEnd = item.ColumnStart + 1;
             if (item.RowEnd == 0 && item.RowStart != 0) item.RowEnd = item.RowStart + 1;
-            if (item.ColumnStart == 0 && item.ColumnEnd != 0) item.ColumnStart = item.ColumnEnd - 1;
-            if (item.RowStart == 0 && item.RowEnd != 0) item.RowStart = item.RowEnd - 1;
-            if (item.ColumnStart == 0 && item.ColumnEnd == 0) { item.ColumnStart = 1; item.ColumnEnd = 2; }
-            if (item.RowStart == 0 && item.RowEnd == 0) { item.RowStart = 1; item.RowEnd = 2; }
+            if (item.ColumnStart == 0 && item.ColumnEnd != 0) item.ColumnStart = Math.Max(1, item.ColumnEnd - 1);
+            if (item.RowStart == 0 && item.RowEnd != 0) item.RowStart = Math.Max(1, item.RowEnd - 1);
 
-            item.ColumnSpan = item.ColumnEnd - item.ColumnStart;
-            item.RowSpan = item.RowEnd - item.RowStart;
+            bool colSpecified = item.ColumnStart != 0 || item.ColumnEnd != 0;
+            bool rowSpecified = item.RowStart != 0 || item.RowEnd != 0;
 
-            if (hasExplicit)
+            if (colSpecified && rowSpecified)
+            {
+                item.ColumnSpan = item.ColumnEnd - item.ColumnStart;
+                item.RowSpan = item.RowEnd - item.RowStart;
                 explicitItems.Add(item);
+            }
+            else if (colSpecified)
+            {
+                item.ColumnSpan = item.ColumnEnd - item.ColumnStart;
+                item.RowSpan = 1;
+                columnLockedItems.Add(item);
+            }
+            else if (rowSpecified)
+            {
+                item.ColumnSpan = 1;
+                item.RowSpan = item.RowEnd - item.RowStart;
+                rowLockedItems.Add(item);
+            }
             else
+            {
+                item.ColumnSpan = 1;
+                item.RowSpan = 1;
                 autoItems.Add(item);
+            }
         }
 
         // Place explicit items
@@ -317,6 +353,15 @@ public class GridLayoutAlgorithm
             item.IsPlaced = true;
             items.Add(item);
         }
+
+        // Place items locked to a definite row (auto column) at the earliest
+        // free column of that row (CSS Grid auto-placement step 1).
+        PlaceRowLockedItems(rowLockedItems, items, densePacking, ref maxCol, ref maxRow, ref autoCursorCol, ref autoCursorRow);
+
+        // Place items locked to a definite column (auto row) at the first row
+        // from the auto-placement cursor whose spanned columns are empty
+        // (CSS Grid auto-placement step 2).
+        PlaceColumnLockedItems(columnLockedItems, items, densePacking, ref maxCol, ref maxRow, ref autoCursorCol, ref autoCursorRow);
 
         // Auto-placement with dense packing
         if (densePacking)
@@ -347,15 +392,20 @@ public class GridLayoutAlgorithm
         }
         else
         {
-            // Sparse auto-placement: fill rows first, then columns
-            int cursorRow = 0;
-            int cursorCol = 0;
+            // Sparse auto-placement: fill each row up to the explicit column
+            // count, then wrap to the next row (the implicit grid grows in the
+            // block direction, not sideways).
+            int columnCount = Math.Max(1, Math.Max(explicitColCount, maxCol));
+            int cursorRow = autoCursorRow;
+            int cursorCol = autoCursorCol;
             foreach (var item in autoItems)
             {
+                if (item.ColumnSpan > columnCount) columnCount = item.ColumnSpan;
                 bool placed = false;
-                for (int r = cursorRow; r <= maxRow + 100; r++)
+                int r = cursorRow;
+                while (!placed)
                 {
-                    for (int c = (r == cursorRow ? cursorCol : 0); c <= maxCol + 100; c++)
+                    for (int c = (r == cursorRow ? cursorCol : 0); c + item.ColumnSpan <= columnCount; c++)
                     {
                         if (!IsOccupied(items, c, r, item.ColumnSpan, item.RowSpan))
                         {
@@ -372,16 +422,12 @@ public class GridLayoutAlgorithm
                             break;
                         }
                     }
-                    if (placed) break;
-                }
-                if (!placed)
-                {
-                    item.ColumnStart = 1;
-                    item.RowStart = maxRow + 1;
-                    item.ColumnEnd = item.ColumnStart + item.ColumnSpan;
-                    item.RowEnd = item.RowStart + item.RowSpan;
-                    item.IsPlaced = true;
-                    maxRow = item.RowEnd - 1;
+                    if (!placed)
+                    {
+                        r++;
+                        cursorRow = r;
+                        cursorCol = 0;
+                    }
                 }
                 items.Add(item);
             }
@@ -406,6 +452,70 @@ public class GridLayoutAlgorithm
                 return true;
         }
         return false;
+    }
+
+    // Auto-placement step 1: items with a definite row but auto column are
+    // placed at the earliest free column of their row, advancing the column
+    // cursor (dense packing always starts from column 0).
+    private static void PlaceRowLockedItems(List<GridItem> rowLocked, List<GridItem> placed, bool dense,
+        ref int maxCol, ref int maxRow, ref int cursorCol, ref int cursorRow)
+    {
+        foreach (var item in rowLocked)
+        {
+            int row = item.RowStart - 1;
+            int rowSpan = item.RowSpan;
+            int colSpan = item.ColumnSpan;
+            int c = dense ? 0 : cursorCol;
+            for (; ; c++)
+            {
+                if (!IsOccupied(placed, c, row, colSpan, rowSpan))
+                {
+                    item.ColumnStart = c + 1;
+                    item.ColumnEnd = item.ColumnStart + colSpan;
+                    item.RowStart = row + 1;
+                    item.RowEnd = item.RowStart + rowSpan;
+                    item.IsPlaced = true;
+                    maxCol = Math.Max(maxCol, item.ColumnEnd - 1);
+                    maxRow = Math.Max(maxRow, item.RowEnd - 1);
+                    cursorCol = c + colSpan;
+                    break;
+                }
+            }
+            placed.Add(item);
+        }
+    }
+
+    // Auto-placement step 2: items with a definite column but auto row are
+    // placed at the first row from the auto-placement cursor whose spanned
+    // columns are all empty, advancing the row cursor (dense packing always
+    // starts from row 0).
+    private static void PlaceColumnLockedItems(List<GridItem> columnLocked, List<GridItem> placed, bool dense,
+        ref int maxCol, ref int maxRow, ref int cursorCol, ref int cursorRow)
+    {
+        foreach (var item in columnLocked)
+        {
+            int colStart = item.ColumnStart - 1;
+            int colSpan = item.ColumnSpan;
+            int rowSpan = item.RowSpan;
+            int r = dense ? 0 : cursorRow;
+            for (; ; r++)
+            {
+                if (!IsOccupied(placed, colStart, r, colSpan, rowSpan))
+                {
+                    item.ColumnStart = colStart + 1;
+                    item.ColumnEnd = item.ColumnStart + colSpan;
+                    item.RowStart = r + 1;
+                    item.RowEnd = item.RowStart + rowSpan;
+                    item.IsPlaced = true;
+                    maxCol = Math.Max(maxCol, item.ColumnEnd - 1);
+                    maxRow = Math.Max(maxRow, item.RowEnd - 1);
+                    cursorRow = r + 1;
+                    cursorCol = 0;
+                    break;
+                }
+            }
+            placed.Add(item);
+        }
     }
 
     private void BuildNamedAreaMap(List<string[]> areas, Dictionary<string, (int col, int row, int colSpan, int rowSpan)> map)
@@ -461,7 +571,7 @@ public class GridLayoutAlgorithm
             if (startVal.Equals("span", StringComparison.OrdinalIgnoreCase))
                 start = -1;
             else if (int.TryParse(startVal, out var s))
-                start = s > 0 ? s : s + explicitCount + 1;
+                start = s > 0 ? s : ResolveNegativeGridLine(s, explicitCount);
         }
 
         if (!string.IsNullOrEmpty(endVal))
@@ -469,7 +579,7 @@ public class GridLayoutAlgorithm
             if (endVal.Equals("span", StringComparison.OrdinalIgnoreCase))
                 end = -1;
             else if (int.TryParse(endVal, out var e))
-                end = e > 0 ? e : e + explicitCount + 1;
+                end = e > 0 ? e : ResolveNegativeGridLine(e, explicitCount);
         }
 
         // Handle span: start:span 2 means the item spans 2 cols
@@ -478,6 +588,14 @@ public class GridLayoutAlgorithm
 
         return (start, end);
     }
+
+    /// <summary>
+    /// Map a negative grid line (-1 = last line of the explicit grid, -2 =
+    /// second to last, ...) onto its positive 1-based line index.
+    /// Explicit line count for N tracks is N+1 (edges), so -1 resolves to N+1.
+    /// </summary>
+    private static int ResolveNegativeGridLine(int line, int explicitTrackCount) =>
+        line + explicitTrackCount + 2;
 
     private void ExpandImplicitTracks(List<GridItem> items, ref List<GridTrack> columns, ref List<GridTrack> rows)
     {
@@ -489,10 +607,30 @@ public class GridLayoutAlgorithm
             maxRow = Math.Max(maxRow, item.RowEnd - 1);
         }
 
+        // Implicit (overflowing) tracks are sized by grid-auto-columns /
+        // grid-auto-rows (default "auto"); the pattern repeats for every
+        // implicit track, matching the CSS track-list repetition.
+        var colPattern = ParseImplicitTrackPattern(_containerStyle?.GridAutoColumns, _containerWidth, isColumn: true);
+        var rowPattern = ParseImplicitTrackPattern(_containerStyle?.GridAutoRows, _containerHeight, isColumn: false);
+        int ci = 0, ri = 0;
         while (columns.Count < maxCol)
-            columns.Add(new GridTrack { SizeType = TrackSizeType.Auto, BaseSize = 100 });
+            columns.Add(colPattern[ci++ % colPattern.Count].Clone());
         while (rows.Count < maxRow)
-            rows.Add(new GridTrack { SizeType = TrackSizeType.Auto, BaseSize = 20 });
+            rows.Add(rowPattern[ri++ % rowPattern.Count].Clone());
+    }
+
+    private List<GridTrack> ParseImplicitTrackPattern(string? propertyValue, float containerSize, bool isColumn)
+    {
+        if (!string.IsNullOrEmpty(propertyValue) && !propertyValue.Equals("none", StringComparison.OrdinalIgnoreCase))
+        {
+            var tracks = new List<GridTrack>();
+            ParseTrackListValue(propertyValue.Replace(',', ' '), containerSize, tracks);
+            if (tracks.Count > 0) return tracks;
+        }
+        var fallback = new GridTrack { SizeType = TrackSizeType.Auto };
+        // Preserve the historical sizing floor for default auto tracks.
+        fallback.BaseSize = isColumn ? 100 : 20;
+        return new List<GridTrack> { fallback };
     }
 
     private void ResolveTracks(List<GridTrack> tracks, List<GridItem> items, float containerSize, float gap, bool isColumn)
@@ -538,6 +676,19 @@ public class GridLayoutAlgorithm
                     {
                         tracks[i].BaseSize = Math.Max(tracks[i].BaseSize, perTrackSize);
                         tracks[i].GrowLimit = Math.Max(tracks[i].GrowLimit, perTrackSize);
+                    }
+                }
+                else if (item.MeasuredBox != null && end > start)
+                {
+                    // Auto-height items contribute their measured content height
+                    // to intrinsic row tracks (auto/min-content/max-content and
+                    // the min side of minmax). Definite tracks keep their
+                    // declared size and let taller content overflow, per spec.
+                    float perTrackSize = item.MeasuredBox.BorderBox.Height / (end - start);
+                    if (perTrackSize > 0)
+                    {
+                        for (int i = start; i < end && i < tracks.Count; i++)
+                            ContributeIntrinsicRowSize(tracks[i], perTrackSize);
                     }
                 }
             }
@@ -638,27 +789,93 @@ public class GridLayoutAlgorithm
         return 0;
     }
 
+    /// <summary>
+    /// Fold an item's measured content height into an intrinsic row track.
+    /// Fixed/percentage/fraction tracks are left alone (definite tracks never
+    /// grow to fit content); minmax clamps to its resolved max (GrowLimit).
+    /// </summary>
+    private static void ContributeIntrinsicRowSize(GridTrack track, float contribution)
+    {
+        switch (track.SizeType)
+        {
+            case TrackSizeType.Auto:
+            case TrackSizeType.MinContent:
+            case TrackSizeType.MaxContent:
+                track.BaseSize = Math.Max(track.BaseSize, contribution);
+                track.GrowLimit = Math.Max(track.GrowLimit, contribution);
+                break;
+            case TrackSizeType.MinMax:
+                track.BaseSize = Math.Clamp(contribution, track.BaseSize, track.GrowLimit);
+                break;
+        }
+    }
+
+    /// <summary>
+    /// Lay out each item once at its resolved column width and keep the
+    /// converted box: row track sizing reads real content heights from it and
+    /// PositionItems positions the same box instead of re-laying out.
+    /// </summary>
+    private void MeasureItems(List<GridItem> items, List<GridTrack> columns, float columnGap, LayoutBox containerBox)
+    {
+        var colOffsets = ComputeTrackOffsets(columns, containerBox.ContentBox.Left, columnGap);
+        foreach (var item in items)
+        {
+            int col = item.ColumnStart - 1;
+            int colEnd = Math.Min(item.ColumnEnd - 1, columns.Count);
+            if (col < 0 || col >= colOffsets.Length || colEnd < col) continue;
+
+            float cellW = GetTrackSpanSize(columns, col, colEnd, columnGap);
+            var childSpace = _space.InheritBuilder(cellW, float.PositiveInfinity)
+                .SetIsFixedInlineSize(true)
+                .SetIsNewFormattingContext(true)
+                .ToConstraintSpace();
+            var itemResult = new BlockLayoutAlgorithm(item.Element, childSpace).Layout();
+            item.MeasuredBox = AuroraFragmentConverter.ToLayoutBox(itemResult.Fragment, item.Element, containerBox);
+        }
+    }
+
+    private static float[] ComputeTrackOffsets(List<GridTrack> tracks, float origin, float gap)
+    {
+        var offsets = new float[tracks.Count + 1];
+        float offset = origin;
+        for (int i = 0; i < tracks.Count; i++)
+        {
+            offsets[i] = offset;
+            offset += tracks[i].BaseSize + gap;
+        }
+        offsets[tracks.Count] = offset;
+        return offsets;
+    }
+
+    /// <summary>
+    /// A cell spans track sizes only; the gap lives between tracks, so a
+    /// k-track span includes k-1 gaps, not k.
+    /// </summary>
+    private static float GetTrackSpanSize(List<GridTrack> tracks, int start, int end, float gap)
+    {
+        float size = 0;
+        for (int i = start; i < end; i++) size += tracks[i].BaseSize;
+        if (end > start + 1) size += (end - start - 1) * gap;
+        return size;
+    }
+
+    private Dom.LayoutBox LayoutItem(GridItem item, float cellW, LayoutBox containerBox)
+    {
+        var childSpace = _space.InheritBuilder(cellW, float.PositiveInfinity)
+            .SetIsFixedInlineSize(true)
+            .SetIsNewFormattingContext(true)
+            .ToConstraintSpace();
+        var itemResult = new BlockLayoutAlgorithm(item.Element, childSpace).Layout();
+        return AuroraFragmentConverter.ToLayoutBox(itemResult.Fragment, item.Element, containerBox);
+    }
+
     private void PositionItems(List<GridItem> items, List<GridTrack> columns, List<GridTrack> rows, LayoutBox containerBox, float columnGap, float rowGap)
     {
         // Compute column offsets
-        var colOffsets = new float[columns.Count + 1];
-        float offset = containerBox.ContentBox.Left;
-        for (int i = 0; i < columns.Count; i++)
-        {
-            colOffsets[i] = offset;
-            offset += columns[i].BaseSize + columnGap;
-        }
-        colOffsets[columns.Count] = offset;
+        var colOffsets = ComputeTrackOffsets(columns, containerBox.ContentBox.Left, columnGap);
 
         // Compute row offsets
-        var rowOffsets = new float[rows.Count + 1];
-        offset = containerBox.ContentBox.Top;
-        for (int i = 0; i < rows.Count; i++)
-        {
-            rowOffsets[i] = offset;
-            offset += rows[i].BaseSize + rowGap;
-        }
-        rowOffsets[rows.Count] = offset;
+        var rowOffsets = ComputeTrackOffsets(rows, containerBox.ContentBox.Top, rowGap);
 
         var containerStyle = _containerStyle!;
         var justifyItems = ParseJustifyItems(containerStyle.JustifyItems);
@@ -674,19 +891,15 @@ public class GridLayoutAlgorithm
 
             float cellX = colOffsets[col];
             float cellY = rowOffsets[row];
-            float cellW = colOffsets[colEnd] - colOffsets[col];
-            float cellH = rowOffsets[rowEnd] - rowOffsets[row];
+            float cellW = GetTrackSpanSize(columns, col, colEnd, columnGap);
+            float cellH = GetTrackSpanSize(rows, row, rowEnd, rowGap);
 
-            // Lay out the item at the cell's inline size and convert the real
-            // fragment (text runs, line boxes, nested children) into the layout
-            // box tree — the same per-child dispatch flex uses, so a grid item's
+            // Reuse the box measured during row track sizing (same cell width,
+            // same child space), falling back to a fresh layout only if the
+            // measure pass skipped this item. The box carries the real fragment
+            // data (text runs, line boxes, nested children), so a grid item's
             // nested formatting contexts (flex/grid/table/replaced) are covered.
-            var childSpace = _space.InheritBuilder(cellW, float.PositiveInfinity)
-                .SetIsFixedInlineSize(true)
-                .SetIsNewFormattingContext(true)
-                .ToConstraintSpace();
-            var itemResult = new BlockLayoutAlgorithm(item.Element, childSpace).Layout();
-            var childBox = AuroraFragmentConverter.ToLayoutBox(itemResult.Fragment, item.Element, containerBox);
+            var childBox = item.MeasuredBox ?? LayoutItem(item, cellW, containerBox);
 
             float itemW = childBox.ContentBox.Width;
             float itemH = childBox.ContentBox.Height;
@@ -725,7 +938,9 @@ public class GridLayoutAlgorithm
         // Reflect the laid-out content height (row tracks + gaps) on the
         // container box so auto-height grids report a real content box instead
         // of the placeholder seeded for track unit resolution.
-        float contentEnd = rowOffsets[rows.Count];
+        float contentEnd = rows.Count > 0
+            ? rowOffsets[rows.Count - 1] + rows[rows.Count - 1].BaseSize
+            : containerBox.ContentBox.Top;
         containerBox.ContentBox = new SKRect(
             containerBox.ContentBox.Left,
             containerBox.ContentBox.Top,
@@ -937,4 +1152,8 @@ public class GridItem
     public int ColumnSpan { get; set; } = 1;
     public int RowSpan { get; set; } = 1;
     public bool IsPlaced { get; set; }
+
+    /// <summary>Box produced by the measure pass (layout at the resolved cell
+    /// width); consumed by row track sizing and by PositionItems.</summary>
+    public Dom.LayoutBox? MeasuredBox { get; set; }
 }

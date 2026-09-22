@@ -74,9 +74,19 @@ public static class CssFunctionEvaluator
 
     private static string? ResolveVar(string name, Element? context)
     {
-        if (context != null)
+        // Walk the element and its ancestor chain so custom properties inherit
+        // like normal properties (per spec all custom properties inherit by
+        // default). Checks the element's own computed style (set by the cascade)
+        // before the inline style / global registry.
+        for (Element? el = context; el != null; el = el.ParentElement)
         {
-            var inlineVal = context.GetAttribute("style");
+            if (el.ComputedStyle != null)
+            {
+                var computed = el.ComputedStyle.GetCustomProperty(name);
+                if (computed != null) return computed;
+            }
+
+            var inlineVal = el.GetAttribute("style");
             if (inlineVal != null)
             {
                 var props = inlineVal.Split(';', StringSplitOptions.RemoveEmptyEntries);

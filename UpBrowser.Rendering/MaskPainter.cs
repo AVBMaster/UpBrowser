@@ -36,25 +36,5 @@ internal sealed class MaskPainter
         return task.Result;
     }
 
-    private string? ResolveMaskUrl(string url)
-    {
-        if (string.IsNullOrEmpty(url)) return null;
-        if (url.StartsWith("url("))
-            url = url[4..^1].Trim('\'', '"');
-
-        if (url.StartsWith("http://") || url.StartsWith("https://") || url.StartsWith("data:") || url.StartsWith("blob:"))
-            return url;
-        if (url.StartsWith("//"))
-        {
-            return (!string.IsNullOrEmpty(_baseUrl) && _baseUrl.StartsWith("https://"))
-                ? "https:" + url : "http:" + url;
-        }
-        if (string.IsNullOrEmpty(_baseUrl)) return url;
-        try
-        {
-            var baseUri = new Uri(_baseUrl.EndsWith('/') ? _baseUrl : _baseUrl + '/');
-            return new Uri(baseUri, url).ToString();
-        }
-        catch { return url; }
-    }
+    private string? ResolveMaskUrl(string url) => UrlResolver.Resolve(url, _baseUrl);
 }

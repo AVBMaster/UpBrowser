@@ -117,6 +117,74 @@ public struct CssParserToken
 
     public bool IsEof => Type == CssTokenType.EofToken;
 
+    /// <summary>
+    /// Serializes this token back to its CSS source text. Unlike <see cref="Value"/>,
+    /// this reproduces numbers with their units, quoted strings, function names and
+    /// operators so a token stream can be faithfully turned back into CSS text.
+    /// </summary>
+    public string ToCssText()
+    {
+        switch (Type)
+        {
+            case CssTokenType.IdentToken: return Value;
+            case CssTokenType.FunctionToken: return FunctionName + "(";
+            case CssTokenType.AtKeywordToken: return "@" + Value;
+            case CssTokenType.HashToken: return "#" + Value;
+            case CssTokenType.StringToken: return "\"" + EscapeString(Value) + "\"";
+            case CssTokenType.BadStringToken: return "\"";
+            case CssTokenType.UrlToken: return "url(" + Value + ")";
+            case CssTokenType.BadUrlToken: return "url(";
+            case CssTokenType.DelimiterToken: return Value;
+            case CssTokenType.NumberToken: return FormatNumber(NumericValue);
+            case CssTokenType.PercentageToken: return FormatNumber(NumericValue) + "%";
+            case CssTokenType.DimensionToken: return FormatNumber(NumericValue) + Unit;
+            case CssTokenType.WhitespaceToken: return " ";
+            case CssTokenType.CdoToken: return "<!--";
+            case CssTokenType.CdcToken: return "-->";
+            case CssTokenType.ColonToken: return ":";
+            case CssTokenType.SemicolonToken: return ";";
+            case CssTokenType.CommaToken: return ",";
+            case CssTokenType.LeftSquareBracketToken: return "[";
+            case CssTokenType.RightSquareBracketToken: return "]";
+            case CssTokenType.LeftParenthesisToken: return "(";
+            case CssTokenType.RightParenthesisToken: return ")";
+            case CssTokenType.LeftBraceToken: return "{";
+            case CssTokenType.RightBraceToken: return "}";
+            case CssTokenType.IncludeMatchToken: return "~=";
+            case CssTokenType.DashMatchToken: return "|=";
+            case CssTokenType.PrefixMatchToken: return "^=";
+            case CssTokenType.SuffixMatchToken: return "$=";
+            case CssTokenType.SubstringMatchToken: return "*=";
+            case CssTokenType.ColumnToken: return "||";
+            case CssTokenType.UnicodeRangeToken:
+                return "U+" + UnicodeRangeStart.ToString("X") + "-" + UnicodeRangeEnd.ToString("X");
+            case CssTokenType.CommentToken: return "/*" + Value + "*/";
+            case CssTokenType.EofToken: return "";
+            default: return Value;
+        }
+    }
+
+    private static string FormatNumber(double value) =>
+        value == Math.Floor(value) && Math.Abs(value) < 1e15
+            ? value.ToString("0.###############", System.Globalization.CultureInfo.InvariantCulture)
+            : value.ToString("R", System.Globalization.CultureInfo.InvariantCulture);
+
+    private static string EscapeString(string value)
+    {
+        var sb = new System.Text.StringBuilder(value.Length);
+        foreach (char c in value)
+        {
+            switch (c)
+            {
+                case '"': sb.Append("\\\""); break;
+                case '\\': sb.Append("\\\\"); break;
+                case '\n': sb.Append("\\a "); break;
+                default: sb.Append(c); break;
+            }
+        }
+        return sb.ToString();
+    }
+
     public override string ToString() => Type switch
     {
         CssTokenType.IdentToken => $"IDENT({Value})",

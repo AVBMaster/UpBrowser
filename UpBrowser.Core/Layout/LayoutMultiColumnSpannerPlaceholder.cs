@@ -124,7 +124,7 @@ public static class LayoutObjectSpannerExtensions
     public static float ToPixels(this Length length, float fontSize, float rootFontSize, float viewportWidth, float viewportHeight)
     {
         if (length is PixelLength pl) return pl.Value;
-        if (length is PercentLength pcl) return pcl.Value * 0.01f * viewportWidth;
+        if (length is PercentLength pcl) return pcl.Value * viewportWidth;
         if (length is EmLength em) return em.Value * fontSize;
         return 0;
     }

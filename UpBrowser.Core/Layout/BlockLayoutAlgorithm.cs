@@ -891,8 +891,14 @@ public class BlockLayoutAlgorithm : LayoutAlgorithm
                 return LayoutResult.Abort(EStatus.BfcBlockOffsetResolved);
 
             // Move to the content edge. This is where the first child should be
-            // placed.
-            previousInflowPosition.logical_block_offset = contentEdge;
+            // placed. The in-flow cursor is content-box-relative: the container's
+            // own border/padding is accounted for by the parent when the
+            // fragments are placed (via the content-box base used for child
+            // offsets), so the first child sits at offset 0 here. If the cursor
+            // started at the content edge instead, the edge would be counted
+            // twice and every child of a bordered/padded block would be pushed
+            // down by its border+padding.
+            previousInflowPosition.logical_block_offset = 0;
 
             // If we resolved the BFC block offset now, the margin strut has been
             // reset. If margins are to be discarded, and this box would otherwise
@@ -1414,13 +1420,13 @@ public class BlockLayoutAlgorithm : LayoutAlgorithm
         }
         else if (Style.Width is PercentLength pct && Space.HasDefiniteInlineSize)
         {
-            own = pct.Value * 0.01f * Space.AvailableInlineSize;
+            own = pct.Value * Space.AvailableInlineSize;
             if (Style.BoxSizing == BoxSizingType.ContentBox)
                 own += _border.Left + _border.Right;
         }
         float maxW = Style.MaxWidth is PixelLength mw && mw.Value > 0 ? mw.Value : float.MaxValue;
         if (Style.MaxWidth is PercentLength pctMax && pctMax.Value > 0 && Space.HasDefiniteInlineSize)
-            maxW = Math.Min(maxW, pctMax.Value * 0.01f * Space.AvailableInlineSize);
+            maxW = Math.Min(maxW, pctMax.Value * Space.AvailableInlineSize);
 
         if (!float.IsNaN(own))
             return Math.Max(0, Math.Min(own, maxW) - _borderPadding.HorizontalSum - Space.ScrollbarInline);
@@ -2808,7 +2814,7 @@ public class BlockLayoutAlgorithm : LayoutAlgorithm
         var builder = Space.InheritBuilder(childAvailableSize.InlineSize, childAvailableSize.BlockSize);
         builder.SetIsNewFormattingContext(isNewFc);
         builder.SetAvailableSize(childAvailableSize.InlineSize, childAvailableSize.BlockSize);
-        builder.SetPercentageResolution(_childPercentageSize.InlineSize, _childPercentageSize.BlockSize);
+        builder.SetPercentageResolution(childAvailableSize.InlineSize, childAvailableSize.BlockSize);
         builder.SetDirection(Space.Direction);
 
         bool hasBfcBlockOffset = _containerBfcBlockOffset.HasValue;
@@ -2901,7 +2907,8 @@ public class BlockLayoutAlgorithm : LayoutAlgorithm
     {
         if (_oofCandidates.Count == 0)
             return;
-        var oofPart = new OutOfFlowLayoutPart(Builder);
+        var oofSpace = Space;
+        var oofPart = new OutOfFlowLayoutPart(Builder, oofSpace);
         foreach (var candidate in _oofCandidates)
             oofPart.AddCandidate(candidate);
         oofPart.Run();

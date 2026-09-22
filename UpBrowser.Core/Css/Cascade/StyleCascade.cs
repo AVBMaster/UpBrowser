@@ -1,5 +1,6 @@
-using UpBrowser.Core.Css.Matcher;
+﻿using UpBrowser.Core.Css.Matcher;
 using UpBrowser.Core.Css.Properties;
+using UpBrowser.Core.Css.Resolver;
 using UpBrowser.Core.Css.Rules;
 using UpBrowser.Core.Css.Values;
 using UpBrowser.Core.Dom;
@@ -172,167 +173,50 @@ public class CascadeResolverState
     {
         var style = Element?.ComputedStyle;
         if (style == null) return;
-        string text = value.CssText();
-
+        // Delegate to the shared Prism engine property applier so every
+        // property supported by the string cascade is available here too.
+        var name = CssPropertyIdExtensions.ToString(id);
+        var text = value.CssText();
+        text = CssFunctionEvaluator.Evaluate(text, Element,
+            FontSize, RootFontSize, ViewportWidth, ViewportHeight);
+        if (CssPropertyTraits.TryApplyCssWideKeyword(style, name, text, ParentStyle))
+            return;
+        // Font properties are deliberately not in CssPropertyApplier.Apply's
+        // switch (they are "high-priority": em/ch units depend on font-size).
+        // Resolve them here where the parent style context is available.
         switch (id)
         {
-            case CssPropertyId.Color: style.Color = ParseColor(text); break;
-            case CssPropertyId.FontSize: style.FontSize = Length.ParseFontSize(text, ParentStyle?.FontSize ?? 16); break;
-            case CssPropertyId.FontWeight: style.FontWeight = ParseFontWeight(text); break;
-            case CssPropertyId.FontFamily: style.FontFamily = text; break;
-            case CssPropertyId.FontStyle: style.FontStyle = ParseFontStyle(text); break;
-            case CssPropertyId.LineHeight: Fonts.LineBoxMetrics.ApplyLineHeight(style, text); break;
-            case CssPropertyId.TextAlign: style.TextAlign = ParseTextAlign(text); break;
-            case CssPropertyId.Visibility: style.Visibility = ParseVisibility(text); break;
-            case CssPropertyId.WhiteSpace: style.WhiteSpace = ParseWhiteSpace(text); break;
-            case CssPropertyId.Width: style.Width = ParseLength(text); break;
-            case CssPropertyId.Height: style.Height = ParseLength(text); break;
-            case CssPropertyId.MinWidth: style.MinWidth = ParseLength(text); break;
-            case CssPropertyId.MinHeight: style.MinHeight = ParseLength(text); break;
-            case CssPropertyId.MaxWidth: style.MaxWidth = ParseLength(text); break;
-            case CssPropertyId.MaxHeight: style.MaxHeight = ParseLength(text); break;
-            case CssPropertyId.MarginLeft: style.MarginLeft = ParseLength(text); break;
-            case CssPropertyId.MarginRight: style.MarginRight = ParseLength(text); break;
-            case CssPropertyId.MarginTop: style.MarginTop = ParseLength(text); break;
-            case CssPropertyId.MarginBottom: style.MarginBottom = ParseLength(text); break;
-            case CssPropertyId.PaddingLeft: style.PaddingLeft = ParseLength(text); break;
-            case CssPropertyId.PaddingRight: style.PaddingRight = ParseLength(text); break;
-            case CssPropertyId.PaddingTop: style.PaddingTop = ParseLength(text); break;
-            case CssPropertyId.PaddingBottom: style.PaddingBottom = ParseLength(text); break;
-            case CssPropertyId.BorderLeftWidth: style.BorderLeftWidth = ParseBorderWidth(text); break;
-            case CssPropertyId.BorderRightWidth: style.BorderRightWidth = ParseBorderWidth(text); break;
-            case CssPropertyId.BorderTopWidth: style.BorderTopWidth = ParseBorderWidth(text); break;
-            case CssPropertyId.BorderBottomWidth: style.BorderBottomWidth = ParseBorderWidth(text); break;
-            case CssPropertyId.BorderLeftColor: style.BorderLeftColor = ParseColor(text); break;
-            case CssPropertyId.BorderRightColor: style.BorderRightColor = ParseColor(text); break;
-            case CssPropertyId.BorderTopColor: style.BorderTopColor = ParseColor(text); break;
-            case CssPropertyId.BorderBottomColor: style.BorderBottomColor = ParseColor(text); break;
-            case CssPropertyId.BorderLeftStyle: style.BorderLeftStyle = ParseBorderStyle(text); break;
-            case CssPropertyId.BorderRightStyle: style.BorderRightStyle = ParseBorderStyle(text); break;
-            case CssPropertyId.BorderTopStyle: style.BorderTopStyle = ParseBorderStyle(text); break;
-            case CssPropertyId.BorderBottomStyle: style.BorderBottomStyle = ParseBorderStyle(text); break;
-            case CssPropertyId.BorderCollapse: style.BorderCollapse = text.Equals("collapse", StringComparison.OrdinalIgnoreCase); break;
-            case CssPropertyId.Display: style.Display = ParseDisplay(text); break;
-            case CssPropertyId.Position: style.Position = ParsePosition(text); break;
-            case CssPropertyId.BackgroundColor: style.BackgroundColor = ParseColor(text); break;
-            case CssPropertyId.Opacity: style.Opacity = ParseFloat(text, 1); break;
-            case CssPropertyId.Float: style.Float = ParseFloatType(text); break;
-            case CssPropertyId.Clear: style.Clear = ParseClearType(text); break;
-            case CssPropertyId.Overflow: style.OverflowX = style.OverflowY = ParseOverflow(text); break;
-            case CssPropertyId.OverflowX: style.OverflowX = ParseOverflow(text); break;
-            case CssPropertyId.OverflowY: style.OverflowY = ParseOverflow(text); break;
-            case CssPropertyId.ZIndex: style.ZIndex = (int)ParseFloat(text, 0); break;
-            case CssPropertyId.Left: style.Left = ParseLength(text); break;
-            case CssPropertyId.Right: style.Right = ParseLength(text); break;
-            case CssPropertyId.Top: style.Top = ParseLength(text); break;
-            case CssPropertyId.Bottom: style.Bottom = ParseLength(text); break;
-            case CssPropertyId.BoxSizing: style.BoxSizing = text.Equals("border-box", StringComparison.OrdinalIgnoreCase) ? Dom.BoxSizingType.BorderBox : Dom.BoxSizingType.ContentBox; break;
-            case CssPropertyId.TextDecoration: style.TextDecoration = ParseTextDecoration(text); break;
-            case CssPropertyId.TextTransform: style.TextTransform = text; break;
-            case CssPropertyId.LetterSpacing: style.LetterSpacing = ParseFloat(text, 0); break;
-            case CssPropertyId.WordSpacing: style.WordSpacing = ParseFloat(text, 0); break;
-            case CssPropertyId.WordBreak: style.WordBreak = ParseWordBreak(text); break;
-            case CssPropertyId.OverflowWrap: style.OverflowWrap = ParseOverflowWrap(text); break;
-            case CssPropertyId.FontVariant: style.FontVariant = text; break;
-            case CssPropertyId.Cursor: style.Cursor = text; break;
-            case CssPropertyId.BorderTopLeftRadius: style.BorderTopLeftRadius = ParseFloat(text, 0); break;
-            case CssPropertyId.BorderTopRightRadius: style.BorderTopRightRadius = ParseFloat(text, 0); break;
-            case CssPropertyId.BorderBottomLeftRadius: style.BorderBottomLeftRadius = ParseFloat(text, 0); break;
-            case CssPropertyId.BorderBottomRightRadius: style.BorderBottomRightRadius = ParseFloat(text, 0); break;
-            case CssPropertyId.ListStyleType: style.ListStyleType = ParseListStyleType(text); break;
-            case CssPropertyId.ListStylePosition: style.ListStylePosition = text.Equals("inside", StringComparison.OrdinalIgnoreCase) ? Dom.ListStylePosition.Inside : Dom.ListStylePosition.Outside; break;
-            case CssPropertyId.Content: style.Content = text; break;
-            case CssPropertyId.BackgroundImage: style.BackgroundImage = new List<string> { text }; break;
-            case CssPropertyId.FlexDirection: style.FlexDirection = ParseFlexDirection(text); break;
-            case CssPropertyId.FlexWrap: style.FlexWrap = ParseFlexWrap(text); break;
-            case CssPropertyId.JustifyContent: style.JustifyContent = ParseJustifyContent(text); break;
-            case CssPropertyId.AlignItems: style.AlignItems = ParseAlignItems(text); break;
-            case CssPropertyId.AlignSelf: style.AlignSelf = ParseAlignSelf(text); break;
-            case CssPropertyId.FlexGrow: style.FlexGrow = ParseFloat(text, 0); break;
-            case CssPropertyId.FlexShrink: style.FlexShrink = ParseFloat(text, 1); break;
-            case CssPropertyId.FlexBasis: style.FlexBasis = ParseLength(text); break;
-            case CssPropertyId.Order: style.Order = (int)ParseFloat(text, 0); break;
-            case CssPropertyId.RowGap: style.RowGap = ParseLength(text); break;
-            case CssPropertyId.ColumnGap: style.ColumnGap = ParseLength(text); break;
-            case CssPropertyId.GridTemplateColumns: style.GridTemplateColumns = text; break;
-            case CssPropertyId.GridTemplateRows: style.GridTemplateRows = text; break;
-            case CssPropertyId.GridAutoColumns: style.GridAutoColumns = text; break;
-            case CssPropertyId.GridAutoRows: style.GridAutoRows = text; break;
-            case CssPropertyId.GridAutoFlow: style.GridAutoFlow = ParseGridAutoFlow(text); break;
-            case CssPropertyId.GridColumn: style.GridColumn = text; break;
-            case CssPropertyId.GridRow: style.GridRow = text; break;
-            case CssPropertyId.GridColumnStart: style.GridColumnStart = text; break;
-            case CssPropertyId.GridColumnEnd: style.GridColumnEnd = text; break;
-            case CssPropertyId.GridRowStart: style.GridRowStart = text; break;
-            case CssPropertyId.GridRowEnd: style.GridRowEnd = text; break;
-            case CssPropertyId.GridTemplateAreas: style.GridTemplateAreas = text; break;
-            case CssPropertyId.Transform: style.Transform = text; break;
-            case CssPropertyId.TransformOrigin: style.TransformOrigin = text; break;
-            case CssPropertyId.Transition: style.Transition = text; break;
-            case CssPropertyId.Animation: style.Animation = text; break;
-            case CssPropertyId.AnimationName: style.AnimationName = text; break;
-            case CssPropertyId.AnimationDuration: style.AnimationDuration = text; break;
-            case CssPropertyId.AnimationTimingFunction: style.AnimationTimingFunction = text; break;
-            case CssPropertyId.AnimationDelay: style.AnimationDelay = text; break;
-            case CssPropertyId.AnimationIterationCount: style.AnimationIterationCount = text; break;
-            case CssPropertyId.AnimationDirection: style.AnimationDirection = text; break;
-            case CssPropertyId.AnimationFillMode: style.AnimationFillMode = text; break;
-            case CssPropertyId.AnimationPlayState: style.AnimationPlayState = text; break;
-            case CssPropertyId.AspectRatio: style.AspectRatio = ParseFloat(text, 0); break;
-            case CssPropertyId.ObjectFit: style.ObjectFit = ParseObjectFit(text); break;
-            case CssPropertyId.PointerEvents: style.PointerEvents = text; break;
-            case CssPropertyId.UserSelect: style.UserSelect = text; break;
-            case CssPropertyId.Resize: style.Resize = ParseResizeType(text); break;
-            case CssPropertyId.WillChange: style.WillChange = text; break;
-            case CssPropertyId.Filter: style.Filter = text; break;
-            case CssPropertyId.BackdropFilter: style.BackdropFilter = text; break;
-            case CssPropertyId.MixBlendMode: style.MixBlendMode = ParseMixBlendMode(text); break;
-            case CssPropertyId.Isolation: style.Isolation = ParseIsolationType(text); break;
-            case CssPropertyId.Contain: style.Contain = ParseContainType(text); break;
-            case CssPropertyId.ContentVisibility: style.ContentVisibility = ParseContentVisibility(text); break;
-            case CssPropertyId.ScrollBehavior: style.ScrollBehavior = ParseScrollBehavior(text); break;
-            case CssPropertyId.OverscrollBehavior: style.OverscrollBehavior = ParseOverscrollBehavior(text); break;
-            case CssPropertyId.AccentColor: style.AccentColor = ParseColor(text); break;
-            case CssPropertyId.ColorScheme: style.ColorScheme = text; break;
-            case CssPropertyId.CaretColor: style.CaretColor = ParseColor(text); break;
-            case CssPropertyId.Appearance: style.Appearance = text; break;
-            case CssPropertyId.TableLayout: style.TableLayout = text; break;
-            case CssPropertyId.BorderSpacing: style.BorderSpacing = ParseFloat(text, 0); break;
-            case CssPropertyId.CaptionSide: style.CaptionSide = text; break;
-            case CssPropertyId.EmptyCells: style.EmptyCells = text; break;
-            case CssPropertyId.VerticalAlign: style.VerticalAlign = ParseVerticalAlign(text); break;
-            case CssPropertyId.Direction: style.Direction = text; break;
-            case CssPropertyId.WritingMode: style.WritingMode = ParseWritingMode(text); break;
-            case CssPropertyId.Zoom: style.Zoom = ParseFloat(text, 1); break;
-            case CssPropertyId.BackgroundRepeat: style.BackgroundRepeat = ParseBackgroundRepeat(text); break;
-            case CssPropertyId.BackgroundAttachment: style.BackgroundAttachment = ParseBackgroundAttachment(text); break;
-            case CssPropertyId.BackgroundSize: style.BackgroundSize = ParseBackgroundSize(text); break;
-            case CssPropertyId.TextOverflow: style.TextOverflow = ParseTextOverflow(text); break;
-            case CssPropertyId.TextDecorationLine: style.TextDecorationLine = ParseTextDecorationLine(text); break;
-            case CssPropertyId.TextDecorationStyle: style.TextDecorationStyle = ParseTextDecorationStyle(text); break;
-            case CssPropertyId.TextDecorationColor: style.TextDecorationColor = ParseColor(text); break;
-            case CssPropertyId.TextDecorationThickness: style.TextDecorationThickness = ParseFloat(text, 0); break;
-            case CssPropertyId.TextUnderlineOffset: style.TextUnderlineOffset = ParseFloat(text, 0); break;
-            case CssPropertyId.OutlineColor: style.OutlineColor = ParseColor(text); break;
-            case CssPropertyId.OutlineWidth: style.OutlineWidth = ParseFloat(text, 0); break;
-            case CssPropertyId.OutlineStyle: style.OutlineStyle = ParseBorderStyle(text); break;
-            case CssPropertyId.OutlineOffset: style.OutlineOffset = ParseFloat(text, 0); break;
-            // TabSize mapped to a specific property
-            case CssPropertyId.Orphans: style.Orphans = (int)ParseFloat(text, 2); break;
-            case CssPropertyId.Widows: style.Widows = (int)ParseFloat(text, 2); break;
-            case CssPropertyId.BackgroundBlendMode: style.BackgroundBlendMode = ParseBackgroundBlendMode(text); break;
-            case CssPropertyId.ImageRendering: style.ImageRendering = ParseImageRendering(text); break;
-            case CssPropertyId.ForcedColorAdjust: style.ForcedColorAdjust = ParseForcedColorAdjust(text); break;
-            case CssPropertyId.Hyphens: style.Hyphens = ParseHyphens(text); break;
-            case CssPropertyId.LineBreak: style.LineBreak = ParseLineBreak(text); break;
-            case CssPropertyId.TextJustify: style.TextJustify = ParseTextJustify(text); break;
-            case CssPropertyId.OverflowAnchor: style.OverflowAnchor = ParseOverflowAnchor(text); break;
+            case CssPropertyId.FontSize:
+                style.FontSize = CssPropertyApplier.ParseFontSize(text, ParentStyle);
+                FontSize = style.FontSize;
+                return;
+            case CssPropertyId.FontWeight:
+                style.FontWeight = CssPropertyApplier.ParseFontWeight(text);
+                return;
+            case CssPropertyId.FontStyle:
+                style.FontStyle = CssPropertyApplier.ParseFontStyle(text);
+                return;
+            case CssPropertyId.FontFamily:
+                style.FontFamily = CssPropertyApplier.ParseFontFamily(text);
+                return;
+            case CssPropertyId.LineHeight:
+                UpBrowser.Core.Fonts.LineBoxMetrics.ApplyLineHeight(style, text);
+                return;
         }
+        CssPropertyApplier.Apply(style, name, text);
     }
 
     public void ApplyCustomProperty(string name, CssValue value)
     {
-        Element?.ComputedStyle?.SetCustomProperty(name, value.CssText());
+        var style = Element?.ComputedStyle;
+        if (style == null) return;
+        var text = value.CssText();
+        text = CssFunctionEvaluator.Evaluate(text, Element,
+            FontSize, RootFontSize, ViewportWidth, ViewportHeight);
+        // Custom property names come from the parser with the leading "--" intact;
+        // ComputedStyle stores them without the prefix (so var(--x) lookups by the
+        // evaluator, which strips "--", resolve correctly).
+        style.SetCustomProperty(name.StartsWith("--") ? name[2..] : name, text);
     }
 
     private static float ParseFloat(string text, float defaultVal) =>

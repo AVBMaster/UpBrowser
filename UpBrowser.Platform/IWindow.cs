@@ -39,4 +39,12 @@ public interface IWindow : IDisposable
     /// 获取底层平台窗口句柄 (Windows: HWND, Linux: Display/Drawable, Mac: CGWindowID).
     /// </summary>
     IntPtr? GetNativeHandle() => null;
+
+    /// <summary>
+    /// True while an interactive resize/move drag is in flight (Windows: between
+    /// WM_ENTERSIZEMOVE and WM_EXITSIZEMOVE). The renderer uses this to switch to
+    /// a cheap whole-page direct draw during the drag instead of re-rasterizing
+    /// the tile cache on every resize tick.
+    /// </summary>
+    bool IsInSizeMove => false;
 }

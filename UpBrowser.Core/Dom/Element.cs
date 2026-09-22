@@ -487,8 +487,7 @@ public abstract class Element : Node
 
     public bool Matches(string selector)
     {
-        var parsed = Css.CssSelector.Parse(selector);
-        return parsed.Matches(this, ParentElement);
+        return Css.CssSelectorMatcher.Matches(selector, this);
     }
 
     public void Prepend(params Node[] nodes)

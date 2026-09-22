@@ -83,6 +83,8 @@ private readonly ScrollableAreaPainter _scrollableAreaPainter;
     /// </summary>
     public float PhysicalScale { get; set; } = 1f;
 
+    public string? BaseUrl => _baseUrl;
+
     public PaintVisitor(float contentOffsetY = 0,
         Dictionary<string, SKTypeface>? sharedTypefaceCache = null,
         ImageCache? sharedImageCache = null,
@@ -605,49 +607,15 @@ _scrollableAreaPainter = new ScrollableAreaPainter(_displayList);
                 stickyOffsetX = parentBox.ScrollX - layoutBox.BorderBox.Left + layoutBox.StickyLeft;
         }
 
-        SKImageFilter? elementFilter = null;
-        if (!string.IsNullOrEmpty(style.Filter) && style.Filter != "none")
-            elementFilter = FilterRenderer.ParseAndChain(style.Filter);
-
-bool hasClipPath = ClipPathClipper.HasClipPath(style.ClipPath);
-        bool hasOpacityLayer = style.Opacity < 1.0f && style.Opacity >= 0f;
-        bool hasBlendMode = style.MixBlendMode != MixBlendModeType.Normal;
-        bool hasMask = _maskPainter.HasMask(style);
-        SKImage? maskImage = null;
-        if (hasMask)
-            maskImage = _maskPainter.TryLoadMaskImage(style);
-
         var viewportCullRect = new SKRect(0, TotalOffsetY, _viewportWidth, TotalOffsetY + _viewportHeight);
         if (viewportCullRect.Width <= 0 || viewportCullRect.Height <= 0)
             viewportCullRect = SKRect.Create(float.MinValue / 2, float.MinValue / 2, float.MaxValue, float.MaxValue);
         using var objectPaintState = new ScopedPaintState(
             _displayList, new SKPoint(TotalOffsetX, TotalOffsetY), viewportCullRect);
 
-        if (!isVisibilityHidden && (elementFilter != null || hasOpacityLayer || hasBlendMode || hasClipPath || hasMask))
-        {
-            SKPath? clipPath = null;
-            if (hasClipPath)
-                clipPath = ClipPathClipper.Parse(style.ClipPath, layoutBox);
-            objectPaintState.PushLayer(hasOpacityLayer ? style.Opacity : 1.0f,
-                elementFilter, clipPath, offsetBorderBox, maskImage,
-                hasBlendMode ? MixBlendModeToSkBlendMode(style.MixBlendMode) : SKBlendMode.SrcOver);
-        }
-
         if (!isVisibilityHidden)
         {
-            // Apply CSS transform BEFORE background so the entire element (including background) is transformed
-            bool hasTransform = !string.IsNullOrEmpty(style.Transform) && style.Transform != "none";
-            SKMatrix transformMatrix = SKMatrix.Identity;
-            if (hasTransform)
-            {
-                var transformOrigin = ParseTransformOrigin(style.TransformOrigin, layoutBox);
-                var operations = TransformParser.Parse(style.Transform);
-                if (operations.Count > 0)
-                {
-                    transformMatrix = TransformParser.ToMatrix(operations, transformOrigin.X, transformOrigin.Y);
-                    objectPaintState.PushTransform(transformMatrix, offsetBorderBox);
-                }
-            }
+            PushObjectEffects(style, layoutBox, offsetBorderBox, objectPaintState);
 
             bool isInline = style.Display == DisplayType.Inline;
             bool skipSelfDecorations = ReferenceEquals(element, _skipSelfDecorationsRoot);
@@ -1055,8 +1023,13 @@ bool hasClipPath = ClipPathClipper.HasClipPath(style.ClipPath);
     {
         foreach (var child in parent.Children)
         {
-            if (child.Dimensions?.Element != null)
-                continue; // has a DOM element; painted through VisitElement
+            // Skip boxes that belong to a real DOM element: those are painted
+            // through VisitElement. Layout-only anonymous boxes either have no
+            // element at all (multicol column fragmentainers) or a synthetic
+            // element that is not attached to the DOM (anonymous flex items
+            // wrapping bare text).
+            if (child.Dimensions?.Element is Element el && el.ParentNode != null)
+                continue;
             if (child.Lines == null && child.LineRuns == null)
                 continue;
             DrawInlineRuns(child);
@@ -1414,12 +1387,51 @@ private static SKBlendMode MixBlendModeToSkBlendMode(MixBlendModeType mode) => m
         return offset + size / 2f;
     }
 
+    internal void PushObjectEffects(ComputedStyle style, LayoutBox layoutBox, SKRect offsetBorderBox, ScopedPaintState objectPaintState)
+    {
+        bool hasClipPath = ClipPathClipper.HasClipPath(style.ClipPath);
+        bool hasOpacityLayer = style.Opacity < 1.0f && style.Opacity >= 0f;
+        bool hasBlendMode = style.MixBlendMode != MixBlendModeType.Normal;
+        bool hasMask = _maskPainter.HasMask(style);
+        SKImage? maskImage = null;
+        if (hasMask)
+            maskImage = _maskPainter.TryLoadMaskImage(style);
+
+        bool hasFilter = !string.IsNullOrEmpty(style.Filter) && style.Filter != "none";
+        SKImageFilter? elementFilter = null;
+        if (hasFilter)
+            elementFilter = FilterRenderer.ParseAndChain(style.Filter);
+
+        if (hasFilter || hasOpacityLayer || hasBlendMode || hasClipPath || hasMask)
+        {
+            SKPath? clipPath = null;
+            if (hasClipPath)
+                clipPath = ClipPathClipper.Parse(style.ClipPath, layoutBox);
+            objectPaintState.PushLayer(hasOpacityLayer ? style.Opacity : 1.0f,
+                elementFilter, clipPath, offsetBorderBox, maskImage,
+                hasBlendMode ? MixBlendModeToSkBlendMode(style.MixBlendMode) : SKBlendMode.SrcOver);
+        }
+
+        // Apply CSS transform BEFORE background so the entire element (including background) is transformed
+        if (!string.IsNullOrEmpty(style.Transform) && style.Transform != "none")
+        {
+            var transformOrigin = ParseTransformOrigin(style.TransformOrigin, layoutBox);
+            var operations = TransformParser.Parse(style.Transform);
+            if (operations.Count > 0)
+            {
+                var transformMatrix = TransformParser.ToMatrix(operations, transformOrigin.X, transformOrigin.Y);
+                objectPaintState.PushTransform(transformMatrix, offsetBorderBox);
+            }
+        }
+    }
+
     private void DrawBackgroundImage(Element element, ComputedStyle style, SKRect rect)
     {
         var images = style.BackgroundImage;
         if (images == null || images.Count == 0) return;
         if (string.IsNullOrEmpty(images[0])) return;
-        var url = images[0];
+        var url = UrlResolver.Resolve(images[0], _baseUrl);
+        if (url == null) return;
         var task = _imageCache.GetImageAsync(url);
         task.Wait();
         var image = task.Result;
@@ -1531,7 +1543,7 @@ private static SKBlendMode MixBlendModeToSkBlendMode(MixBlendModeType mode) => m
 
         if (NinePieceImagePainter.HasBorderImage(style))
         {
-            NinePieceImagePainter.Paint(_displayList, _imageCache, style, borderRect);
+            NinePieceImagePainter.Paint(_displayList, _imageCache, style, borderRect, _baseUrl);
             return;
         }
 
@@ -1789,7 +1801,10 @@ private static SKBlendMode MixBlendModeToSkBlendMode(MixBlendModeType mode) => m
     {
         foreach (var child in box.Children)
         {
-            if (child.Dimensions?.Element == null && (child.Lines != null || child.LineRuns != null))
+            if (child.Lines == null && child.LineRuns == null)
+                continue;
+            var el = child.Dimensions?.Element;
+            if (el == null || el.ParentNode == null)
                 return true;
         }
         return false;
@@ -3541,18 +3556,21 @@ public class ImageCache
         var sw = Clock.NowNanos();
         try
         {
-            if (!url.StartsWith("http://") && !url.StartsWith("https://"))
+            if (url.StartsWith("data:"))
             {
-                var ext = Path.GetExtension(url).ToLowerInvariant();
-                if (ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".gif" || ext == ".webp" || ext == ".bmp" || ext == ".ico")
-                {
-                    var data = await File.ReadAllBytesAsync(url);
-                    PipelineTimings.ImageDecode.AddSample(Clock.NowNanos() - sw);
-                    return SKImage.FromEncodedData(data);
-                }
-                return null;
+                var comma = url.IndexOf(',');
+                if (comma < 0) return null;
+                var meta = url[5..comma];
+                var payload = url[(comma + 1)..];
+                if (!meta.EndsWith(";base64", StringComparison.OrdinalIgnoreCase))
+                    return null;
+                var bytes = Convert.FromBase64String(payload);
+                PipelineTimings.ImageDecode.AddSample(Clock.NowNanos() - sw);
+                return SKImage.FromEncodedData(bytes);
             }
-            else
+            if (url.StartsWith("file://"))
+                url = new Uri(url).LocalPath;
+            if (url.StartsWith("http://") || url.StartsWith("https://"))
             {
                 // Fast path: check the resource cache for the raw body first
                 ResourceResponse? resp = null;
@@ -3575,6 +3593,17 @@ public class ImageCache
                 {
                     PipelineTimings.ImageDecode.AddSample(Clock.NowNanos() - sw);
                     return SKImage.FromEncodedData(fetched.Body);
+                }
+                return null;
+            }
+            else
+            {
+                var ext = Path.GetExtension(url).ToLowerInvariant();
+                if (ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".gif" || ext == ".webp" || ext == ".bmp" || ext == ".ico")
+                {
+                    var data = await File.ReadAllBytesAsync(url);
+                    PipelineTimings.ImageDecode.AddSample(Clock.NowNanos() - sw);
+                    return SKImage.FromEncodedData(data);
                 }
                 return null;
             }

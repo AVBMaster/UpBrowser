@@ -145,7 +145,7 @@ internal sealed class ImagePainter
     private static float ResolveObjectPosition(Length length, float availableDiff)
     {
         if (length is PercentLength pct)
-            return pct.Value * 0.01f;
+            return pct.Value;
         float px = length.ToPixels(16f, 16f, 0f, 0f);
         return availableDiff > 0 && px != float.NaN ? px / availableDiff : 0;
     }
@@ -190,25 +190,7 @@ internal sealed class ImagePainter
         _displayList.Add(op);
     }
 
-    private string? ResolveImageUrl(string url)
-    {
-        if (string.IsNullOrEmpty(url)) return null;
-        if (url.StartsWith("http://") || url.StartsWith("https://") || url.StartsWith("data:") || url.StartsWith("blob:"))
-            return url;
-        if (url.StartsWith("//"))
-        {
-            if (!string.IsNullOrEmpty(_baseUrl) && _baseUrl.StartsWith("https://"))
-                return "https:" + url;
-            return "http:" + url;
-        }
-        if (string.IsNullOrEmpty(_baseUrl)) return url;
-        try
-        {
-            var baseUri = new Uri(_baseUrl.EndsWith('/') ? _baseUrl : _baseUrl + '/');
-            return new Uri(baseUri, url).ToString();
-        }
-        catch { return url; }
-    }
+    private string? ResolveImageUrl(string url) => UrlResolver.Resolve(url, _baseUrl);
 
     private static ImageFit MapObjectFitToImageFit(ObjectFitType objectFit) => objectFit switch
     {

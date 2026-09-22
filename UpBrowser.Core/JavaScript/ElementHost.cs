@@ -1,5 +1,6 @@
 ﻿using System.Diagnostics.CodeAnalysis;
 using System.Threading;
+using UpBrowser.Core.Css;
 using UpBrowser.Core.Dom;
 using UpBrowser.Core.Dom.Html;
 
@@ -860,8 +861,7 @@ public class ElementHost
 
     public bool matches(string selector)
     {
-        var parsed = UpBrowser.Core.Css.CssSelector.Parse(selector);
-        return parsed.Matches(_element, _element.ParentElement);
+        return CssSelectorMatcher.Matches(selector, _element);
     }
 
     public void insertAdjacentHTML(string position, string text)

@@ -297,6 +297,24 @@ public static class NativeWindow
     [DllImport("gdi32.dll")]
     public static extern bool BitBlt(IntPtr hdcDest, int xDest, int yDest, int width, int height, IntPtr hdcSrc, int xSrc, int ySrc, uint rop);
 
+    // Used only by the WM_PAINT fallback blit: while a resize drag is in flight
+    // the last composed frame is stretched over the (possibly resized) client so
+    // the exposed region shows scaled content instead of the unpainted black.
+    [DllImport("gdi32.dll")]
+    public static extern bool StretchBlt(IntPtr hdcDest, int xDest, int yDest, int wDest, int hDest,
+        IntPtr hdcSrc, int xSrc, int ySrc, int wSrc, int hSrc, uint rop);
+
+    [DllImport("gdi32.dll")]
+    public static extern int SetStretchBltMode(IntPtr hdc, int mode);
+
+    [DllImport("gdi32.dll")]
+    public static extern bool SetBrushOrgEx(IntPtr hdc, int xOrg, int yOrg, IntPtr lpPoint);
+
+    // StretchBlt halftone mode: the highest-quality scale. Acceptable here because
+    // it only runs transiently during a resize drag; the crisp frame replaces it on
+    // WM_EXITSIZEMOVE.
+    public const int HALFTONE = 4;
+
     [DllImport("user32.dll")]
     public static extern bool GetClientRect(IntPtr hWnd, out RECT lpRect);
 

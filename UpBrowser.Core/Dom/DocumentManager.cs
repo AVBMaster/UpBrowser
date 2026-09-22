@@ -61,7 +61,7 @@ public class DocumentManager
         }
 
         var styleComputer = new StyleComputer();
-        styleComputer.AddStylesheet(_uaStylesheet);
+        styleComputer.AddStylesheet(_uaStylesheet, Css.Resolver.CascadeOrigin.UserAgent);
 
         try
         {

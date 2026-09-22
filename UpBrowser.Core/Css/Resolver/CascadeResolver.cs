@@ -13,6 +13,7 @@ namespace UpBrowser.Core.Css.Resolver;
 public class CascadeResolver
 {
     private readonly List<Stylesheet> _stylesheets = new();
+    private readonly List<CascadeOrigin> _stylesheetOrigins = new();
     private readonly CssParser _inlineParser = new();
     private readonly SelectorMatcher _matcher = new();
     private readonly CascadeMap _cascadeMap = new();
@@ -31,7 +32,11 @@ public class CascadeResolver
         _colorScheme = colorScheme;
     }
 
-    public void AddStylesheet(Stylesheet stylesheet) => _stylesheets.Add(stylesheet);
+    public void AddStylesheet(Stylesheet stylesheet, CascadeOrigin origin = CascadeOrigin.Author)
+    {
+        _stylesheets.Add(stylesheet);
+        _stylesheetOrigins.Add(origin);
+    }
 
     public void ResolveStyles(Document document, float viewportWidth = 1024f, float viewportHeight = 768f, string colorScheme = "light")
     {
@@ -125,9 +130,10 @@ public class CascadeResolver
         AnalyzeInlineStyle(element, treeOrder);
         AnalyzeJsModifiedStyle(element, treeOrder);
 
-        ApplyCascadeAffecting(style);
-        ApplyHighPriority(style, parentStyle);
-        ApplyMatchResult(style);
+        ApplyCustomProperties(style, element);
+        ApplyCascadeAffecting(style, element);
+        ApplyHighPriority(style, parentStyle, element);
+        ApplyMatchResult(style, element, parentStyle);
 
         // Expose collected ::-webkit-scrollbar-* side-car to painting.
         style.ScrollbarCustom = element.ScrollbarCustom;
@@ -178,9 +184,9 @@ public class CascadeResolver
                         );
                         _cascadeMap.Insert(prop.Key, prop.Value, animPriority);
                     }
-                    ApplyCascadeAffecting(style);
-                    ApplyHighPriority(style, parentStyle ?? style);
-                    ApplyMatchResult(style);
+                    ApplyCascadeAffecting(style, element);
+                    ApplyHighPriority(style, parentStyle ?? style, element);
+                    ApplyMatchResult(style, element, parentStyle);
                 }
                 break;
             }
@@ -336,197 +342,153 @@ public class CascadeResolver
 
     /// <summary>
     /// Analyze phase: traverse all author stylesheet declarations into CascadeMap.
+    /// Source order is preserved: rules are visited in document order and a
+    /// monotonically increasing <see cref="LegacyCascadePriority.SourceOrder"/> plus
+    /// selector specificity decide the winner, so equal-specificity rules resolve
+    /// by source order exactly like the CSS spec requires.
     /// </summary>
     private void Analyze(Element element, int treeOrder)
     {
-        foreach (var stylesheet in _stylesheets)
+        int sourceOrder = 0;
+
+        for (int i = 0; i < _stylesheets.Count; i++)
         {
+            var stylesheet = _stylesheets[i];
+            var origin = i < _stylesheetOrigins.Count ? _stylesheetOrigins[i] : CascadeOrigin.Author;
+
             foreach (var rule in stylesheet.Rules)
-            {
-                if (!_matcher.Matches(rule, element))
-                    continue;
-
-                // Scrollbar pseudo rules go to the side-car, not the cascade.
-                if (TryCollectScrollbarStyle(element, rule.Selector, rule.Properties))
-                    continue;
-
-                bool isBefore = rule.Selector.Contains("::before");
-                bool isAfter = rule.Selector.Contains("::after");
-
-                if (isBefore)
-                {
-                    element.BeforeStyles ??= new Dictionary<string, string>();
-                    foreach (var prop in rule.Properties)
-                        element.BeforeStyles[prop.Key] = prop.Value;
-                }
-                else if (isAfter)
-                {
-                    element.AfterStyles ??= new Dictionary<string, string>();
-                    foreach (var prop in rule.Properties)
-                        element.AfterStyles[prop.Key] = prop.Value;
-                }
-                else
-                {
-                    var expandedProps = ShorthandExpander.Expand(rule.Properties);
-                    foreach (var prop in expandedProps)
-                    {
-                        bool isImportant = rule.IsPropertyImportant(prop.Key) || rule.IsPropertyImportant(GetOriginalShorthand(prop.Key));
-                        var priority = new LegacyCascadePriority(
-                            importance: isImportant,
-                            origin: CascadeOrigin.Author,
-                            treeOrder: treeOrder
-                        );
-                        _cascadeMap.Insert(prop.Key, prop.Value, priority);
-
-                        if (prop.Key.StartsWith("--"))
-                            CssFunctionEvaluator.SetCustomProperty(prop.Key[2..], prop.Value);
-                    }
-                }
-            }
+                ProcessRule(element, rule, origin, treeOrder, ref sourceOrder);
 
             foreach (var mediaRule in stylesheet.MediaRules)
             {
                 if (MediaQueryEvaluator.Evaluate(mediaRule.Condition, _viewportWidth, _viewportHeight, _colorScheme))
-                {
-                    foreach (var rule in mediaRule.Rules)
-                    {
-                        if (_matcher.Matches(rule, element))
-                        {
-                            if (TryCollectScrollbarStyle(element, rule.Selector, rule.Properties))
-                                continue;
-
-                            bool isBefore = rule.Selector.Contains("::before");
-                            bool isAfter = rule.Selector.Contains("::after");
-
-                            if (isBefore)
-                            {
-                                element.BeforeStyles ??= new Dictionary<string, string>();
-                                foreach (var prop in rule.Properties)
-                                    element.BeforeStyles[prop.Key] = prop.Value;
-                            }
-                            else if (isAfter)
-                            {
-                                element.AfterStyles ??= new Dictionary<string, string>();
-                                foreach (var prop in rule.Properties)
-                                    element.AfterStyles[prop.Key] = prop.Value;
-                            }
-                            else
-                            {
-                                var expandedProps = ShorthandExpander.Expand(rule.Properties);
-                                foreach (var prop in expandedProps)
-                                {
-                                    bool isImportant = rule.IsPropertyImportant(prop.Key) || rule.IsPropertyImportant(GetOriginalShorthand(prop.Key));
-                                    var priority = new LegacyCascadePriority(
-                                        importance: isImportant,
-                                        origin: CascadeOrigin.Author,
-                                        treeOrder: treeOrder
-                                    );
-                                    _cascadeMap.Insert(prop.Key, prop.Value, priority);
-
-                                    if (prop.Key.StartsWith("--"))
-                                        CssFunctionEvaluator.SetCustomProperty(prop.Key[2..], prop.Value);
-                                }
-                            }
-                        }
-                    }
-                }
+                    ProcessGroup(element, mediaRule, origin, treeOrder, ref sourceOrder);
             }
 
-            // Process @supports rules
             foreach (var supportsRule in stylesheet.SupportsRules)
             {
-                bool supported = EvaluateSupportsCondition(supportsRule.Condition);
-                if (supported)
-                {
-                    foreach (var rule in supportsRule.Rules)
-                    {
-                        if (_matcher.Matches(rule, element))
-                        {
-                            if (TryCollectScrollbarStyle(element, rule.Selector, rule.Properties))
-                                continue;
-
-                            bool isBefore = rule.Selector.Contains("::before");
-                            bool isAfter = rule.Selector.Contains("::after");
-
-                            if (isBefore)
-                            {
-                                element.BeforeStyles ??= new Dictionary<string, string>();
-                                foreach (var prop in rule.Properties)
-                                    element.BeforeStyles[prop.Key] = prop.Value;
-                            }
-                            else if (isAfter)
-                            {
-                                element.AfterStyles ??= new Dictionary<string, string>();
-                                foreach (var prop in rule.Properties)
-                                    element.AfterStyles[prop.Key] = prop.Value;
-                            }
-                            else
-                            {
-                                var expandedProps = ShorthandExpander.Expand(rule.Properties);
-                                foreach (var prop in expandedProps)
-                                {
-                                    bool isImportant = rule.IsPropertyImportant(prop.Key) || rule.IsPropertyImportant(GetOriginalShorthand(prop.Key));
-                                    var priority = new LegacyCascadePriority(
-                                        importance: isImportant,
-                                        origin: CascadeOrigin.Author,
-                                        treeOrder: treeOrder
-                                    );
-                                    _cascadeMap.Insert(prop.Key, prop.Value, priority);
-
-                                    if (prop.Key.StartsWith("--"))
-                                        CssFunctionEvaluator.SetCustomProperty(prop.Key[2..], prop.Value);
-                                }
-                            }
-                        }
-                    }
-                }
+                if (EvaluateSupportsCondition(supportsRule.Condition))
+                    ProcessGroup(element, supportsRule, origin, treeOrder, ref sourceOrder);
             }
 
-            // Process @layer rules
             foreach (var layerRule in stylesheet.LayerRules)
+                ProcessGroup(element, layerRule, origin, treeOrder, ref sourceOrder);
+
+            foreach (var containerRule in stylesheet.ContainerRules)
             {
-                foreach (var rule in layerRule.Rules)
-                {
-                    if (!_matcher.Matches(rule, element))
-                        continue;
-
-                    if (TryCollectScrollbarStyle(element, rule.Selector, rule.Properties))
-                        continue;
-
-                    bool isBefore = rule.Selector.Contains("::before");
-                    bool isAfter = rule.Selector.Contains("::after");
-
-                    if (isBefore)
-                    {
-                        element.BeforeStyles ??= new Dictionary<string, string>();
-                        foreach (var prop in rule.Properties)
-                            element.BeforeStyles[prop.Key] = prop.Value;
-                    }
-                    else if (isAfter)
-                    {
-                        element.AfterStyles ??= new Dictionary<string, string>();
-                        foreach (var prop in rule.Properties)
-                            element.AfterStyles[prop.Key] = prop.Value;
-                    }
-                    else
-                    {
-                        var expandedProps = ShorthandExpander.Expand(rule.Properties);
-                        foreach (var prop in expandedProps)
-                        {
-                            bool isImportant = rule.IsPropertyImportant(prop.Key) || rule.IsPropertyImportant(GetOriginalShorthand(prop.Key));
-                            var priority = new LegacyCascadePriority(
-                                importance: isImportant,
-                                origin: CascadeOrigin.Author,
-                                treeOrder: treeOrder
-                            );
-                            _cascadeMap.Insert(prop.Key, prop.Value, priority);
-
-                            if (prop.Key.StartsWith("--"))
-                                CssFunctionEvaluator.SetCustomProperty(prop.Key[2..], prop.Value);
-                        }
-                    }
-                }
+                if (EvaluateContainerCondition(containerRule.Condition))
+                    ProcessGroup(element, containerRule, origin, treeOrder, ref sourceOrder);
             }
+
+            foreach (var scopeRule in stylesheet.ScopeRules)
+            {
+                if (ScopeMatches(scopeRule, element))
+                    ProcessGroup(element, scopeRule, origin, treeOrder, ref sourceOrder);
+            }
+
+            foreach (var startingRule in stylesheet.StartingStyleRules)
+                ProcessGroup(element, startingRule, origin, treeOrder, ref sourceOrder);
+        }
+    }
+
+    /// <summary>Recursively analyzes a group rule's direct and nested rules.</summary>
+    private void ProcessGroup(Element element, CssAtRuleGroup group, CascadeOrigin origin, int treeOrder, ref int sourceOrder)
+    {
+        foreach (var rule in group.Rules)
+            ProcessRule(element, rule, origin, treeOrder, ref sourceOrder);
+
+        foreach (var media in group.SubMediaRules)
+        {
+            if (MediaQueryEvaluator.Evaluate(media.Condition, _viewportWidth, _viewportHeight, _colorScheme))
+                ProcessGroup(element, media, origin, treeOrder, ref sourceOrder);
+        }
+        foreach (var supports in group.SubSupportsRules)
+        {
+            if (EvaluateSupportsCondition(supports.Condition))
+                ProcessGroup(element, supports, origin, treeOrder, ref sourceOrder);
+        }
+        foreach (var layer in group.SubLayerRules)
+            ProcessGroup(element, layer, origin, treeOrder, ref sourceOrder);
+        foreach (var container in group.SubContainerRules)
+        {
+            if (EvaluateContainerCondition(container.Condition))
+                ProcessGroup(element, container, origin, treeOrder, ref sourceOrder);
+        }
+        foreach (var scope in group.SubScopeRules)
+        {
+            if (ScopeMatches(scope, element))
+                ProcessGroup(element, scope, origin, treeOrder, ref sourceOrder);
+        }
+        foreach (var starting in group.SubStartingStyleRules)
+            ProcessGroup(element, starting, origin, treeOrder, ref sourceOrder);
+    }
+
+    /// <summary>Whether an @scope boundary matches the element (best-effort).</summary>
+    private static bool ScopeMatches(ScopeRule scope, Element element)
+    {
+        if (string.IsNullOrEmpty(scope.ScopeRoot)) return true;
+        var sel = scope.ScopeRoot.Trim();
+        if (sel.StartsWith("(") && sel.EndsWith(")")) sel = sel[1..^1].Trim();
+        if (sel.Length == 0) return true;
+        return CssSelectorMatcher.Matches(sel, element);
+    }
+
+    private bool EvaluateContainerCondition(string condition)
+    {
+        if (string.IsNullOrWhiteSpace(condition)) return true;
+        // Container conditions are evaluated against named containers which the
+        // layout engine does not yet expose; resolve against the viewport size as
+        // a fallback so content is not spuriously dropped.
+        return MediaQueryEvaluator.Evaluate(condition, _viewportWidth, _viewportHeight, _colorScheme);
+    }
+
+    /// <summary>Analyzes a single matched rule into the cascade map.</summary>
+    private void ProcessRule(Element element, CssRule rule, CascadeOrigin origin, int treeOrder, ref int sourceOrder)
+    {
+        if (!_matcher.Matches(rule, element))
+            return;
+
+        string selectorText = rule.OriginalSelectorText.Length > 0 ? rule.OriginalSelectorText : rule.Selector;
+
+        // Scrollbar pseudo rules go to the side-car, not the cascade.
+        if (TryCollectScrollbarStyle(element, selectorText, rule.Properties))
+            return;
+
+        bool isBefore = selectorText.Contains("::before", StringComparison.OrdinalIgnoreCase);
+        bool isAfter = selectorText.Contains("::after", StringComparison.OrdinalIgnoreCase);
+
+        if (isBefore)
+        {
+            element.BeforeStyles ??= new Dictionary<string, string>();
+            foreach (var prop in rule.Properties)
+                element.BeforeStyles[prop.Key] = prop.Value;
+            return;
+        }
+        if (isAfter)
+        {
+            element.AfterStyles ??= new Dictionary<string, string>();
+            foreach (var prop in rule.Properties)
+                element.AfterStyles[prop.Key] = prop.Value;
+            return;
+        }
+
+        var (specA, specB, specC, specD) = rule.Specificity;
+        var expandedProps = ShorthandExpander.Expand(rule.Properties);
+        foreach (var prop in expandedProps)
+        {
+            bool isImportant = rule.IsPropertyImportant(prop.Key) || rule.IsPropertyImportant(GetOriginalShorthand(prop.Key));
+            var priority = new LegacyCascadePriority(
+                importance: isImportant,
+                origin: origin,
+                treeOrder: treeOrder,
+                specA: specA,
+                specB: specB,
+                specC: specC,
+                specD: specD,
+                sourceOrder: sourceOrder
+            );
+            sourceOrder++;
+            _cascadeMap.Insert(prop.Key, prop.Value, priority);
         }
     }
 
@@ -750,396 +712,178 @@ public class CascadeResolver
     /// Apply cascade-affecting properties first (direction, writing-mode, zoom).
     /// These affect how other properties are resolved.
     /// </summary>
-    private void ApplyCascadeAffecting(ComputedStyle style)
+    private void ApplyCascadeAffecting(ComputedStyle style, Element element)
     {
         if (_cascadeMap.TryGetValue("direction", out var dirVal))
-            style.Direction = dirVal.ToLowerInvariant() == "rtl" ? "rtl" : "ltr";
+        {
+            var v = CssFunctionEvaluator.Evaluate(dirVal, element, style.FontSize, RootFontSize(), _viewportWidth, _viewportHeight);
+            if (!TryApplyCssWideKeyword(style, "direction", v, null))
+                style.Direction = v.ToLowerInvariant() == "rtl" ? "rtl" : "ltr";
+        }
         if (_cascadeMap.TryGetValue("writing-mode", out var wmVal))
-            style.WritingMode = ParseWritingMode(wmVal);
+        {
+            var v = CssFunctionEvaluator.Evaluate(wmVal, element, style.FontSize, RootFontSize(), _viewportWidth, _viewportHeight);
+            if (!TryApplyCssWideKeyword(style, "writing-mode", v, null))
+                style.WritingMode = ParseWritingMode(v);
+        }
         if (_cascadeMap.TryGetValue("zoom", out var zoomVal))
-            style.Zoom = ParseZoom(zoomVal);
+        {
+            var v = CssFunctionEvaluator.Evaluate(zoomVal, element, style.FontSize, RootFontSize(), _viewportWidth, _viewportHeight);
+            if (!TryApplyCssWideKeyword(style, "zoom", v, null))
+                style.Zoom = ParseZoom(v);
+        }
     }
 
     /// <summary>
     /// Apply high-priority properties first (font properties).
     /// em/ch units depend on font-size, so font must be resolved first.
     /// </summary>
-    private void ApplyHighPriority(ComputedStyle style, ComputedStyle? parentStyle)
+    private void ApplyHighPriority(ComputedStyle style, ComputedStyle? parentStyle, Element element)
     {
         if (_cascadeMap.TryGetValue("font-size", out var fontSizeVal))
-            style.FontSize = ParseFontSize(fontSizeVal, parentStyle);
+        {
+            var resolved = CssFunctionEvaluator.Evaluate(fontSizeVal, element, style.FontSize, RootFontSize(), _viewportWidth, _viewportHeight);
+            if (!TryApplyCssWideKeyword(style, "font-size", resolved, parentStyle))
+                style.FontSize = ParseFontSize(resolved, parentStyle);
+        }
 
         if (_cascadeMap.TryGetValue("font-weight", out var fontWeightVal))
-            style.FontWeight = ParseFontWeight(fontWeightVal);
+        {
+            var v = CssFunctionEvaluator.Evaluate(fontWeightVal, element, style.FontSize, RootFontSize(), _viewportWidth, _viewportHeight);
+            if (!TryApplyCssWideKeyword(style, "font-weight", v, parentStyle))
+                style.FontWeight = ParseFontWeight(v);
+        }
 
         if (_cascadeMap.TryGetValue("font-style", out var fontStyleVal))
-            style.FontStyle = ParseFontStyle(fontStyleVal);
+        {
+            var v = CssFunctionEvaluator.Evaluate(fontStyleVal, element, style.FontSize, RootFontSize(), _viewportWidth, _viewportHeight);
+            if (!TryApplyCssWideKeyword(style, "font-style", v, parentStyle))
+                style.FontStyle = ParseFontStyle(v);
+        }
 
         if (_cascadeMap.TryGetValue("font-family", out var fontFamilyVal))
-            style.FontFamily = ParseFontFamily(fontFamilyVal);
+        {
+            var v = CssFunctionEvaluator.Evaluate(fontFamilyVal, element, style.FontSize, RootFontSize(), _viewportWidth, _viewportHeight);
+            if (!TryApplyCssWideKeyword(style, "font-family", v, parentStyle))
+                style.FontFamily = ParseFontFamily(v);
+        }
 
         if (_cascadeMap.TryGetValue("line-height", out var lineHeightVal))
-            Fonts.LineBoxMetrics.ApplyLineHeight(style, lineHeightVal);
+        {
+            var v = CssFunctionEvaluator.Evaluate(lineHeightVal, element, style.FontSize, RootFontSize(), _viewportWidth, _viewportHeight);
+            if (!TryApplyCssWideKeyword(style, "line-height", v, parentStyle))
+                Fonts.LineBoxMetrics.ApplyLineHeight(style, v);
+        }
     }
 
     /// <summary>
-    /// Apply all remaining cascade-winning declarations.
+    /// Store cascade-winning custom properties (--x) on the element's computed
+    /// style. Runs before other property application so var() references resolve.
+    /// Iterates to a fixed point so a custom property may reference another one
+    /// declared on the same element (--a: var(--b); --b: red).
     /// </summary>
-    private void ApplyMatchResult(ComputedStyle style)
+    private void ApplyCustomProperties(ComputedStyle style, Element element)
     {
+        var pending = new List<KeyValuePair<string, string>>();
         foreach (var (name, value) in _cascadeMap.GetAll())
         {
-            if (IsHighPriorityProperty(name)) continue;
-            ApplyProperty(style, name, value);
+            if (name.StartsWith("--"))
+                pending.Add(new KeyValuePair<string, string>(name[2..], value));
         }
+
+        // Resolve in a loop: once the value no longer references unresolved vars
+        // (or is stable), store it. A handful of passes is enough for any chain.
+        var unresolved = pending;
+        for (int pass = 0; pass < pending.Count + 1 && unresolved.Count > 0; pass++)
+        {
+            var next = new List<KeyValuePair<string, string>>();
+            foreach (var (name, value) in unresolved)
+            {
+                var resolved = CssFunctionEvaluator.Evaluate(value, element,
+                    style.FontSize, RootFontSize(), _viewportWidth, _viewportHeight);
+                var stillUnresolved = value.Contains("var(") && resolved == value;
+                if (stillUnresolved)
+                    next.Add(new KeyValuePair<string, string>(name, value));
+                else
+                    style.SetCustomProperty(name, resolved);
+            }
+            unresolved = next;
+        }
+        // Anything still unresolved (cyclic / missing) keeps its raw value.
+        foreach (var (name, value) in unresolved)
+            style.SetCustomProperty(name, value);
+    }
+
+    /// <summary>
+    /// Apply all remaining cascade-winning declarations. Custom properties (--x)
+    /// are stored on the element's computed style first so that var() references
+    /// in later declarations resolve against them.
+    /// </summary>
+    private void ApplyMatchResult(ComputedStyle style, Element element, ComputedStyle? parentStyle)
+    {
+        // Apply regular properties, resolving var() references.
+        foreach (var (name, value) in _cascadeMap.GetAll())
+        {
+            if (name.StartsWith("--")) continue;
+            if (IsHighPriorityProperty(name)) continue;
+
+            var evaluated = CssFunctionEvaluator.Evaluate(value, element,
+                style.FontSize, RootFontSize(), _viewportWidth, _viewportHeight);
+            if (TryApplyCssWideKeyword(style, name, evaluated, parentStyle))
+                continue;
+            ApplyProperty(style, name, evaluated);
+        }
+    }
+
+    /// <summary>
+    /// Handles the CSS-wide keywords inherit/initial/unset/revert/revert-layer.
+    /// Returns true when the value is a global keyword (already applied), false
+    /// when the value is a normal declaration that the caller must apply.
+    /// </summary>
+    private static bool TryApplyCssWideKeyword(ComputedStyle style, string name, string value, ComputedStyle? parentStyle)
+    {
+        switch (value.Trim())
+        {
+            case "inherit":
+                if (CssPropertyTraits.IsKnown(name))
+                    CssPropertyTraits.Copy(style, parentStyle ?? new ComputedStyle(), name);
+                return true;
+            case "initial":
+                if (CssPropertyTraits.IsKnown(name))
+                    CssPropertyTraits.SetInitial(style, name);
+                return true;
+            case "unset":
+                if (CssPropertyTraits.IsInherited(name))
+                    CssPropertyTraits.Copy(style, parentStyle ?? new ComputedStyle(), name);
+                else if (CssPropertyTraits.IsKnown(name))
+                    CssPropertyTraits.SetInitial(style, name);
+                return true;
+            case "revert":
+            case "revert-layer":
+                // Best effort: treat as unset (author layer history is not tracked).
+                if (CssPropertyTraits.IsInherited(name))
+                    CssPropertyTraits.Copy(style, parentStyle ?? new ComputedStyle(), name);
+                else if (CssPropertyTraits.IsKnown(name))
+                    CssPropertyTraits.SetInitial(style, name);
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    private float RootFontSize()
+    {
+        return _rootStyle?.FontSize ?? 16f;
     }
 
     /// <summary>Apply a single CSS property value to a style.  Public so that
     /// pseudo-element styles can be resolved outside the full cascade walk.</summary>
+    /// <summary>Apply a single CSS property value to a style.  Public so that
+    /// pseudo-element styles can be resolved outside the full cascade walk.
+    /// Delegates to the shared Prism engine <see cref="CssPropertyApplier"/>.</summary>
     public void ApplyProperty(ComputedStyle style, string name, string value)
     {
-    try
-    {
-        switch (name)
-        {
-            case "width": style.Width = Length.Parse(value); break;
-            case "height": style.Height = Length.Parse(value); break;
-            case "min-width": style.MinWidth = Length.Parse(value); break;
-            case "min-height": style.MinHeight = Length.Parse(value); break;
-            case "max-width": style.MaxWidth = Length.Parse(value); break;
-            case "max-height": style.MaxHeight = Length.Parse(value); break;
-            case "display": style.Display = ParseDisplay(value); break;
-            case "position": style.Position = ParsePosition(value); break;
-            case "float": style.Float = ParseFloat(value); break;
-            case "clear": style.Clear = ParseClear(value); break;
-            case "margin":
-                ParseShorthand4(value, out var mt, out var mr, out var mb, out var ml);
-                style.MarginTop = mt; style.MarginRight = mr; style.MarginBottom = mb; style.MarginLeft = ml;
-                break;
-            case "margin-top": style.MarginTop = Length.Parse(value); break;
-            case "margin-bottom": style.MarginBottom = Length.Parse(value); break;
-            case "margin-left": style.MarginLeft = Length.Parse(value); break;
-            case "margin-right": style.MarginRight = Length.Parse(value); break;
-            case "margin-block": ParseShorthand2(value, out var mbt, out var mbb); style.MarginTop = mbt; style.MarginBottom = mbb; break;
-            case "margin-inline": ParseShorthand2(value, out var mil, out var mir); style.MarginLeft = mil; style.MarginRight = mir; break;
-            case "margin-block-start": style.MarginTop = Length.Parse(value); break;
-            case "margin-block-end": style.MarginBottom = Length.Parse(value); break;
-            case "margin-inline-start": style.MarginLeft = Length.Parse(value); break;
-            case "margin-inline-end": style.MarginRight = Length.Parse(value); break;
-            case "padding":
-                ParseShorthand4(value, out var pt, out var pr, out var pb, out var pl);
-                style.PaddingTop = pt; style.PaddingRight = pr; style.PaddingBottom = pb; style.PaddingLeft = pl;
-                break;
-            case "padding-top": style.PaddingTop = Length.Parse(value); break;
-            case "padding-bottom": style.PaddingBottom = Length.Parse(value); break;
-            case "padding-left": style.PaddingLeft = Length.Parse(value); break;
-            case "padding-right": style.PaddingRight = Length.Parse(value); break;
-            case "padding-block": ParseShorthand2(value, out var pbt, out var pbb); style.PaddingTop = pbt; style.PaddingBottom = pbb; break;
-            case "padding-inline": ParseShorthand2(value, out var pil, out var pir); style.PaddingLeft = pil; style.PaddingRight = pir; break;
-            case "padding-block-start": style.PaddingTop = Length.Parse(value); break;
-            case "padding-block-end": style.PaddingBottom = Length.Parse(value); break;
-            case "padding-inline-start": style.PaddingLeft = Length.Parse(value); break;
-            case "padding-inline-end": style.PaddingRight = Length.Parse(value); break;
-            case "color": style.Color = ColorParser.Parse(value); break;
-            case "accent-color": style.AccentColor = value == "auto" ? null : ColorParser.Parse(value); break;
-            case "caret-color": style.CaretColor = value == "auto" ? null : ColorParser.Parse(value); break;
-
-            // Standard scrollbar properties.
-            case "scrollbar-width":
-                style.ScrollbarWidth = value.Trim() switch
-                {
-                    "thin" => ScrollbarWidthType.Thin,
-                    "none" => ScrollbarWidthType.None,
-                    _ => ScrollbarWidthType.Auto,
-                };
-                break;
-            case "scrollbar-color":
-                ApplyScrollbarColors(style, value);
-                break;
-            case "color-scheme":
-                var cs = value.ToLowerInvariant();
-                style.ColorScheme = cs switch { "light" => "light", "dark" => "dark", "light dark" => "light dark", _ => "normal" };
-                break;
-            case "appearance": case "-webkit-appearance": style.Appearance = value.ToLowerInvariant(); break;
-            case "forced-color-adjust": style.ForcedColorAdjust = value.ToLowerInvariant() == "none" ? ForcedColorAdjustType.None : ForcedColorAdjustType.Auto; break;
-            case "background": ParseBackgroundShorthand(value, style); break;
-            case "background-color": style.BackgroundColor = ColorParser.Parse(value); break;
-            case "background-image":
-                if (value == "none")
-                    style.BackgroundImage = null;
-                else if (CssFunctionEvaluator.IsGradient(value))
-                    style.BackgroundImage = new List<string> { value };
-                else
-                    style.BackgroundImage = SplitCommaOutsideParens(value).Select(s => s.Trim()).ToList();
-                break;
-            case "background-repeat": style.BackgroundRepeat = ParseBackgroundRepeat(value); break;
-            case "background-position": ParseBackgroundPosition(value, style); break;
-            case "background-position-x": style.BackgroundPositionX = ParsePositionKeywordOrLength(value); break;
-            case "background-position-y": style.BackgroundPositionY = ParsePositionKeywordOrLength(value); break;
-            case "background-size": ParseBackgroundSize(value, style); break;
-            case "background-attachment": style.BackgroundAttachment = ParseBackgroundAttachment(value); break;
-            case "background-clip": style.BackgroundClip = value.ToLowerInvariant(); break;
-            case "background-origin": style.BackgroundOrigin = value.ToLowerInvariant(); break;
-            case "background-blend-mode": style.BackgroundBlendMode = ParseBackgroundBlendMode(value); break;
-            case "text-align": style.TextAlign = ParseTextAlign(value); break;
-            case "text-decoration": ParseTextDecorationShorthand(value, style); break;
-            case "text-decoration-line":
-                style.TextDecorationLine = ParseTextDecorationLine(value);
-                style.TextDecoration = style.TextDecorationLine switch
-                {
-                    TextDecorationLineType.Underline => TextDecorationType.Underline,
-                    TextDecorationLineType.LineThrough => TextDecorationType.LineThrough,
-                    TextDecorationLineType.Overline => TextDecorationType.Overline,
-                    _ => TextDecorationType.None
-                };
-                break;
-            case "text-decoration-style": style.TextDecorationStyle = ParseTextDecorationStyle(value); break;
-            case "text-decoration-color": style.TextDecorationColor = ColorParser.Parse(value); break;
-            case "text-decoration-thickness":
-                if (value == "auto") style.TextDecorationThickness = 0;
-                else if (Length.TryParse(value, out var tdt)) style.TextDecorationThickness = tdt.ToPixels(0, 0, 0, 0);
-                break;
-            case "text-underline-offset":
-                if (value == "auto") style.TextUnderlineOffset = 0;
-                else if (Length.TryParse(value, out var tuo)) style.TextUnderlineOffset = tuo.ToPixels(0, 0, 0, 0);
-                break;
-            case "text-emphasis": style.TextEmphasis = value; break;
-            case "text-emphasis-color": style.TextEmphasisColor = value; break;
-            case "text-emphasis-style": style.TextEmphasisStyle = value; break;
-            case "text-emphasis-position": style.TextEmphasisPosition = value; break;
-            case "text-shadow": style.TextShadow = ParseTextShadow(value); break;
-            case "text-overflow": style.TextOverflow = value.ToLowerInvariant() == "ellipsis" ? TextOverflowType.Ellipsis : TextOverflowType.Clip; break;
-            case "vertical-align": style.VerticalAlign = ParseVerticalAlign(value); break;
-            case "white-space": style.WhiteSpace = ParseWhiteSpace(value); break;
-            case "word-break": style.WordBreak = ParseWordBreak(value); break;
-            case "overflow-wrap": case "word-wrap": style.OverflowWrap = ParseOverflowWrap(value); break;
-            case "visibility": style.Visibility = ParseVisibility(value); break;
-            case "overflow":
-                var overflow = ParseOverflow(value);
-                style.Overflow = overflow; style.OverflowX = overflow; style.OverflowY = overflow;
-                break;
-            case "overflow-x": style.OverflowX = ParseOverflow(value); break;
-            case "overflow-y": style.OverflowY = ParseOverflow(value); break;
-            case "overflow-anchor": style.OverflowAnchor = value.ToLowerInvariant() == "none" ? OverflowAnchorType.None : OverflowAnchorType.Auto; break;
-            case "overscroll-behavior": style.OverscrollBehavior = ParseOverscrollBehavior(value); style.OverscrollBehaviorX = style.OverscrollBehavior; style.OverscrollBehaviorY = style.OverscrollBehavior; break;
-            case "overscroll-behavior-x": style.OverscrollBehaviorX = ParseOverscrollBehavior(value); break;
-            case "overscroll-behavior-y": style.OverscrollBehaviorY = ParseOverscrollBehavior(value); break;
-            case "z-index": if (value != "auto") style.ZIndex = int.TryParse(value, out var z) ? z : null; break;
-            case "border": ParseBorderShorthand(value, style); break;
-            case "border-top": ParseBorderSide(style, "top", value); break;
-            case "border-bottom": ParseBorderSide(style, "bottom", value); break;
-            case "border-left": ParseBorderSide(style, "left", value); break;
-            case "border-right": ParseBorderSide(style, "right", value); break;
-            case "border-width": ParseBorderWidth(value, style); break;
-            case "border-color": ParseBorderColor(value, style); break;
-            case "border-style": ParseBorderStyle(value, style); break;
-            case "border-top-width": style.BorderTopWidth = ParseSize(value) ?? 0; break;
-            case "border-right-width": style.BorderRightWidth = ParseSize(value) ?? 0; break;
-            case "border-bottom-width": style.BorderBottomWidth = ParseSize(value) ?? 0; break;
-            case "border-left-width": style.BorderLeftWidth = ParseSize(value) ?? 0; break;
-            case "border-top-style": style.BorderTopStyle = ParseBorderStyleValue(value); break;
-            case "border-right-style": style.BorderRightStyle = ParseBorderStyleValue(value); break;
-            case "border-bottom-style": style.BorderBottomStyle = ParseBorderStyleValue(value); break;
-            case "border-left-style": style.BorderLeftStyle = ParseBorderStyleValue(value); break;
-            case "border-top-color": style.BorderTopColor = ColorParser.Parse(value); break;
-            case "border-right-color": style.BorderRightColor = ColorParser.Parse(value); break;
-            case "border-bottom-color": style.BorderBottomColor = ColorParser.Parse(value); break;
-            case "border-left-color": style.BorderLeftColor = ColorParser.Parse(value); break;
-            case "border-radius": ParseBorderRadius(value, style); break;
-            case "border-top-left-radius": style.BorderTopLeftRadius = ParseRadiusValue(value) ?? 0; break;
-            case "border-top-right-radius": style.BorderTopRightRadius = ParseRadiusValue(value) ?? 0; break;
-            case "border-bottom-left-radius": style.BorderBottomLeftRadius = ParseRadiusValue(value) ?? 0; break;
-            case "border-bottom-right-radius": style.BorderBottomRightRadius = ParseRadiusValue(value) ?? 0; break;
-            case "border-collapse": style.BorderCollapse = value.ToLowerInvariant() == "collapse"; break;
-            case "border-spacing": style.BorderSpacing = ParseSize(value) ?? 0; break;
-            case "border-image": style.BorderImageSource = ParseUrl(value); break;
-            case "border-image-source": style.BorderImageSource = ParseUrl(value); break;
-            case "border-image-slice": style.BorderImageSlice = value; break;
-            case "border-image-width": style.BorderImageWidth = value; break;
-            case "border-image-repeat": style.BorderImageRepeat = value; break;
-            case "border-image-outset": style.BorderImageOutset = value; break;
-            case "box-sizing": style.BoxSizing = value.Contains("border") ? BoxSizingType.BorderBox : BoxSizingType.ContentBox; break;
-            case "opacity": if (float.TryParse(value, out var o)) style.Opacity = Math.Clamp(o, 0, 1); break;
-            case "box-shadow": style.BoxShadow = ParseBoxShadow(value); break;
-            case "flex-direction": style.FlexDirection = ParseFlexDirection(value); break;
-            case "flex-wrap": style.FlexWrap = ParseFlexWrap(value); break;
-            case "flex-grow": if (float.TryParse(value, out var g)) style.FlexGrow = g; break;
-            case "flex-shrink": if (float.TryParse(value, out var s)) style.FlexShrink = s; break;
-            case "flex-basis": style.FlexBasis = Length.Parse(value); break;
-            case "flex": ParseFlexShorthand(value, style); break;
-            case "flex-flow": style.FlexFlow = value; ParseFlexFlow(value, style); break;
-            case "order": if (int.TryParse(value, out var ord)) style.Order = ord; break;
-            case "justify-content": style.JustifyContent = ParseJustifyContent(value); break;
-            case "justify-items": style.JustifyItems = value.ToLowerInvariant(); break;
-            case "justify-self": style.JustifySelf = value.ToLowerInvariant(); break;
-            case "align-items": style.AlignItems = ParseAlignItems(value); break;
-            case "align-self": style.AlignSelf = ParseAlignSelf(value); break;
-            case "align-content": style.AlignContent = value.ToLowerInvariant(); break;
-            case "place-content": style.PlaceContent = value.ToLowerInvariant(); break;
-            case "place-items": style.PlaceItems = value.ToLowerInvariant(); break;
-            case "place-self": style.PlaceSelf = value.ToLowerInvariant(); break;
-            case "gap": ParseGap(value, style); break;
-            case "row-gap": if (Length.TryParse(value, out var rg)) style.RowGap = rg; break;
-            case "column-gap": if (Length.TryParse(value, out var cg)) style.ColumnGap = cg; break;
-            case "column-count": if (int.TryParse(value, out var cc)) style.ColumnCount = cc; break;
-            case "column-width": if (Length.TryParse(value, out var cw)) style.ColumnWidth = cw; break;
-
-            // A5: column-rule 鈥?the multicol separator line.
-            case "column-rule": ParseColumnRule(value, style); break;
-            case "column-rule-width":
-                if (value.Trim() is "thin") style.ColumnRuleWidth = 1f;
-                else if (value.Trim() is "medium" or "auto") style.ColumnRuleWidth = 3f;
-                else if (value.Trim() is "thick") style.ColumnRuleWidth = 5f;
-                else style.ColumnRuleWidth = ParseSize(value) ?? 3f;
-                break;
-            case "column-rule-style": style.ColumnRuleStyle = ParseBorderStyleValue(value); break;
-            case "column-rule-color": style.ColumnRuleColor = ColorParser.Parse(value); break;
-            case "grid": style.Grid = value; break;
-            case "grid-template": ParseGridTemplateShorthand(value, style); break;
-            case "grid-template-columns": style.GridTemplateColumns = value == "none" ? null : value; break;
-            case "grid-template-rows": style.GridTemplateRows = value == "none" ? null : value; break;
-            case "grid-template-areas": style.GridTemplateAreas = value == "none" ? null : value; break;
-            case "grid-auto-columns": style.GridAutoColumns = value; break;
-            case "grid-auto-rows": style.GridAutoRows = value; break;
-            case "grid-auto-flow": style.GridAutoFlow = ParseGridAutoFlow(value); break;
-            case "grid-column": style.GridColumn = value; if (value.Contains("/")) { var parts = value.Split('/'); style.GridColumnStart = parts[0].Trim(); style.GridColumnEnd = parts.Length > 1 ? parts[1].Trim() : null; } break;
-            case "grid-column-start": style.GridColumnStart = value; break;
-            case "grid-column-end": style.GridColumnEnd = value; break;
-            case "grid-row": style.GridRow = value; if (value.Contains("/")) { var parts = value.Split('/'); style.GridRowStart = parts[0].Trim(); style.GridRowEnd = parts.Length > 1 ? parts[1].Trim() : null; } break;
-            case "grid-row-start": style.GridRowStart = value; break;
-            case "grid-row-end": style.GridRowEnd = value; break;
-            case "grid-area": style.GridArea = value; break;
-            case "top": style.Top = Length.Parse(value); break;
-            case "bottom": style.Bottom = Length.Parse(value); break;
-            case "left": style.Left = Length.Parse(value); break;
-            case "right": style.Right = Length.Parse(value); break;
-            case "inset": ParseInsetShorthand(value, style); break;
-            case "inset-block": ParseShorthand2(value, out var ibt, out var ibb); style.Top = ibt; style.Bottom = ibb; break;
-            case "inset-inline": ParseShorthand2(value, out var iil, out var iir); style.Left = iil; style.Right = iir; break;
-            case "inset-block-start": style.Top = Length.Parse(value); break;
-            case "inset-block-end": style.Bottom = Length.Parse(value); break;
-            case "inset-inline-start": style.Left = Length.Parse(value); break;
-            case "inset-inline-end": style.Right = Length.Parse(value); break;
-            case "list-style-type": style.ListStyleType = ParseListStyleType(value); break;
-            case "list-style-position": style.ListStylePosition = value.Contains("inside") ? ListStylePosition.Inside : ListStylePosition.Outside; break;
-            case "list-style-image": style.ListStyleImage = value == "none" ? null : ParseUrl(value); break;
-            case "list-style": ParseListStyle(value, style); break;
-            case "cursor": style.Cursor = value; break;
-            case "transform": style.Transform = value; break;
-            case "transform-origin": style.TransformOrigin = value; break;
-            case "transition": style.Transition = value; break;
-            case "transition-delay": style.TransitionDelay = value; break;
-            case "transition-duration": style.TransitionDuration = value; break;
-            case "transition-property": style.TransitionProperty = value; break;
-            case "transition-timing-function": style.TransitionTimingFunction = value; break;
-            case "animation": style.Animation = value; break;
-            case "animation-name": style.AnimationName = value; break;
-            case "animation-duration": style.AnimationDuration = value; break;
-            case "animation-timing-function": style.AnimationTimingFunction = value; break;
-            case "animation-delay": style.AnimationDelay = value; break;
-            case "animation-iteration-count": style.AnimationIterationCount = value; break;
-            case "animation-direction": style.AnimationDirection = value; break;
-            case "animation-fill-mode": style.AnimationFillMode = value; break;
-            case "animation-play-state": style.AnimationPlayState = value; break;
-            case "pointer-events": style.PointerEvents = value; break;
-            case "user-select": style.UserSelect = value; break;
-            case "text-indent":
-                if (Length.TryParse(value, out var ti))
-                    style.TextIndent = ti.ToPixels(0, 0, 0, 0);
-                break;
-            case "letter-spacing":
-                if (value == "normal") style.LetterSpacing = 0;
-                else if (Length.TryParse(value, out var ls))
-                    style.LetterSpacing = ls.ToPixels(0, 0, 0, 0);
-                break;
-            case "word-spacing":
-                if (value == "normal") style.WordSpacing = 0;
-                else if (Length.TryParse(value, out var ws))
-                    style.WordSpacing = ws.ToPixels(0, 0, 0, 0);
-                break;
-            case "direction": style.Direction = value.ToLowerInvariant() == "rtl" ? "rtl" : "ltr"; break;
-            case "unicode-bidi": style.UnicodeBidi = value.ToLowerInvariant(); break;
-            case "writing-mode": style.WritingMode = ParseWritingMode(value); break;
-            case "text-orientation": break; // recognized but minimal handling
-            case "text-transform": style.TextTransform = value.ToLowerInvariant(); break;
-            case "text-rendering": style.TextRendering = value.ToLowerInvariant(); break;
-            case "font":
-                ParseFontShorthand(value, style);
-                break;
-            case "font-family": style.FontFamily = ParseFontFamily(value); break;
-            case "font-size": break; // handled in high-priority
-            case "font-weight": break; // handled in high-priority
-            case "font-style": break; // handled in high-priority
-            case "line-height": break; // handled in high-priority
-            case "font-variant": style.FontVariant = value.ToLowerInvariant(); break;
-            case "font-stretch": style.FontStretch = value.ToLowerInvariant(); break;
-            case "font-kerning": style.FontKerning = value.ToLowerInvariant(); break;
-            case "font-synthesis": style.FontSynthesis = value.ToLowerInvariant(); break;
-            case "font-optical-sizing": style.FontOpticalSizing = value.ToLowerInvariant(); break;
-            case "font-variation-settings": style.FontVariationSettings = value; break;
-            case "font-feature-settings": style.FontFeatureSettings = value; break;
-            case "font-size-adjust": if (value != "none" && float.TryParse(value, out var fsa)) style.FontSizeAdjust = fsa; break;
-            case "outline": ParseOutlineShorthand(value, style); break;
-            case "outline-width":
-                if (float.TryParse(value.Replace("px", ""), out var ow))
-                    style.OutlineWidth = ow;
-                break;
-            case "outline-color": style.OutlineColor = ColorParser.Parse(value); break;
-            case "outline-style": style.OutlineStyle = ParseBorderStyleValue(value); break;
-            case "outline-offset": style.OutlineOffset = ParseSize(value) ?? 0; break;
-            case "table-layout": style.TableLayout = value.ToLowerInvariant() == "fixed" ? "fixed" : "auto"; break;
-            case "caption-side": style.CaptionSide = value.ToLowerInvariant() == "bottom" ? "bottom" : "top"; break;
-            case "empty-cells": style.EmptyCells = value.ToLowerInvariant() == "hide" ? "hide" : "show"; break;
-            case "content": style.Content = value; break;
-            case "counter-increment": style.CounterIncrement = value; break;
-            case "counter-reset": style.CounterReset = value; break;
-            case "counter-set": style.CounterSet = value; break;
-            case "quotes": style.Quotes = value; break;
-            case "aspect-ratio":
-                if (value == "auto") style.AspectRatio = 0;
-                else if (float.TryParse(value, out var ar)) style.AspectRatio = ar;
-                break;
-            case "object-fit": style.ObjectFit = ParseObjectFit(value); break;
-            case "object-position": ParsePosition(value, out var opx, out var opy); style.ObjectPositionX = opx; style.ObjectPositionY = opy; break;
-            case "filter": style.Filter = value; break;
-            case "backdrop-filter": style.BackdropFilter = value; break;
-            case "clip-path": style.ClipPath = value; break;
-            case "mask": style.Mask = value; break;
-            case "mask-image": style.MaskImage = value; break;
-            case "mask-clip": style.MaskClip = value; break;
-            case "mask-composite": style.MaskComposite = value; break;
-            case "mask-mode": style.MaskMode = value; break;
-            case "mask-origin": style.MaskOrigin = value; break;
-            case "mask-position": style.MaskPosition = value; break;
-            case "mask-repeat": style.MaskRepeat = value; break;
-            case "mask-size": style.MaskSize = value; break;
-            case "isolation": style.Isolation = value.ToLowerInvariant() == "isolate" ? IsolationType.Isolate : IsolationType.Auto; break;
-            case "mix-blend-mode": style.MixBlendMode = ParseMixBlendMode(value); break;
-            case "image-rendering": style.ImageRendering = ParseImageRendering(value); break;
-            case "contain": style.Contain = ParseContain(value); break;
-            case "content-visibility": style.ContentVisibility = ParseContentVisibility(value); break;
-            case "will-change": style.WillChange = value; break;
-            case "scroll-behavior": style.ScrollBehavior = value.ToLowerInvariant() == "smooth" ? ScrollBehaviorType.Smooth : ScrollBehaviorType.Auto; break;
-            case "tab-size": if (float.TryParse(value.Replace("px", ""), out var ts)) style.TabSize = ts; break;
-            case "hyphens": style.Hyphens = ParseHyphens(value); break;
-            case "line-break": style.LineBreak = ParseLineBreak(value); break;
-            case "text-justify": style.TextJustify = ParseTextJustify(value); break;
-            case "hanging-punctuation": style.HangingPunctuation = value.ToLowerInvariant(); break;
-            case "resize": style.Resize = ParseResize(value); break;
-            case "zoom": style.Zoom = ParseZoom(value); break;
-            case "all": break; // all shorthand - handled via reset cascade
-            case "initial-letter": break; // recognized, minimal handling
-            case "box-decoration-break": break; // recognized, minimal handling
-            case "page-break-after": break;
-            case "page-break-before": break;
-            case "page-break-inside": break;
-            case "orphans": break;
-            case "widows": break;
-        }
-    }
-    catch (FormatException) { /* Gracefully skip malformed CSS values */ }
-    catch (OverflowException) { /* Skip values that are too large/small */ }
-    catch (Exception) { /* Catch any other parsing errors */ }
+        CssPropertyApplier.Apply(style, name, value);
     }
 
     private bool IsHighPriorityProperty(string name) => name switch
@@ -1147,7 +891,6 @@ public class CascadeResolver
         "font-size" or "font-weight" or "font-style" or "font-family" or "line-height" => true,
         _ => false
     };
-
     private void InheritProperties(ComputedStyle child, ComputedStyle parent)
     {
         child.Color = parent.Color;
@@ -1204,6 +947,12 @@ public class CascadeResolver
         child.ForcedColorAdjust = parent.ForcedColorAdjust;
         child.ListStyleType = parent.ListStyleType;
         child.ListStylePosition = parent.ListStylePosition;
+        child.TabSize = parent.TabSize;
+        child.BorderSpacing = parent.BorderSpacing;
+        child.RubyPosition = parent.RubyPosition;
+        child.PointerEvents = parent.PointerEvents;
+        child.UserSelect = parent.UserSelect;
+        child.Zoom = parent.Zoom;
     }
 
     private ComputedStyle CreateUserAgentStyle(string tagName)
@@ -1407,1076 +1156,139 @@ public class CascadeResolver
 
     // 鈹€鈹€ Parsing helpers (delegated to specialized parsers) 鈹€鈹€
 
+
+
+    // ----- Delegating wrappers for parsers shared with CssPropertyApplier -----
+
     private void ParseShorthand4(string value, out Length top, out Length right, out Length bottom, out Length left)
-    {
-        var parts = value.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        top = Length.Parse(parts.Length > 0 ? parts[0] : "0");
-        right = Length.Parse(parts.Length > 1 ? parts[1] : parts[0]);
-        bottom = Length.Parse(parts.Length > 2 ? parts[2] : parts[0]);
-        left = Length.Parse(parts.Length > 3 ? parts[3] : (parts.Length > 1 ? parts[1] : parts[0]));
-    }
-
+        => CssPropertyApplier.ParseShorthand4(value, out top, out right, out bottom, out left);
+    private BorderStyle ParseBorderStyleValue(string value)
+        => CssPropertyApplier.ParseBorderStyleValue(value);
+    private WritingModeType ParseWritingMode(string value)
+        => CssPropertyApplier.ParseWritingMode(value);
+    private FontWeight ParseFontWeight(string value)
+        => CssPropertyApplier.ParseFontWeight(value);
+    private FontStyleType ParseFontStyle(string value)
+        => CssPropertyApplier.ParseFontStyle(value);
     private float ParseFontSize(string value, ComputedStyle? parentStyle)
-    {
-        float parentFontSize = parentStyle?.FontSize ?? 16;
-        return Length.ParseFontSize(value, parentFontSize);
-    }
-
-    private FontWeight ParseFontWeight(string value) => value.ToLowerInvariant() switch
-    {
-        "bold" or "bolder" or "500" or "600" or "700" or "800" or "900" => FontWeight.Bold,
-        _ => FontWeight.Normal
-    };
-
-    private FontStyleType ParseFontStyle(string value) => value.ToLowerInvariant() switch
-    {
-        "italic" or "oblique" => FontStyleType.Italic,
-        _ => FontStyleType.Normal
-    };
-
+        => CssPropertyApplier.ParseFontSize(value, parentStyle);
     private string ParseFontFamily(string value)
-    {
-        // Keep the FULL font-family list (cleaned) so the renderer can fall back
-        // through every specified family instead of only the first one. Consumers
-        // that need a single family use the first entry (PrimaryFamily /
-        // FontFamily.Split(',')[0]).
-        var families = value.Split(',', StringSplitOptions.RemoveEmptyEntries);
-        if (families.Length == 0) return "Arial, sans-serif";
-        return string.Join(",", families.Select(f => f.Trim().Trim('"', '\'')));
-    }
-
+        => CssPropertyApplier.ParseFontFamily(value);
     private float ParseLineHeight(string value, float fontSize)
-    {
-        if (value.EndsWith("px") && float.TryParse(value[..^2], out var px)) return px / fontSize;
-        if (float.TryParse(value, out var num)) return num;
-        return 1.2f;
-    }
-
-    private DisplayType ParseDisplay(string value) => value.ToLowerInvariant() switch
-    {
-        "block" => DisplayType.Block,
-        "inline" => DisplayType.Inline,
-        "inline-block" => DisplayType.InlineBlock,
-        "flex" => DisplayType.Flex,
-        "inline-flex" => DisplayType.InlineFlex,
-        "grid" => DisplayType.Grid,
-        "inline-grid" => DisplayType.InlineGrid,
-        "list-item" => DisplayType.ListItem,
-        "table" => DisplayType.Table,
-        "table-row" => DisplayType.TableRow,
-        "table-cell" => DisplayType.TableCell,
-        "table-header-group" => DisplayType.TableHeaderGroup,
-        "table-row-group" => DisplayType.TableRowGroup,
-        "table-footer-group" => DisplayType.TableFooterGroup,
-        "table-caption" => DisplayType.TableCaption,
-        "table-column-group" => DisplayType.TableColumnGroup,
-        "table-column" => DisplayType.TableColumn,
-        "none" => DisplayType.None,
-        "contents" => DisplayType.Contents,
-        _ => DisplayType.Block
-    };
-
-    private PositionType ParsePosition(string value) => value.ToLowerInvariant() switch
-    {
-        "relative" => PositionType.Relative,
-        "absolute" => PositionType.Absolute,
-        "fixed" => PositionType.Fixed,
-        "sticky" => PositionType.Sticky,
-        _ => PositionType.Static
-    };
-
-    private FloatType ParseFloat(string value) => value.ToLowerInvariant() switch
-    {
-        "left" => FloatType.Left,
-        "right" => FloatType.Right,
-        _ => FloatType.None
-    };
-
-    private ClearType ParseClear(string value) => value.ToLowerInvariant() switch
-    {
-        "left" => ClearType.Left,
-        "right" => ClearType.Right,
-        "both" => ClearType.Both,
-        _ => ClearType.None
-    };
-
-    private TextAlignType ParseTextAlign(string value) => value.ToLowerInvariant() switch
-    {
-        "left" => TextAlignType.Left,
-        "right" => TextAlignType.Right,
-        "center" => TextAlignType.Center,
-        "justify" => TextAlignType.Justify,
-        "start" => TextAlignType.Start,
-        "end" => TextAlignType.End,
-        _ => TextAlignType.Start
-    };
-
-    private TextDecorationType ParseTextDecoration(string value) => value.ToLowerInvariant() switch
-    {
-        "underline" => TextDecorationType.Underline,
-        "overline" => TextDecorationType.Overline,
-        "line-through" => TextDecorationType.LineThrough,
-        "none" => TextDecorationType.None,
-        _ => TextDecorationType.None
-    };
-
-    private VerticalAlignType ParseVerticalAlign(string value) => value.ToLowerInvariant() switch
-    {
-        "top" => VerticalAlignType.Top,
-        "bottom" => VerticalAlignType.Bottom,
-        "middle" => VerticalAlignType.Middle,
-        "sub" => VerticalAlignType.Sub,
-        "super" => VerticalAlignType.Super,
-        "text-top" => VerticalAlignType.TextTop,
-        "text-bottom" => VerticalAlignType.TextBottom,
-        _ => VerticalAlignType.Baseline
-    };
-
-    private WhiteSpaceMode ParseWhiteSpace(string value) => value.ToLowerInvariant() switch
-    {
-        "nowrap" => WhiteSpaceMode.Nowrap,
-        "pre" => WhiteSpaceMode.Pre,
-        "pre-wrap" => WhiteSpaceMode.PreWrap,
-        "pre-line" => WhiteSpaceMode.PreLine,
-        _ => WhiteSpaceMode.Normal
-    };
-
-    private WordBreakMode ParseWordBreak(string value) => value.ToLowerInvariant() switch
-    {
-        "break-all" => WordBreakMode.BreakAll,
-        "break-word" => WordBreakMode.BreakWord,
-        _ => WordBreakMode.Normal
-    };
-
-    private OverflowWrapMode ParseOverflowWrap(string value) => value.ToLowerInvariant() switch
-    {
-        "break-word" => OverflowWrapMode.BreakWord,
-        "anywhere" => OverflowWrapMode.Anywhere,
-        _ => OverflowWrapMode.Normal
-    };
-
-    private VisibilityType ParseVisibility(string value) => value.ToLowerInvariant() switch
-    {
-        "hidden" => VisibilityType.Hidden,
-        "collapse" => VisibilityType.Collapse,
-        _ => VisibilityType.Visible
-    };
-
-    private OverflowType ParseOverflow(string value) => value.ToLowerInvariant() switch
-    {
-        "hidden" => OverflowType.Hidden,
-        "scroll" => OverflowType.Scroll,
-        "auto" => OverflowType.Auto,
-        _ => OverflowType.Visible
-    };
-
-    private BackgroundRepeat ParseBackgroundRepeat(string value) => value.ToLowerInvariant() switch
-    {
-        "repeat-x" => BackgroundRepeat.RepeatX,
-        "repeat-y" => BackgroundRepeat.RepeatY,
-        "no-repeat" => BackgroundRepeat.NoRepeat,
-        _ => BackgroundRepeat.Repeat
-    };
-
-    private BackgroundAttachment ParseBackgroundAttachment(string value) => value.ToLowerInvariant() switch
-    {
-        "fixed" => BackgroundAttachment.Fixed,
-        "local" => BackgroundAttachment.Local,
-        _ => BackgroundAttachment.Scroll
-    };
-
+        => CssPropertyApplier.ParseLineHeight(value, fontSize);
     private void ParseBackgroundPosition(string value, ComputedStyle style)
-    {
-        var parts = value.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        if (parts.Length > 0)
-        {
-            style.BackgroundPositionX = parts[0].ToLowerInvariant() switch
-            {
-                "left" => new PixelLength(0),
-                "center" => new PercentLength(0.5f),
-                "right" => new PercentLength(1),
-                _ => Length.Parse(parts[0])
-            };
-            style.BackgroundPositionY = parts.Length > 1 ? Length.Parse(parts[1]) : new PixelLength(0);
-        }
-    }
-
-    private static void ParseBackgroundSize(string value, ComputedStyle style)
-    {
-        if (value == "cover") { style.BackgroundSize = BackgroundSizeType.Cover; return; }
-        if (value == "contain") { style.BackgroundSize = BackgroundSizeType.Contain; return; }
-        if (value == "auto") { style.BackgroundSize = BackgroundSizeType.Auto; return; }
-
-        var parts = value.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        if (parts.Length > 0 && parts[0] != "auto")
-            style.BackgroundSizeWidth = Length.Parse(parts[0]);
-        if (parts.Length > 1 && parts[1] != "auto")
-            style.BackgroundSizeHeight = Length.Parse(parts[1]);
-        style.BackgroundSize = BackgroundSizeType.Length;
-    }
-
+        => CssPropertyApplier.ParseBackgroundPosition(value, style);
+    private void ParseBackgroundSize(string value, ComputedStyle style)
+        => CssPropertyApplier.ParseBackgroundSize(value, style);
     private void ParseBackgroundShorthand(string value, ComputedStyle style)
-    {
-        var parts = value.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        foreach (var part in parts)
-        {
-            var lower = part.ToLowerInvariant();
-            if (lower == "none" || lower == "transparent")
-            {
-                style.BackgroundColor = SKColors.Transparent;
-                style.BackgroundImage = null;
-            }
-            else if (lower.StartsWith("#") || lower.StartsWith("rgb") || lower.StartsWith("rgba") || ColorParser.IsColorName(lower))
-            {
-                style.BackgroundColor = ColorParser.Parse(part);
-            }
-            else if (lower.StartsWith("url("))
-            {
-                style.BackgroundImage = new List<string> { ParseUrl(part) };
-            }
-            else if (lower is "repeat" or "repeat-x" or "repeat-y" or "no-repeat")
-            {
-                style.BackgroundRepeat = ParseBackgroundRepeat(part);
-            }
-            else if (lower is "scroll" or "fixed" or "local")
-            {
-                style.BackgroundAttachment = ParseBackgroundAttachment(part);
-            }
-            else if (lower is "cover" or "contain")
-            {
-                style.BackgroundSize = lower == "cover" ? BackgroundSizeType.Cover : BackgroundSizeType.Contain;
-            }
-        }
-    }
-
+        => CssPropertyApplier.ParseBackgroundShorthand(value, style);
     private string? ParseUrl(string value)
-    {
-        if (value.StartsWith("url("))
-            return value[4..].Trim(' ', '"', '\'', ')');
-        return null;
-    }
-
+        => CssPropertyApplier.ParseUrl(value);
     private void ParseBorderShorthand(string value, ComputedStyle style)
-    {
-        var parts = value.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        foreach (var part in parts)
-        {
-            if (part is "solid" or "dashed" or "dotted" or "double" or "none")
-            {
-                var bs = ParseBorderStyleValue(part);
-                style.BorderTopStyle = bs; style.BorderRightStyle = bs;
-                style.BorderBottomStyle = bs; style.BorderLeftStyle = bs;
-            }
-            else if (part.EndsWith("px"))
-            {
-                var width = ParseSize(part);
-                if (width.HasValue)
-                {
-                    style.BorderTopWidth = width.Value; style.BorderRightWidth = width.Value;
-                    style.BorderBottomWidth = width.Value; style.BorderLeftWidth = width.Value;
-                }
-            }
-            else
-            {
-                var color = ColorParser.Parse(part);
-                style.BorderTopColor = color; style.BorderRightColor = color;
-                style.BorderBottomColor = color; style.BorderLeftColor = color;
-            }
-        }
-    }
-
+        => CssPropertyApplier.ParseBorderShorthand(value, style);
     private void ParseBorderSide(ComputedStyle style, string side, string value)
-    {
-        var parts = value.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        foreach (var part in parts)
-        {
-            if (part is "solid" or "dashed" or "dotted" or "double" or "none")
-            {
-                var bs = ParseBorderStyleValue(part);
-                if (side == "top") style.BorderTopStyle = bs;
-                else if (side == "bottom") style.BorderBottomStyle = bs;
-                else if (side == "left") style.BorderLeftStyle = bs;
-                else if (side == "right") style.BorderRightStyle = bs;
-            }
-            else if (part.EndsWith("px"))
-            {
-                var width = ParseSize(part);
-                if (width.HasValue)
-                {
-                    if (side == "top") style.BorderTopWidth = width.Value;
-                    else if (side == "bottom") style.BorderBottomWidth = width.Value;
-                    else if (side == "left") style.BorderLeftWidth = width.Value;
-                    else if (side == "right") style.BorderRightWidth = width.Value;
-                }
-            }
-            else
-            {
-                var color = ColorParser.Parse(part);
-                if (side == "top") style.BorderTopColor = color;
-                else if (side == "bottom") style.BorderBottomColor = color;
-                else if (side == "left") style.BorderLeftColor = color;
-                else if (side == "right") style.BorderRightColor = color;
-            }
-        }
-    }
-
+        => CssPropertyApplier.ParseBorderSide(style, side, value);
     private void ParseBorderWidth(string value, ComputedStyle style)
-    {
-        var widths = value.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        var w = widths.Select(v => v switch
-        {
-            "thin" => 1f,
-            "medium" => 3f,
-            "thick" => 5f,
-            _ => ParseSize(v) ?? 0
-        }).ToList();
-
-        style.BorderTopWidth = w.Count > 0 ? w[0] : 0;
-        style.BorderRightWidth = w.Count > 1 ? w[1] : w[0];
-        style.BorderBottomWidth = w.Count > 2 ? w[2] : w[0];
-        style.BorderLeftWidth = w.Count > 3 ? w[3] : (w.Count > 1 ? w[1] : w[0]);
-    }
-
+        => CssPropertyApplier.ParseBorderWidth(value, style);
     private void ParseBorderColor(string value, ComputedStyle style)
-    {
-        var colors = value.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        var c = colors.Select(ColorParser.Parse).ToList();
-        style.BorderTopColor = c.Count > 0 ? c[0] : SKColors.Black;
-        style.BorderRightColor = c.Count > 1 ? c[1] : c[0];
-        style.BorderBottomColor = c.Count > 2 ? c[2] : c[0];
-        style.BorderLeftColor = c.Count > 3 ? c[3] : (c.Count > 1 ? c[1] : c[0]);
-    }
-
+        => CssPropertyApplier.ParseBorderColor(value, style);
     private void ParseBorderStyle(string value, ComputedStyle style)
-    {
-        var styles = value.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        var s = styles.Select(ParseBorderStyleValue).ToList();
-        style.BorderTopStyle = s.Count > 0 ? s[0] : BorderStyle.None;
-        style.BorderRightStyle = s.Count > 1 ? s[1] : (s.Count > 0 ? s[0] : BorderStyle.None);
-        style.BorderBottomStyle = s.Count > 2 ? s[2] : (s.Count > 0 ? s[0] : BorderStyle.None);
-        style.BorderLeftStyle = s.Count > 3 ? s[3] : (s.Count > 1 ? s[1] : (s.Count > 0 ? s[0] : BorderStyle.None));
-    }
-
+        => CssPropertyApplier.ParseBorderStyle(value, style);
     private void ParseBorderRadius(string value, ComputedStyle style)
-    {
-        var radii = value.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        var r = radii.Select(v => ParseSize(v) ?? 0).ToList();
-        style.BorderTopLeftRadius = r.Count > 0 ? r[0] : 0;
-        style.BorderTopRightRadius = r.Count > 1 ? r[1] : r[0];
-        style.BorderBottomRightRadius = r.Count > 2 ? r[2] : r[0];
-        style.BorderBottomLeftRadius = r.Count > 3 ? r[3] : (r.Count > 0 ? r[0] : 0);
-    }
-
-    private BorderStyle ParseBorderStyleValue(string value) => value.ToLowerInvariant() switch
-    {
-        "solid" => BorderStyle.Solid,
-        "dashed" => BorderStyle.Dashed,
-        "dotted" => BorderStyle.Dotted,
-        "double" => BorderStyle.Double,
-        "groove" => BorderStyle.Groove,
-        "ridge" => BorderStyle.Ridge,
-        "inset" => BorderStyle.Inset,
-        "outset" => BorderStyle.Outset,
-        _ => BorderStyle.None
-    };
-
+        => CssPropertyApplier.ParseBorderRadius(value, style);
     private float? ParseSize(string value)
-    {        if (value.EndsWith("px") && float.TryParse(value[..^2], out var px)) return px;
-        if (value.EndsWith("em") && float.TryParse(value[..^2], out var em)) return em * 16;
-        if (value.EndsWith("rem") && float.TryParse(value[..^2], out var rem)) return rem * 16;
-        if (value == "0") return 0;
-        return null;
-    }
-
-    /// <summary>
-    /// Parses one corner radius value, which may be a single length or the
-    /// 'horizontal vertical' pair produced for elliptical border-radius.
-    /// Uses the horizontal radius (the first value).
-    /// </summary>
+        => CssPropertyApplier.ParseSize(value);
     private float? ParseRadiusValue(string value)
-    {
-        int sp = value.IndexOf(' ');
-        return sp > 0 ? ParseSize(value[..sp]) : ParseSize(value.Trim());
-    }
-
+        => CssPropertyApplier.ParseRadiusValue(value);
     private void ParseFlexShorthand(string value, ComputedStyle style)
-    {
-        var parts = value.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        if (parts.Length == 0) return;
-
-        if (parts[0] == "none" || parts[0] == "auto")
-        {
-            style.FlexGrow = 0; style.FlexShrink = 1;
-            style.FlexBasis = AutoLength.Instance;
-            return;
-        }
-
-        int i = 0;
-        if (float.TryParse(parts[0], out var g))
-        {
-            style.FlexGrow = g; i++;
-            if (i < parts.Length && float.TryParse(parts[i], out var s))
-            { style.FlexShrink = s; i++; }
-            // Per CSS spec, when flex-grow is specified as a number and no third value,
-            // flex-basis defaults to 0%
-            style.FlexBasis = new PercentLength(0);
-        }
-        else
-        {
-            style.FlexBasis = Length.Parse(parts[0]); i++;
-            if (i < parts.Length && float.TryParse(parts[i], out var g2))
-                style.FlexGrow = g2;
-        }
-    }
-
-    private FlexDirectionType ParseFlexDirection(string value) => value.ToLowerInvariant() switch
-    {
-        "row-reverse" => FlexDirectionType.RowReverse,
-        "column" => FlexDirectionType.Column,
-        "column-reverse" => FlexDirectionType.ColumnReverse,
-        _ => FlexDirectionType.Row
-    };
-
-    private FlexWrapType ParseFlexWrap(string value) => value.ToLowerInvariant() switch
-    {
-        "wrap" => FlexWrapType.Wrap,
-        "wrap-reverse" => FlexWrapType.WrapReverse,
-        _ => FlexWrapType.NoWrap
-    };
-
-    private JustifyContentType ParseJustifyContent(string value) => value.ToLowerInvariant() switch
-    {
-        "flex-end" => JustifyContentType.FlexEnd,
-        "center" => JustifyContentType.Center,
-        "space-between" => JustifyContentType.SpaceBetween,
-        "space-around" => JustifyContentType.SpaceAround,
-        "space-evenly" => JustifyContentType.SpaceEvenly,
-        _ => JustifyContentType.FlexStart
-    };
-
-    private AlignItemsType ParseAlignItems(string value) => value.ToLowerInvariant() switch
-    {
-        "flex-start" => AlignItemsType.FlexStart,
-        "flex-end" => AlignItemsType.FlexEnd,
-        "center" => AlignItemsType.Center,
-        "baseline" => AlignItemsType.Baseline,
-        _ => AlignItemsType.Stretch
-    };
-
-    private AlignSelfType ParseAlignSelf(string value) => value.ToLowerInvariant() switch
-    {
-        "flex-start" => AlignSelfType.FlexStart,
-        "flex-end" => AlignSelfType.FlexEnd,
-        "center" => AlignSelfType.Center,
-        "baseline" => AlignSelfType.Baseline,
-        "stretch" => AlignSelfType.Stretch,
-        _ => AlignSelfType.Auto
-    };
-
-    private ListStyleType ParseListStyleType(string value) => value.ToLowerInvariant() switch
-    {
-        "disc" => ListStyleType.Disc,
-        "circle" => ListStyleType.Circle,
-        "square" => ListStyleType.Square,
-        "decimal" => ListStyleType.Decimal,
-        "decimal-leading-zero" => ListStyleType.DecimalLeadingZero,
-        "lower-roman" => ListStyleType.LowerRoman,
-        "upper-roman" => ListStyleType.UpperRoman,
-        "lower-alpha" => ListStyleType.LowerAlpha,
-        "upper-alpha" => ListStyleType.UpperAlpha,
-        "none" => ListStyleType.None,
-        _ => ListStyleType.Disc
-    };
-
+        => CssPropertyApplier.ParseFlexShorthand(value, style);
     private void ParseListStyle(string value, ComputedStyle style)
-    {
-        var parts = value.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        foreach (var part in parts)
-        {
-            var lower = part.ToLowerInvariant();
-            if (lower is "inside" or "outside")
-                style.ListStylePosition = lower == "inside" ? ListStylePosition.Inside : ListStylePosition.Outside;
-            else if (lower == "none")
-                style.ListStyleType = ListStyleType.None;
-            else if (lower is "disc" or "circle" or "square" or "decimal" or "lower-roman" or "upper-roman")
-                style.ListStyleType = ParseListStyleType(part);
-            else if (lower.StartsWith("url("))
-                style.ListStyleImage = ParseUrl(part);
-        }
-    }
-
+        => CssPropertyApplier.ParseListStyle(value, style);
     private void ParseFontShorthand(string value, ComputedStyle style)
-    {
-        var parts = value.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        int i = 0;
-
-        while (i < parts.Length)
-        {
-            var lower = parts[i].ToLowerInvariant();
-            if (lower is "normal" or "italic" or "oblique")
-            {
-                if (lower == "italic" || lower == "oblique") style.FontStyle = FontStyleType.Italic;
-                i++;
-            }
-            else if (lower is "bold" or "bolder" or "lighter" ||
-                     lower is "100" or "200" or "300" or "400" or "500" or "600" or "700" or "800" or "900")
-            {
-                style.FontWeight = ParseFontWeight(parts[i]);
-                i++;
-            }
-            else break;
-        }
-
-        if (i < parts.Length && (parts[i].EndsWith("px") || parts[i].EndsWith("em") || parts[i].EndsWith("rem") ||
-            parts[i].EndsWith("%") || parts[i] is "xx-small" or "x-small" or "small" or "medium" or
-            "large" or "x-large" or "xx-large"))
-        {
-            style.FontSize = Length.ParseFontSize(parts[i], style.FontSize);
-            i++;
-        }
-
-        if (i < parts.Length && parts[i] == "/")
-        {
-            i++;
-            if (i < parts.Length)
-                Fonts.LineBoxMetrics.ApplyLineHeight(style, parts[i]);
-            i++;
-        }
-
-        if (i < parts.Length)
-        {
-            var family = string.Join(" ", parts.Skip(i));
-            style.FontFamily = family.Trim().Trim('"', '\'');
-        }
-    }
-
+        => CssPropertyApplier.ParseFontShorthand(value, style);
     private void ParseOutlineShorthand(string value, ComputedStyle style)
-    {
-        var parts = value.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        foreach (var part in parts)
-        {
-            if (part.EndsWith("px"))
-            {
-                if (float.TryParse(part.Replace("px", ""), out var w))
-                    style.OutlineWidth = w;
-            }
-            else if (part is "solid" or "dashed" or "dotted" or "double" or "none")
-            {
-                style.OutlineStyle = ParseBorderStyleValue(part);
-            }
-            else
-            {
-                style.OutlineColor = ColorParser.Parse(part);
-            }
-        }
-    }
-
+        => CssPropertyApplier.ParseOutlineShorthand(value, style);
     private void ParseShorthand2(string value, out Length a, out Length b)
-    {
-        var parts = value.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        a = Length.Parse(parts.Length > 0 ? parts[0] : "0");
-        b = Length.Parse(parts.Length > 1 ? parts[1] : parts[0]);
-    }
-
+        => CssPropertyApplier.ParseShorthand2(value, out a, out b);
     private Length? ParsePositionKeywordOrLength(string value)
-    {
-        return value.ToLowerInvariant() switch
-        {
-            "left" or "top" => new PixelLength(0),
-            "center" => new PercentLength(0.5f),
-            "right" or "bottom" => new PercentLength(1),
-            _ => Length.TryParse(value, out var l) ? l : null
-        };
-    }
-
+        => CssPropertyApplier.ParsePositionKeywordOrLength(value);
     private void ParsePosition(string value, out Length? x, out Length? y)
-    {
-        var parts = value.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        x = parts.Length > 0 ? ParsePositionKeywordOrLength(parts[0]) : null;
-        y = parts.Length > 1 ? ParsePositionKeywordOrLength(parts[1]) : null;
-    }
-
+        => CssPropertyApplier.ParsePosition(value, out x, out y);
     private void ParseInsetShorthand(string value, ComputedStyle style)
-    {
-        var parts = value.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        if (parts.Length == 0) return;
-        style.Top = Length.Parse(parts[0]);
-        style.Right = Length.Parse(parts.Length > 1 ? parts[1] : parts[0]);
-        style.Bottom = Length.Parse(parts.Length > 2 ? parts[2] : parts[0]);
-        style.Left = Length.Parse(parts.Length > 3 ? parts[3] : (parts.Length > 1 ? parts[1] : parts[0]));
-    }
-
+        => CssPropertyApplier.ParseInsetShorthand(value, style);
     private TextDecorationLineType ParseTextDecorationLine(string value)
-    {
-        var lower = value.ToLowerInvariant();
-        if (lower == "none") return TextDecorationLineType.None;
-        var result = TextDecorationLineType.None;
-        if (lower.Contains("underline")) result |= TextDecorationLineType.Underline;
-        if (lower.Contains("overline")) result |= TextDecorationLineType.Overline;
-        if (lower.Contains("line-through")) result |= TextDecorationLineType.LineThrough;
-        return result;
-    }
-
-    private TextDecorationStyleType ParseTextDecorationStyle(string value) => value.ToLowerInvariant() switch
-    {
-        "double" => TextDecorationStyleType.Double,
-        "dotted" => TextDecorationStyleType.Dotted,
-        "dashed" => TextDecorationStyleType.Dashed,
-        "wavy" => TextDecorationStyleType.Wavy,
-        _ => TextDecorationStyleType.Solid
-    };
-
+        => CssPropertyApplier.ParseTextDecorationLine(value);
     private void ParseTextDecorationShorthand(string value, ComputedStyle style)
-    {
-        var parts = value.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        foreach (var part in parts)
-        {
-            var lower = part.ToLowerInvariant();
-            if (lower == "none" || lower == "underline" || lower == "overline" || lower == "line-through")
-            {
-                style.TextDecorationLine = ParseTextDecorationLine(part);
-                style.TextDecoration = style.TextDecorationLine switch
-                {
-                    TextDecorationLineType.Underline => TextDecorationType.Underline,
-                    TextDecorationLineType.Overline => TextDecorationType.Overline,
-                    TextDecorationLineType.LineThrough => TextDecorationType.LineThrough,
-                    _ => TextDecorationType.None
-                };
-            }
-            else if (lower == "solid" || lower == "double" || lower == "dotted" || lower == "dashed" || lower == "wavy")
-                style.TextDecorationStyle = ParseTextDecorationStyle(part);
-            else
-                style.TextDecorationColor = ColorParser.Parse(part);
-        }
-    }
-
+        => CssPropertyApplier.ParseTextDecorationShorthand(value, style);
     private List<TextShadowValue> ParseTextShadow(string value)
-    {
-        var shadows = new List<TextShadowValue>();
-        if (string.IsNullOrEmpty(value) || value == "none") return shadows;
-
-        var parts = value.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        if (parts.Length < 2) return shadows;
-
-        float offsetX = float.TryParse(parts[0].TrimEnd('p', 'x'), out var ox) ? ox : 0;
-        float offsetY = float.TryParse(parts[1].TrimEnd('p', 'x'), out var oy) ? oy : 0;
-        float blurRadius = 0;
-        int index = 2;
-        if (index < parts.Length && parts[index].Contains("px"))
-        {
-            float.TryParse(parts[index].TrimEnd('p', 'x'), out blurRadius);
-            index++;
-        }
-        var color = index < parts.Length ? ColorParser.Parse(string.Join(" ", parts.Skip(index))) : new SKColor(0, 0, 0, 255);
-        shadows.Add(new TextShadowValue(color, offsetX, offsetY, blurRadius));
-        return shadows;
-    }
-
-    private ObjectFitType ParseObjectFit(string value) => value.ToLowerInvariant() switch
-    {
-        "contain" => ObjectFitType.Contain,
-        "cover" => ObjectFitType.Cover,
-        "none" => ObjectFitType.None,
-        "scale-down" => ObjectFitType.ScaleDown,
-        _ => ObjectFitType.Fill
-    };
-
+        => CssPropertyApplier.ParseTextShadow(value);
     private GridAutoFlowType ParseGridAutoFlow(string value)
-    {
-        var lower = value.ToLowerInvariant();
-        if (lower.Contains("column")) return GridAutoFlowType.Column;
-        if (lower.Contains("dense")) return GridAutoFlowType.Dense;
-        return GridAutoFlowType.Row;
-    }
-
+        => CssPropertyApplier.ParseGridAutoFlow(value);
     private void ParseGridTemplateShorthand(string value, ComputedStyle style)
-    {
-        if (value == "none") return;
-        if (value.Contains("/"))
-        {
-            var parts = value.Split('/');
-            style.GridTemplateRows = parts[0].Trim();
-            style.GridTemplateColumns = parts.Length > 1 ? parts[1].Trim() : null;
-        }
-    }
-
+        => CssPropertyApplier.ParseGridTemplateShorthand(value, style);
     private void ParseFlexFlow(string value, ComputedStyle style)
-    {
-        var parts = value.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        foreach (var part in parts)
-        {
-            var lower = part.ToLowerInvariant();
-            if (lower is "row" or "row-reverse" or "column" or "column-reverse")
-                style.FlexDirection = ParseFlexDirection(part);
-            else if (lower is "nowrap" or "wrap" or "wrap-reverse")
-                style.FlexWrap = ParseFlexWrap(part);
-        }
-    }
-
-    private WritingModeType ParseWritingMode(string value) => value.ToLowerInvariant() switch
-    {
-        "vertical-rl" => WritingModeType.VerticalRl,
-        "vertical-lr" => WritingModeType.VerticalLr,
-        _ => WritingModeType.HorizontalTb
-    };
-
-    private HyphensType ParseHyphens(string value) => value.ToLowerInvariant() switch
-    {
-        "manual" => HyphensType.Manual,
-        "auto" => HyphensType.Auto,
-        _ => HyphensType.None
-    };
-
-    private LineBreakType ParseLineBreak(string value) => value.ToLowerInvariant() switch
-    {
-        "loose" => LineBreakType.Loose,
-        "normal" => LineBreakType.Normal,
-        "strict" => LineBreakType.Strict,
-        "anywhere" => LineBreakType.Anywhere,
-        _ => LineBreakType.Auto
-    };
-
-    private TextJustifyType ParseTextJustify(string value) => value.ToLowerInvariant() switch
-    {
-        "inter-word" => TextJustifyType.InterWord,
-        "inter-character" => TextJustifyType.InterCharacter,
-        "none" => TextJustifyType.None,
-        _ => TextJustifyType.Auto
-    };
-
-    private ResizeType ParseResize(string value) => value.ToLowerInvariant() switch
-    {
-        "both" => ResizeType.Both,
-        "horizontal" => ResizeType.Horizontal,
-        "vertical" => ResizeType.Vertical,
-        _ => ResizeType.None
-    };
-
+        => CssPropertyApplier.ParseFlexFlow(value, style);
     private ContainType ParseContain(string value)
-    {
-        var lower = value.ToLowerInvariant();
-        if (lower == "none") return ContainType.None;
-        if (lower == "strict") return ContainType.Strict;
-        if (lower == "content") return ContainType.Content;
-        if (lower == "layout") return ContainType.Layout;
-        if (lower == "paint") return ContainType.Paint;
-        if (lower == "size") return ContainType.Size;
-        return ContainType.None;
-    }
-
-    private ContentVisibilityType ParseContentVisibility(string value) => value.ToLowerInvariant() switch
-    {
-        "auto" => ContentVisibilityType.Auto,
-        "hidden" => ContentVisibilityType.Hidden,
-        _ => ContentVisibilityType.Visible
-    };
-
-    private ImageRenderingType ParseImageRendering(string value) => value.ToLowerInvariant() switch
-    {
-        "crisp-edges" => ImageRenderingType.CrispEdges,
-        "pixelated" => ImageRenderingType.Pixelated,
-        _ => ImageRenderingType.Auto
-    };
-
-    private MixBlendModeType ParseMixBlendMode(string value) => value.ToLowerInvariant() switch
-    {
-        "multiply" => MixBlendModeType.Multiply,
-        "screen" => MixBlendModeType.Screen,
-        "overlay" => MixBlendModeType.Overlay,
-        "darken" => MixBlendModeType.Darken,
-        "lighten" => MixBlendModeType.Lighten,
-        "color-dodge" => MixBlendModeType.ColorDodge,
-        "color-burn" => MixBlendModeType.ColorBurn,
-        "hard-light" => MixBlendModeType.HardLight,
-        "soft-light" => MixBlendModeType.SoftLight,
-        "difference" => MixBlendModeType.Difference,
-        "exclusion" => MixBlendModeType.Exclusion,
-        "hue" => MixBlendModeType.Hue,
-        "saturation" => MixBlendModeType.Saturation,
-        "color" => MixBlendModeType.Color,
-        "luminosity" => MixBlendModeType.Luminosity,
-        _ => MixBlendModeType.Normal
-    };
-
-    private BackgroundBlendModeType ParseBackgroundBlendMode(string value) => value.ToLowerInvariant() switch
-    {
-        "multiply" => BackgroundBlendModeType.Multiply,
-        "screen" => BackgroundBlendModeType.Screen,
-        "overlay" => BackgroundBlendModeType.Overlay,
-        "darken" => BackgroundBlendModeType.Darken,
-        "lighten" => BackgroundBlendModeType.Lighten,
-        "color-dodge" => BackgroundBlendModeType.ColorDodge,
-        "color-burn" => BackgroundBlendModeType.ColorBurn,
-        "hard-light" => BackgroundBlendModeType.HardLight,
-        "soft-light" => BackgroundBlendModeType.SoftLight,
-        "difference" => BackgroundBlendModeType.Difference,
-        "exclusion" => BackgroundBlendModeType.Exclusion,
-        "hue" => BackgroundBlendModeType.Hue,
-        "saturation" => BackgroundBlendModeType.Saturation,
-        "color" => BackgroundBlendModeType.Color,
-        "luminosity" => BackgroundBlendModeType.Luminosity,
-        _ => BackgroundBlendModeType.Normal
-    };
-
-    private OverscrollBehaviorType ParseOverscrollBehavior(string value) => value.ToLowerInvariant() switch
-    {
-        "contain" => OverscrollBehaviorType.Contain,
-        "none" => OverscrollBehaviorType.None,
-        _ => OverscrollBehaviorType.Auto
-    };
-
+        => CssPropertyApplier.ParseContain(value);
     private float ParseZoom(string value)
-    {
-        if (value.EndsWith("%") && float.TryParse(value[..^1], out var pct)) return pct / 100f;
-        if (float.TryParse(value, out var num)) return num;
-        return 1;
-    }
-
+        => CssPropertyApplier.ParseZoom(value);
     private void ParseGap(string value, ComputedStyle style)
-    {
-        var parts = value.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        if (parts.Length > 0 && Length.TryParse(parts[0], out var gap))
-        {
-            style.RowGap = gap;
-            style.ColumnGap = parts.Length > 1 ? Length.Parse(parts[1]) : gap;
-        }
-    }
-
-    /// <summary>
-    /// Parses a 'box-shadow' value into a list of shadows. Supports the 'inset'
-    /// keyword (anywhere before the lengths) and multiple comma-separated shadows.
-    /// Mirrors the CSS box-shadow grammar: [inset? && <length>{2,4} && <color>?]# .
-    /// </summary>
+        => CssPropertyApplier.ParseGap(value, style);
     private static List<BoxShadowValue>? ParseBoxShadow(string value)
-    {
-        if (string.IsNullOrEmpty(value) || value.Trim() == "none")
-            return null;
-
-        var list = new List<BoxShadowValue>();
-        foreach (var part in SplitCommaOutsideParens(value))
-        {
-            var shadow = ParseBoxShadowComponent(part);
-            if (shadow != null)
-                list.Add(shadow);
-        }
-        return list.Count > 0 ? list : null;
-    }
-
-    /// <summary>Splits a value on commas that are not inside parentheses, so that
-    /// multiple box-shadows separate correctly while rgba()/rgb() color functions
-    /// stay intact.</summary>
+        => CssPropertyApplier.ParseBoxShadow(value);
     private static IEnumerable<string> SplitCommaOutsideParens(string value)
-    {
-        int depth = 0;
-        int start = 0;
-        for (int i = 0; i < value.Length; i++)
-        {
-            if (value[i] == '(') depth++;
-            else if (value[i] == ')') depth--;
-            else if (value[i] == ',' && depth == 0)
-            {
-                yield return value[start..i];
-                start = i + 1;
-            }
-        }
-        yield return value[start..];
-    }
-
+        => CssPropertyApplier.SplitCommaOutsideParens(value);
     private static BoxShadowValue? ParseBoxShadowComponent(string component)
-    {
-        var parts = component.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        if (parts.Length < 2)
-            return null;
-
-        bool inset = false;
-        int index = 0;
-        if (parts[0].Equals("inset", StringComparison.OrdinalIgnoreCase))
-        {
-            inset = true;
-            index++;
-        }
-        else if (parts.Length > 1 && parts[1].Equals("inset", StringComparison.OrdinalIgnoreCase))
-        {
-            // 'inset' may legally appear after the lengths.
-            inset = true;
-        }
-
-        // The first two tokens are offsets.
-        if (!TryParseLength(parts[index], out float offsetX) ||
-            !TryParseLength(parts[index + 1], out float offsetY))
-        {
-            return null;
-        }
-        index += 2;
-
-        float blurRadius = 0, spread = 0;
-        if (index < parts.Length && TryParseLength(parts[index], out float br))
-        {
-            blurRadius = br;
-            index++;
-        }
-        if (index < parts.Length && TryParseLength(parts[index], out float sp))
-        {
-            spread = sp;
-            index++;
-        }
-
-        SKColor color;
-        if (index < parts.Length)
-        {
-            color = ColorParser.Parse(string.Join(" ", parts.Skip(index)));
-        }
-        else
-            color = new SKColor(0, 0, 0, 80); // default currentColor鈮坆lack with standard shadow alpha
-        return new BoxShadowValue(color, offsetX, offsetY, blurRadius, spread, inset);
-    }
-
+        => CssPropertyApplier.ParseBoxShadowComponent(component);
     private static bool TryParseLength(string token, out float value)
-    {
-        value = 0;
-        var t = token.Trim();
-        if (t.EndsWith("px", StringComparison.OrdinalIgnoreCase) && float.TryParse(t[..^2], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out value))
-            return true;
-        if (t.EndsWith("em", StringComparison.OrdinalIgnoreCase) && float.TryParse(t[..^2], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out value))
-        {
-            value *= 16;
-            return true;
-        }
-        if (float.TryParse(t, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out value))
-            return true;
-        return false;
-    }
-
+        => CssPropertyApplier.TryParseLength(token, out value);
     private bool EvaluateSupportsCondition(string condition)
-    {
-        if (string.IsNullOrWhiteSpace(condition)) return true;
-
-        // Handle 'not' prefix
-        bool negate = false;
-        var trimmed = condition.Trim();
-        if (trimmed.StartsWith("not ", StringComparison.OrdinalIgnoreCase))
-        {
-            negate = true;
-            trimmed = trimmed[4..].Trim();
-        }
-
-        // Handle 'and' / 'or' combinators (simple version)
-        if (trimmed.Contains(" and ", StringComparison.OrdinalIgnoreCase))
-        {
-            var parts = trimmed.Split(new[] { " and " }, StringSplitOptions.RemoveEmptyEntries);
-            bool result = true;
-            foreach (var part in parts)
-                result = result && EvaluateSingleSupportsCondition(part.Trim());
-            return negate ? !result : result;
-        }
-        if (trimmed.Contains(" or ", StringComparison.OrdinalIgnoreCase))
-        {
-            var parts = trimmed.Split(new[] { " or " }, StringSplitOptions.RemoveEmptyEntries);
-            bool result = false;
-            foreach (var part in parts)
-                result = result || EvaluateSingleSupportsCondition(part.Trim());
-            return negate ? !result : result;
-        }
-
-        bool eval = EvaluateSingleSupportsCondition(trimmed);
-        return negate ? !eval : eval;
-    }
-
+        => CssPropertyApplier.EvaluateSupportsCondition(condition);
     private bool EvaluateSingleSupportsCondition(string condition)
-    {
-        condition = condition.Trim();
-        // Remove outer parentheses
-        if (condition.StartsWith('(') && condition.EndsWith(')'))
-            condition = condition[1..^1].Trim();
-
-        // Parse property: value
-        var colonIdx = condition.IndexOf(':');
-        if (colonIdx < 0) return true;
-
-        var propName = condition[..colonIdx].Trim().ToLowerInvariant();
-        var propValue = condition[(colonIdx + 1)..].Trim().ToLowerInvariant();
-
-        return propName switch
-        {
-            "display" => propValue is "flex" or "inline-flex" or "grid" or "inline-grid" or "block" or "inline-block" or "inline" or "list-item" or "none" or "table" or "table-cell" or "table-row",
-            "position" => propValue is "static" or "relative" or "absolute" or "fixed" or "sticky",
-            "transform" or "-webkit-transform" => propValue is not "none" || true,
-            "transition" => true,
-            "animation" => true,
-            "overflow" or "overflow-x" or "overflow-y" => propValue is "visible" or "hidden" or "scroll" or "auto",
-            "flex-wrap" => propValue is "nowrap" or "wrap" or "wrap-reverse",
-            "justify-content" => propValue is "flex-start" or "flex-end" or "center" or "space-between" or "space-around" or "space-evenly",
-            "align-items" => propValue is "flex-start" or "flex-end" or "center" or "baseline" or "stretch",
-            "align-content" => propValue is "flex-start" or "flex-end" or "center" or "space-between" or "space-around" or "stretch",
-            "gap" => true,
-            "flex" or "flex-grow" or "flex-shrink" or "flex-basis" => true,
-            "background" or "background-color" or "background-image" or "background-size" => true,
-            "color" => true,
-            "font-family" => true,
-            "font-size" => true,
-            "filter" or "-webkit-filter" => true,
-            "clip-path" or "-webkit-clip-path" => true,
-            "text-decoration" or "text-decoration-line" or "text-decoration-style" or "text-decoration-color" => true,
-            "box-shadow" => true,
-            "text-shadow" => true,
-            "opacity" => true,
-            "visibility" => propValue is "visible" or "hidden" or "collapse",
-            "z-index" => true,
-            "outline" or "outline-style" or "outline-width" or "outline-color" => true,
-            "border" or "border-radius" => true,
-            "margin" or "padding" => true,
-            "width" or "height" or "min-width" or "max-width" or "min-height" or "max-height" => true,
-            "top" or "right" or "bottom" or "left" => true,
-            "float" => propValue is "none" or "left" or "right",
-            "clear" => propValue is "none" or "left" or "right" or "both",
-            "object-fit" => propValue is "fill" or "contain" or "cover" or "none" or "scale-down",
-            "cursor" => true,
-            "user-select" or "-webkit-user-select" => true,
-            "pointer-events" => propValue is "auto" or "none",
-            "white-space" => propValue is "normal" or "nowrap" or "pre" or "pre-wrap" or "pre-line",
-            "word-break" => propValue is "normal" or "break-all" or "keep-all" or "break-word",
-            "overflow-wrap" or "word-wrap" => propValue is "normal" or "break-word",
-            "text-overflow" => propValue is "clip" or "ellipsis",
-            "line-height" => true,
-            "letter-spacing" => true,
-            "list-style" or "list-style-type" or "list-style-position" or "list-style-image" => true,
-            _ => true // unknown properties are assumed supported
-        };
-    }
-
+        => CssPropertyApplier.EvaluateSingleSupportsCondition(condition);
     private static string GetOriginalShorthand(string longhand)
-    {
-        return longhand switch
-        {
-            var s when s.StartsWith("margin-") => "margin",
-            var s when s.StartsWith("padding-") => "padding",
-            var s when s.StartsWith("border-top-") || s.StartsWith("border-right-") || s.StartsWith("border-bottom-") || s.StartsWith("border-left-") => "border",
-            var s when s.StartsWith("flex-") => "flex",
-            var s when s.StartsWith("grid-") => "grid",
-            _ => longhand
-        };
-    }
+        => CssPropertyApplier.GetOriginalShorthand(longhand);
 }
+
+    // ----- Shared property parsers (implemented in CssPropertyApplier) -----
 
 /// <summary>
 /// Cascade priority encoding - similar to Blink's 96-bit priority integer.
-/// Order: Importance 锟?Origin 锟?TreeOrder
+/// Order: Importance 锟?Origin 锟?Specificity 锟?SourceOrder
 /// Per CSS Cascading 4 spec:
 ///   Normal: Inline(5) > Author(3) > User(2) > UA(1)
 ///   Important: UA(5) > User(4) > Author(3) > Inline(2)
 ///   (JS-modified same as Inline)
+/// Specificity is folded into the priority so the cascade no longer relies on the
+/// (removed) parser-side specificity pre-sort.
 /// </summary>
 public readonly struct LegacyCascadePriority : IComparable<LegacyCascadePriority>
 {
     public readonly bool Importance;
     public readonly CascadeOrigin Origin;
     public readonly int TreeOrder;
+    public readonly int SpecificityA;
+    public readonly int SpecificityB;
+    public readonly int SpecificityC;
+    public readonly int SpecificityD;
+    public readonly int SourceOrder;
 
     public LegacyCascadePriority(bool importance, CascadeOrigin origin, int treeOrder)
+        : this(importance, origin, treeOrder, 0, 0, 0, 0, 0)
+    {
+    }
+
+    public LegacyCascadePriority(bool importance, CascadeOrigin origin, int treeOrder,
+        int specA, int specB, int specC, int specD, int sourceOrder)
     {
         Importance = importance;
         Origin = origin;
         TreeOrder = treeOrder;
+        SpecificityA = specA;
+        SpecificityB = specB;
+        SpecificityC = specC;
+        SpecificityD = specD;
+        SourceOrder = sourceOrder;
     }
 
     public int CompareTo(LegacyCascadePriority other)
@@ -2489,7 +1301,22 @@ public readonly struct LegacyCascadePriority : IComparable<LegacyCascadePriority
         if (thisWeight != otherWeight)
             return thisWeight.CompareTo(otherWeight);
 
+        int specCmp = CompareSpecificity(this, other);
+        if (specCmp != 0)
+            return specCmp;
+
+        if (SourceOrder != other.SourceOrder)
+            return SourceOrder.CompareTo(other.SourceOrder);
+
         return TreeOrder.CompareTo(other.TreeOrder);
+    }
+
+    private static int CompareSpecificity(LegacyCascadePriority a, LegacyCascadePriority b)
+    {
+        if (a.SpecificityA != b.SpecificityA) return a.SpecificityA.CompareTo(b.SpecificityA);
+        if (a.SpecificityB != b.SpecificityB) return a.SpecificityB.CompareTo(b.SpecificityB);
+        if (a.SpecificityC != b.SpecificityC) return a.SpecificityC.CompareTo(b.SpecificityC);
+        return a.SpecificityD.CompareTo(b.SpecificityD);
     }
 
     private static int GetOriginWeight(CascadeOrigin origin, bool isImportant)
@@ -2568,25 +1395,18 @@ public class CascadeMap
 
 /// <summary>
 /// SelectorMatcher - pre-compiles selectors for faster matching.
-/// Uses the Blink-style CssSelectorParser and SelectorChecker.
+/// Uses the token-based CssSelectorParser and SelectorChecker.
 /// </summary>
 public class SelectorMatcher
 {
-    private readonly Dictionary<string, CssSelector> _selectorCache = new();
-
     public bool Matches(CssRule rule, Element element)
     {
-        if (!_selectorCache.TryGetValue(rule.Selector, out var selector))
-        {
-            var parsed = CssSelector.Parse(rule.Selector);
-            _selectorCache[rule.Selector] = parsed;
-            selector = parsed;
-        }
-        bool m = selector.Matches(element, element.ParentElement);
-        return m;
+        return CssSelectorMatcher.Matches(rule.OriginalSelectorText.Length > 0
+            ? rule.OriginalSelectorText
+            : rule.Selector, element);
     }
 
-    public void ClearCache() => _selectorCache.Clear();
+    public void ClearCache() => CssSelectorMatcher.ClearCache();
 }
 
 /// <summary>
@@ -2640,3 +1460,4 @@ public readonly struct CacheKey : IEquatable<CacheKey>
     public override bool Equals(object? obj) => obj is CacheKey other && Equals(other);
     public override int GetHashCode() => HashCode.Combine(ElementId, StylesheetCount, StyleAttrHash, ClassHash);
 }
+

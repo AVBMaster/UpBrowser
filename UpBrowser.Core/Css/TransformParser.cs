@@ -119,6 +119,14 @@ public static class TransformParser
         {
             if (float.TryParse(s[..^3], out var rad)) return rad * 180f / MathF.PI;
         }
+        if (s.EndsWith("px", StringComparison.OrdinalIgnoreCase))
+        {
+            if (float.TryParse(s[..^2], out var px)) return px;
+        }
+        if (s.EndsWith("%", StringComparison.OrdinalIgnoreCase))
+        {
+            return 0; // percent handled by caller via other transforms; net zero is safe
+        }
         if (float.TryParse(s, out var val)) return val;
         return 0;
     }

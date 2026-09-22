@@ -39,6 +39,21 @@ internal sealed class PaintLayerPainter
 
         var pushedStates = _clipper.PushAncestorStates(element, contentOffsetY, _visitor.PhysicalScale);
 
+        var offsetBorderBox = new SKRect(
+            layoutBox.BorderBox.Left,
+            layoutBox.BorderBox.Top + contentOffsetY,
+            layoutBox.BorderBox.Right,
+            layoutBox.BorderBox.Bottom + contentOffsetY);
+
+        // Apply element-level effects (opacity / transform / filter / clip-path /
+        // blend-mode / mask) around the layer's own background, borders, content
+        // and overflow controls so they paint as one object.
+        var effectState = new ScopedPaintState(_displayList,
+            new SKPoint(0, contentOffsetY),
+            new SKRect(float.MinValue / 2, float.MinValue / 2, float.MaxValue, float.MaxValue));
+        if (style.Visibility == VisibilityType.Visible)
+            _visitor.PushObjectEffects(style, layoutBox, offsetBorderBox, effectState);
+
         PaintLayerBackground(element, layoutBox, style, contentOffsetY);
 
         if (layered)
@@ -47,6 +62,7 @@ internal sealed class PaintLayerPainter
             // renderers; the tile compositor draws the cached layer LIVE each frame.
             _visitor.EmitScrollLayerOp(layoutBox);
             _clipper.Pop(pushedStates, layoutBox.BorderBox);
+            effectState.Dispose();
             return;
         }
 
@@ -55,6 +71,7 @@ internal sealed class PaintLayerPainter
         PaintOverflowControls(layoutBox, style, contentOffsetY);
 
         _clipper.Pop(pushedStates, layoutBox.BorderBox);
+        effectState.Dispose();
     }
 
     private void PaintLayerBackground(Element element, LayoutBox box, ComputedStyle style, float contentOffsetY)

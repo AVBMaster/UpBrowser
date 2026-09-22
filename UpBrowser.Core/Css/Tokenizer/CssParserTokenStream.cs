@@ -52,11 +52,8 @@ public class CssParserTokenStream
         {
             _current = _lookahead;
             _currentOffset = _lookaheadOffset;
-            if (_lookahead.Line == 0)
-            {
-                _currentLine = _tokenizer.Line;
-                _currentColumn = _tokenizer.Column;
-            }
+            _currentLine = _lookahead.Line;
+            _currentColumn = _lookahead.Column;
             _hasLookahead = false;
         }
         else

@@ -466,6 +466,14 @@ public static class CssPropertyIdExtensions
             NameToId[name] = id;
             IdToName[id] = name;
         }
+
+        // Register vendor-prefixed aliases so -webkit-appearance, -moz-* etc.
+        // resolve to the same property ID as their unprefixed counterparts.
+        foreach (var entry in NameToId.ToArray())
+        {
+            foreach (var prefix in new[] { "-webkit-", "-moz-", "-ms-", "-o-" })
+                NameToId.TryAdd(prefix + entry.Key, entry.Value);
+        }
     }
 
     public static CssPropertyId FromString(string name)

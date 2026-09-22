@@ -97,7 +97,7 @@ public sealed class InlineBoxFragmentPainter
             case SlicePaintingType.PaintWithoutClip:
             case SlicePaintingType.PaintWithClip:
                 if (NinePieceImagePainter.HasBorderImage(style))
-                    NinePieceImagePainter.Paint(_displayList, _paintVisitor.ImageCache, style, borderRect);
+                    NinePieceImagePainter.Paint(_displayList, _paintVisitor.ImageCache, style, borderRect, _paintVisitor.BaseUrl);
                 else
                     _paintVisitor.DrawElementBorder(element, null!, style, borderRect);
                 break;

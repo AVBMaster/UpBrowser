@@ -570,7 +570,7 @@ public class SkiaRenderer : IDisposable
         Canvas.Restore();
     }
 
-    public void RenderWithScroll(DisplayList displayList, float contentOffsetY, float scrollX, float scrollY, float viewportWidth, float viewportHeight, DisplayList? overlayList = null, SKColor? backgroundFill = null, bool interactiveScrollFrame = false)
+    public void RenderWithScroll(DisplayList displayList, float contentOffsetY, float scrollX, float scrollY, float viewportWidth, float viewportHeight, DisplayList? overlayList = null, SKColor? backgroundFill = null, bool interactiveScrollFrame = false, bool directDraw = false)
     {
         _currentDisplayList = displayList;
 
@@ -594,7 +594,10 @@ public class SkiaRenderer : IDisposable
         Canvas.Translate(0, contentOffsetY * (1f / resScale - 1f));
         Canvas.Translate(-scrollX, -scrollY);
 
-        if (_useTileCompositor && _tiledCompositor != null)
+        // directDraw (interactive resize drag): skip the tile compositor entirely
+        // and take the single-picture path below, so every resize tick presents a
+        // complete page instead of paying full tile-cache invalidation + raster.
+        if (_useTileCompositor && _tiledCompositor != null && !directDraw)
         {
             // Tile compositor owns the transform stack and composites in physical
             // (device-pixel) space. The page-space viewport plus the page origin
@@ -642,7 +645,7 @@ public class SkiaRenderer : IDisposable
             // drain on subsequent frames composites the leftover page-scroll band.
             int filled = 0;
             if (!interactiveScrollFrame)
-                filled = _tiledCompositor.RasterDeferred();
+                filled = _tiledCompositor.RasterDeferred(Canvas);
             PendingTileRepaint = _tiledCompositor.HasPendingRasterWork || filled > 0;
         }
         else

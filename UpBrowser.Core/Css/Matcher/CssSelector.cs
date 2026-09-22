@@ -190,8 +190,7 @@ public class CssSelector
     public override string ToString()
     {
         if (MatchType == CssSelectorMatchType.PseudoClass && PseudoType == CssPseudoType.Not && SelectorList != null)
-            return $":not({string.Join(",", SelectorList.Select(s => s.ToString()))})";
-        if (MatchType == CssSelectorMatchType.PseudoClass && PseudoType == CssPseudoType.Is && SelectorList != null)
+            return $":not({string.Join(",", SelectorList.Select(s => s.ToString()))})";        if (MatchType == CssSelectorMatchType.PseudoClass && PseudoType == CssPseudoType.Is && SelectorList != null)
             return $":is({string.Join(",", SelectorList.Select(s => s.ToString()))})";
         if (MatchType == CssSelectorMatchType.PseudoClass && PseudoType == CssPseudoType.Where && SelectorList != null)
             return $":where({string.Join(",", SelectorList.Select(s => s.ToString()))})";
@@ -228,4 +227,62 @@ public class CssSelector
         }
         return "?";
     }
+
+    /// <summary>
+    /// Serializes the full complex selector chain (the whole comma-group) into CSS
+    /// selector text. Unlike <see cref="ToString"/>, which only serializes a single
+    /// simple selector, this walks the subselector chain and the ancestor links so
+    /// consumers see e.g. ".a &gt; .b:hover" rather than just ".b".
+    /// </summary>
+    public string ToComplexText()
+    {
+        // Walk from the subject (rightmost compound) toward the root (leftmost).
+        var compounds = new List<string>();
+        var combinators = new List<string>();
+        CssSelector? current = this;
+
+        while (current != null)
+        {
+            // Collect the whole compound: head ... tail via SubSelector links.
+            var compound = new System.Text.StringBuilder();
+            var cursor = current;
+            while (cursor != null)
+            {
+                string text = cursor.ToString();
+                if (text != "?")
+                    compound.Append(text);
+                if (cursor.Next != null && cursor.Next.Relation == CssSelectorRelation.SubSelector)
+                {
+                    cursor = cursor.Next;
+                }
+                else
+                {
+                    // The tail carries the combinator to the ancestor compound.
+                    combinators.Add(RelationToText(cursor.Relation));
+                    current = cursor.Next;
+                    break;
+                }
+            }
+            compounds.Add(compound.ToString());
+        }
+
+        // compounds = subject -> root; combinators[i] links compounds[i] to the left.
+        var result = new System.Text.StringBuilder();
+        for (int i = compounds.Count - 1; i >= 0; i--)
+        {
+            result.Append(compounds[i]);
+            if (i > 0)
+                result.Append(combinators[i - 1]);
+        }
+        return result.ToString();
+    }
+
+    private static string RelationToText(CssSelectorRelation r) => r switch
+    {
+        CssSelectorRelation.Descendant => " ",
+        CssSelectorRelation.Child => " > ",
+        CssSelectorRelation.DirectAdjacent => " + ",
+        CssSelectorRelation.IndirectAdjacent => " ~ ",
+        _ => " "
+    };
 }

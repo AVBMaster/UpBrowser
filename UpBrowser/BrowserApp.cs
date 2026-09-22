@@ -1902,6 +1902,13 @@ namespace UpBrowser;
 
         bool needsFullRebuild = sizeChanged || windowWidth != _lastLayoutWidth || _pendingRelayout || devToolsChanged;
 
+        // While a resize/move drag is in flight, bypass the tile compositor and
+        // draw the whole page directly: every resize tick would otherwise discard
+        // and re-raster the entire tile cache (~100 ms per tick), which reads as
+        // a blank/black window that lags the mouse. A single recorded-picture draw
+        // keeps each frame complete and cheap.
+        bool directDraw = _window.IsInSizeMove;
+
         // Interactive element-scroll frames skip the deferred background raster
         // drain (the scrolled container is flushed synchronously below), so the
         // frame stays bounded and the scroll feels immediate.
@@ -1914,7 +1921,7 @@ namespace UpBrowser;
         // work; tiles that complete land on the next repaint. Frames with nothing
         // pending clear so overlay/caret changes stay crisp.
         bool tileBacklogRetained =
-            _skiaRenderer.TileCompositorActive && !devToolsChanged &&
+            _skiaRenderer.TileCompositorActive && !devToolsChanged && !directDraw &&
             (needsFullRebuild || scrollChanged || _scrollDirty || _elementScrollDirty ||
              _compositorBacklogLast || _pendingTileWorkLast);
         if (needsFullRebuild)
@@ -1940,7 +1947,7 @@ namespace UpBrowser;
                 if (styleComputer == null)
                 {
                     styleComputer = new StyleComputer();
-                    styleComputer.AddStylesheet(_docManager.GetUaStylesheet());
+                    styleComputer.AddStylesheet(_docManager.GetUaStylesheet(), UpBrowser.Core.Css.Resolver.CascadeOrigin.UserAgent);
                 }
                 // Style compute: timing is already recorded inside CascadeResolver
                 // via PipelineTimings.Style. We additionally wrap in a long-task
@@ -2252,7 +2259,7 @@ namespace UpBrowser;
             windowWidth, contentViewportHeight,
             _cachedPaintVisitor?.OverlayList,
             _cachedPaintVisitor?.ViewBackgroundColor ?? SKColors.White,
-            interactiveScrollFrame);
+            interactiveScrollFrame, directDraw);
 
         // Remember whether the deferred tile rasterizer still has backlog, so the
         // next frame knows to retain the page pixels instead of clearing them.
@@ -2440,6 +2447,10 @@ namespace UpBrowser;
 
         _input.NeedsRedraw = false;
         if (_input.IsMouseDown()) _input.NeedsRedraw = true;
+        // While dragging, keep requesting frames: the first frame after the drag
+        // ends (directDraw flips back to false) hands over to the tile path and
+        // starts warming the cache at the settled size.
+        if (directDraw) _input.NeedsRedraw = true;
         // 瓦片合成器可能还有延迟栅格的瓦片未画完：请求再渲染一帧将其合成上屏
         if (_skiaRenderer.PendingTileRepaint)
         {

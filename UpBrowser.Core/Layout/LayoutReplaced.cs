@@ -126,7 +126,7 @@ public class LayoutReplaced : AuroraBox
     {
         var px = length.ToPixels(16f, 16f, 0f, 0f);
         if (length is PercentLength pct)
-            return pct.Value * 0.01f;
+            return pct.Value;
         return availableDiff > 0 && px != float.NaN ? px / availableDiff : 0;
     }
 

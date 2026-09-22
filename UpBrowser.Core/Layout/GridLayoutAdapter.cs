@@ -32,8 +32,15 @@ public class GridLayoutAdapter : LayoutAlgorithm
         // Local-geometry container: the grid algorithm positions items relative to
         // this box's content box, and the item box produced here carries the real
         // content height (row tracks + gaps) once the layout pass runs.
-        float contentWidth = availableWidth;
-        float contentHeight = Space.HasDefiniteBlockSize ? Space.AvailableBlockSize : 16f;
+        // Track sizing and the auto-track stretch resolve against the grid's OWN
+        // declared size: AvailableInline/BlockSize are the CONTAINING BLOCK's
+        // sizes, and seeding them here stretched a definite-height grid's rows to
+        // the whole viewport (873px rows spilling two screens past the box).
+        // Auto width still fills the available inline size (block-level grids
+        // span their containing block); auto height seeds 0 so rows size to
+        // their content and nothing stretches.
+        float contentWidth = ResolveOwnContentSize(Style.Width, horizontal: true, autoValue: availableWidth);
+        float contentHeight = ResolveOwnContentSize(Style.Height, horizontal: false, autoValue: 0f);
         var containerBox = new LayoutBox
         {
             ContentBox = new SkiaSharp.SKRect(
@@ -75,6 +82,28 @@ public class GridLayoutAdapter : LayoutAlgorithm
         Builder.IntrinsicBlockSize = box.BlockSize;
 
         return LayoutResult.FromFragment(box);
+    }
+
+    /// <summary>
+    /// Resolve the grid container's own declared width/height to a content-box
+    /// extent. Only pixel lengths are definite here (matching
+    /// <c>_containerHeightAuto</c>, which treats percent height as auto);
+    /// everything else falls back to <paramref name="autoValue"/> — the
+    /// available inline size for width (block-level fill), 0 for height
+    /// (auto rows size to content).
+    /// </summary>
+    private float ResolveOwnContentSize(Length? declared, bool horizontal, float autoValue)
+    {
+        if (declared is not PixelLength px) return autoValue;
+        float value = px.Value;
+        if (Style.BoxSizing == BoxSizingType.BorderBox)
+        {
+            float borderPadding = horizontal
+                ? BorderLeft + PaddingLeft + BorderRight + PaddingRight
+                : BorderTop + PaddingTop + BorderBottom + PaddingBottom;
+            value = Math.Max(0, value - borderPadding);
+        }
+        return Math.Max(0, value);
     }
 
     private static void CollectChildren(LayoutBox parent, BoxFragment target)

@@ -53,7 +53,7 @@ public static class LengthUtils
         if (length is PercentLength pcl)
         {
             if (IsIndefinite(percentageBase)) return IndefiniteSize;
-            float value = percentageBase * pcl.Value / 100f;
+            float value = percentageBase * pcl.Value;
             if (style.BoxSizing == BoxSizingType.BorderBox)
                 value = Math.Max(borderPadding.HorizontalSum, value);
             else
@@ -95,7 +95,7 @@ public static class LengthUtils
         {
             if (IsIndefinite(percentageBase))
                 return lengthType == LengthTypeInternal.Main ? blockSizeFunc(SizeType.Content) : IndefiniteSize;
-            float value = percentageBase * pcl.Value / 100f;
+            float value = percentageBase * pcl.Value;
             if (style.BoxSizing == BoxSizingType.BorderBox)
                 value = Math.Max(borderPadding.VerticalSum, value);
             else
@@ -267,14 +267,14 @@ public static class LengthUtils
         // percentage base the incoming space happens to carry — anonymous/atomic
         // child spaces can have stale bases (was producing max-width:100% → 8px).
         float minW = style.MinWidth is PercentLength minPct
-            ? availableInline * minPct.Value / 100f - borderPadding.HorizontalSum
+            ? availableInline * minPct.Value - borderPadding.HorizontalSum
             : ResolveMinInlineLength(space, style, borderPadding, _ => minMax, style.MinWidth);
         float maxW = style.MaxWidth is PercentLength maxPct
-            ? Math.Max(0, availableInline * maxPct.Value / 100f - borderPadding.HorizontalSum)
+            ? Math.Max(0, availableInline * maxPct.Value - borderPadding.HorizontalSum)
             : ResolveMaxInlineLength(space, style, borderPadding, _ => minMax, style.MaxWidth);
         float minH = ResolveMinBlockLength(space, style, borderPadding, _ => h, style.MinHeight);
         float maxH = style.MaxHeight is PercentLength maxPctH
-            ? Math.Max(0, availableBlock * maxPctH.Value / 100f - borderPadding.VerticalSum)
+            ? Math.Max(0, availableBlock * maxPctH.Value - borderPadding.VerticalSum)
             : ResolveMaxBlockLength(space, style, borderPadding, style.MaxHeight, _ => h);
 
         w = Math.Clamp(w, minW, maxW);

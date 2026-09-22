@@ -34,6 +34,11 @@ public class WindowsWindow : IWindow
     private int _backW;
     private int _backH;
 
+    // True between WM_ENTERSIZEMOVE and WM_EXITSIZEMOVE (an interactive resize
+    // or move drag). Exposed via IWindow.IsInSizeMove so the renderer can use a
+    // cheap direct whole-page draw while the drag runs.
+    private bool _inSizeMove;
+
     private Action<char>? _onChar;
     private Action<char>? _onImeChar;
     private Func<char, Key, bool>? _onKeyDownWithChar;
@@ -119,6 +124,7 @@ public class WindowsWindow : IWindow
     public int Height => _height;
     public IntPtr Handle => _hwnd;
     public IntPtr? GetNativeHandle() => _hwnd;
+    public bool IsInSizeMove => _inSizeMove;
 
     public IImeHandler? ImeHandler => _imeHandler;
 
@@ -265,6 +271,38 @@ public class WindowsWindow : IWindow
             case NativeWindow.WM_PAINT:
                 {
                     NativeWindow.BeginPaint(hWnd, out var ps);
+
+                    // The client area has no background brush and WM_ERASEBKGND is a
+                    // no-op, so an invalidation left unbacked shows raw black — most
+                    // visibly the freshly exposed strip during a resize drag. Paint
+                    // the last composed frame over the client so every system-driven
+                    // repaint (resize, occlusion restore, minimize/restore) shows
+                    // content instead of black. During a drag the frame is stretched;
+                    // once settled the sizes match and it is a 1:1 copy.
+                    if (ps.hdc != IntPtr.Zero && _backDC != IntPtr.Zero && _backBmp != IntPtr.Zero
+                        && _backW > 0 && _backH > 0)
+                    {
+                        NativeWindow.GetClientRect(hWnd, out var cr);
+                        int cw = cr.Right - cr.Left;
+                        int ch = cr.Bottom - cr.Top;
+                        if (cw > 0 && ch > 0)
+                        {
+                            if (cw == _backW && ch == _backH)
+                            {
+                                NativeWindow.BitBlt(ps.hdc, 0, 0, cw, ch, _backDC, 0, 0, NativeWindow.SRCCOPY);
+                            }
+                            else
+                            {
+                                int prevMode = NativeWindow.SetStretchBltMode(ps.hdc, NativeWindow.HALFTONE);
+                                NativeWindow.SetBrushOrgEx(ps.hdc, 0, 0, IntPtr.Zero);
+                                NativeWindow.StretchBlt(ps.hdc, 0, 0, cw, ch,
+                                    _backDC, 0, 0, _backW, _backH, NativeWindow.SRCCOPY);
+                                if (prevMode != 0)
+                                    NativeWindow.SetStretchBltMode(ps.hdc, prevMode);
+                            }
+                        }
+                    }
+
                     NativeWindow.EndPaint(hWnd, ref ps);
                     return IntPtr.Zero;
                 }
@@ -275,18 +313,45 @@ public class WindowsWindow : IWindow
             case NativeWindow.WM_NCPAINT:
                 return IntPtr.Zero;
 
+            case NativeWindow.WM_ENTERSIZEMOVE:
+                _inSizeMove = true;
+                return IntPtr.Zero;
+
+            case NativeWindow.WM_EXITSIZEMOVE:
+                {
+                    _inSizeMove = false;
+                    // Drag settled: render one more frame so the renderer hands
+                    // back to the tile path and warms the cache at the final size.
+                    if (_onFrame != null && _width > 0 && _height > 0)
+                    {
+                        _lastFrameTime = DateTime.Now;
+                        _onFrame(0.016);
+                    }
+                    return IntPtr.Zero;
+                }
+
             case NativeWindow.WM_SIZE:
                 {
                     _width = (int)(lParam.ToInt64() & 0xFFFF);
                     _height = (int)((lParam.ToInt64() >> 16) & 0xFFFF);
 
-                    NativeWindow.InvalidateRect(_hwnd, IntPtr.Zero, true);
+                    NativeWindow.InvalidateRect(_hwnd, IntPtr.Zero, false);
+
+                    // Growing the window exposes fresh client pixels that DWM shows
+                    // as black until something paints them. Blit the last composed
+                    // frame over them synchronously (WM_PAINT fallback) BEFORE the
+                    // relayout runs, so no black strip is ever visible; the live
+                    // frame below replaces it within the same message.
                     NativeWindow.UpdateWindow(_hwnd);
 
+                    // Re-layout and render at the new size on EVERY resize tick so
+                    // the page tracks the drag live (reflow, media queries). While
+                    // the drag is in flight the renderer switches to a cheap
+                    // whole-page direct draw (IWindow.IsInSizeMove), which keeps
+                    // each resize tick fast instead of re-rasterizing every tile.
                     if (_onFrame != null && _width > 0 && _height > 0)
                     {
-                        var now = DateTime.Now;
-                        _lastFrameTime = now;
+                        _lastFrameTime = DateTime.Now;
                         _onFrame(0.016);
                     }
                     return IntPtr.Zero;

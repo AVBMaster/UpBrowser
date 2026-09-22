@@ -93,6 +93,9 @@ public class LineTruncator
         _lineStyle = lineInfo.LineStyle();
         _availableWidth = lineInfo.AvailableInlineSize;
         _lineDirection = TextDirection.Ltr;
+        var style = _lineStyle ?? new ComputedStyle();
+        float measured = TextMeasureProxy.MeasureText(_ellipsisText, style);
+        _ellipsisWidth = measured > 0 ? measured : _ellipsisText.Length * Math.Max(1, style.FontSize) * 0.5f;
     }
 
     /// <summary>
@@ -109,7 +112,7 @@ public class LineTruncator
         foreach (var child in lineBox)
             usedWidth += child.MarginLineLeft + child.InlineSize;
 
-        float ellipsis = _ellipsisText.Length * 10f;
+        float ellipsis = _ellipsisWidth;
         float available = Math.Max(0, _availableWidth - ellipsis);
 
         // Everything already fits within the available width.
@@ -131,21 +134,31 @@ public class LineTruncator
 
         // The item that straddles the boundary is partially kept: trim its text
         // content at character granularity so the prefix + ellipsis fit.
+        InlineItem? ellipsisInlineItem = null;
         if (keepCount < lineBox.Count)
         {
             var straddle = lineBox[keepCount];
             float remaining = Math.Max(0, available - width);
             bool truncated = false;
-            if (!string.IsNullOrEmpty(straddle.TextContent) && straddle.InlineSize > 0)
+            if (!string.IsNullOrEmpty(straddle.TextContent) && straddle.InlineSize > 0 && remaining > 0)
             {
-                float charWidth = straddle.InlineSize / Math.Max(1, straddle.TextContent.Length);
-                int keepChars = Math.Max(0, (int)Math.Floor(remaining / charWidth));
-                if (keepChars < straddle.TextContent.Length)
+                var style = straddle.InlineItem?.Style() ?? _lineStyle ?? new ComputedStyle();
+                string str = straddle.TextContent;
+                int keepChars = 0;
+                float prefixWidth = 0;
+                for (int k = 1; k <= str.Length; k++)
                 {
-                    straddle.TextContent = straddle.TextContent[..keepChars];
-                    straddle.InlineSize = keepChars * charWidth;
+                    float pw = TextMeasureProxy.MeasureText(str[..k], style);
+                    if (pw > remaining) break;
+                    keepChars = k;
+                    prefixWidth = pw;
+                }
+                if (keepChars < str.Length)
+                {
+                    straddle.TextContent = str[..keepChars];
+                    straddle.InlineSize = prefixWidth;
                     straddle.TextOffset = new TextOffsetRange(straddle.StartOffset, straddle.StartOffset + keepChars);
-                    width += straddle.InlineSize;
+                    width += prefixWidth;
                     truncated = true;
                 }
             }
@@ -157,6 +170,19 @@ public class LineTruncator
         for (int i = keepCount + 1; i < lineBox.Count; i++)
             lineBox[i].IsHiddenForPaint = true;
 
+        // The ellipsis is synthetic: give it the nearest preceding text item so
+        // the paint pipeline can resolve its TextNode (and therefore font/color)
+        // instead of dropping the run for lacking a node.
+        for (int i = Math.Min(keepCount, lineBox.Count - 1); i >= 0; i--)
+        {
+            var candidate = lineBox[i].InlineItem;
+            if (candidate != null && candidate.Type == InlineItem.InlineItemType.Text)
+            {
+                ellipsisInlineItem = candidate;
+                break;
+            }
+        }
+
         // Place ellipsis at the end of the truncated line.
         var ellipsisItem = new LogicalLineItem
         {
@@ -164,6 +190,7 @@ public class LineTruncator
             InlineSize = ellipsis,
             Rect = new LogicalRect(width, 0, ellipsis, 16),
             HasBidiLevel = true,
+            InlineItem = ellipsisInlineItem,
         };
         lineBox.AddChild(ellipsisItem);
 
@@ -178,7 +205,7 @@ public class LineTruncator
     {
         if (lineBox.Count < 2) return TruncateLine(lineWidth, lineBox, boxStates);
 
-        float ellipsis = _ellipsisText.Length * 10f;
+        float ellipsis = _ellipsisWidth;
         float half = Math.Max(0, (_availableWidth - ellipsis) / 2);
 
         float w = 0;
@@ -213,6 +240,7 @@ public class LineTruncator
             InlineSize = ellipsis,
             Rect = new LogicalRect(w, 0, ellipsis, 16),
             HasBidiLevel = true,
+            InlineItem = firstEnd > 0 ? lineBox[firstEnd - 1].InlineItem : null,
         };
         lineBox.AddChild(ellipsisItem);
 

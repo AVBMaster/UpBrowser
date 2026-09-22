@@ -33,6 +33,23 @@ public class CssParserImpl
         return sheet;
     }
 
+    /// <summary>
+    /// Parses a declaration block body (e.g. an inline style attribute) into a
+    /// <see cref="CssPropertyValueSet"/>. Handles strings, comments, escapes and
+    /// !important correctly via the tokenizer.
+    /// </summary>
+    public static CssPropertyValueSet ParseDeclarationBlock(string css, CssParserContext context)
+    {
+        var parser = new CssParserImpl(context);
+        parser._stream = new CssParserTokenStream(css);
+        parser._parsedProperties.Clear();
+        parser.ConsumeDeclarationList();
+        var set = new CssPropertyValueSet(context.Mode);
+        foreach (var prop in parser._parsedProperties)
+            set.SetLonghandProperty(prop);
+        return set;
+    }
+
     public static List<StyleRuleBase> ParseRuleList(string css, CssParserContext context, AllowedRulesType allowed = AllowedRulesType.RegularRules)
     {
         var parser = new CssParserImpl(context);
@@ -56,11 +73,23 @@ public class CssParserImpl
             if (_stream.Current.Type == CssTokenType.RightBraceToken)
                 break;
 
+            int offsetBefore = _stream.Offset;
             var rule = ConsumeRule(allowed);
             if (rule != null)
                 rules.Add(rule);
 
             SkipWhitespaceAndComments();
+
+            // Safety net: if nothing was consumed (malformed input, e.g. a stray
+            // '}' or a leftover block opener), force-progress to avoid an infinite
+            // loop. Consume the raw block (or skip to the next ';').
+            if (_stream.Offset == offsetBefore)
+            {
+                if (_stream.Current.Type == CssTokenType.LeftBraceToken)
+                    _stream.ConsumeRawBlock();
+                else
+                    SkipUntilSemicolon();
+            }
         }
     }
 
@@ -192,7 +221,7 @@ public class CssParserImpl
         while (_stream.Current.Type != CssTokenType.SemicolonToken &&
                _stream.Current.Type != CssTokenType.EofToken)
         {
-            rule.MediaCondition = (rule.MediaCondition ?? "") + _stream.Current.Value + " ";
+            rule.MediaCondition = (rule.MediaCondition ?? "") + _stream.Current.ToCssText() + " ";
             _stream.Next();
         }
 
@@ -231,6 +260,7 @@ public class CssParserImpl
         }
 
         var rule = new StyleRuleKeyframes { Name = name };
+        SkipWhitespaceAndComments();
         if (ExpectCss(CssTokenType.LeftBraceToken))
         {
             while (!_stream.Current.IsEof && _stream.Current.Type != CssTokenType.RightBraceToken)
@@ -249,9 +279,10 @@ public class CssParserImpl
         SkipWhitespaceAndComments();
         string key = "";
         while (_stream.Current.Type != CssTokenType.LeftBraceToken &&
+               _stream.Current.Type != CssTokenType.RightBraceToken &&
                _stream.Current.Type != CssTokenType.EofToken)
         {
-            key += _stream.Current.Value;
+            key += _stream.Current.ToCssText();
             _stream.Next();
         }
 
@@ -339,6 +370,7 @@ public class CssParserImpl
         // Layer block
         var rule = new StyleRuleLayerBlock();
         if (name != null) rule.LayerName.Add(name);
+        SkipWhitespaceAndComments();
         if (ExpectCss(CssTokenType.LeftBraceToken))
         {
             ConsumeRuleList(rule.ChildRules, AllowedRulesType.NestedGroupRules);
@@ -354,7 +386,7 @@ public class CssParserImpl
         while (_stream.Current.Type != CssTokenType.LeftBraceToken &&
                _stream.Current.Type != CssTokenType.EofToken)
         {
-            scopeText += _stream.Current.Value;
+            scopeText += _stream.Current.ToCssText();
             _stream.Next();
         }
 
@@ -512,6 +544,7 @@ public class CssParserImpl
 
         var rule = new StyleRule();
         rule.Selectors.AddRange(selectors);
+        rule.OriginalSelectorText = selectorText;
 
         if (ExpectCss(CssTokenType.LeftBraceToken))
         {
@@ -538,14 +571,15 @@ public class CssParserImpl
             if (t.Type == CssTokenType.LeftBraceToken && depth == 0)
                 break;
 
-            if (t.Type == CssTokenType.LeftParenthesisToken ||
+            if (t.Type == CssTokenType.FunctionToken ||
+                t.Type == CssTokenType.LeftParenthesisToken ||
                 t.Type == CssTokenType.LeftSquareBracketToken)
                 depth++;
             else if (t.Type == CssTokenType.RightParenthesisToken ||
                      t.Type == CssTokenType.RightSquareBracketToken)
                 depth--;
 
-            result.Append(t.Value);
+            result.Append(t.ToCssText());
             _stream.Next();
         }
 
@@ -643,7 +677,8 @@ public class CssParserImpl
                 continue;
             }
 
-            if (t.Type == CssTokenType.LeftParenthesisToken ||
+            if (t.Type == CssTokenType.FunctionToken ||
+                t.Type == CssTokenType.LeftParenthesisToken ||
                 t.Type == CssTokenType.LeftSquareBracketToken ||
                 t.Type == CssTokenType.LeftBraceToken)
                 depth++;
@@ -652,7 +687,7 @@ public class CssParserImpl
                      t.Type == CssTokenType.RightBraceToken)
                 depth--;
 
-            result.Append(t.Value);
+            result.Append(t.ToCssText());
             _stream.Next();
         }
 
@@ -720,9 +755,10 @@ public class CssParserImpl
         var result = new System.Text.StringBuilder();
         while (!_stream.Current.IsEof && _stream.Current.Type != CssTokenType.LeftBraceToken)
         {
-            result.Append(_stream.Current.Value);
+            result.Append(_stream.Current.ToCssText());
             _stream.Next();
         }
+        SkipWhitespaceAndComments();
         return result.ToString();
     }
 

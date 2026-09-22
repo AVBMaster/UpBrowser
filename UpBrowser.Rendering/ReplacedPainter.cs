@@ -242,23 +242,5 @@ internal static class ReplacedPaintHelpers
         displayList.Add(triOp);
     }
 
-    public static string? ResolveUrl(string url, string? baseUrl)
-    {
-        if (string.IsNullOrEmpty(url)) return null;
-        if (url.StartsWith("http://") || url.StartsWith("https://") || url.StartsWith("data:") || url.StartsWith("blob:"))
-            return url;
-        if (url.StartsWith("//"))
-        {
-            if (!string.IsNullOrEmpty(baseUrl) && baseUrl.StartsWith("https://"))
-                return "https:" + url;
-            return "http:" + url;
-        }
-        if (string.IsNullOrEmpty(baseUrl)) return url;
-        try
-        {
-            var baseUri = new Uri(baseUrl.EndsWith('/') ? baseUrl : baseUrl + '/');
-            return new Uri(baseUri, url).ToString();
-        }
-        catch { return url; }
-    }
+    public static string? ResolveUrl(string url, string? baseUrl) => UrlResolver.Resolve(url, baseUrl);
 }

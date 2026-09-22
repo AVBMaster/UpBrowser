@@ -1,4 +1,5 @@
 using System.Runtime.CompilerServices;
+using System.Threading.Tasks;
 using SkiaSharp;
 using UpBrowser.Core.Performance;
 using UpBrowser.Core.Performance.Compositor;
@@ -202,6 +203,20 @@ public sealed class TiledCompositor : IDisposable
     private readonly record struct DeferredTile(int Tx, int Ty, float PhysicalScale, TilePriority Priority);
     private readonly List<DeferredTile> _deferred = new();
     private readonly HashSet<long> _deferredKeys = new();
+
+    /// <summary>
+    /// A deferred tile that survived the main-thread cache/bounds checks and is
+    /// ready to rasterize. Everything a worker needs is precomputed here so the
+    /// parallel phase touches only immutable inputs.
+    /// </summary>
+    private readonly record struct PreparedTile(long Key, int Tx, int Ty, TilePriority Priority,
+        float PhysicalScale, SKRect PageRect, int PixelW, int PixelH);
+
+    // Workers per raster batch. Tile raster is pure CPU (private SKBitmap +
+    // SKPicture replay), so extra cores translate almost linearly into tiles
+    // per frame. Capped at 4: beyond that the batch wall time is dominated by
+    // the slowest tile and memory churn grows.
+    private static readonly int RasterParallelism = Math.Clamp(Environment.ProcessorCount - 1, 2, 4);
 
     /// <summary>True when tiles are queued for background rasterization.</summary>
     public bool HasPendingRasterWork => _deferred.Count > 0;
@@ -838,7 +853,12 @@ if (PipelineTimings.TilesRasterized != null)
     /// count) composites them through the normal viewport-clipped draw path.
     /// Returns the number of tiles stored this call.
     /// </summary>
-    public int RasterDeferred()
+    /// <param name="compositeInto">
+    /// When supplied, each finished batch is composited into this canvas
+    /// immediately, so a tile that lands during this drain is visible on the
+    /// CURRENT frame instead of waiting one frame for the next Render.
+    /// </param>
+    public int RasterDeferred(SKCanvas? compositeInto = null)
     {
         if (_deferred.Count == 0) return 0;
 
@@ -851,19 +871,129 @@ if (PipelineTimings.TilesRasterized != null)
         long budget = speed > 1f ? ScrollingRasterBudgetNanos : IdleRasterBudgetNanos;
         long deadline = Clock.NowNanos() + budget;
 
-        int stored = 0;
-        int consumed = 0;
-        while (consumed < _deferred.Count)
+        // The debug command-recording path touches main-thread-only state
+        // (op bounds scans, recording lists); keep it serial.
+        if (_recordCommands)
         {
-            if (Clock.NowNanos() >= deadline) break;
-            var item = _deferred[consumed];
-            if (RasterizeAndStore(item.Tx, item.Ty, item.PhysicalScale, item.Priority))
-                stored++;
-            consumed++;
+            int serialStored = 0;
+            int consumed = 0;
+            while (consumed < _deferred.Count && Clock.NowNanos() < deadline)
+            {
+                var item = _deferred[consumed];
+                if (RasterizeAndStore(item.Tx, item.Ty, item.PhysicalScale, item.Priority))
+                    serialStored++;
+                consumed++;
+            }
+            if (consumed > 0) _deferred.RemoveRange(0, consumed);
+            _tilesRasterized += serialStored;
+            return serialStored;
         }
-        if (consumed > 0) _deferred.RemoveRange(0, consumed);
+
+        // 1. Prepare on the main thread: drop tiles that got cached or fell off
+        //    the picture, and settle the recorded picture. ForceFullRecord may
+        //    re-record, so it must complete before any worker replays the picture.
+        EnsurePicture();
+        List<PreparedTile>? works = null;
+        for (int i = 0; i < _deferred.Count; i++)
+        {
+            var item = _deferred[i];
+            long key = TileKey(item.Tx, item.Ty);
+            if (_tiles.TryGetValue(key, out var existing)
+                && existing.Image != null
+                && !existing.Disposed
+                && existing.DisplayListVersion == _displayListVersion)
+                continue;
+
+            var tilePageRect = CellRect(item.Tx, item.Ty);
+            if (!tilePageRect.IntersectsWith(_pictureBounds))
+                continue;
+            if (_pictureIsChangeOnly && !tilePageRect.IntersectsWith(_recordedCullRect))
+                ForceFullRecord();
+
+            var (pixelW, pixelH) = CellPixels(tilePageRect, item.PhysicalScale);
+            (works ??= new List<PreparedTile>(_deferred.Count - i))
+                .Add(new PreparedTile(key, item.Tx, item.Ty, item.Priority, item.PhysicalScale, tilePageRect, pixelW, pixelH));
+        }
+
+        var picture = _recordedPicture;
+        if (works == null || picture == null) return 0;
+
+        // 2. Rasterize in parallel batches and store back on the main thread.
+        //    A batch costs about one tile of wall time, so the frame budget stays
+        //    authoritative; the drain stops at the deadline and the next frame
+        //    re-queues whatever is still missing.
+        int stored = 0;
+        long rasterNanos = 0;
+        for (int idx = 0; idx < works.Count; idx += RasterParallelism)
+        {
+            int batch = Math.Min(RasterParallelism, works.Count - idx);
+            var images = new SKImage?[batch];
+            int start = idx;
+            var sw = Clock.NowNanos();
+            Parallel.For(0, batch, k => images[k] = RasterizePrepared(picture, works[start + k]));
+            rasterNanos += Clock.NowNanos() - sw;
+
+            for (int k = 0; k < batch; k++)
+            {
+                var w = works[start + k];
+                var img = images[k];
+                if (img == null) continue;
+                StoreTile(w.Key, w.Tx, w.Ty, w.Priority, w.PageRect, w.PixelW, w.PixelH, img, recorded: null);
+                stored++;
+            }
+
+            // Same-frame composite: draw the batch that just finished directly into
+            // the surface being presented this frame. The compositor owns its own
+            // transform (physical space relative to the page origin), exactly like
+            // Render does.
+            if (compositeInto != null && stored > 0)
+            {
+                compositeInto.Save();
+                compositeInto.ResetMatrix();
+                compositeInto.Translate(-_lastOriginX, -_lastOriginY);
+                compositeInto.ClipRect(_lastPhysicalViewport);
+                for (int k = 0; k < batch; k++)
+                {
+                    var img = images[k];
+                    if (img == null) continue;
+                    var w = works[start + k];
+                    compositeInto.DrawImage(img, w.Tx * _tileW * w.PhysicalScale, w.Ty * _tileH * w.PhysicalScale, TileSampling, null);
+                    _drawCalls++;
+                }
+                compositeInto.Restore();
+            }
+
+            if (Clock.NowNanos() >= deadline && start + batch < works.Count)
+                break;
+        }
+
+        _rasterNanos += rasterNanos;
         _tilesRasterized += stored;
         return stored;
+    }
+
+    /// <summary>
+    /// Rasterize one prepared tile by replaying the shared picture onto a private
+    /// CPU surface. Thread-safe: <see cref="SKPicture"/> is immutable and every
+    /// worker owns its bitmap, canvas, and resulting image.
+    /// </summary>
+    private static SKImage? RasterizePrepared(SKPicture picture, in PreparedTile w)
+    {
+        var info = new SKImageInfo(w.PixelW, w.PixelH, SKColorType.Rgba8888, SKAlphaType.Premul);
+        try
+        {
+            using var bmp = new SKBitmap(info);
+            using var tc = new SKCanvas(bmp);
+            tc.Clear(SKColors.Transparent);
+            tc.Scale(w.PhysicalScale, w.PhysicalScale);
+            tc.Translate(-w.PageRect.Left, -w.PageRect.Top);
+            tc.DrawPicture(picture);
+            return SKImage.FromBitmap(bmp);
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     /// <summary>
@@ -928,6 +1058,17 @@ if (PipelineTimings.TilesRasterized != null)
         _rasterNanos += Clock.NowNanos() - sw;
         if (img == null) return false;
 
+        StoreTile(key, tx, ty, priority, tilePageRect, pixelW, pixelH, img, recorded);
+        return true;
+    }
+
+    /// <summary>
+    /// Insert an already-rasterized tile into the cache and update statistics.
+    /// Main-thread only: touches the tile map, LRU list, and byte counters.
+    /// </summary>
+    private void StoreTile(long key, int tx, int ty, TilePriority priority, SKRect tilePageRect,
+        int pixelW, int pixelH, SKImage img, CompositorDisplayList? recorded)
+    {
         var tile = new Tile
         {
             X = tx,
@@ -952,7 +1093,6 @@ if (PipelineTimings.TilesRasterized != null)
             case TilePriority.Overscan: _overscanTilesRasterized++; break;
             case TilePriority.Predictive: _predictiveTilesRasterized++; break;
         }
-        return true;
     }
 
     private SKImage? RasterizeTile(SKRect tilePageRect, int pixelW, int pixelH, float physicalScale, out CompositorDisplayList? recorded)
