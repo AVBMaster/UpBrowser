@@ -241,7 +241,9 @@ public static class AuroraFragmentConverter
                 foreach (var run in line.Runs)
                 {
                     run.X += dx;
-                    run.Baseline += dy;
+                    // 0 is the "use the line box's baseline" sentinel; only a real
+                    // absolute baseline may be shifted.
+                    if (run.Baseline != 0) run.Baseline += dy;
                 }
             }
         }
@@ -250,7 +252,7 @@ public static class AuroraFragmentConverter
             foreach (var run in box.LineRuns)
             {
                 run.X += dx;
-                run.Baseline += dy;
+                if (run.Baseline != 0) run.Baseline += dy;
             }
         }
 

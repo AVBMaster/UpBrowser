@@ -498,15 +498,16 @@ public sealed class BackgroundImageGeometry
         bool areaWider = area.Width * ratio.Height > area.Height * ratio.Width;
         if (grow)
         {
-            // Cover: the constrained dimension must be the opposite of the
-            // wider dimension so the scaled size covers the area.
+            // Cover: the constrained dimension must be the same as the wider
+            // dimension so the scaled size covers the whole area.
             return areaWider
-                ? new SKSize(area.Height * ratio.Width / ratio.Height, area.Height)
-                : new SKSize(area.Width, area.Width * ratio.Height / ratio.Width);
+                ? new SKSize(area.Width, area.Width * ratio.Height / ratio.Width)
+                : new SKSize(area.Height * ratio.Width / ratio.Height, area.Height);
         }
+        // Contain: fit inside — constrain by the opposite dimension.
         return areaWider
-            ? new SKSize(area.Width, area.Width * ratio.Height / ratio.Width)
-            : new SKSize(area.Height * ratio.Width / ratio.Height, area.Height);
+            ? new SKSize(area.Height * ratio.Width / ratio.Height, area.Height)
+            : new SKSize(area.Width, area.Width * ratio.Height / ratio.Width);
     }
 
     private static void ClampNegativeToZero(SKSize s)
@@ -677,8 +678,16 @@ public static FillLayer? FromStyle(ComputedStyle style, bool isMask = false)
                     },
                     SizeWidth = style.BackgroundSizeWidth,
                     SizeHeight = style.BackgroundSizeHeight,
-                    RepeatX = FillRepeat.Repeat,
-                    RepeatY = FillRepeat.Repeat,
+                    RepeatX = style.BackgroundRepeat switch
+                    {
+                        BackgroundRepeat.NoRepeat or BackgroundRepeat.RepeatY => FillRepeat.NoRepeat,
+                        _ => FillRepeat.Repeat,
+                    },
+                    RepeatY = style.BackgroundRepeat switch
+                    {
+                        BackgroundRepeat.NoRepeat or BackgroundRepeat.RepeatX => FillRepeat.NoRepeat,
+                        _ => FillRepeat.Repeat,
+                    },
                 };
                 if (head == null)
                     head = tail = layer;

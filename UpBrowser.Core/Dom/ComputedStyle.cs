@@ -435,8 +435,9 @@ public class MathLength : Length
     public MathLength(string expression) => Expression = expression;
     public override float ToPixels(float reference, float rootFontSize, float viewportWidth, float viewportHeight)
     {
-        var evaluated = CssFunctionEvaluator.Evaluate(Expression, null, reference, rootFontSize, viewportWidth, viewportHeight);
-        if (evaluated.EndsWith("px") && float.TryParse(evaluated[..^2], out var epx))
+        var evaluated = CssFunctionEvaluator.Evaluate(Expression, null, reference, rootFontSize, viewportWidth, viewportHeight, forceMath: true);
+        if (evaluated.EndsWith("px") && float.TryParse(evaluated[..^2], System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out var epx))
             return epx;
         return float.NaN;
     }
@@ -889,7 +890,7 @@ public enum FontStyleType { Normal, Italic, Oblique }
 public enum TextAlignType { Start, End, Left, Right, Center, Justify }
 public enum TextDecorationType { None, Underline, Overline, LineThrough }
 public enum VerticalAlignType { Baseline, Top, Middle, Bottom, Sub, Super, TextTop, TextBottom, Inherit }
-public enum WhiteSpaceMode { Normal, Nowrap, Pre, PreWrap, PreLine }
+public enum WhiteSpaceMode { Normal, Nowrap, Pre, PreWrap, PreLine, BreakSpaces }
 public enum WordBreakMode { Normal, BreakAll, BreakWord }
 public enum OverflowWrapMode { Normal, BreakWord, Anywhere }
 public enum OverflowType { Visible, Hidden, Scroll, Auto }

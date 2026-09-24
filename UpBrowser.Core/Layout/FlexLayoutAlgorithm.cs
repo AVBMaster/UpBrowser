@@ -1,4 +1,4 @@
-﻿using UpBrowser.Core.Dom;
+using UpBrowser.Core.Dom;
 using UpBrowser.Core.Fonts;
 using UpBrowser.Core.Layout.Geometry;
 using UpBrowser.Core.Layout.Inline;
@@ -8,7 +8,8 @@ namespace UpBrowser.Core.Layout;
 /// <summary>
 /// Lays out flex items in a flex formatting context.
 /// Implements the flex box layout algorithm: main/cross axis, flex-grow/shrink,
-/// justify-content, align-items, and wrapping. Mirrors the engine's FlexLayoutAlgorithm.
+/// justify-content, align-items/align-content, and wrapping.
+/// Fragment offsets are relative to the container's CONTENT box origin.
 /// </summary>
 public class FlexLayoutAlgorithm : LayoutAlgorithm
 {
@@ -34,11 +35,24 @@ public class FlexLayoutAlgorithm : LayoutAlgorithm
         public float CrossOffset { get; set; }
         public bool IsFrozen { get; set; }
         public float ClampedMainSize { get; set; }
+        public float TargetMainSize { get; set; }
         public float MainAxisBorderPadding { get; set; }
         public float CrossAxisBorderPadding { get; set; }
         public bool Stretched { get; set; }
 
+        /// <summary>Outer hypothetical main size: content + border/padding + margins.</summary>
+        public float OuterHypotheticalMainSize =>
+            HypotheticalMainSize + MainAxisBorderPadding + MarginMainStart + MarginMainEnd;
+
         public FlexItemData(Element element) => Element = element;
+    }
+
+    /// <summary>One resolved flex line: its items, cross size and cross-axis origin.</summary>
+    private class FlexLineData
+    {
+        public readonly List<FlexItemData> Items = new();
+        public float CrossSize;
+        public float CrossStart;
     }
 
     public override LayoutResult Layout()
@@ -57,6 +71,8 @@ public class FlexLayoutAlgorithm : LayoutAlgorithm
         var style = Style;
         bool isRow = style.FlexDirection == FlexDirectionType.Row || style.FlexDirection == FlexDirectionType.RowReverse;
         bool isReverse = style.FlexDirection == FlexDirectionType.RowReverse || style.FlexDirection == FlexDirectionType.ColumnReverse;
+        bool isMultiline = style.FlexWrap != FlexWrapType.NoWrap;
+        bool wrapReverse = style.FlexWrap == FlexWrapType.WrapReverse;
 
         // Definite cross/main size from the container's own width/height. When the
         // flex container has a definite main size (its own width/height rather than
@@ -80,18 +96,25 @@ public class FlexLayoutAlgorithm : LayoutAlgorithm
             definiteCross = ResolveOwnContentSize(style.Width, isInlineAxis: true, bp);
         }
 
+        // Main axis falls back to the available extent along that axis: inline for
+        // row flow, block for column flow (infinite unless the parent fixed it --
+        // column wrap without a definite height therefore never breaks).
         float availableMain = !float.IsNaN(definiteMain)
             ? definiteMain
-            : ChildAvailableInlineSize;
+            : (isRow ? ChildAvailableInlineSize : ChildAvailableBlockSize);
         float availableCross = !float.IsNaN(definiteCross)
             ? definiteCross
             : (isRow ? ChildAvailableBlockSize : ChildAvailableInlineSize);
 
-        // Collect items in DOM order. Per CSS flexbox spec, contiguous in-flow
-        // text becomes an anonymous block flex item, so a flex container can
-        // center bare text (e.g. display:flex with only a text child). Element
-        // children keep their 'order'-based sorting; anonymous items have order 0.
+        // Collect items in DOM order. Absolutely/fixed-positioned children are NOT
+        // flex items; they are collected as out-of-flow candidates and positioned
+        // against this container (its padding box) after the in-flow pass.
+        // Per CSS flexbox spec, contiguous in-flow text becomes an anonymous block
+        // flex item, so a flex container can center bare text (e.g. display:flex
+        // with only a text child). Element children keep their 'order'-based
+        // sorting; anonymous items have order 0.
         _items.Clear();
+        var oofCandidates = new List<Element>();
         {
             var slots = new List<(int DomIndex, int Order, FlexItemData Item)>();
             var pendingText = new List<TextNode>();
@@ -108,7 +131,16 @@ public class FlexLayoutAlgorithm : LayoutAlgorithm
                     if (HasMeaningfulText(pendingText))
                         slots.Add((domIndex++, 0, CreateAnonymousFlexItem(style, pendingText)));
                     pendingText.Clear();
-                    if (el.ComputedStyle?.Display != DisplayType.None)
+                    if (el.ComputedStyle?.Display == DisplayType.None)
+                    {
+                        domIndex++;
+                        continue;
+                    }
+                    if (el.ComputedStyle?.Position is PositionType.Absolute or PositionType.Fixed)
+                    {
+                        oofCandidates.Add(el);
+                    }
+                    else
                     {
                         int order = el.ComputedStyle?.Order ?? 0;
                         slots.Add((domIndex, order, new FlexItemData(el)));
@@ -124,20 +156,8 @@ public class FlexLayoutAlgorithm : LayoutAlgorithm
                 _items.Add(slot.Item);
         }
 
-        // Compute flex base size and hypothetical sizes
-        foreach (var item in _items)
-        {
-            ComputeFlexBaseSize(item, availableMain, isRow);
-            item.HypotheticalMainSize = item.FlexBaseSize;
-            item.HypotheticalCrossSize = ComputeCrossSize(item, availableCross, isRow);
-        }
-
-        // Resolve flexible lengths (grow/shrink)
-        ResolveFlexibleLengths(_items, availableMain);
-
-        // Border/padding of each item. Flex sizes are content-box sizes (the
-        // resolution of 'width'/'flex-basis'), so the item's border box is the
-        // content size plus its own border and padding, mirroring block layout.
+        // Item border/padding and margins are needed before line breaking (the
+        // line-break decision uses the outer hypothetical main size).
         foreach (var item in _items)
         {
             var itemBorder = LengthUtils.ComputeBorders(item.Style);
@@ -148,104 +168,165 @@ public class FlexLayoutAlgorithm : LayoutAlgorithm
             item.CrossAxisBorderPadding = isRow
                 ? itemBorder.VerticalSum + itemPadding.VerticalSum
                 : itemBorder.HorizontalSum + itemPadding.HorizontalSum;
+
+            item.MarginMainStart = ResolveMargin(isRow ? item.Style.MarginLeft : item.Style.MarginTop, item.Style.FontSize);
+            item.MarginMainEnd = ResolveMargin(isRow ? item.Style.MarginRight : item.Style.MarginBottom, item.Style.FontSize);
+            item.MarginCrossStart = ResolveMargin(isRow ? item.Style.MarginTop : item.Style.MarginLeft, item.Style.FontSize);
+            item.MarginCrossEnd = ResolveMargin(isRow ? item.Style.MarginBottom : item.Style.MarginRight, item.Style.FontSize);
         }
 
-        // Determine cross size of the flex line. The line spans the largest
-        // item's OUTER hypothetical cross size (content + border + padding).
-        // With a definite container cross size (single line), the line spans the
-        // full inner cross size so that align-items/justify can center content
-        // within the container.
-        float lineCrossSize = 0;
-        foreach (var item in _items)
-            lineCrossSize = Math.Max(lineCrossSize, item.HypotheticalCrossSize + item.CrossAxisBorderPadding);
-        if (_items.Count > 0 && !float.IsNaN(definiteCross))
-            lineCrossSize = Math.Max(lineCrossSize, availableCross);
-
-        // Resolve each item's used cross size. 'align-self: stretch' (the initial
-        // value via 'align-items') makes an auto-sized item fill the line's cross
-        // size; an item with a definite cross size keeps it. Without this
-        // UsedCrossSize stayed 0 and every flex item got a zero-height fragment.
+        // Compute flex base size and hypothetical sizes
         foreach (var item in _items)
         {
-            var alignSelf = ResolveAlignSelf(item.Style, style);
-            bool hasDefiniteCross = isRow
-                ? item.Style.Height is PixelLength or PercentLength
-                : item.Style.Width is PixelLength or PercentLength;
-
-            item.Stretched = alignSelf == Dom.AlignSelfType.Stretch && !hasDefiniteCross;
-            item.UsedCrossSize = item.Stretched
-                ? lineCrossSize
-                : item.HypotheticalCrossSize;
+            ComputeFlexBaseSize(item, availableMain, isRow);
+            item.HypotheticalMainSize = ClampMainSize(item, item.FlexBaseSize, isRow);
+            item.HypotheticalCrossSize = ClampCrossSize(item, ComputeCrossSize(item, availableCross, isRow), isRow);
         }
 
-        // Align items along cross axis
-        for (int i = 0; i < _items.Count; i++)
-        {
-            var item = _items[i];
-            item.CrossOffset = ComputeCrossOffset(item, lineCrossSize, style);
-        }
+        // ---- Line breaking (flex-wrap) ----
+        float mainGap = ResolveGap(isRow ? style.ColumnGap : style.RowGap, style.FontSize);
+        float crossGap = ResolveGap(isRow ? style.RowGap : style.ColumnGap, style.FontSize);
 
-        // Position items along main axis
-        float mainOffset = PaddingLeft;
-        float mainGap = ResolveGap(style.ColumnGap, style.FontSize);
-
-        if (isReverse)
+        var lines = new List<FlexLineData>();
+        bool canBreak = isMultiline && !float.IsNaN(availableMain) && !float.IsInfinity(availableMain);
         {
-            // Reverse direction: position from the end
-            float totalMain = 0;
+            var current = new FlexLineData();
+            float cursor = 0;
             foreach (var item in _items)
-                totalMain += item.UsedMainSize + item.MainAxisBorderPadding + item.MarginMainStart + item.MarginMainEnd + mainGap;
-            totalMain -= mainGap;
-            mainOffset = PaddingLeft + availableMain - totalMain;
+            {
+                float outer = item.OuterHypotheticalMainSize;
+                float needed = outer + (current.Items.Count > 0 ? mainGap : 0);
+                if (canBreak && current.Items.Count > 0 && cursor + needed > availableMain + 0.5f)
+                {
+                    lines.Add(current);
+                    current = new FlexLineData();
+                    cursor = 0;
+                    needed = outer;
+                }
+                current.Items.Add(item);
+                cursor += needed;
+            }
+            if (current.Items.Count > 0 || lines.Count == 0)
+                lines.Add(current);
         }
+        if (wrapReverse)
+            lines.Reverse();
 
-        foreach (var item in _items)
+        // ---- Per-line resolution ----
+        foreach (var line in lines)
         {
-            item.MainOffset = mainOffset + PaddingLeft;
-            item.MarginMainStart = ResolveAutoMargin(item.Style.MarginLeft, item.Style.FontSize, availableMain);
-            item.MarginMainEnd = ResolveAutoMargin(item.Style.MarginRight, item.Style.FontSize, availableMain);
-            item.MainOffset += item.MarginMainStart;
-            mainOffset += item.UsedMainSize + item.MainAxisBorderPadding + item.MarginMainStart + item.MarginMainEnd + mainGap;
+            if (line.Items.Count == 0) continue;
+
+            // Resolve flexible lengths (grow/shrink) against this line's items.
+            ResolveFlexibleLengths(line.Items, availableMain);
+
+            // Line cross size: the largest outer hypothetical cross size. A single
+            // line with a definite container cross size spans the full inner cross
+            // size so align-items/justify can center content within the container.
+            float natural = 0;
+            foreach (var item in line.Items)
+                natural = Math.Max(natural, item.HypotheticalCrossSize + item.CrossAxisBorderPadding
+                    + item.MarginCrossStart + item.MarginCrossEnd);
+            if (lines.Count == 1 && !float.IsNaN(definiteCross))
+                natural = Math.Max(natural, availableCross);
+            line.CrossSize = natural;
+
+            // Resolve each item's used cross size. 'align-self: stretch' (the
+            // initial value via 'align-items') makes an auto-sized item fill the
+            // line's cross size; an item with a definite cross size keeps it.
+            foreach (var item in line.Items)
+            {
+                var alignSelf = ResolveAlignSelf(item.Style, style);
+                bool hasDefiniteCross = isRow
+                    ? item.Style.Height is PixelLength or PercentLength
+                    : item.Style.Width is PixelLength or PercentLength;
+
+                item.Stretched = alignSelf == Dom.AlignSelfType.Stretch && !hasDefiniteCross;
+                item.UsedCrossSize = item.Stretched
+                    ? Math.Max(0, line.CrossSize - item.CrossAxisBorderPadding - item.MarginCrossStart - item.MarginCrossEnd)
+                    : item.HypotheticalCrossSize;
+
+                item.CrossOffset = ComputeCrossOffset(item, line.CrossSize, style);
+            }
+
+            // Position items along the main axis, content-box origin (0).
+            float mainOffset = 0;
+            foreach (var item in line.Items)
+            {
+                item.MainOffset = mainOffset + item.MarginMainStart;
+                mainOffset += item.UsedMainSize + item.MainAxisBorderPadding
+                    + item.MarginMainStart + item.MarginMainEnd + mainGap;
+            }
+
+            if (isReverse && !float.IsInfinity(availableMain) && !float.IsNaN(availableMain))
+            {
+                foreach (var item in line.Items)
+                    item.MainOffset = availableMain - (item.MainOffset + item.UsedMainSize + item.MainAxisBorderPadding + item.MarginMainEnd);
+            }
+
+            // Apply justify-content per line.
+            ApplyJustifyContent(line.Items, availableMain, style, mainGap);
         }
 
-        // Apply justify-content
-        if (_items.Count > 0)
-            ApplyJustifyContent(_items, availableMain, style);
+        // ---- Cross-axis line packing (align-content) ----
+        // Only a container with a DEFINITE cross size has leftover space to
+        // distribute; an auto-sized container grows to fit its lines.
+        float crossTotal = 0;
+        {
+            float cursor = 0;
+            foreach (var line in lines)
+            {
+                line.CrossStart = cursor;
+                cursor += line.CrossSize + crossGap;
+            }
+            crossTotal = lines.Count > 0 ? cursor - crossGap : 0;
+        }
+        if (!float.IsNaN(definiteCross))
+            PackLines(lines, crossTotal, availableCross, style, crossGap);
 
-        // Build fragments
-        float rowBlockOffset = PaddingTop;
+        // ---- Build fragments ----
         float maxMainSize = 0;
-        foreach (var item in _items)
+        foreach (var line in lines)
         {
-            var childSpace = new ConstraintSpace(
-                availableInlineSize: item.UsedMainSize,
-                availableBlockSize: float.PositiveInfinity,
-                isFixedInlineSize: true,
-                isFixedBlockSize: false
-            );
-            // Pick the child's layout algorithm by its own display type (e.g. a
-            // nested flex/grid item lays out with its flex/grid algorithm rather
-            // than as an opaque block).
-            var result = BlockLayoutAlgorithm.LayoutAtomicInlineRoot(item.Element, childSpace);
-            var fragment = result.Fragment;
+            foreach (var item in line.Items)
+            {
+                var childSpace = new ConstraintSpace(
+                    availableInlineSize: item.UsedMainSize,
+                    availableBlockSize: float.PositiveInfinity,
+                    isFixedInlineSize: true,
+                    isFixedBlockSize: false
+                );
+                // Pick the child's layout algorithm by its own display type (e.g. a
+                // nested flex/grid item lays out with its flex/grid algorithm rather
+                // than as an opaque block).
+                var result = BlockLayoutAlgorithm.LayoutAtomicInlineRoot(item.Element, childSpace);
+                var fragment = result.Fragment;
 
-            float mainPos = isRow ? item.MainOffset : item.CrossOffset;
-            float crossPos = isRow ? item.CrossOffset : item.MainOffset;
+                float lineCrossStart = line.CrossStart;
+                float mainPos = isRow ? item.MainOffset : lineCrossStart + item.CrossOffset;
+                float crossPos = isRow ? lineCrossStart + item.CrossOffset : item.MainOffset;
 
-            fragment.InlineOffset = mainPos;
-            fragment.BlockOffset = rowBlockOffset + crossPos;
-            // Fragment outer size = content (used flex size) + border/padding on
-            // both axes. Stretched items keep their border box equal to the line
-            // cross size (the content box shrinks inside the border/padding).
-            fragment.InlineSize = item.UsedMainSize + (isRow ? item.MainAxisBorderPadding : item.CrossAxisBorderPadding);
-            fragment.BlockSize = item.UsedCrossSize + (item.Stretched ? 0 : (isRow ? item.CrossAxisBorderPadding : item.MainAxisBorderPadding));
-            fragment.MarginLeft = isRow ? item.MarginMainStart : item.MarginCrossStart;
-            fragment.MarginTop = isRow ? item.MarginCrossStart : item.MarginMainStart;
-            fragment.MarginRight = isRow ? item.MarginMainEnd : item.MarginCrossEnd;
-            fragment.MarginBottom = isRow ? item.MarginCrossEnd : item.MarginMainEnd;
+                fragment.InlineOffset = mainPos;
+                fragment.BlockOffset = crossPos;
+                // Fragment outer size = content (used flex size) + border/padding.
+                // Stretched items keep their border box equal to the line cross
+                // size (the content box shrinks inside the border/padding). Map the
+                // logical main/cross extents onto inline/block per flow direction.
+                float crossBorderBox = item.Stretched
+                    ? Math.Max(0, line.CrossSize - item.MarginCrossStart - item.MarginCrossEnd)
+                    : item.UsedCrossSize + item.CrossAxisBorderPadding;
+                float mainBorderBox = item.UsedMainSize + item.MainAxisBorderPadding;
+                fragment.InlineSize = isRow ? mainBorderBox : crossBorderBox;
+                fragment.BlockSize = isRow ? crossBorderBox : mainBorderBox;
+                fragment.MarginLeft = isRow ? item.MarginMainStart : item.MarginCrossStart;
+                fragment.MarginTop = isRow ? item.MarginCrossStart : item.MarginMainStart;
+                fragment.MarginRight = isRow ? item.MarginMainEnd : item.MarginCrossEnd;
+                fragment.MarginBottom = isRow ? item.MarginCrossEnd : item.MarginMainEnd;
 
-            Builder.AddChild(fragment);
-            maxMainSize = Math.Max(maxMainSize, item.MainOffset + item.UsedMainSize + item.MainAxisBorderPadding);
+                Builder.AddChild(fragment);
+                maxMainSize = Math.Max(maxMainSize, item.MainOffset + item.UsedMainSize + item.MainAxisBorderPadding
+                    + item.MarginMainEnd);
+            }
         }
 
         // Compute container size. When the container has a definite main/cross size
@@ -254,8 +335,8 @@ public class FlexLayoutAlgorithm : LayoutAlgorithm
         // size (content-box semantics, like block layout); the border box adds the
         // container's own border+padding, so e.g. width:200px + 10px borders give
         // a 220px-wide box.
-        float containerMain = _items.Count > 0 ? maxMainSize + PaddingRight : 0;
-        float containerCross = _items.Count > 0 ? lineCrossSize + PaddingBottom : 0;
+        float containerMain = _items.Count > 0 ? maxMainSize + bp.HorizontalSum : 0;
+        float containerCross = _items.Count > 0 ? crossTotal + bp.VerticalSum : 0;
 
         // A block-level flex container (display:flex, not inline-flex) with an
         // auto width stretches to its containing block, exactly like a block
@@ -284,25 +365,50 @@ public class FlexLayoutAlgorithm : LayoutAlgorithm
         Builder.BlockSize = isRow ? containerCross : containerMain;
         Builder.IntrinsicBlockSize = Builder.BlockSize;
 
+        // Out-of-flow children position against this container's padding box.
+        if (oofCandidates.Count > 0)
+        {
+            var oofPart = new OutOfFlowLayoutPart(Builder, Space);
+            foreach (var el in oofCandidates)
+            {
+                var candidate = new OutOfFlowChildCandidate(
+                    new LayoutBox { Dimensions = new BoxDimensions { Style = el.ComputedStyle, Element = el } },
+                    new LogicalStaticPosition(new LogicalOffset(bp.Left, 0),
+                        LogicalStaticPosition.StaticInlinePosition.Left,
+                        LogicalStaticPosition.StaticBlockPosition.Top,
+                        WritingDirectionMode.HorizontalLtr))
+                {
+                    IsAbsolute = el.ComputedStyle!.Position == PositionType.Absolute,
+                    IsFixed = el.ComputedStyle!.Position == PositionType.Fixed,
+                };
+                oofPart.AddCandidate(candidate);
+            }
+            oofPart.Run();
+        }
+
         var box = Builder.ToBoxFragment();
         box.Children.AddRange(Builder.Children);
 
         // Build the flex line output (FlexData), consumable by
         // FlexItemIterator.
         Lines.Clear();
-        var lineOut = new FlexLine(_items.Count);
-        foreach (var item in _items)
+        foreach (var line in lines)
         {
-            var childBox = new Dom.LayoutBox { Dimensions = new BoxDimensions { Style = item.Style, Element = item.Element } };
-            lineOut.Items.Add(new FlexItem(new BlockNode(childBox))
+            var lineOut = new FlexLine(line.Items.Count);
+            foreach (var item in line.Items)
             {
-                MainAxisFinalSize = item.UsedMainSize,
-                Offset = new FlexOffset(item.MainOffset, item.CrossOffset),
-            });
+                var childBox = new Dom.LayoutBox { Dimensions = new BoxDimensions { Style = item.Style, Element = item.Element } };
+                lineOut.Items.Add(new FlexItem(new BlockNode(childBox))
+                {
+                    MainAxisFinalSize = item.UsedMainSize,
+                    Offset = new FlexOffset(item.MainOffset, item.CrossOffset),
+                });
+            }
+            lineOut.MainAxisFreeSpace = 0;
+            lineOut.LineCrossSize = line.CrossSize;
+            lineOut.CrossAxisOffset = line.CrossStart;
+            Lines.Add(lineOut);
         }
-        lineOut.MainAxisFreeSpace = 0;
-        lineOut.LineCrossSize = lineCrossSize;
-        Lines.Add(lineOut);
 
         return LayoutResult.FromFragment(box);
     }
@@ -341,13 +447,25 @@ public class FlexLayoutAlgorithm : LayoutAlgorithm
         {
             item.FlexBaseSize = px.Value;
         }
-        else if (style.Width is PixelLength widthPx && isRow)
+        else if (style.FlexBasis is PercentLength pb)
+        {
+            item.FlexBaseSize = ResolvePercent(pb, isRow);
+        }
+        else if (isRow && style.Width is PixelLength widthPx)
         {
             item.FlexBaseSize = widthPx.Value;
         }
-        else if (style.Height is PixelLength heightPx && !isRow)
+        else if (isRow && style.Width is PercentLength widthPct)
+        {
+            item.FlexBaseSize = ResolvePercent(widthPct, isRow);
+        }
+        else if (!isRow && style.Height is PixelLength heightPx)
         {
             item.FlexBaseSize = heightPx.Value;
+        }
+        else if (!isRow && style.Height is PercentLength heightPct)
+        {
+            item.FlexBaseSize = ResolvePercent(heightPct, isRow);
         }
         else
         {
@@ -355,8 +473,58 @@ public class FlexLayoutAlgorithm : LayoutAlgorithm
             item.FlexBaseSize = EstimateContentSize(item.Element, availableMain);
         }
 
-        // Clamp by flex-shrink default and min/max
         item.ClampedMainSize = item.FlexBaseSize;
+    }
+
+    private float ResolvePercent(PercentLength pct, bool isRow)
+    {
+        float basis = isRow
+            ? Space.PercentageResolutionInlineSize
+            : Space.PercentageResolutionBlockSize;
+        if (float.IsNaN(basis) || float.IsInfinity(basis))
+            basis = isRow ? ChildAvailableInlineSize : 0;
+        return pct.Value * basis;
+    }
+
+    /// <summary>Clamp a content-box main size by the item's min/max on the main axis.</summary>
+    private float ClampMainSize(FlexItemData item, float size, bool isRow)
+    {
+        float min = ResolveMinMax(item.Style.MinWidth, isRow);
+        float max = ResolveMinMax(item.Style.MaxWidth, isRow);
+        if (float.IsNaN(min)) min = 0;
+        if (float.IsNaN(max)) max = float.MaxValue;
+        return Math.Clamp(size, Math.Max(0, min), Math.Max(min, max));
+    }
+
+    private float ClampCrossSize(FlexItemData item, float size, bool isRow)
+    {
+        float min = ResolveMinMax(isRow ? item.Style.MinHeight : item.Style.MinWidth, !isRow);
+        float max = ResolveMinMax(isRow ? item.Style.MaxHeight : item.Style.MaxWidth, !isRow);
+        if (float.IsNaN(min)) min = 0;
+        if (float.IsNaN(max)) max = float.MaxValue;
+        return Math.Clamp(size, Math.Max(0, min), Math.Max(min, max));
+    }
+
+    private float ResolveMinMax(Length? length, bool inlineAxis)
+    {
+        switch (length)
+        {
+            case null:
+            case AutoLength:
+                return float.NaN;
+            case PixelLength px:
+                return px.Value;
+            case PercentLength pct:
+            {
+                float basis = inlineAxis
+                    ? Space.PercentageResolutionInlineSize
+                    : Space.PercentageResolutionBlockSize;
+                if (float.IsNaN(basis) || float.IsInfinity(basis)) return float.NaN;
+                return pct.Value * basis;
+            }
+            default:
+                return float.NaN;
+        }
     }
 
     private static float EstimateContentSize(Element element, float availableMain)
@@ -383,8 +551,24 @@ public class FlexLayoutAlgorithm : LayoutAlgorithm
     private float ComputeCrossSize(FlexItemData item, float availableCross, bool isRow)
     {
         var style = item.Style;
-        if (isRow && style.Height is PixelLength h) return h.Value;
-        if (!isRow && style.Width is PixelLength w) return w.Value;
+        if (isRow)
+        {
+            if (style.Height is PixelLength h) return h.Value;
+            if (style.Height is PercentLength hp)
+            {
+                float basis = Space.PercentageResolutionBlockSize;
+                if (!float.IsNaN(basis) && !float.IsInfinity(basis)) return hp.Value * basis;
+            }
+        }
+        else
+        {
+            if (style.Width is PixelLength w) return w.Value;
+            if (style.Width is PercentLength wp)
+            {
+                float basis = Space.PercentageResolutionInlineSize;
+                if (!float.IsNaN(basis) && !float.IsInfinity(basis)) return wp.Value * basis;
+            }
+        }
         return EstimateContentCrossSize(item.Element);
     }
 
@@ -461,52 +645,110 @@ public class FlexLayoutAlgorithm : LayoutAlgorithm
 
     private void ResolveFlexibleLengths(List<FlexItemData> items, float availableMain)
     {
-        // First pass: freeze items with flex-basis <= 0
+        bool isRowAxis = Style.FlexDirection is FlexDirectionType.Row or FlexDirectionType.RowReverse;
         foreach (var item in items)
         {
             item.UsedMainSize = item.FlexBaseSize;
             item.IsFrozen = false;
         }
 
-        // Compute total base size
-        float totalBase = 0;
+        bool finite = !float.IsNaN(availableMain) && !float.IsInfinity(availableMain);
+        float marginSum = 0;
         foreach (var item in items)
-            totalBase += item.FlexBaseSize;
-
-        float freeSpace = availableMain - totalBase;
-
-        if (freeSpace > 0)
+            marginSum += item.MarginMainStart + item.MarginMainEnd;
+        availableMain -= marginSum;
+        if (!finite)
         {
-            // Distribute positive free space proportionally to flex-grow
-            float totalGrow = 0;
             foreach (var item in items)
-                totalGrow += item.Style.FlexGrow;
+                item.UsedMainSize = ClampMainSize(item, item.UsedMainSize, isRowAxis);
+            return;
+        }
 
-            if (totalGrow > 0)
+        // CSS Flexbox §9.7 iterative resolution with freeze steps: clamping a
+        // flexible track to its min/max freezes the item and removes its
+        // contribution from the remaining free space, so shrinkable/growable
+        // siblings absorb the difference instead of overflowing.
+        float Unclamped(FlexItemData item) => item.FlexBaseSize + item.TargetMainSize;
+        float FrozenUsed(FlexItemData item) => ClampMainSize(item, Unclamped(item), isRowAxis);
+
+        foreach (var item in items)
+        {
+            float clamped = ClampMainSize(item, item.FlexBaseSize, isRowAxis);
+            item.TargetMainSize = clamped - item.FlexBaseSize;
+        }
+
+        for (int pass = 0; pass < items.Count + 2; pass++)
+        {
+            // Remaining free space = available minus frozen used sizes minus
+            // unfrozen items' current unclamped hypothetical sizes.
+            float used = 0;
+            foreach (var item in items)
+                used += item.IsFrozen ? FrozenUsed(item) : Unclamped(item);
+            float totalRemaining = availableMain - used;
+            if (Math.Abs(totalRemaining) < 0.01f) break;
+
+            if (totalRemaining > 0)
             {
+                float totalGrow = 0;
+                foreach (var item in items)
+                    if (!item.IsFrozen) totalGrow += item.Style.FlexGrow;
+                if (totalGrow == 0) break;
+
+                int maxViolation = -1;
+                float maxViol = 0;
                 foreach (var item in items)
                 {
-                    float growShare = item.Style.FlexGrow / totalGrow;
-                    item.UsedMainSize = item.FlexBaseSize + freeSpace * growShare;
+                    if (item.IsFrozen || item.Style.FlexGrow == 0) continue;
+                    float grow = item.Style.FlexGrow / totalGrow;
+                    float scaled = totalRemaining * grow;
+                    float factor = scaled < 1 ? scaled : 1;
+                    item.TargetMainSize += scaled * factor;
+                    float unclamped = Unclamped(item);
+                    if (unclamped > ClampMainSize(item, unclamped, isRowAxis) && unclamped - ClampMainSize(item, unclamped, isRowAxis) > maxViol)
+                    {
+                        maxViol = unclamped - ClampMainSize(item, unclamped, isRowAxis);
+                        maxViolation = items.IndexOf(item);
+                    }
                 }
+                if (maxViolation < 0) break;
+                var viol = items[maxViolation];
+                viol.TargetMainSize = ClampMainSize(viol, Unclamped(viol), isRowAxis) - viol.FlexBaseSize;
+                viol.IsFrozen = true;
+            }
+            else
+            {
+                float weighted = 0;
+                foreach (var item in items)
+                    if (!item.IsFrozen) weighted += item.Style.FlexShrink * item.FlexBaseSize;
+                if (weighted == 0) break;
+
+                int maxViolation = -1;
+                float maxRatio = -1;
+                foreach (var item in items)
+                {
+                    if (item.IsFrozen || item.Style.FlexShrink == 0) continue;
+                    float scaled = -totalRemaining * (item.Style.FlexShrink * item.FlexBaseSize / weighted);
+                    float factor = scaled < 1 ? scaled : 1;
+                    item.TargetMainSize -= scaled * factor;
+                    float unclamped = Unclamped(item);
+                    float clamped = ClampMainSize(item, unclamped, isRowAxis);
+                    float ratio = unclamped == 0 ? float.MaxValue : (clamped - unclamped) / (item.Style.FlexShrink * item.FlexBaseSize);
+                    if (unclamped < clamped && ratio > maxRatio)
+                    {
+                        maxRatio = ratio;
+                        maxViolation = items.IndexOf(item);
+                    }
+                }
+                if (maxViolation < 0) break;
+                var viol = items[maxViolation];
+                viol.TargetMainSize = ClampMainSize(viol, Unclamped(viol), isRowAxis) - viol.FlexBaseSize;
+                viol.IsFrozen = true;
             }
         }
-        else if (freeSpace < 0)
-        {
-            // Distribute negative free space proportionally to flex-shrink
-            float totalShrink = 0;
-            foreach (var item in items)
-                totalShrink += item.Style.FlexShrink;
 
-            if (totalShrink > 0)
-            {
-                float spaceToRemove = -freeSpace;
-                foreach (var item in items)
-                {
-                    float shrinkShare = item.Style.FlexShrink / totalShrink;
-                    item.UsedMainSize = Math.Max(0, item.FlexBaseSize - spaceToRemove * shrinkShare);
-                }
-            }
+        foreach (var item in items)
+        {
+            item.UsedMainSize = Math.Max(0, ClampMainSize(item, Unclamped(item), isRowAxis));
         }
     }
 
@@ -533,23 +775,116 @@ public class FlexLayoutAlgorithm : LayoutAlgorithm
     private static float ComputeCrossOffset(FlexItemData item, float lineCrossSize, ComputedStyle style)
     {
         var alignSelf = ResolveAlignSelf(item.Style, style);
+        float outerCross = item.UsedCrossSize + item.CrossAxisBorderPadding + item.MarginCrossStart + item.MarginCrossEnd;
 
         return alignSelf switch
         {
-            Dom.AlignSelfType.FlexStart => 0,
-            Dom.AlignSelfType.FlexEnd => lineCrossSize - item.UsedCrossSize - item.CrossAxisBorderPadding,
-            Dom.AlignSelfType.Center => (lineCrossSize - item.UsedCrossSize - item.CrossAxisBorderPadding) / 2,
-            _ => 0 // stretch handled by setting cross size
+            Dom.AlignSelfType.FlexEnd => lineCrossSize - outerCross + item.MarginCrossStart,
+            Dom.AlignSelfType.Center => item.MarginCrossStart + (lineCrossSize - outerCross) / 2,
+            // stretch / start / baseline: at the line cross-start (baseline
+            // alignment is not implemented and falls back to start).
+            _ => item.MarginCrossStart,
         };
     }
 
-    private void ApplyJustifyContent(List<FlexItemData> items, float availableMain, ComputedStyle style)
+    /// <summary>
+    /// Distribute leftover container cross space between/around flex lines per
+    /// 'align-content'. Only meaningful with a definite container cross size.
+    /// Lines arrive with their sequential (stretch-start) positions in
+    /// CrossStart; this shifts and/or grows them.
+    /// </summary>
+    private static void PackLines(List<FlexLineData> lines, float crossTotal, float availableCross,
+        ComputedStyle style, float crossGap)
+    {
+        if (lines.Count == 0) return;
+
+        float extra = availableCross - crossTotal;
+        if (extra <= 0)
+            return;
+
+        string mode = (style.AlignContent ?? "stretch").Trim().ToLowerInvariant();
+
+        if (lines.Count == 1)
+        {
+            if (mode == "stretch")
+                lines[0].CrossSize = availableCross;
+            else
+                lines[0].CrossStart += mode switch
+                {
+                    "center" => extra / 2,
+                    "end" or "flex-end" => extra,
+                    _ => 0,
+                };
+            return;
+        }
+
+        switch (mode)
+        {
+            case "center":
+                ShiftLines(lines, extra / 2);
+                break;
+            case "end":
+            case "flex-end":
+                ShiftLines(lines, extra);
+                break;
+            case "space-between":
+            {
+                float gapExtra = extra / (lines.Count - 1);
+                for (int i = 0; i < lines.Count; i++)
+                    lines[i].CrossStart += gapExtra * i;
+                break;
+            }
+            case "space-around":
+            {
+                float gapExtra = extra / lines.Count;
+                for (int i = 0; i < lines.Count; i++)
+                    lines[i].CrossStart += gapExtra * (i + 0.5f);
+                break;
+            }
+            case "space-evenly":
+            {
+                float gapExtra = extra / (lines.Count + 1);
+                for (int i = 0; i < lines.Count; i++)
+                    lines[i].CrossStart += gapExtra * (i + 1);
+                break;
+            }
+            case "stretch":
+            default:
+            {
+                // Stretch grows every line equally; subsequent lines shift by the
+                // accumulated growth.
+                float grow = extra / lines.Count;
+                float shift = 0;
+                foreach (var line in lines)
+                {
+                    line.CrossStart += shift;
+                    line.CrossSize += grow;
+                    shift += grow;
+                }
+                break;
+            }
+        }
+    }
+
+    private static void ShiftLines(List<FlexLineData> lines, float delta)
+    {
+        foreach (var line in lines)
+            line.CrossStart += delta;
+    }
+
+    private void ApplyJustifyContent(List<FlexItemData> items, float availableMain, ComputedStyle style, float mainGap)
     {
         if (items.Count == 0) return;
+        if (float.IsNaN(availableMain) || float.IsInfinity(availableMain))
+            return;
+
         float totalMain = 0;
         foreach (var item in items)
             totalMain += item.UsedMainSize + item.MainAxisBorderPadding + item.MarginMainStart + item.MarginMainEnd;
+        totalMain += mainGap * (items.Count - 1);
         float freeSpace = availableMain - totalMain;
+        if (freeSpace <= 0)
+            return;
 
         switch (style.JustifyContent)
         {
@@ -560,13 +895,13 @@ public class FlexLayoutAlgorithm : LayoutAlgorithm
                 Shift(items, freeSpace);
                 break;
             case Dom.JustifyContentType.SpaceBetween:
-                Distribute(items, freeSpace, true);
+                Distribute(items, freeSpace, true, items.Count);
                 break;
             case Dom.JustifyContentType.SpaceAround:
-                Distribute(items, freeSpace, false);
+                Distribute(items, freeSpace, false, items.Count);
                 break;
             case Dom.JustifyContentType.SpaceEvenly:
-                DistributeEvenly(items, availableMain);
+                DistributeEvenly(items, freeSpace, items.Count);
                 break;
         }
     }
@@ -577,35 +912,31 @@ public class FlexLayoutAlgorithm : LayoutAlgorithm
             item.MainOffset += amount;
     }
 
-    private static void Distribute(List<FlexItemData> items, float freeSpace, bool spaceBetween)
+    private static void Distribute(List<FlexItemData> items, float freeSpace, bool spaceBetween, int count)
     {
-        int gaps = items.Count - 1;
+        int gaps = count - 1;
         if (gaps <= 0) return;
-        float gap = spaceBetween ? freeSpace / gaps : freeSpace / (items.Count * 2);
+        float gap = spaceBetween ? freeSpace / gaps : freeSpace / (count * 2f);
         float offset = spaceBetween ? 0 : gap;
         foreach (var item in items)
         {
             item.MainOffset += offset;
-            offset += gap + (spaceBetween ? 0 : gap);
+            offset += spaceBetween ? gap : gap * 2;
         }
     }
 
-    private static void DistributeEvenly(List<FlexItemData> items, float availableMain)
+    private static void DistributeEvenly(List<FlexItemData> items, float freeSpace, int count)
     {
-        float totalMain = 0;
-        foreach (var item in items)
-            totalMain += item.UsedMainSize + item.MarginMainStart + item.MarginMainEnd;
-        float freeSpace = availableMain - totalMain;
-        float gap = freeSpace / (items.Count + 1);
+        float gap = freeSpace / (count + 1);
         float offset = gap;
         foreach (var item in items)
         {
             item.MainOffset += offset;
-            offset += gap + item.UsedMainSize;
+            offset += gap;
         }
     }
 
-    private float ResolveAutoMargin(Length length, float fontSize, float containingSize)
+    private float ResolveMargin(Length length, float fontSize)
     {
         if (length is AutoLength || length == null) return 0;
         return length.ToPixels(fontSize, Space.RootFontSize, Space.ViewportWidth, Space.ViewportHeight);

@@ -673,5 +673,5 @@ public static class KnownColors
         { "slategrey", SKColor.Parse("#708090") }
     };
 
-    public static SKColor? Get(string name) => Colors.GetValueOrDefault(name);
+    public static SKColor? Get(string name) => Colors.TryGetValue(name, out var color) ? color : null;
 }

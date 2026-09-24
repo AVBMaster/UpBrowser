@@ -469,6 +469,9 @@ public static class CssPropertyApplier
         "inline-grid" => DisplayType.InlineGrid,
         "list-item" => DisplayType.ListItem,
         "table" => DisplayType.Table,
+        // inline-table is laid out as a table box (block-level approximation;
+        // the engine has no separate inline-table display type).
+        "inline-table" => DisplayType.Table,
         "table-row" => DisplayType.TableRow,
         "table-cell" => DisplayType.TableCell,
         "table-header-group" => DisplayType.TableHeaderGroup,
@@ -544,6 +547,7 @@ public static class CssPropertyApplier
         "pre" => WhiteSpaceMode.Pre,
         "pre-wrap" => WhiteSpaceMode.PreWrap,
         "pre-line" => WhiteSpaceMode.PreLine,
+        "break-spaces" => WhiteSpaceMode.BreakSpaces,
         _ => WhiteSpaceMode.Normal
     };
 
@@ -624,6 +628,7 @@ public static class CssPropertyApplier
     public static void ParseBackgroundShorthand(string value, ComputedStyle style)
     {
         var parts = value.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        var positionTokens = new List<string>();
         foreach (var part in parts)
         {
             var lower = part.ToLowerInvariant();
@@ -652,7 +657,14 @@ public static class CssPropertyApplier
             {
                 style.BackgroundSize = lower == "cover" ? BackgroundSizeType.Cover : BackgroundSizeType.Contain;
             }
+            else if (lower is "left" or "right" or "center" or "top" or "bottom" ||
+                     lower.EndsWith("%") || lower.EndsWith("px") || lower.StartsWith("calc("))
+            {
+                positionTokens.Add(part);
+            }
         }
+        if (positionTokens.Count > 0)
+            ParseBackgroundPosition(string.Join(" ", positionTokens), style);
     }
 
     public static string? ParseUrl(string value)
@@ -667,7 +679,8 @@ public static class CssPropertyApplier
         var parts = value.Split(' ', StringSplitOptions.RemoveEmptyEntries);
         foreach (var part in parts)
         {
-            if (part is "solid" or "dashed" or "dotted" or "double" or "none")
+            if (part is "solid" or "dashed" or "dotted" or "double" or "groove" or "ridge"
+                or "inset" or "outset" or "none" or "hidden")
             {
                 var bs = ParseBorderStyleValue(part);
                 style.BorderTopStyle = bs; style.BorderRightStyle = bs;
@@ -780,7 +793,8 @@ public static class CssPropertyApplier
         var parts = value.Split(' ', StringSplitOptions.RemoveEmptyEntries);
         foreach (var part in parts)
         {
-            if (part is "solid" or "dashed" or "dotted" or "double" or "none")
+            if (part is "solid" or "dashed" or "dotted" or "double" or "groove" or "ridge"
+                or "inset" or "outset" or "none" or "hidden")
             {
                 var bs = ParseBorderStyleValue(part);
                 if (side == "top") style.BorderTopStyle = bs;
@@ -849,8 +863,12 @@ public static class CssPropertyApplier
 
     public static void ParseBorderRadius(string value, ComputedStyle style)
     {
+        // Elliptical radii use "horizontal / vertical"; only the horizontal set
+        // is kept (percentages are encoded by ParseRadiusValue).
+        int slash = value.IndexOf('/');
+        if (slash >= 0) value = value[..slash];
         var radii = value.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        var r = radii.Select(v => ParseSize(v) ?? 0).ToList();
+        var r = radii.Select(v => ParseRadiusValue(v) ?? 0).ToList();
         style.BorderTopLeftRadius = r.Count > 0 ? r[0] : 0;
         style.BorderTopRightRadius = r.Count > 1 ? r[1] : r[0];
         style.BorderBottomRightRadius = r.Count > 2 ? r[2] : r[0];
@@ -881,12 +899,21 @@ public static class CssPropertyApplier
     /// <summary>
     /// Parses one corner radius value, which may be a single length or the
     /// 'horizontal vertical' pair produced for elliptical border-radius.
-    /// Uses the horizontal radius (the first value).
+    /// Uses the horizontal radius (the first value). Percentages are stored
+    /// negated (e.g. 50% -> -50): they resolve against the box's own dimensions
+    /// at paint time, where every existing consumer's "> 0" guard treats the
+    /// unresolved value as unrounded.
     /// </summary>
     public static float? ParseRadiusValue(string value)
     {
+        value = value.Trim();
         int sp = value.IndexOf(' ');
-        return sp > 0 ? ParseSize(value[..sp]) : ParseSize(value.Trim());
+        if (sp > 0) value = value[..sp].Trim();
+        if (value.EndsWith('%') && value.Length > 1 &&
+            float.TryParse(value[..^1], System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out var pct))
+            return -pct;
+        return ParseSize(value);
     }
 
     public static void ParseFlexShorthand(string value, ComputedStyle style)
@@ -1152,7 +1179,9 @@ public static class CssPropertyApplier
         float offsetY = float.TryParse(parts[1].TrimEnd('p', 'x'), out var oy) ? oy : 0;
         float blurRadius = 0;
         int index = 2;
-        if (index < parts.Length && parts[index].Contains("px"))
+        // Third length (blur) may be unitless ("0") or carry a unit.
+        if (index < parts.Length &&
+            (parts[index].Contains("px") || float.TryParse(parts[index], out _)))
         {
             float.TryParse(parts[index].TrimEnd('p', 'x'), out blurRadius);
             index++;
@@ -1181,13 +1210,78 @@ public static class CssPropertyApplier
 
     public static void ParseGridTemplateShorthand(string value, ComputedStyle style)
     {
-        if (value == "none") return;
-        if (value.Contains("/"))
+        if (value.Trim() == "none")
         {
-            var parts = value.Split('/');
-            style.GridTemplateRows = parts[0].Trim();
-            style.GridTemplateColumns = parts.Length > 1 ? parts[1].Trim() : null;
+            style.GridTemplateRows = null;
+            style.GridTemplateColumns = null;
+            style.GridTemplateAreas = null;
+            return;
         }
+
+        // Split on the top-level '/' — left = rows (+ named areas), right = columns.
+        int slash = -1;
+        int depth = 0;
+        bool inQuote = false;
+        for (int i = 0; i < value.Length; i++)
+        {
+            char c = value[i];
+            if (c == '"') inQuote = !inQuote;
+            else if (!inQuote && c == '(') depth++;
+            else if (!inQuote && c == ')') depth--;
+            else if (!inQuote && depth == 0 && c == '/') { slash = i; break; }
+        }
+        string left = (slash >= 0 ? value[..slash] : value).Trim();
+        string right = slash >= 0 ? value[(slash + 1)..].Trim() : "";
+
+        // A leading string token means the row list is written as named-area rows:
+        //   "head head" 20px "side main" 1fr
+        // Each quoted string is one row; the bare tokens after it are that row's
+        // track size. Also feed the area rows to grid-template-areas.
+        if (left.Contains('"'))
+        {
+            var areaRows = new List<string>();
+            var rowSizes = new List<string>();
+            int j = 0;
+            while (j < left.Length)
+            {
+                while (j < left.Length && char.IsWhiteSpace(left[j])) j++;
+                if (j >= left.Length) break;
+                if (left[j] == '"')
+                {
+                    int end = left.IndexOf('"', j + 1);
+                    if (end < 0) break;
+                    string row = left[(j + 1)..end].Trim();
+                    areaRows.Add(row);
+                    j = end + 1;
+                    // Trailing size token for this row (optional).
+                    int k = j;
+                    while (k < left.Length && char.IsWhiteSpace(left[k])) k++;
+                    int start = k;
+                    while (k < left.Length && left[k] != '"') k++;
+                    string size = left[start..k].Trim();
+                    rowSizes.Add(string.IsNullOrEmpty(size) ? "auto" : size);
+                    j = k;
+                }
+                else
+                {
+                    // Bare track tokens mixed in (rare); collect until next string.
+                    int start = j;
+                    while (j < left.Length && left[j] != '"') j++;
+                    string extra = left[start..j].Trim();
+                    if (extra.Length > 0)
+                        rowSizes.Add(extra);
+                }
+            }
+            style.GridTemplateAreas = string.Join(",", areaRows);
+            style.GridTemplateRows = string.Join(" ", rowSizes);
+        }
+        else
+        {
+            style.GridTemplateRows = left.Length > 0 ? left : null;
+        }
+
+        if (slash >= 0)
+            style.GridTemplateColumns = right.Length > 0 ? right : "none";
     }
 
     public static void ParseFlexFlow(string value, ComputedStyle style)

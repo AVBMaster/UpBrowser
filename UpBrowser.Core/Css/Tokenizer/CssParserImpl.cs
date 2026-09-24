@@ -771,7 +771,12 @@ public class CssParserImpl
 
     private void SkipUntilSemicolon()
     {
-        while (!_stream.Current.IsEof && _stream.Current.Type != CssTokenType.SemicolonToken)
+        // CSS Syntax: an invalid declaration consumes until ';' OR the end of
+        // the declaration block. Stopping only at ';' would swallow the '}' and
+        // every rule that follows until the next semicolon.
+        while (!_stream.Current.IsEof &&
+               _stream.Current.Type != CssTokenType.SemicolonToken &&
+               _stream.Current.Type != CssTokenType.RightBraceToken)
             _stream.Next();
         if (_stream.Current.Type == CssTokenType.SemicolonToken)
             _stream.Next();

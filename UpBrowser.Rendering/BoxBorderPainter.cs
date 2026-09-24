@@ -1257,16 +1257,23 @@ public sealed class BoxBorderPainter
             MiterType miter1 = ColorsMatchAtCorner(side, adjacentSide1) ? MiterType.HardMiter : MiterType.SoftMiter;
             MiterType miter2 = ColorsMatchAtCorner(side, adjacentSide2) ? MiterType.HardMiter : MiterType.SoftMiter;
 
-            ClipBorderSidePolygon(side, miter1, miter2);
+            bool pushedPolygon = ClipBorderSidePolygon(side, miter1, miter2);
+            bool pushedOut = false;
             if (!IsRenderable(_inner))
             {
                 var adjustedInnerRect = CalculateAdjustedInnerBorder(_inner, side);
                 if (!adjustedInnerRect.IsEmpty)
+                {
                     EmitPushClipOut(adjustedInnerRect);
+                    pushedOut = true;
+                }
             }
 
             int strokeThickness = Math.Max(Math.Max(edgeToRender.Width, adjacentEdge1.Width), adjacentEdge2.Width);
             DrawBoxSideFromPath(path, edgeToRender.Width, strokeThickness, side, color, edgeToRender.BorderStyleValue);
+
+            if (pushedOut) EmitPopClip();
+            if (pushedPolygon) EmitPopClip();
         }
         else
         {
@@ -1274,15 +1281,18 @@ public sealed class BoxBorderPainter
             MiterType miter2 = ComputeMiter(side, adjacentSide2, completedEdges);
             bool shouldClip = MitersRequireClipping(miter1, miter2, edgeToRender.BorderStyleValue);
 
+            bool pushedPolygon = false;
             if (shouldClip)
             {
-                ClipBorderSidePolygon(side, miter1, miter2);
+                pushedPolygon = ClipBorderSidePolygon(side, miter1, miter2);
                 miter1 = miter2 = MiterType.NoMiter;
             }
 
             DrawLineForBoxSide((int)sideRect.Left, (int)sideRect.Top, (int)sideRect.Right, (int)sideRect.Bottom, side, color,
                 edgeToRender.BorderStyleValue, miter1 != MiterType.NoMiter ? adjacentEdge1.Width : 0,
                 miter2 != MiterType.NoMiter ? adjacentEdge2.Width : 0);
+
+            if (pushedPolygon) EmitPopClip();
         }
     }
 
@@ -1373,10 +1383,10 @@ public sealed class BoxBorderPainter
 
     // ─── clip polygon ─────────────────────────────────────────────────────────
 
-    private void ClipBorderSidePolygon(BoxSide side, MiterType firstMiter, MiterType secondMiter)
+    private bool ClipBorderSidePolygon(BoxSide side, MiterType firstMiter, MiterType secondMiter)
     {
         if (firstMiter == MiterType.NoMiter && secondMiter == MiterType.NoMiter)
-            return;
+            return false;
 
         // The boundary of the edge for fill.
         var edgeQuad = new SKPoint[4];
@@ -1685,11 +1695,14 @@ public sealed class BoxBorderPainter
             poly.Dispose();
         }
 
+        bool pushed = false;
         if (clipPath.Points.Length > 0 || !first)
         {
             EmitPushClipPath(clipPath, antialias);
+            pushed = true;
         }
         clipPath.Dispose();
+        return pushed;
     }
 
     private bool ColorsMatchAtCorner(BoxSide side, BoxSide adjacentSide)

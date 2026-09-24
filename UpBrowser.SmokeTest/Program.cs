@@ -42,7 +42,9 @@ Console.WriteLine("=== 1. OutOfFlowLayoutPart (direct candidate) ===");
     if (builder.Children.Count == 1)
     {
         var f = builder.Children[0];
-        Check(f.InlineOffset == 15 && f.BlockOffset == 25, $"pos=({f.InlineOffset:F0},{f.BlockOffset:F0}) expect (15,25)");
+        // Containing block is the padding box; fragment offsets are content-box
+        // relative: left 10 - padding 5 = 5, top 20 - padding 5 = 15.
+        Check(f.InlineOffset == 5 && f.BlockOffset == 15, $"pos=({f.InlineOffset:F0},{f.BlockOffset:F0}) expect (5,15)");
         Check(f.IsOutOfFlowPositioned, "IsOutOfFlowPositioned");
     }
 }

@@ -613,7 +613,6 @@ _scrollableAreaPainter = new ScrollableAreaPainter(_displayList);
         using var objectPaintState = new ScopedPaintState(
             _displayList, new SKPoint(TotalOffsetX, TotalOffsetY), viewportCullRect);
 
-        if (!isVisibilityHidden)
         {
             PushObjectEffects(style, layoutBox, offsetBorderBox, objectPaintState);
 
@@ -628,7 +627,7 @@ _scrollableAreaPainter = new ScrollableAreaPainter(_displayList);
                 DrawElementOutline(element, layoutBox, style, offsetBorderBox);
             }
 
-            if (element.TagName.Equals("HR", StringComparison.OrdinalIgnoreCase))
+            if (!isVisibilityHidden && element.TagName.Equals("HR", StringComparison.OrdinalIgnoreCase))
             {
                 float y = layoutBox.ContentBox.Top + TotalOffsetY + layoutBox.ContentBox.Height / 2;
                 float x1 = layoutBox.ContentBox.Left;
@@ -645,7 +644,7 @@ _scrollableAreaPainter = new ScrollableAreaPainter(_displayList);
             }
 
             // Draw disclosure triangle for <summary> elements
-            if (element.TagName.Equals("SUMMARY", StringComparison.OrdinalIgnoreCase))
+            if (!isVisibilityHidden && element.TagName.Equals("SUMMARY", StringComparison.OrdinalIgnoreCase))
             {
                 float arrowSize = Math.Min(10, layoutBox.ContentBox.Height * 0.6f);
                 float arrowX = layoutBox.ContentBox.Left + 4;
@@ -769,13 +768,10 @@ _scrollableAreaPainter = new ScrollableAreaPainter(_displayList);
                     SKMatrix.CreateTranslation(stickyOffsetX, stickyOffsetY), offsetBorderBox);
             }
 
-            if (!isInline)
+            if (!isInline && !isVisibilityHidden)
                 DrawInlineChildrenDecorations(element);
 
             DrawElementContent(element, layoutBox, style);
-
-            if (style.Display == DisplayType.ListItem)
-                DrawListMarker(element, layoutBox, style);
 
             }
 
@@ -1169,6 +1165,7 @@ _scrollableAreaPainter = new ScrollableAreaPainter(_displayList);
             op.Rect = paddingRect;
             op.FillColor = bgColor;
             op.BorderRadius = Math.Max(style.BorderTopLeftRadius, Math.Max(style.BorderTopRightRadius, Math.Max(style.BorderBottomLeftRadius, style.BorderBottomRightRadius)));
+            op.CornerRadii = ResolveBackgroundCornerRadii(style, borderRect);
             op.Bounds = borderRect;
             _displayList.Add(op);
         }
@@ -1250,6 +1247,7 @@ _scrollableAreaPainter = new ScrollableAreaPainter(_displayList);
             op.Rect = paddingRect;
             op.FillColor = bgColor;
             op.BorderRadius = Math.Max(style.BorderTopLeftRadius, Math.Max(style.BorderTopRightRadius, Math.Max(style.BorderBottomLeftRadius, style.BorderBottomRightRadius)));
+            op.CornerRadii = ResolveBackgroundCornerRadii(style, borderRect);
             op.Bounds = borderRect;
             _displayList.Add(op);
         }
@@ -1493,7 +1491,9 @@ private static SKBlendMode MixBlendModeToSkBlendMode(MixBlendModeType mode) => m
                     op.Image = image;
                     op.SourceRect = new SKRect(srcLeft, srcTop, srcRight, srcBottom);
                     op.DestRect = clipRect;
-                    op.Fit = ImageFit.None;
+                    // Background tiles are already sized/positioned by the
+                    // geometry; stretch the (possibly clipped) source into dest.
+                    op.Fit = ImageFit.Fill;
                     op.Bounds = destRect;
                     _displayList.Add(op);
                 }
@@ -1526,6 +1526,25 @@ private static SKBlendMode MixBlendModeToSkBlendMode(MixBlendModeType mode) => m
         };
         op.Bounds = rect;
         _displayList.Add(op);
+    }
+
+    /// <summary>
+    /// Resolve the four corner radii for a background fill. Percentages are
+    /// stored negated by the style parser (50% -> -50) and resolve against the
+    /// border-box dimensions here (horizontal vs width, vertical vs height);
+    /// plain pixel radii pass through as circular corners.
+    /// </summary>
+    internal static SKPoint[]? ResolveBackgroundCornerRadii(ComputedStyle style, SKRect borderRect)
+    {
+        static SKPoint P(float v, SKRect r) => v < 0
+            ? new SKPoint(-v / 100f * r.Width, -v / 100f * r.Height)
+            : new SKPoint(v, v);
+        var tl = P(style.BorderTopLeftRadius, borderRect);
+        var tr = P(style.BorderTopRightRadius, borderRect);
+        var br = P(style.BorderBottomRightRadius, borderRect);
+        var bl = P(style.BorderBottomLeftRadius, borderRect);
+        if (tl.X <= 0 && tr.X <= 0 && br.X <= 0 && bl.X <= 0) return null;
+        return new[] { tl, tr, br, bl };
     }
 
     internal void DrawElementBorder(Element element, LayoutBox box, ComputedStyle style, SKRect borderRect)
@@ -1681,6 +1700,18 @@ private static SKBlendMode MixBlendModeToSkBlendMode(MixBlendModeType mode) => m
 
     private void DrawElementContent(Element element, LayoutBox box, ComputedStyle style)
     {
+        // visibility:hidden hides the element's OWN content but not descendants
+        // that re-declare visibility:visible. Text runs are filtered per run in
+        // DrawInlineRuns (a run paints only when its owning node's nearest
+        // styleable ancestor chain up to this box is visible); everything below
+        // is self-only content and is skipped for hidden elements.
+        bool selfHidden = style.Visibility == VisibilityType.Hidden;
+
+        // List markers paint with the item's content so both the element-walk and
+        // the layer-tree traversal emit them exactly once.
+        if (style.Display == DisplayType.ListItem && !selfHidden)
+            DrawListMarker(element, box, style);
+
         // A5: multicol column rules — vertical separators between columns.
         if (box.IsMultiColumn && box.ColumnCount > 1 &&
             style.ColumnRuleStyle != BorderStyle.None && style.ColumnRuleWidth > 0)
@@ -3341,6 +3372,12 @@ private static SKBlendMode MixBlendModeToSkBlendMode(MixBlendModeType mode) => m
                         }
 
                         var parentStyle = textNode.ParentElement?.ComputedStyle;
+                        if (parentStyle?.Visibility == VisibilityType.Hidden)
+                        {
+                            // Hidden text keeps its layout space but paints nothing.
+                            currentX += run.Width;
+                            continue;
+                        }
                         var actualFontSize = run.FontSize ?? parentStyle?.FontSize ?? 16;
                         var runText = ApplyTextTransform(run.Text, parentStyle?.TextTransform);
                         float runY = run.Baseline > 0 ? run.Baseline + TotalOffsetY : baseline;
@@ -3409,6 +3446,12 @@ private static SKBlendMode MixBlendModeToSkBlendMode(MixBlendModeType mode) => m
                     }
 
                     var parentStyle = textNode.ParentElement?.ComputedStyle;
+                    if (parentStyle?.Visibility == VisibilityType.Hidden)
+                    {
+                        // Hidden text keeps its layout space but paints nothing.
+                        x += run.Width;
+                        continue;
+                    }
                     var actualFontSize = run.FontSize ?? parentStyle?.FontSize ?? 16;
                     var runText = ApplyTextTransform(run.Text, parentStyle?.TextTransform);
                     float runY = run.Baseline > 0 ? run.Baseline + TotalOffsetY : baseline;

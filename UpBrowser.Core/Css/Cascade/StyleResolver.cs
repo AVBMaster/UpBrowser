@@ -478,12 +478,27 @@ public class StyleResolver
             string name = p.Name.ToCssString();
             string text = p.Value.CssText();
             var expanded = ShorthandExpander.ExpandProperty(name, text);
+            // A shorthand resets every longhand it controls: declarations that
+            // were already in the set (from earlier rules) must be removed before
+            // the expansion is written, otherwise a later shorthand would merge
+            // with an earlier one instead of resetting it.
+            var reset = new HashSet<CssPropertyId>();
             foreach (var kv in expanded)
             {
                 var one = CssParserImpl.ParseDeclarationBlock($"{kv.Key}: {kv.Value}", CssParserContext.Default());
                 foreach (var sub in one.Properties)
-                    result.SetLonghandProperty(sub);
+                {
+                    if (!sub.Name.IsCustom) reset.Add(sub.Name.Id);
+                    result.SetLonghandProperty(p.IsImportant && !sub.IsImportant
+                        ? new CssPropertyValue(sub.Name, sub.Value, true, sub.IsImplicit, sub.ShorthandId)
+                        : sub);
+                }
             }
+            // Longhands the shorthand controls but did not emit (invalid/absent
+            // tokens) still reset to their initial value: drop any stale entry.
+            foreach (var id in ShorthandExpander.GetControlledLonghands(name))
+                if (!reset.Contains(id) && id != CssPropertyId.Invalid)
+                    result.RemoveProperty(id);
         }
         return result;
     }

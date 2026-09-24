@@ -102,7 +102,7 @@ internal sealed class PaintLayerClipper
         }
     }
 
-    private static bool CreatesOverflowClip(ComputedStyle style) =>
+    internal static bool CreatesOverflowClip(ComputedStyle style) =>
         style.Overflow == OverflowType.Hidden ||
         style.Overflow == OverflowType.Scroll ||
         style.Overflow == OverflowType.Auto ||

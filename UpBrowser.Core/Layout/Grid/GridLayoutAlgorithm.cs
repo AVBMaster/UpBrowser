@@ -277,9 +277,18 @@ public class GridLayoutAlgorithm
             var style = childElement.ComputedStyle!;
             bool hasExplicit = false;
 
-            if (!string.IsNullOrEmpty(style.GridArea))
+            // The shorthand expander rewrites `grid-area: <name>` into the four
+            // line longhands; identical non-numeric names on both axes is the
+            // signature of a named area.
+            string? areaCandidate = style.GridArea;
+            if (string.IsNullOrEmpty(areaCandidate) &&
+                !string.IsNullOrEmpty(style.GridRowStart) &&
+                string.Equals(style.GridRowStart, style.GridColumnStart, StringComparison.OrdinalIgnoreCase) &&
+                !char.IsDigit(style.GridRowStart[0]) && style.GridRowStart != "auto")
+                areaCandidate = style.GridRowStart;
+            if (!string.IsNullOrEmpty(areaCandidate))
             {
-                var areaName = style.GridArea.Trim().ToLowerInvariant();
+                var areaName = areaCandidate.Trim().ToLowerInvariant();
                 if (namedAreas.TryGetValue(areaName, out var area))
                 {
                     item.ColumnStart = area.col + 1;
@@ -292,10 +301,12 @@ public class GridLayoutAlgorithm
 
             if (!hasExplicit)
             {
-                var (colStart, colEnd) = ParseGridLine(style, "grid-column-start", "grid-column-end", explicitColCount);
-                var (rowStart, rowEnd) = ParseGridLine(style, "grid-row-start", "grid-row-end", explicitRowCount);
+                var (colStart, colEnd, colSpan) = ParseGridLine(style, "grid-column-start", "grid-column-end", explicitColCount);
+                var (rowStart, rowEnd, rowSpan) = ParseGridLine(style, "grid-row-start", "grid-row-end", explicitRowCount);
                 if (colStart != 0 || colEnd != 0) { item.ColumnStart = colStart; item.ColumnEnd = colEnd; hasExplicit = true; }
+                else if (colSpan > 1) item.ColumnSpan = colSpan;
                 if (rowStart != 0 || rowEnd != 0) { item.RowStart = rowStart; item.RowEnd = rowEnd; hasExplicit = true; }
+                else if (rowSpan > 1) item.RowSpan = rowSpan;
             }
 
             if (!hasExplicit)
@@ -333,14 +344,15 @@ public class GridLayoutAlgorithm
             }
             else if (rowSpecified)
             {
-                item.ColumnSpan = 1;
+                item.ColumnSpan = Math.Max(1, item.ColumnSpan);
                 item.RowSpan = item.RowEnd - item.RowStart;
                 rowLockedItems.Add(item);
             }
             else
             {
-                item.ColumnSpan = 1;
-                item.RowSpan = 1;
+                // Auto-placed on both axes; keep any 'span N' parsed earlier.
+                item.ColumnSpan = Math.Max(1, item.ColumnSpan);
+                item.RowSpan = Math.Max(1, item.RowSpan);
                 autoItems.Add(item);
             }
         }
@@ -546,7 +558,7 @@ public class GridLayoutAlgorithm
         }
     }
 
-    private static (int start, int end) ParseGridLine(ComputedStyle style, string startProp, string endProp, int explicitCount)
+    private static (int start, int end, int span) ParseGridLine(ComputedStyle style, string startProp, string endProp, int explicitCount)
     {
         int start = 0, end = 0;
         var startVal = startProp switch
@@ -568,25 +580,41 @@ public class GridLayoutAlgorithm
 
         if (!string.IsNullOrEmpty(startVal))
         {
-            if (startVal.Equals("span", StringComparison.OrdinalIgnoreCase))
-                start = -1;
+            if (TryParseSpan(startVal, out var sn))
+                start = -sn; // negative encodes "span n, auto line"
             else if (int.TryParse(startVal, out var s))
                 start = s > 0 ? s : ResolveNegativeGridLine(s, explicitCount);
         }
 
         if (!string.IsNullOrEmpty(endVal))
         {
-            if (endVal.Equals("span", StringComparison.OrdinalIgnoreCase))
-                end = -1;
+            if (TryParseSpan(endVal, out var en))
+                end = -en;
             else if (int.TryParse(endVal, out var e))
                 end = e > 0 ? e : ResolveNegativeGridLine(e, explicitCount);
         }
 
-        // Handle span: start:span 2 means the item spans 2 cols
-        if (start < 0 && end > 0) { start = end - 2; }
-        if (end < 0 && start > 0) { end = start + 2; }
+        // Resolve the span encodings against concrete lines.
+        int span = 1;
+        if (start < 0 && end > 0) start = Math.Max(1, end + start);
+        else if (end < 0 && start > 0) end = start - end;
+        else if (start < 0 && end < 0) { span = Math.Max(-start, -end); start = 0; end = 0; }
+        else if (start < 0) { span = -start; start = 0; }
+        else if (end < 0) { span = -end; }
 
-        return (start, end);
+        return (start, end, span);
+    }
+
+    private static bool TryParseSpan(string value, out int span)
+    {
+        span = 0;
+        value = value.Trim();
+        if (!value.StartsWith("span", StringComparison.OrdinalIgnoreCase)) return false;
+        var rest = value.Length > 4 ? value[4..].Trim() : "";
+        if (rest.Length == 0) span = 1;
+        else if (int.TryParse(rest, out var n) && n > 0) span = n;
+        else return false;
+        return true;
     }
 
     /// <summary>
@@ -901,9 +929,6 @@ public class GridLayoutAlgorithm
             // nested formatting contexts (flex/grid/table/replaced) are covered.
             var childBox = item.MeasuredBox ?? LayoutItem(item, cellW, containerBox);
 
-            float itemW = childBox.ContentBox.Width;
-            float itemH = childBox.ContentBox.Height;
-
             // Apply alignment
             var style = item.Element.ComputedStyle!;
             var justifySelf = ParseJustifySelf(style.JustifySelf ?? "auto", justifyItems);
@@ -913,6 +938,15 @@ public class GridLayoutAlgorithm
             // an item with a definite size keeps it and is aligned in the cell.
             bool stretchInline = justifySelf == JustifyItemsType.Stretch && (style.Width is AutoLength or null);
             bool stretchBlock = alignSelf == AlignItemsType.Stretch && (style.Height is AutoLength or null);
+
+            // A non-stretching auto-width item sizes to its content (the measure
+            // pass gave it the full cell width; shrink back to the natural inline
+            // size so start/center/end alignment is visible).
+            if (!stretchInline && style.Width is AutoLength or null)
+                ShrinkBoxToNaturalInline(childBox);
+
+            float itemW = childBox.ContentBox.Width;
+            float itemH = childBox.ContentBox.Height;
 
             float alignW = stretchInline ? cellW : itemW;
             float alignH = stretchBlock ? cellH : itemH;
@@ -953,6 +987,32 @@ public class GridLayoutAlgorithm
     /// Shift a converted layout box subtree by (dx, dy) without disturbing the
     /// offsets between lines/runs/children (they all move together).
     /// </summary>
+    /// <summary>
+    /// Shrink a measured item box from the cell width back to its natural
+    /// (max line) inline extent plus its own border/padding, so non-stretch
+    /// justify alignment positions a content-sized box.
+    /// </summary>
+    private static void ShrinkBoxToNaturalInline(Dom.LayoutBox box)
+    {
+        if (box.Lines == null || box.Lines.Count == 0) return;
+        float natural = 0;
+        foreach (var line in box.Lines)
+            natural = Math.Max(natural, line.X + line.Width - box.ContentBox.Left);
+        foreach (var child in box.Children)
+            natural = Math.Max(natural, child.BorderBox.Right - box.ContentBox.Left);
+        if (natural <= 0) return;
+
+        float bpExtra = box.BorderBox.Width - box.ContentBox.Width;
+        float target = Math.Min(box.BorderBox.Width, natural + bpExtra);
+        float dw = box.BorderBox.Width - target;
+        if (dw <= 0.5f) return;
+
+        box.ContentBox = new SKRect(box.ContentBox.Left, box.ContentBox.Top, box.ContentBox.Right - dw, box.ContentBox.Bottom);
+        box.PaddingBox = new SKRect(box.PaddingBox.Left, box.PaddingBox.Top, box.PaddingBox.Right - dw, box.PaddingBox.Bottom);
+        box.BorderBox = new SKRect(box.BorderBox.Left, box.BorderBox.Top, box.BorderBox.Right - dw, box.BorderBox.Bottom);
+        box.MarginBox = new SKRect(box.MarginBox.Left, box.MarginBox.Top, box.MarginBox.Right - dw, box.MarginBox.Bottom);
+    }
+
     private static void TranslateBox(Dom.LayoutBox box, float dx, float dy)
     {
         if (dx == 0 && dy == 0) return;
@@ -972,7 +1032,9 @@ public class GridLayoutAlgorithm
                 foreach (var run in line.Runs)
                 {
                     run.X += dx;
-                    run.Baseline += dy;
+                    // A run baseline of 0 is the "sit on the line box's baseline"
+                    // sentinel; shifting it would turn it into an absolute offset.
+                    if (run.Baseline != 0) run.Baseline += dy;
                 }
             }
         }
@@ -981,7 +1043,7 @@ public class GridLayoutAlgorithm
             foreach (var run in box.LineRuns)
             {
                 run.X += dx;
-                run.Baseline += dy;
+                if (run.Baseline != 0) run.Baseline += dy;
             }
         }
 

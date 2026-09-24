@@ -12,10 +12,34 @@ public class StyleAdjuster
     public void AdjustComputedStyle(ComputedStyle style, Element element, ComputedStyle? parentStyle)
     {
         AdjustDisplayForElement(style, element);
+        BlockifyFlexGridItems(style, element, parentStyle);
         AdjustOverflow(style);
         AdjustForTextElements(style, element);
         AdjustForReplacedElements(style, element);
         AdjustTouchAction(style, element);
+    }
+
+    /// <summary>
+    /// CSS Flexbox §4.1 / Grid §5: in-flow children of a flex or grid container
+    /// are blockified (inline → block, inline-flex → flex, …) and cannot be
+    /// inline-level. Out-of-flow children keep their display.
+    /// </summary>
+    private static void BlockifyFlexGridItems(ComputedStyle style, Element element, ComputedStyle? parentStyle)
+    {
+        if (parentStyle == null) return;
+        if (parentStyle.Display is not (DisplayType.Flex or DisplayType.Grid
+            or DisplayType.InlineFlex or DisplayType.InlineGrid))
+            return;
+        if (style.Position is PositionType.Absolute or PositionType.Fixed) return;
+        if (element.ParentNode is not Element parent || !ReferenceEquals(parent.ComputedStyle, parentStyle)) return;
+
+        style.Display = style.Display switch
+        {
+            DisplayType.Inline or DisplayType.InlineBlock => DisplayType.Block,
+            DisplayType.InlineFlex => DisplayType.Flex,
+            DisplayType.InlineGrid => DisplayType.Grid,
+            _ => style.Display,
+        };
     }
 
     private static void AdjustDisplayForElement(ComputedStyle style, Element element)

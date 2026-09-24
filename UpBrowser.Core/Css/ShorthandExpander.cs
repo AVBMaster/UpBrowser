@@ -1,5 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Linq;
+using UpBrowser.Core.Css.Properties;
 
 namespace UpBrowser.Core.Css;
 
@@ -22,7 +24,6 @@ public static class ShorthandExpander
     public static Dictionary<string, string> ExpandProperty(string name, string value)
     {
         var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-
         switch (name.ToLowerInvariant())
         {
             case "margin": ExpandFourSides(result, "margin", value); break;
@@ -57,6 +58,26 @@ public static class ShorthandExpander
         }
 
         return result;
+    }
+
+    /// <summary>
+    /// The longhand property ids a shorthand controls (for cascade reset: a
+    /// shorthand must clear controlled longhands it does not itself emit).
+    /// </summary>
+    public static IEnumerable<CssPropertyId> GetControlledLonghands(string name)
+    {
+        string[] keys = name.ToLowerInvariant() switch
+        {
+            "background" => new[] { "background-color", "background-image", "background-repeat", "background-attachment", "background-position", "background-size", "background-clip", "background-origin" },
+            "margin" => new[] { "margin-top", "margin-right", "margin-bottom", "margin-left" },
+            "padding" => new[] { "padding-top", "padding-right", "padding-bottom", "padding-left" },
+            "border" => new[] { "border-top-width", "border-top-style", "border-top-color", "border-right-width", "border-right-style", "border-right-color", "border-bottom-width", "border-bottom-style", "border-bottom-color", "border-left-width", "border-left-style", "border-left-color" },
+            "font" => new[] { "font-style", "font-variant", "font-weight", "font-size", "line-height", "font-family" },
+            "flex" => new[] { "flex-grow", "flex-shrink", "flex-basis" },
+            "outline" => new[] { "outline-color", "outline-style", "outline-width" },
+            _ => System.Array.Empty<string>(),
+        };
+        return keys.Select(CssPropertyIdExtensions.FromString).Where(id => id != CssPropertyId.Invalid);
     }
 
     private static void ExpandBorderRadius(Dictionary<string, string> result, string value)
@@ -340,9 +361,33 @@ public static class ShorthandExpander
 
     private static void ExpandGridArea(Dictionary<string, string> result, string value)
     {
-        var parts = value.Split('/', StringSplitOptions.RemoveEmptyEntries);
-        if (parts.Length >= 1) result["grid-row"] = parts[0].Trim();
-        if (parts.Length >= 2) result["grid-column"] = parts[1].Trim();
+        // Spec: grid-area: <row-start> / <column-start> / <row-end> / <column-end>.
+        // A single token names all four lines (the common named-area form).
+        var parts = value.Split('/', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        switch (parts.Length)
+        {
+            case 1:
+                result["grid-row-start"] = parts[0];
+                result["grid-column-start"] = parts[0];
+                result["grid-row-end"] = parts[0];
+                result["grid-column-end"] = parts[0];
+                break;
+            case 2:
+                result["grid-row"] = parts[0];
+                result["grid-column"] = parts[1];
+                break;
+            case 3:
+                result["grid-row-start"] = parts[0];
+                result["grid-column-start"] = parts[1];
+                result["grid-row-end"] = parts[2];
+                break;
+            default:
+                result["grid-row-start"] = parts[0];
+                result["grid-column-start"] = parts[1];
+                result["grid-row-end"] = parts[2];
+                result["grid-column-end"] = parts[3];
+                break;
+        }
     }
 
     private static void ExpandGridLine(Dictionary<string, string> result, string prop, string value)

@@ -70,7 +70,7 @@ public class DocumentManager
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[CSS] Error computing styles: {ex.Message}");
+            Console.WriteLine($"[CSS] Error computing styles: {ex}");
         }
 
         try
@@ -80,7 +80,7 @@ public class DocumentManager
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[Layout] Error during layout: {ex.Message}");
+            Console.WriteLine($"[Layout] Error during layout: {ex}");
         }
 
         return new DocumentLoadResult(doc, styleComputer);
@@ -136,7 +136,7 @@ public class DocumentManager
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"[CSS] Failed to parse <style>: {ex.Message}");
+                    Console.WriteLine($"[CSS] Failed to parse <style>: {ex}");
                 }
             }
         }
@@ -161,7 +161,7 @@ public class DocumentManager
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[CSS] Failed to load stylesheet '{url}': {ex.Message}");
+                Console.WriteLine($"[CSS] Failed to load stylesheet '{url}': {ex}");
             }
         }
     }
@@ -183,7 +183,7 @@ public class DocumentManager
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[CSS] Failed to process @import '{importRule.Url}': {ex.Message}");
+                Console.WriteLine($"[CSS] Failed to process @import '{importRule.Url}': {ex}");
             }
         }
     }

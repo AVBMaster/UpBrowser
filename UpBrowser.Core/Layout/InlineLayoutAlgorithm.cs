@@ -115,10 +115,51 @@ public class InlineLayoutAlgorithm : LayoutAlgorithm
             t => new MinMaxSizesResult(new MinMaxSizes(availInline, availInline)));
         Builder.InlineSize = Math.Clamp(inlineSize, minI, maxI);
 
+        // Absolutely/fixed-positioned children of an inline formatting context
+        // root are not inline items: position them against this container after
+        // the in-flow pass, mirroring the block path's OutOfFlowLayoutPart.
+        RunOutOfFlowChildren(bp);
+
         var frag = Builder.ToBoxFragment();
+        frag.Children.AddRange(Builder.Children);
         frag.Lines.AddRange(_lines);
         frag.FragmentItems = _fragmentItems;
         return LayoutResult.FromFragment(frag);
+    }
+
+    private void RunOutOfFlowChildren(BoxStrut bp)
+    {
+        List<Element>? oof = null;
+        foreach (var child in Node.Children)
+        {
+            if (child is Element el &&
+                el.ComputedStyle?.Position is PositionType.Absolute or PositionType.Fixed &&
+                el.ComputedStyle.Display != DisplayType.None)
+            {
+                oof ??= new List<Element>();
+                oof.Add(el);
+            }
+        }
+        if (oof == null) return;
+
+        var oofPart = new OutOfFlowLayoutPart(Builder, Space);
+        foreach (var el in oof)
+        {
+            // Static position: the content-box origin (inline offset recorded
+            // border-box relative, block offset content relative).
+            var candidate = new OutOfFlowChildCandidate(
+                new LayoutBox { Dimensions = new BoxDimensions { Style = el.ComputedStyle, Element = el } },
+                new LogicalStaticPosition(new LogicalOffset(bp.Left, 0),
+                    LogicalStaticPosition.StaticInlinePosition.Left,
+                    LogicalStaticPosition.StaticBlockPosition.Top,
+                    WritingDirectionMode.HorizontalLtr))
+            {
+                IsAbsolute = el.ComputedStyle!.Position == PositionType.Absolute,
+                IsFixed = el.ComputedStyle!.Position == PositionType.Fixed,
+            };
+            oofPart.AddCandidate(candidate);
+        }
+        oofPart.Run();
     }
 
     /// <summary>
@@ -151,6 +192,7 @@ public class InlineLayoutAlgorithm : LayoutAlgorithm
         {
             info.AvailableInlineSize = availInline;
             var logicalLineItems = new LogicalLineItems();
+            // Continuation-line box-state rebuild happens inside CreateLine.
             builder.CreateLine(info, logicalLineItems, this);
 
             // Truncate overflowing lines and place ellipsis.

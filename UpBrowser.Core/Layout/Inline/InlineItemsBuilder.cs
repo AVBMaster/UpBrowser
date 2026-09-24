@@ -128,11 +128,16 @@ public class InlineItemsBuilder
                 else if (child is Element childEl)
                     first = CollectElement(childEl, el.ComputedStyle ?? style, first);
             }
+            // The element's text must precede its CloseTag item; a still-pending
+            // run (element ending without trailing whitespace) would otherwise be
+            // flushed after the tag and painted outside the popped box state.
+            FlushTextRun();
             AppendCloseTag(el, style);
             return !atStartOfParagraph || HasContent();
         }
 
         // Block-level element in an inline context.
+        FlushTextRun();
         AppendBlockInInline(el, style);
         return false;
     }
@@ -153,6 +158,10 @@ public class InlineItemsBuilder
     private void AppendOpenTag(Element element, ComputedStyle style)
     {
         if (_data.Items.Count >= _itemCountLimit) return;
+        // Text that came before this element must be styled by the previous box,
+        // not by the element being opened: flush any pending run first so the
+        // tag lands at the current end position.
+        FlushTextRun();
         int offset = CurrentTextOffset();
         _data.Items.Add(new InlineItem(InlineItem.InlineItemType.OpenTag, offset, offset, element) { BidiLevel = _bidiLevel });
     }
@@ -243,8 +252,25 @@ public class InlineItemsBuilder
     // Text processing: mirrors AppendText() / ProcessTextItem().
     // ------------------------------------------------------------------
 
+    private static string ApplyTextTransform(string text, string? transform)
+    {
+        if (string.IsNullOrEmpty(transform) || transform == "none") return text;
+        return transform.ToLowerInvariant() switch
+        {
+            "uppercase" => text.ToUpperInvariant(),
+            "lowercase" => text.ToLowerInvariant(),
+            "capitalize" => System.Globalization.CultureInfo.InvariantCulture.TextInfo.ToTitleCase(text),
+            _ => text,
+        };
+    }
+
     private void AppendText(string text, ComputedStyle style, Element? element, LayoutText layoutText, bool isFirstLine)
     {
+        // text-transform must apply before shaping so measurement, breaking and
+        // painting all see the transformed glyphs (matching browser behavior).
+        if (!string.IsNullOrEmpty(text))
+            text = ApplyTextTransform(text, style.TextTransform);
+
         if (string.IsNullOrEmpty(text))
         {
             if (_data.Items.Count < _itemCountLimit)

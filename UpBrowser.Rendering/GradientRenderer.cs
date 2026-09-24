@@ -25,6 +25,7 @@ public static class GradientRenderer
         {
             var inner = ExtractGradientContent(input, "linear-gradient");
             if (inner == null) return null;
+            bool repeating = input.StartsWith("repeating-", StringComparison.OrdinalIgnoreCase);
 
             float angle = 180f;
             var parts = SplitGradientParts(inner);
@@ -37,8 +38,27 @@ public static class GradientRenderer
 
             var (startPoint, endPoint) = CalculateLinearPoints(angle, rect);
 
+            if (repeating)
+            {
+                // A repeating gradient tiles the span defined by its explicit
+                // lengths: the gradient line runs from the first to the last
+                // explicit px stop and repeats.
+                float spanPx = stops.Where(s => s.Px >= 0).DefaultIfEmpty(new ColorStop { Px = 0 }).Max(s => s.Px);
+                if (spanPx <= 0) return null;
+                var dir = new SKPoint(endPoint.X - startPoint.X, endPoint.Y - startPoint.Y);
+                float full = MathF.Max(1f, MathF.Sqrt(dir.X * dir.X + dir.Y * dir.Y));
+                var rcolors = stops.Select(s => s.Color).ToArray();
+                var rpos = stops.Select(s => s.Px >= 0 ? s.Px / spanPx : (s.Position >= 0 ? s.Position : 1f)).ToArray();
+                var shader = SKShader.CreateLinearGradient(
+                    startPoint, endPoint, rcolors, rpos, SKShaderTileMode.Repeat);
+                // Scale the unit gradient line down to the repeating span.
+                var m = SKMatrix.CreateScale(spanPx / full, spanPx / full, startPoint.X, startPoint.Y);
+                return shader.WithLocalMatrix(m);
+            }
+
             var colors = stops.Select(s => s.Color).ToArray();
-            var positions = stops.Select(s => s.Position).ToArray();
+            float lineLen = MathF.Max(1f, Dist(startPoint, endPoint));
+            var positions = stops.Select(s => s.Px >= 0 ? Math.Clamp(s.Px / lineLen, 0f, 1f) : s.Position).ToArray();
 
             return SKShader.CreateLinearGradient(
                 new SKPoint(startPoint.X, startPoint.Y),
@@ -47,6 +67,9 @@ public static class GradientRenderer
         }
         catch { return null; }
     }
+
+    private static float Dist(SKPoint a, SKPoint b) =>
+        MathF.Sqrt((b.X - a.X) * (b.X - a.X) + (b.Y - a.Y) * (b.Y - a.Y));
 
     private static SKShader? CreateRadialGradient(string input, SKRect rect)
     {
@@ -194,38 +217,58 @@ public static class GradientRenderer
             if (!color.HasValue) continue;
 
             float position = -1;
-            if (posPart.EndsWith("%"))
+            float px = -1;
+            // A stop may carry two position tokens ("#000 0 10px" — a range
+            // hint); the first one is the stop's own position.
+            var posTokens = posPart.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            if (posTokens.Length > 0)
             {
-                if (float.TryParse(posPart[..^1], out var pct))
-                    position = pct / 100f;
+                var tok = posTokens[0];
+                if (tok.EndsWith("%"))
+                {
+                    if (float.TryParse(tok[..^1], System.Globalization.NumberStyles.Float,
+                            System.Globalization.CultureInfo.InvariantCulture, out var pct))
+                        position = pct / 100f;
+                }
+                else if (tok.EndsWith("px"))
+                {
+                    if (float.TryParse(tok[..^2], System.Globalization.NumberStyles.Float,
+                            System.Globalization.CultureInfo.InvariantCulture, out var pxv))
+                        px = pxv;
+                }
+                else if (tok == "0")
+                    px = 0;
             }
 
-            stops.Add(new ColorStop { Color = color.Value, Position = position });
+            stops.Add(new ColorStop { Color = color.Value, Position = position, Px = px });
         }
 
         if (stops.Count > 0)
         {
+            bool Positioned(ColorStop s) => s.Position >= 0 || s.Px >= 0;
+
             // First: set first stop to 0% and last stop to 100% if unspecified
-            if (stops[0].Position < 0) stops[0] = new ColorStop { Color = stops[0].Color, Position = 0f };
-            if (stops[^1].Position < 0) stops[^1] = new ColorStop { Color = stops[^1].Color, Position = 1f };
+            if (!Positioned(stops[0])) stops[0] = new ColorStop { Color = stops[0].Color, Position = 0f, Px = -1 };
+            if (!Positioned(stops[^1])) stops[^1] = new ColorStop { Color = stops[^1].Color, Position = 1f, Px = -1 };
 
             // Distribute remaining unpositioned stops evenly between known positions
             for (int i = 0; i < stops.Count; i++)
             {
-                if (stops[i].Position >= 0) continue;
+                if (Positioned(stops[i])) continue;
 
                 int start = i - 1;
                 // find the next assigned position
-                int end = stops.FindIndex(i + 1, s => s.Position >= 0);
+                int end = stops.FindIndex(i + 1, s => Positioned(s) && (s.Position >= 0 || s.Px >= 0));
                 if (end < 0) end = stops.Count - 1;
+                if (start < 0) start = 0;
 
-                float startPos = stops[start].Position;
-                float endPos = stops[end].Position;
-                int count = end - start;
+                float startPos = EffectiveFraction(stops[start], 1f);
+                float endPos = EffectiveFraction(stops[end], 1f);
+                int count = Math.Max(1, end - start);
                 float step = (endPos - startPos) / count;
                 for (int j = start + 1; j < end; j++)
                 {
-                    stops[j] = new ColorStop { Color = stops[j].Color, Position = startPos + step * (j - start) };
+                    stops[j] = new ColorStop { Color = stops[j].Color, Position = startPos + step * (j - start), Px = -1 };
                 }
                 i = end; // skip ahead
             }
@@ -234,24 +277,25 @@ public static class GradientRenderer
         return stops;
     }
 
+    // A stop's position as a 0..1 fraction; px values need the gradient length
+    // and are resolved by the caller, so fall back to the fraction when known.
+    private static float EffectiveFraction(ColorStop s, float fallback) =>
+        s.Position >= 0 ? s.Position : fallback;
+
     private static int FindColorStopSplit(string s)
     {
+        // The color comes first; the position (possibly several tokens) after
+        // it. Find the first space outside parentheses — functional colors like
+        // rgb(0, 0, 0) keep their inner spaces.
         int depth = 0;
-        int lastSpace = -1;
-        for (int i = s.Length - 1; i >= 0; i--)
+        for (int i = 0; i < s.Length; i++)
         {
-            if (s[i] == ')') depth++;
-            else if (s[i] == '(') depth--;
+            if (s[i] == '(') depth++;
+            else if (s[i] == ')') depth--;
             else if (depth == 0 && s[i] == ' ')
-            {
-                lastSpace = i;
-                // Check if the part after the space looks like a position (starts with digit, ., +, -, or ends with %)
-                string after = s[(i + 1)..].TrimStart();
-                if (after.Length > 0 && (char.IsDigit(after[0]) || after[0] == '.' || after[0] == '+' || after[0] == '-' || after[^1] == '%'))
-                    return i;
-            }
+                return i;
         }
-        return lastSpace;
+        return -1;
     }
 
     private static SKColor? ParseColor(string s)
@@ -292,5 +336,7 @@ public static class GradientRenderer
     {
         public SKColor Color;
         public float Position;
+        /// <summary>Explicit pixel position (first position token), or -1.</summary>
+        public float Px;
     }
 }

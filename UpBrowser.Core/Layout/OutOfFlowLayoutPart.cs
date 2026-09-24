@@ -103,9 +103,18 @@ public class OutOfFlowLayoutPart
 
         float containerInline = _containerBuilder.InlineSize;
         float containerBlock = _containerBuilder.BlockSize;
-        var containerContentSize = new LogicalSize(
-            Math.Max(0, containerInline - _containerBuilder.BorderLeft - _containerBuilder.BorderRight - _containerBuilder.PaddingLeft - _containerBuilder.PaddingRight),
-            Math.Max(0, containerBlock - _containerBuilder.BorderTop - _containerBuilder.BorderBottom - _containerBuilder.PaddingTop - _containerBuilder.PaddingBottom));
+
+        // The containing block of an absolutely-positioned child is the PADDING
+        // box of the positioned ancestor; fragment offsets are relative to the
+        // content box origin (the converter adds the parent's content origin),
+        // hence the "- padding" shift applied to every resolved inset below.
+        float contentInline = Math.Max(0, containerInline - _containerBuilder.BorderLeft - _containerBuilder.BorderRight
+            - _containerBuilder.PaddingLeft - _containerBuilder.PaddingRight);
+        float contentBlock = Math.Max(0, containerBlock - _containerBuilder.BorderTop - _containerBuilder.BorderBottom
+            - _containerBuilder.PaddingTop - _containerBuilder.PaddingBottom);
+        float padBoxInline = contentInline + _containerBuilder.PaddingLeft + _containerBuilder.PaddingRight;
+        float padBoxBlock = contentBlock + _containerBuilder.PaddingTop + _containerBuilder.PaddingBottom;
+        var paddingBoxSize = new LogicalSize(padBoxInline, padBoxBlock);
 
         foreach (var candidate in _candidates)
         {
@@ -123,14 +132,11 @@ public class OutOfFlowLayoutPart
                 border.Bottom + padding.Bottom, border.Left + padding.Left);
 
             // Compute the border box size of the OOF box.
-            var (inlineSize, blockSize) = AbsoluteUtils.ComputeOutOfFlowSize(style, containerContentSize, bp);
+            var (inlineSize, blockSize) = AbsoluteUtils.ComputeOutOfFlowSize(style, paddingBoxSize, bp);
 
-            // Determine position.
-            var (x, y) = AbsoluteUtils.ComputeOutOfFlowPosition(style, inlineSize, blockSize, containerContentSize);
-
-            // Apply static position for auto insets (e.g. in-flow position for
-            // "static" placement).
-            ApplyStaticPosition(candidate, style, inlineSize, blockSize, containerContentSize, ref x, ref y);
+            // Resolve the box origin. The returned offsets are relative to the
+            // container's CONTENT box (the convention fragment offsets use).
+            var (x, y) = ComputePosition(style, inlineSize, blockSize, paddingBoxSize, candidate, _containerBuilder);
 
             // Create the fragment for this OOF box. The element is laid out with
             // its real algorithm (block/flex/grid/replaced) so children render,
@@ -139,12 +145,12 @@ public class OutOfFlowLayoutPart
             BoxFragment fragment;
             if (element != null)
             {
-                float contentInline = Math.Max(0, inlineSize - bp.HorizontalSum);
-                float contentBlock = Math.Max(0, blockSize - bp.VerticalSum);
+                float contentInline2 = Math.Max(0, inlineSize - bp.HorizontalSum);
+                float contentBlock2 = Math.Max(0, blockSize - bp.VerticalSum);
                 bool hasDefiniteBlock = style.Height is PixelLength or PercentLength;
                 var childSpace = new ConstraintSpace(
-                    availableInlineSize: contentInline,
-                    availableBlockSize: hasDefiniteBlock ? contentBlock : float.PositiveInfinity,
+                    availableInlineSize: contentInline2,
+                    availableBlockSize: hasDefiniteBlock ? contentBlock2 : float.PositiveInfinity,
                     isFixedInlineSize: true,
                     isFixedBlockSize: hasDefiniteBlock
                 );
@@ -152,9 +158,6 @@ public class OutOfFlowLayoutPart
                 fragment = result.Fragment;
                 fragment.InlineSize = inlineSize;
                 fragment.BlockSize = blockSize;
-                fragment.InlineOffset = x + _containerBuilder.PaddingLeft;
-                fragment.BlockOffset = y + _containerBuilder.PaddingTop;
-                fragment.IsOutOfFlowPositioned = true;
             }
             else
             {
@@ -162,46 +165,51 @@ public class OutOfFlowLayoutPart
                 {
                     InlineSize = inlineSize,
                     BlockSize = blockSize,
-                    InlineOffset = x + _containerBuilder.PaddingLeft,
-                    BlockOffset = y + _containerBuilder.PaddingTop,
                     Element = element,
-                    IsOutOfFlowPositioned = true,
                 };
             }
+            fragment.InlineOffset = x;
+            fragment.BlockOffset = y;
+            fragment.IsOutOfFlowPositioned = true;
 
             _containerBuilder.Children.Add(fragment);
         }
     }
 
-    private static void ApplyStaticPosition(OutOfFlowChildCandidate candidate, ComputedStyle style, float inlineSize, float blockSize,
-        LogicalSize containerContentSize, ref float x, ref float y)
+    /// <summary>
+    /// Resolve the OOF box's border-box origin relative to the container's
+    /// CONTENT box. Explicit insets win (start side first); when both insets on
+    /// an axis are auto the static position applies. The static inline offset is
+    /// recorded border-box relative (border + padding = the content origin), the
+    /// static block offset is content-box relative.
+    /// </summary>
+    private static (float x, float y) ComputePosition(ComputedStyle style, float inlineSize, float blockSize,
+        LogicalSize paddingBoxSize, OutOfFlowChildCandidate candidate, BoxFragmentBuilder builder)
     {
-        var sp = candidate.StaticPosition;
+        float padL = builder.PaddingLeft, padT = builder.PaddingTop;
+        float x, y;
 
-        // If 'left' and 'right' are both auto, use the static position for inline axis.
-        if (style.Left is AutoLength && style.Right is AutoLength)
-        {
-            x = sp.InlinePosition switch
-            {
-                LogicalStaticPosition.StaticInlinePosition.Left => 0,
-                LogicalStaticPosition.StaticInlinePosition.Center => Math.Max(0, (containerContentSize.InlineSize - inlineSize) / 2),
-                LogicalStaticPosition.StaticInlinePosition.Right => Math.Max(0, containerContentSize.InlineSize - inlineSize),
-                _ => sp.Offset.InlineOffset,
-            };
-        }
+        if (style.Left is not AutoLength)
+            x = ResolveInset(style.Left, paddingBoxSize.InlineSize, style.FontSize) - padL;
+        else if (style.Right is not AutoLength)
+            x = paddingBoxSize.InlineSize - ResolveInset(style.Right, paddingBoxSize.InlineSize, style.FontSize) - inlineSize - padL;
+        else
+            x = candidate.StaticPosition.Offset.InlineOffset - builder.BorderLeft - padL;
 
-        // If 'top' and 'bottom' are both auto, use the static position for block axis.
-        if (style.Top is AutoLength && style.Bottom is AutoLength)
-        {
-            y = sp.BlockPosition switch
-            {
-                LogicalStaticPosition.StaticBlockPosition.Top => 0,
-                LogicalStaticPosition.StaticBlockPosition.Center => Math.Max(0, (containerContentSize.BlockSize - blockSize) / 2),
-                LogicalStaticPosition.StaticBlockPosition.Bottom => Math.Max(0, containerContentSize.BlockSize - blockSize),
-                _ => sp.Offset.BlockOffset,
-            };
-        }
+        if (style.Top is not AutoLength)
+            y = ResolveInset(style.Top, paddingBoxSize.BlockSize, style.FontSize) - padT;
+        else if (style.Bottom is not AutoLength)
+            y = paddingBoxSize.BlockSize - ResolveInset(style.Bottom, paddingBoxSize.BlockSize, style.FontSize) - blockSize - padT;
+        else
+            y = candidate.StaticPosition.Offset.BlockOffset;
+
+        return (x, y);
     }
+
+    private static float ResolveInset(Length length, float basis, float fontSize) =>
+        length is PercentLength pct
+            ? pct.Value * basis
+            : length.ToPixels(fontSize, fontSize, basis, basis);
 
     private static ComputedStyle? GetStyleOf(LayoutBox box) => box.Dimensions?.Style ?? null;
     private static Element? GetElementOf(LayoutBox box) => box.Dimensions?.Element ?? null;

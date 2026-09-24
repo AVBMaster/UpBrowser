@@ -50,7 +50,10 @@ public class CssSelectorParser
 
         if (compounds.Count == 1)
         {
-            first.IsLastInComplexSelector = true;
+            // The chain walks head (leftmost simple) → tail via SubSelector links,
+            // so the terminator must be the compound's LAST simple selector;
+            // marking the head would make 'table.it' match every table.
+            TailOf(first).IsLastInComplexSelector = true;
             return first;
         }
 

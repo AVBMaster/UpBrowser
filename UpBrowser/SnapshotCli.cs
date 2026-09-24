@@ -22,6 +22,8 @@ internal static class SnapshotCli
                 "--snapshot" => RunSnapshot(args),
                 "--diff" => RunDiff(args),
                 "--dumplayout" => RunDumpLayout(args),
+                "--textops" => RunTextOps(args),
+                "--pixels" => RunPixels(args),
                 _ => Usage(),
             };
         }
@@ -117,14 +119,14 @@ internal static class SnapshotCli
         if (box != null)
         {
             var b = box.BorderBox;
-            Console.WriteLine($"{indent}<{element.TagName}> fontSize={element.ComputedStyle?.FontSize} border=({b.Left:F1},{b.Top:F1} {b.Width:F1}x{b.Height:F1}) lineH={box.LineHeight:F1} lines={box.Lines?.Count ?? 0} lineRuns={box.LineRuns?.Count ?? 0}");
+            Console.WriteLine($"{indent}<{element.TagName}> fontSize={element.ComputedStyle?.FontSize} display={element.ComputedStyle?.Display} lst={element.ComputedStyle?.ListStyleType} bgImg={(element.ComputedStyle?.BackgroundImage is { } bi && bi.Count > 0 ? bi[0] : "null")} border=({b.Left:F1},{b.Top:F1} {b.Width:F1}x{b.Height:F1}) lineH={box.LineHeight:F1} lines={box.Lines?.Count ?? 0} lineRuns={box.LineRuns?.Count ?? 0}");
             if (box.Lines != null)
             {
                 foreach (var line in box.Lines)
                 {
                     Console.WriteLine($"{indent}  line y={line.Y:F1} baseline={line.Baseline:F1} h={line.Height:F1} runs={line.Runs.Count}");
                     foreach (var run in line.Runs)
-                        Console.WriteLine($"{indent}    run '{run.Text}' x={run.X:F1} w={run.Width:F1} fs={run.FontSize}");
+                        Console.WriteLine($"{indent}    run '{run.Text}' x={run.X:F1} w={run.Width:F1} b={run.Baseline:F1} fs={run.FontSize}");
                 }
             }
         }
@@ -135,6 +137,78 @@ internal static class SnapshotCli
         foreach (var child in element.Children)
             if (child is UpBrowser.Core.Dom.Element ce)
                 DumpBox(ce, depth + 1);
+    }
+
+    /// <summary>
+    /// Debug helper: build the display list for a page and dump every text op
+    /// (text, x, y) so paint-side misplacement can be traced without pixels.
+    /// </summary>
+    private static int RunTextOps(string[] args)
+    {
+        if (args.Length < 2) return Usage();
+
+        string inputPath = args[1];
+        int width = args.Length > 2 ? int.Parse(args[2]) : 1024;
+        int height = args.Length > 3 ? int.Parse(args[3]) : 768;
+
+        if (!File.Exists(inputPath))
+        {
+            Console.Error.WriteLine($"[textops] input not found: {inputPath}");
+            return 1;
+        }
+
+        var full = Path.GetFullPath(inputPath);
+        var html = File.ReadAllText(full);
+        var baseUrl = new Uri(full).AbsoluteUri;
+
+        RenderSnapshot.EnsureInitialized();
+        var dm = new UpBrowser.Core.Dom.DocumentManager();
+        var load = dm.LoadHtmlAsync(html, baseUrl, width, height, 1f).GetAwaiter().GetResult();
+        new UpBrowser.Core.Layout.LayoutEngine().Layout(load.Document, width, height);
+
+        var visitor = new PaintVisitor(
+            contentOffsetY: 0,
+            sharedTypefaceCache: null,
+            sharedImageCache: null,
+            fontFamilies: SkiaSharp.SKFontManager.Default.FontFamilies.ToArray(),
+            baseUrl: baseUrl,
+            viewportWidth: width,
+            viewportHeight: height);
+        visitor.SetSkipInputTextOverlay(true);
+        visitor.VisitDocumentStacking(load.Document);
+
+        var displayList = visitor.GetDisplayList();
+        displayList.SortByZIndex();
+        foreach (var op in displayList.EnumerateOps())
+        {
+            Console.WriteLine($"[op] {op.GetType().Name} bounds=[{op.Bounds.Left:F2},{op.Bounds.Top:F2},{op.Bounds.Right:F2},{op.Bounds.Bottom:F2}] z={op.ZIndex}");
+            if (op is DrawTextOp t && t.Text.Length > 0 && t.Text.Length <= 12)
+                Console.WriteLine($"[text] '{t.Text}' x={t.X:F1} y={t.Y:F1} size={t.FontSize:F1}");
+            else if (op is DrawRectOp r && r.FillColor.Alpha > 0)
+                Console.WriteLine($"[rect] fill=({r.FillColor.Red},{r.FillColor.Green},{r.FillColor.Blue}) [{r.Rect.Left:F2},{r.Rect.Top:F2} - {r.Rect.Right:F2},{r.Rect.Bottom:F2}]");
+        }
+        return 0;
+    }
+
+    /// <summary>
+    /// Debug helper: print the pixel colors along a horizontal scanline of a PNG.
+    ///   UpBrowser --pixels &lt;image.png&gt; &lt;y&gt; &lt;x0&gt; &lt;x1&gt;
+    /// </summary>
+    private static int RunPixels(string[] args)
+    {
+        if (args.Length < 5) return Usage();
+        string path = args[1];
+        int y = int.Parse(args[2]);
+        int x0 = int.Parse(args[3]);
+        int x1 = int.Parse(args[4]);
+        using var bmp = SkiaSharp.SKBitmap.Decode(path);
+        if (bmp == null) { Console.Error.WriteLine($"[pixels] cannot decode {path}"); return 1; }
+        for (int x = x0; x <= x1; x++)
+        {
+            var c = bmp.GetPixel(x, y);
+            Console.WriteLine($"[px] x={x} y={y} rgb=({c.Red},{c.Green},{c.Blue})");
+        }
+        return 0;
     }
 
     private static int Usage()

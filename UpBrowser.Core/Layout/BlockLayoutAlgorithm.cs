@@ -725,8 +725,18 @@ public class BlockLayoutAlgorithm : LayoutAlgorithm
         // resolves its BFC block-offset before line breaking.
         if (!result.BfcBlockOffsetValue.HasValue)
         {
-            result.BfcBlockOffsetValue = Space.ForcedBfcBlockOffset ?? Space.GetBfcOffset().BlockOffset;
+            // Mirror the block path's NextBorderEdge: the space's estimated BFC
+            // block offset does not carry the incoming margin strut, so commit it
+            // here (a forced re-layout offset already accounts for it).
+            result.BfcBlockOffsetValue = Space.ForcedBfcBlockOffset
+                ?? Space.GetBfcOffset().BlockOffset + Space.MarginStrut.Sum;
         }
+
+        // The parent positions the child's inline edge from its BFC line offset
+        // (which carries the child's own margin). The inline algorithm never
+        // records it, so an IFC root would stack at line offset 0 and lose its
+        // left margin; echo the block path and report our space's line offset.
+        result.BfcLineOffset = Space.GetBfcOffset().LineOffset;
 
         // Block fragmentation of inline content: when laying out inside a
         // fragmentainer (column/page) with a definite block-size, keep only the
@@ -915,8 +925,8 @@ public class BlockLayoutAlgorithm : LayoutAlgorithm
 
         // Inline layout hook: the previous inline break token is always null for
         // the block-level rendering engine (no fragmentation of inline content).
+        var children = WrapInlineRuns(Node);
         var childIter = new ChildIterState(Node.Children);
-        var children = Node.Children;
         int childIndexer = 0;
         bool isClosedDetails = Node.TagName == "DETAILS" && !Node.HasAttribute("open");
         bool detailsSummaryFound = false;
@@ -1067,6 +1077,84 @@ public class BlockLayoutAlgorithm : LayoutAlgorithm
                 return e;
         }
         return null;
+    }
+
+    /// <summary>
+    /// CSS 2.1 §9.2.1.1 anonymous block wrapping: when a block container has both
+    /// in-flow block-level children and inline-level content (text or inline
+    /// elements), each maximal run of inline content forms an anonymous block
+    /// that establishes its own inline formatting context. Without this the text
+    /// runs next to block children were dropped entirely. Returns the original
+    /// child list unchanged for the common pure-block / pure-inline cases.
+    /// </summary>
+    private List<Node> WrapInlineRuns(Element node)
+    {
+        var src = node.Children;
+        if (src == null || src.Count < 2) return src ?? new List<Node>();
+
+        static bool IsInlineLevel(Node n)
+        {
+            if (n is TextNode tn) return true;
+            if (n is not Element el) return false;
+            var s = el.ComputedStyle;
+            if (s == null || s.Display == DisplayType.None) return false;
+            if (s.Position is PositionType.Absolute or PositionType.Fixed) return false;
+            if (s.Float != FloatType.None) return false;
+            return s.Display is DisplayType.Inline or DisplayType.InlineBlock
+                or DisplayType.InlineFlex or DisplayType.InlineGrid or DisplayType.Ruby;
+        }
+        static bool IsBlockLevel(Node n)
+        {
+            if (n is not Element el) return false;
+            var s = el.ComputedStyle;
+            if (s == null || s.Display == DisplayType.None) return false;
+            return !IsInlineLevel(n);
+        }
+
+        bool hasInline = false, hasBlock = false;
+        foreach (var n in src)
+        {
+            if (IsInlineLevel(n)) hasInline = true;
+            else if (IsBlockLevel(n)) hasBlock = true;
+        }
+        if (!hasInline || !hasBlock) return src;
+
+        var result = new List<Node>();
+        var run = new List<Node>();
+        void FlushRun()
+        {
+            if (run.Count == 0) return;
+            bool hasContent = run.Any(n => n is TextNode t ? !t.IsWhitespaceOnly : true);
+            if (hasContent)
+            {
+                var anon = new HtmlElement("#anonymous-block")
+                {
+                    ComputedStyle = node.ComputedStyle != null ? node.ComputedStyle.Clone() : null,
+                };
+                if (anon.ComputedStyle != null)
+                    anon.ComputedStyle.Display = DisplayType.Block;
+                foreach (var n in run)
+                    anon.AddChildReferenceForLayout(n);
+                result.Add(anon);
+            }
+            run.Clear();
+        }
+
+        foreach (var n in src)
+        {
+            if (IsInlineLevel(n))
+            {
+                run.Add(n);
+            }
+            else
+            {
+                FlushRun();
+                if (IsBlockLevel(n))
+                    result.Add(n);
+            }
+        }
+        FlushRun();
+        return result;
     }
 
     private bool _hasSeenAllChildrenInternal = true;
@@ -1430,7 +1518,13 @@ public class BlockLayoutAlgorithm : LayoutAlgorithm
 
         if (!float.IsNaN(own))
             return Math.Max(0, Math.Min(own, maxW) - _borderPadding.HorizontalSum - Space.ScrollbarInline);
-        return ChildAvailableInlineSize;
+
+        // Auto width: the box stretches to the container but min/max-width still
+        // clamp the width its children flow in (e.g. max-width: 200px wrapping).
+        float avail = ChildAvailableInlineSize;
+        if (Style.MinWidth is PixelLength mnw && mnw.Value > avail)
+            avail = mnw.Value;
+        return Math.Max(0, Math.Min(avail, maxW) - Space.ScrollbarInline);
     }
 
     private float ContainerBfcBlockOffset() => _containerBfcBlockOffset ?? Space.GetBfcOffset().BlockOffset;
@@ -1634,12 +1728,13 @@ public class BlockLayoutAlgorithm : LayoutAlgorithm
         float marginBottomBlock = style.MarginBottom.ToPixels(style.FontSize, Space.RootFontSize, Space.ViewportWidth, Space.ViewportHeight);
 
         // Where the float's border box sits on the line (engine model: left float
-        // at the start of the content box, right float at the end).
+        // at the start of the content box, right float at the end). The end must
+        // be the container's OWN content inline size (a width:400 box does not
+        // right-align at its parent's 684px available width).
         float borderBoxBlockOffset = (originBfcOffset.BlockOffset - ContainerBfcOffset().BlockOffset) + marginTopBlock;
-        float inlineContentStart = ContainerBfcOffset().LineOffset;
         float inlineOffset = isLeft
             ? 0
-            : (inlineContentStart + ChildAvailableInlineSize) - childInlineSize;
+            : Math.Max(0, OwnContentInlineSize()) - childInlineSize;
 
         // Set margins on the fragment, matching the engine's previous behavior
         // (only the block-start margin participates).
@@ -2751,7 +2846,9 @@ public class BlockLayoutAlgorithm : LayoutAlgorithm
 
         var style = Style;
         bool isRtl = IsRtl(StyleTextDirection(style));
-        float availableSpace = ChildAvailableInlineSize;
+        // Auto margins center against this box's own content width (which honors
+        // an explicit width), not the outer constraint space.
+        float availableSpace = Math.Max(0, OwnContentInlineSize());
 
         if (childStyle.MarginLeft is AutoLength || childStyle.MarginRight is AutoLength)
         {
@@ -2773,11 +2870,15 @@ public class BlockLayoutAlgorithm : LayoutAlgorithm
     private BoxStrut ComputeMarginsFor(ComputedStyle childStyle)
     {
         float font = childStyle.FontSize;
+        // Percentage margins resolve against the containing block's inline size.
+        float pctBase = LengthUtils.IsIndefinite(Space.PercentageResolutionInlineSize) ? 0 : Space.PercentageResolutionInlineSize;
+        static float M(Length l, float font, float pctBase, ConstraintSpace sp) =>
+            l is PercentLength p ? p.Value * pctBase : l.ToPixels(font, sp.RootFontSize, sp.ViewportWidth, sp.ViewportHeight);
         return new BoxStrut(
-            childStyle.MarginTop.ToPixels(font, Space.RootFontSize, Space.ViewportWidth, Space.ViewportHeight),
-            childStyle.MarginRight.ToPixels(font, Space.RootFontSize, Space.ViewportWidth, Space.ViewportHeight),
-            childStyle.MarginBottom.ToPixels(font, Space.RootFontSize, Space.ViewportWidth, Space.ViewportHeight),
-            childStyle.MarginLeft.ToPixels(font, Space.RootFontSize, Space.ViewportWidth, Space.ViewportHeight));
+            M(childStyle.MarginTop, font, pctBase, Space),
+            M(childStyle.MarginRight, font, pctBase, Space),
+            M(childStyle.MarginBottom, font, pctBase, Space),
+            M(childStyle.MarginLeft, font, pctBase, Space));
     }
 
     private float ComputeChildInlineSize(Element child, ComputedStyle childStyle)
@@ -2795,11 +2896,14 @@ public class BlockLayoutAlgorithm : LayoutAlgorithm
     {
         var s = child.ComputedStyle!;
         float font = s.FontSize;
+        float pctBase = LengthUtils.IsIndefinite(Space.PercentageResolutionInlineSize) ? 0 : Space.PercentageResolutionInlineSize;
+        static float P(Length l, float font, float pctBase, ConstraintSpace sp) =>
+            l is PercentLength p ? p.Value * pctBase : l.ToPixels(font, sp.RootFontSize, sp.ViewportWidth, sp.ViewportHeight);
         return new BoxStrut(
-            s.PaddingTop.ToPixels(font, Space.RootFontSize, Space.ViewportWidth, Space.ViewportHeight),
-            s.PaddingRight.ToPixels(font, Space.RootFontSize, Space.ViewportWidth, Space.ViewportHeight),
-            s.PaddingBottom.ToPixels(font, Space.RootFontSize, Space.ViewportWidth, Space.ViewportHeight),
-            s.PaddingLeft.ToPixels(font, Space.RootFontSize, Space.ViewportWidth, Space.ViewportHeight));
+            P(s.PaddingTop, font, pctBase, Space),
+            P(s.PaddingRight, font, pctBase, Space),
+            P(s.PaddingBottom, font, pctBase, Space),
+            P(s.PaddingLeft, font, pctBase, Space));
     }
 
     // ==========================================================================
@@ -2811,10 +2915,24 @@ public class BlockLayoutAlgorithm : LayoutAlgorithm
         float blockStartAnnotationSpace = 0)
     {
         var childStyle = child.ComputedStyle!;
-        var builder = Space.InheritBuilder(childAvailableSize.InlineSize, childAvailableSize.BlockSize);
+
+        // An auto-width block child clamped by max-width must flow its own inline
+        // content at the clamped width, not at the parent's full content width.
+        float childAvailInline = childAvailableSize.InlineSize;
+        if (IsBlockChild(child) && childStyle.Width is AutoLength)
+        {
+            if (childStyle.MaxWidth is PixelLength cmw && cmw.Value > 0)
+            {
+                var cbp = LengthUtils.ComputeBorders(childStyle);
+                float limit = cmw.Value - (cbp.HorizontalSum + LengthUtils.ComputePadding(Space, childStyle).HorizontalSum);
+                childAvailInline = Math.Min(childAvailInline, Math.Max(0, limit));
+            }
+        }
+
+        var builder = Space.InheritBuilder(childAvailInline, childAvailableSize.BlockSize);
         builder.SetIsNewFormattingContext(isNewFc);
-        builder.SetAvailableSize(childAvailableSize.InlineSize, childAvailableSize.BlockSize);
-        builder.SetPercentageResolution(childAvailableSize.InlineSize, childAvailableSize.BlockSize);
+        builder.SetAvailableSize(childAvailInline, childAvailableSize.BlockSize);
+        builder.SetPercentageResolution(childAvailInline, childAvailableSize.BlockSize);
         builder.SetDirection(Space.Direction);
 
         bool hasBfcBlockOffset = _containerBfcBlockOffset.HasValue;

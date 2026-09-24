@@ -73,6 +73,11 @@ public class DrawRectOp : PaintOp
     public BorderStyle BorderBottomStyle { get; set; }
     public BorderStyle BorderLeftStyle { get; set; }
     public float BorderRadius { get; set; }
+    /// <summary>
+    /// Optional per-corner elliptical radii [TL, TR, BR, BL] as (rx, ry) pairs.
+    /// When set it overrides the scalar <see cref="BorderRadius"/> for the fill.
+    /// </summary>
+    public SKPoint[]? CornerRadii { get; set; }
 
     public override void Reset()
     {
@@ -83,6 +88,7 @@ public class DrawRectOp : PaintOp
         BorderTopColor = BorderRightColor = BorderBottomColor = BorderLeftColor = default;
         BorderTopStyle = BorderRightStyle = BorderBottomStyle = BorderLeftStyle = BorderStyle.None;
         BorderRadius = 0;
+        CornerRadii = null;
     }
 
     public override void Execute(SKCanvas canvas)
@@ -91,7 +97,7 @@ public class DrawRectOp : PaintOp
                          BorderBottomWidth > 0 || BorderLeftWidth > 0;
         bool hasFill = FillColor.Alpha > 0;
 
-        if (BorderRadius > 0 && (hasFill || hasBorder))
+        if ((BorderRadius > 0 || CornerRadii != null) && (hasFill || hasBorder))
         {
             ExecuteWithRoundRect(canvas, hasFill, hasBorder);
         }
@@ -103,10 +109,20 @@ public class DrawRectOp : PaintOp
 
     private void ExecuteWithRoundRect(SKCanvas canvas, bool hasFill, bool hasBorder)
     {
-        var pb = new SKPathBuilder();
         var aligned = AlignRectToDevice(Rect, canvas);
-        pb.AddRoundRect(aligned, BorderRadius, BorderRadius);
-        using var borderPath = pb.Detach();
+        // Per-corner elliptical radii (from border-radius, including percentages
+        // resolved against the box) drive the fill; the scalar radius keeps the
+        // legacy uniform path for borders.
+        bool useCorners = hasFill && CornerRadii != null;
+        using var borderPath = new SKPath();
+        if (useCorners)
+        {
+            var rr = new SKRoundRect();
+            rr.SetRectRadii(aligned, CornerRadii!);
+            borderPath.AddRoundRect(rr);
+        }
+        else
+            borderPath.AddRoundRect(aligned, BorderRadius, BorderRadius);
 
         if (hasBorder)
         {
@@ -154,7 +170,10 @@ public class DrawRectOp : PaintOp
             {
                 Color = FillColor,
                 Style = SKPaintStyle.Fill,
-                IsAntialias = true
+                // The rect is snapped to device pixels; antialiasing an exact
+                // edge-boundary fill feathers it and lets the underlying layer
+                // bleed through as a hairline seam between adjacent boxes.
+                IsAntialias = false
             };
             canvas.DrawRect(alignedRect, paint);
         }
@@ -519,7 +538,7 @@ public class DrawTextOp : PaintOp
                     var font = CreateFont(currentTypeface);
                     float runWidth = MeasureRunWidth(run, currentTypeface);
                     if (!dryRun)
-                        canvas.DrawText(run, SnapToDevice(currentX, snapScale), y, SKTextAlign.Left, font, paint);
+                        DrawRunWithSpacing(canvas, paint, font, run, SnapToDevice(currentX, snapScale), y);
                     currentX += runWidth;
 
                     currentTypeface = neededTypeface;
@@ -532,12 +551,33 @@ public class DrawTextOp : PaintOp
                 var font = CreateFont(currentTypeface);
                 float runWidth = MeasureRunWidth(run, currentTypeface);
                 if (!dryRun)
-                    canvas.DrawText(run, SnapToDevice(currentX, snapScale), y, SKTextAlign.Left, font, paint);
+                    DrawRunWithSpacing(canvas, paint, font, run, SnapToDevice(currentX, snapScale), y);
                 currentX += runWidth;
             }
         }
 
         return currentX - x;
+    }
+
+    /// <summary>
+    /// Draw one same-typeface run. With a non-zero letter-spacing the glyphs are
+    /// placed individually (Skia has no run-level tracking on DrawText); the
+    /// per-glyph advance matches MeasureRunWidth's base width + spacing model.
+    /// </summary>
+    private void DrawRunWithSpacing(SKCanvas canvas, SKPaint paint, SKFont font, string run, float x, float y)
+    {
+        if (LetterSpacing == 0 || run.Length <= 1)
+        {
+            canvas.DrawText(run, x, y, SKTextAlign.Left, font, paint);
+            return;
+        }
+        float cx = x;
+        for (int i = 0; i < run.Length; i++)
+        {
+            string ch = run[i].ToString();
+            canvas.DrawText(ch, cx, y, SKTextAlign.Left, font, paint);
+            cx += font.MeasureText(ch) + (i < run.Length - 1 ? LetterSpacing : 0);
+        }
     }
 
     /// <summary>
@@ -1504,7 +1544,13 @@ public class PushClipOp : PaintOp
         if (ClipPath != null)
             canvas.ClipPath(ClipPath, SKClipOperation.Intersect, AntiAlias);
         else
-            canvas.ClipRect(ClipRect, SKClipOperation.Intersect, AntiAlias);
+        {
+            // Snap the clip to device pixels and clip without antialiasing:
+            // an AA clip at a fractional edge feathers coverage below 100%,
+            // letting the backdrop bleed through as a hairline seam between
+            // adjacent boxes (e.g. grid cells).
+            canvas.ClipRect(AlignRectToDevice(ClipRect, canvas), SKClipOperation.Intersect, false);
+        }
     }
 }
 

@@ -37,9 +37,20 @@ public static class CssFunctionEvaluator
         _customProperties.Clear();
     }
 
-    public static string Evaluate(string value, Element? context = null, float parentFontSize = 16, float rootFontSize = 16, float viewportWidth = 0, float viewportHeight = 0, int maxRecursion = 10)
+    public static string Evaluate(string value, Element? context = null, float parentFontSize = 16, float rootFontSize = 16, float viewportWidth = 0, float viewportHeight = 0, int maxRecursion = 10, bool forceMath = false)
     {
         if (string.IsNullOrEmpty(value) || maxRecursion <= 0) return value;
+
+        // Percentages inside calc()/min()/max()/clamp() depend on the containing
+        // block, which is unknown at computed-value time: substitute var()/attr()
+        // only and keep the math expression intact (MathLength) so the layout
+        // pass can resolve it against the correct percentage base. Layout-time
+        // callers pass forceMath: true to get the numeric result.
+        if (!forceMath && HasMathFunctionWithPercent(value))
+        {
+            var varsOnly = EvaluateVar(value, context, parentFontSize, rootFontSize, viewportWidth, viewportHeight, maxRecursion);
+            return EvaluateAttr(varsOnly, context);
+        }
 
         var result = value;
 
@@ -51,6 +62,35 @@ public static class CssFunctionEvaluator
         result = EvaluateCounters(result, context);
 
         return result;
+    }
+
+    /// <summary>True when a calc/min/max/clamp expression in the value contains a
+    /// '%' token before its closing parenthesis.</summary>
+    public static bool HasMathFunctionWithPercent(string value)
+    {
+        if (string.IsNullOrEmpty(value) || !value.Contains('%')) return false;
+        string[] funcs = { "calc(", "min(", "max(", "clamp(" };
+        for (int i = 0; i < value.Length; i++)
+        {
+            foreach (var f in funcs)
+            {
+                if (i + f.Length <= value.Length &&
+                    value.AsSpan(i, f.Length).Equals(f.AsSpan(), StringComparison.OrdinalIgnoreCase))
+                {
+                    int depth = 1;
+                    int j = i + f.Length;
+                    for (; j < value.Length && depth > 0; j++)
+                    {
+                        if (value[j] == '(') depth++;
+                        else if (value[j] == ')') depth--;
+                        else if (value[j] == '%' && depth > 0) return true;
+                    }
+                    i = j;
+                    break;
+                }
+            }
+        }
+        return false;
     }
 
     private static string EvaluateVar(string value, Element? context, float parentFontSize, float rootFontSize, float viewportWidth, float viewportHeight, int maxRecursion = 10)
@@ -155,20 +195,23 @@ public static class CssFunctionEvaluator
         while (i < value.Length)
         {
             string? func = null;
-            if (i + 4 < value.Length && value[i..(i + 5)].Equals("calc(", StringComparison.OrdinalIgnoreCase))
+            // A function name must start at a token boundary: 'max(' inside
+            // 'minmax(' is not a call to max().
+            bool boundary = i == 0 || !(char.IsLetterOrDigit(value[i - 1]) || value[i - 1] == '-' || value[i - 1] == '_');
+            if (boundary && i + 4 < value.Length && value[i..(i + 5)].Equals("calc(", StringComparison.OrdinalIgnoreCase))
                 func = "calc";
-            else if (i + 3 < value.Length && value[i..(i + 4)].Equals("min(", StringComparison.OrdinalIgnoreCase))
+            else if (boundary && i + 3 < value.Length && value[i..(i + 4)].Equals("min(", StringComparison.OrdinalIgnoreCase))
                 func = "min";
-            else if (i + 3 < value.Length && value[i..(i + 4)].Equals("max(", StringComparison.OrdinalIgnoreCase))
+            else if (boundary && i + 3 < value.Length && value[i..(i + 4)].Equals("max(", StringComparison.OrdinalIgnoreCase))
                 func = "max";
-            else if (i + 5 < value.Length && value[i..(i + 6)].Equals("clamp(", StringComparison.OrdinalIgnoreCase))
+            else if (boundary && i + 5 < value.Length && value[i..(i + 6)].Equals("clamp(", StringComparison.OrdinalIgnoreCase))
                 func = "clamp";
 
             if (func != null)
             {
-                int parenStart = i + func.Length;
+                int parenStart = i + func.Length; // index of the '(' character
                 int depth = 1;
-                int j = parenStart;
+                int j = parenStart + 1;           // start scanning AFTER '('
                 while (j < value.Length && depth > 0)
                 {
                     if (value[j] == '(') depth++;

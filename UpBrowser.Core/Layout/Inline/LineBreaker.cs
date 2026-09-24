@@ -142,6 +142,10 @@ public class LineBreaker
         {
             var lineInfo = new LineInfo();
             NextLine(lineInfo);
+            // A trailing forced break ("text<br>") does not open an extra empty
+            // line box; only breaks followed by more content do ("a<br><br>").
+            if (lineInfo.IsLastLine() && lineInfo.IsEmptyLine() && _previousLineHadForcedBreak)
+                break;
             lines.Add(lineInfo);
             if (lineInfo.IsLastLine()) break;
         }
@@ -209,13 +213,11 @@ public class LineBreaker
         if (IsFinished() && !_isForcedBreak)
             lineInfo.SetIsLastLine(true);
 
-        // |IsLastLine| is set to false in |PrepareNextLine|.
-        // It will be reset if the line has a forced break.
+        // A forced break marks the line as broken but does NOT end the block:
+        // content after the <br> continues on the following line (the outer
+        // loop stops via IsFinished once the last item is consumed).
         if (_isForcedBreak)
-        {
-            lineInfo.SetIsLastLine(true);
             lineInfo.SetHasForcedBreak();
-        }
 
         // Empty lines (e.g. only open/close tags) have no inflow content.
         if (lineInfo.Results().Count == 0)
@@ -518,7 +520,6 @@ public class LineBreaker
             _position -= RemoveHyphen(lineInfo.MutableResults());
         _isForcedBreak = true;
         lineInfo.SetHasForcedBreak();
-        lineInfo.SetIsLastLine(true);
         _state = LineBreakState.Done;
     }
 

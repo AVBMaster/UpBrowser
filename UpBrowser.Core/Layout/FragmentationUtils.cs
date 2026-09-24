@@ -33,6 +33,10 @@ public static class AbsoluteUtils
         ComputedStyle style, LogicalSize availableSize, BoxStrut borderPadding)
     {
         var (left, top, right, bottom) = ComputeOutOfFlowInsets(style, availableSize);
+        bool leftSpecified = style.Left is PixelLength or PercentLength;
+        bool rightSpecified = style.Right is PixelLength or PercentLength;
+        bool topSpecified = style.Top is PixelLength or PercentLength;
+        bool bottomSpecified = style.Bottom is PixelLength or PercentLength;
 
         float inlineSize = availableSize.InlineSize;
         float blockSize = availableSize.BlockSize;
@@ -51,7 +55,7 @@ public static class AbsoluteUtils
                 ? Math.Max(borderPadding.HorizontalSum, baseSize)
                 : baseSize + borderPadding.HorizontalSum;
         }
-        else if (left > 0 && right > 0)
+        else if (leftSpecified && rightSpecified)
             inlineSize = Math.Max(0, availableSize.InlineSize - left - right);
 
         if (style.Height is PixelLength ph)
@@ -67,7 +71,7 @@ public static class AbsoluteUtils
                 ? Math.Max(borderPadding.VerticalSum, baseSize)
                 : baseSize + borderPadding.VerticalSum;
         }
-        else if (top > 0 && bottom > 0)
+        else if (topSpecified && bottomSpecified)
             blockSize = Math.Max(0, availableSize.BlockSize - top - bottom);
 
         return (inlineSize, blockSize);

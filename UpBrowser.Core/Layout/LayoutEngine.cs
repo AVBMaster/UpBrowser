@@ -488,18 +488,24 @@ public class LayoutEngine
                 // Read hex digits for CSS unicode escape
                 int hexStart = i + 1;
                 int hexEnd = hexStart;
-                while (hexEnd < content.Length && char.IsLetterOrDigit(content[hexEnd]) && hexEnd - hexStart < 6)
+                while (hexEnd < content.Length && IsHexDigit(content[hexEnd]) && hexEnd - hexStart < 6)
                     hexEnd++;
                 if (hexEnd > hexStart)
                 {
                     var hexStr = content[hexStart..hexEnd];
-                    if (int.TryParse(hexStr, System.Globalization.NumberStyles.HexNumber, null, out var codePoint))
+                    if (int.TryParse(hexStr, System.Globalization.NumberStyles.HexNumber, null, out var codePoint)
+                        && codePoint > 0 && codePoint <= 0x10FFFF)
                     {
-                        result.Append((char)codePoint);
+                        result.Append(char.ConvertFromUtf32(codePoint));
+                        // A single whitespace after the hex digits is part of the escape.
+                        if (hexEnd < content.Length && content[hexEnd] == ' ')
+                            hexEnd++;
                         i = hexEnd - 1;
                         continue;
                     }
                 }
+                // Non-hex escape: the backslash escapes the following character.
+                i++;
                 result.Append(content[i]);
             }
             else
@@ -509,4 +515,7 @@ public class LayoutEngine
         }
         return result.ToString();
     }
+
+    private static bool IsHexDigit(char c) =>
+        (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
 }

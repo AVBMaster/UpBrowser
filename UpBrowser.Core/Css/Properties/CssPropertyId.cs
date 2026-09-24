@@ -459,6 +459,7 @@ public static class CssPropertyIdExtensions
             string name = id.ToString();
             name = System.Text.RegularExpressions.Regex.Replace(name, "([a-z])([A-Z])", "$1-$2").ToLowerInvariant();
             if (name == "i-m-e-mode") name = "ime-mode";
+            if (name == "zindex") name = "z-index";
             if (name == "s-v-g-width") name = "svg-width";
             if (name == "s-v-g-height") name = "svg-height";
             if (name == "s-v-g-x") name = "svg-x";

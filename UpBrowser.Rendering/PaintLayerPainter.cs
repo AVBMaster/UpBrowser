@@ -51,8 +51,9 @@ internal sealed class PaintLayerPainter
         var effectState = new ScopedPaintState(_displayList,
             new SKPoint(0, contentOffsetY),
             new SKRect(float.MinValue / 2, float.MinValue / 2, float.MaxValue, float.MaxValue));
-        if (style.Visibility == VisibilityType.Visible)
-            _visitor.PushObjectEffects(style, layoutBox, offsetBorderBox, effectState);
+        // Effects (transform/clip/opacity) must wrap the subtree even for a
+        // visibility:hidden element: its descendants may re-declare visible.
+        _visitor.PushObjectEffects(style, layoutBox, offsetBorderBox, effectState);
 
         PaintLayerBackground(element, layoutBox, style, contentOffsetY);
 
@@ -66,9 +67,38 @@ internal sealed class PaintLayerPainter
             return;
         }
 
+        // The element's own inline content must respect its overflow clip;
+        // PushAncestorStates only clips descendant layers.
+        bool selfClips = PaintLayerClipper.CreatesOverflowClip(style) &&
+            (layoutBox.IsScrollContainer || style.Overflow == OverflowType.Hidden
+             || style.OverflowX == OverflowType.Hidden || style.OverflowY == OverflowType.Hidden);
+        if (selfClips)
+        {
+            var selfClip = layoutBox.IsScrollContainer
+                ? new SKRect(layoutBox.ContentBox.Left, layoutBox.ContentBox.Top + contentOffsetY,
+                    layoutBox.ContentBox.Right, layoutBox.ContentBox.Bottom + contentOffsetY)
+                : new SKRect(layoutBox.PaddingBox.Left, layoutBox.PaddingBox.Top + contentOffsetY,
+                    layoutBox.PaddingBox.Right, layoutBox.PaddingBox.Bottom + contentOffsetY);
+            if (selfClip.Width > 0 && selfClip.Height > 0)
+            {
+                var clipOp = PaintOpPool.GetPushClipOp();
+                clipOp.ClipRect = selfClip;
+                clipOp.Bounds = selfClip;
+                _displayList.Add(clipOp);
+            }
+            else selfClips = false;
+        }
+
         PaintLayerContent(element, layoutBox, style, contentOffsetY);
 
         PaintOverflowControls(layoutBox, style, contentOffsetY);
+
+        if (selfClips)
+        {
+            var popOp = PaintOpPool.GetPopClipOp();
+            popOp.Bounds = layoutBox.BorderBox;
+            _displayList.Add(popOp);
+        }
 
         _clipper.Pop(pushedStates, layoutBox.BorderBox);
         effectState.Dispose();
@@ -98,8 +128,9 @@ internal sealed class PaintLayerPainter
 
     private void PaintLayerContent(Element element, LayoutBox box, ComputedStyle style, float contentOffsetY)
     {
-        if (style.Visibility != VisibilityType.Visible) return;
-
+        // NOT gated on visibility:hidden: DrawElementContent filters the element's
+        // own content internally but still paints descendants that re-declare
+        // visibility:visible.
         var offsetBorderBox = new SKRect(
             box.BorderBox.Left,
             box.BorderBox.Top + contentOffsetY,

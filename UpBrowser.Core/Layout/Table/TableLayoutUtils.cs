@@ -51,14 +51,16 @@ public static class TableLayoutUtils
 
     public static bool IsEmptyTableSection(Element section) => GetSectionRows(section).Count == 0;
 
-    /// <summary>Rows of a section. A <tr> that appears directly under the table
-    /// (no surrounding tbody) is treated as a section of one row.</summary>
+    /// <summary>Rows of a section. A &lt;tr&gt; that appears directly under the table
+    /// (no surrounding tbody) is treated as a section of one row. Rows with
+    /// display:none are excluded so hidden rows take no space at all.</summary>
     public static List<Element> GetSectionRows(Element section)
     {
         var rows = new List<Element>();
         foreach (var child in section.Children)
         {
-            if (child is Element el && el.TagName == "TR")
+            if (child is Element el && el.TagName == "TR"
+                && el.ComputedStyle?.Display != DisplayType.None)
             {
                 rows.Add(el);
             }

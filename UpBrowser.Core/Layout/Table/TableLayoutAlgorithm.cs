@@ -402,6 +402,9 @@ public class TableLayoutAlgorithm : LayoutAlgorithm
         bool hasCollapsedBorders = tableBorders.IsCollapsed;
         int sectionRowCount = Math.Max(1, section.row_count);
 
+        // Each row restarts column assignment; without this the second row of a
+        // section would continue counting columns from the first row's end.
+        tabulator.StartRow();
         foreach (var child in row.Children)
         {
             if (child is not Element cell)
@@ -461,5 +464,6 @@ public class TableLayoutAlgorithm : LayoutAlgorithm
 
             tabulator.ProcessCell(cell);
         }
+        tabulator.EndRow();
     }
 }

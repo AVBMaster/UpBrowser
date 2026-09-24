@@ -53,6 +53,13 @@ public class LogicalLineBuilder
         _boxStates.SetIsEmptyLine(lineInfo.IsEmptyLine());
         InlineBoxState? box = _boxStates.OnBeginPlaceItems(_node, lineStyle, _baselineType, _quirksMode, lineBox);
 
+        // A continuation line starting inside an inline element must re-push the
+        // open-tag states of the preceding items (after OnBeginPlaceItems reset
+        // the stack), so the line's CloseTag pops the element state and not the
+        // root, and trailing text still has a box.
+        if (lineItems.Count > 0 && lineItems[0].ItemIndex > 0)
+            RebuildBoxStates(lineInfo, 0, lineItems[0].ItemIndex);
+
         if (_quirksMode && lineStyle.Display == DisplayType.ListItem)
         {
             box!.ComputeTextMetrics(lineStyle, FontHelper.GetFont(lineStyle), _baselineType);
@@ -404,9 +411,7 @@ public class LogicalLineBuilder
 
     public void RebuildBoxStates(LineInfo lineInfo, int startItemIndex, int endItemIndex)
     {
-        var lineStyle = lineInfo.HasLineStyle ? lineInfo.LineStyle() : _node.Style;
         LogicalLineItems lineBox = _context.AcquireTempLogicalLineItems();
-        _boxStates.OnBeginPlaceItems(_node, lineStyle, _baselineType, _quirksMode, lineBox);
         for (int i = Math.Max(0, startItemIndex); i < endItemIndex && i < lineInfo.ItemsData().Items.Count; i++)
         {
             var item = lineInfo.ItemsData().Items[i];

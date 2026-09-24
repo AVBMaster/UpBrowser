@@ -235,6 +235,13 @@ public class CssTokenizer
     {
         if (Peek() != '\\') return string.Empty;
         Consume();
+        return ConsumeEscapeBody();
+    }
+
+    /// <summary>Consumes the body of an escape sequence whose leading
+    /// backslash has already been consumed by the caller.</summary>
+    private string ConsumeEscapeBody()
+    {
         if (Peek() == '\0') return string.Empty;
         _prevPos = _pos;
 
@@ -389,7 +396,7 @@ public class CssTokenizer
                 }
                 else if (Peek() != '\0')
                 {
-                    sb.Append(ConsumeEscape());
+                    sb.Append(ConsumeEscapeBody());
                 }
                 else
                 {
@@ -470,8 +477,8 @@ public class CssTokenizer
         {
             char c = Consume();
             if (c == ')') return;
-            if (c == '\\' && NextTwoCharsAreValidEscape())
-                ConsumeEscape();
+            if (c == '\\' && Peek() != '\0' && !IsWhitespace(Peek()))
+                ConsumeEscapeBody();
         }
     }
 

@@ -61,6 +61,22 @@ public static class LengthUtils
             return value;
         }
 
+        // calc()/min()/max()/clamp() expressions containing '%' resolve their
+        // percentages against the same inline-size base the plain PercentLength
+        // path above uses (ToPixels maps the reference onto '%' conversion).
+        if (length is MathLength mathLen && mathLen.Expression.Contains('%') && !IsIndefinite(percentageBase))
+        {
+            float mvalue = mathLen.ToPixels(percentageBase, space.RootFontSize, space.ViewportWidth, space.ViewportHeight);
+            if (!float.IsNaN(mvalue) && !float.IsInfinity(mvalue))
+            {
+                if (style.BoxSizing == BoxSizingType.BorderBox)
+                    mvalue = Math.Max(borderPadding.HorizontalSum, mvalue);
+                else
+                    mvalue += borderPadding.HorizontalSum;
+                return mvalue;
+            }
+        }
+
         // Every remaining unit (em/rem/vw/vh/vmin/vmax/ex/ch/cq*/dv*/sv*/lv*/
         // vi/vb/re*/ric/lh/rlh/cap/rcap/math…) resolves through the shared ToPixels
         // with the real root-font-size & viewport carried by the constraint space.
@@ -106,6 +122,19 @@ public static class LengthUtils
         // Every remaining unit (em/rem/vw/vh/vmin/vmax/ex/ch/cq*/dv*/sv*/lv*/
         // vi/vb/re*/ric/lh/rlh/cap/rcap/math…) resolves through the shared ToPixels
         // with the real root-font-size & viewport carried by the constraint space.
+        if (length is MathLength mathLenB && mathLenB.Expression.Contains('%') && !IsIndefinite(percentageBase))
+        {
+            float mvalue = mathLenB.ToPixels(percentageBase, space.RootFontSize, space.ViewportWidth, space.ViewportHeight);
+            if (!float.IsNaN(mvalue) && !float.IsInfinity(mvalue))
+            {
+                if (style.BoxSizing == BoxSizingType.BorderBox)
+                    mvalue = Math.Max(borderPadding.VerticalSum, mvalue);
+                else
+                    mvalue += borderPadding.VerticalSum;
+                return mvalue;
+            }
+        }
+
         var fixedPx = TryResolveFixedLength(space, style, borderPadding.VerticalSum, length);
         if (fixedPx.HasValue) return fixedPx.Value;
 
@@ -216,20 +245,34 @@ public static class LengthUtils
     {
         float fontSize = style.FontSize;
         return new BoxStrut(
-            style.PaddingTop.ToPixels(fontSize, space.RootFontSize, space.ViewportWidth, space.ViewportHeight),
-            style.PaddingRight.ToPixels(fontSize, space.RootFontSize, space.ViewportWidth, space.ViewportHeight),
-            style.PaddingBottom.ToPixels(fontSize, space.RootFontSize, space.ViewportWidth, space.ViewportHeight),
-            style.PaddingLeft.ToPixels(fontSize, space.RootFontSize, space.ViewportWidth, space.ViewportHeight));
+            ResolveInsetLength(style.PaddingTop, fontSize, space),
+            ResolveInsetLength(style.PaddingRight, fontSize, space),
+            ResolveInsetLength(style.PaddingBottom, fontSize, space),
+            ResolveInsetLength(style.PaddingLeft, fontSize, space));
     }
 
     public static BoxStrut ComputeMargins(ConstraintSpace space, ComputedStyle style)
     {
         float fontSize = style.FontSize;
         return new BoxStrut(
-            style.MarginTop.ToPixels(fontSize, space.RootFontSize, space.ViewportWidth, space.ViewportHeight),
-            style.MarginRight.ToPixels(fontSize, space.RootFontSize, space.ViewportWidth, space.ViewportHeight),
-            style.MarginBottom.ToPixels(fontSize, space.RootFontSize, space.ViewportWidth, space.ViewportHeight),
-            style.MarginLeft.ToPixels(fontSize, space.RootFontSize, space.ViewportWidth, space.ViewportHeight));
+            ResolveInsetLength(style.MarginTop, fontSize, space),
+            ResolveInsetLength(style.MarginRight, fontSize, space),
+            ResolveInsetLength(style.MarginBottom, fontSize, space),
+            ResolveInsetLength(style.MarginLeft, fontSize, space));
+    }
+
+    /// <summary>
+    /// padding/margin percentages resolve against the containing block's INLINE
+    /// size on every axis (CSS box model); other units keep their normal bases.
+    /// </summary>
+    private static float ResolveInsetLength(Length length, float fontSize, ConstraintSpace space)
+    {
+        if (length is PercentLength pct)
+        {
+            float baseInline = float.IsNaN(space.PercentageResolutionInlineSize) ? 0 : space.PercentageResolutionInlineSize;
+            return pct.Value * baseInline;
+        }
+        return length.ToPixels(fontSize, space.RootFontSize, space.ViewportWidth, space.ViewportHeight);
     }
 
     public static (float min, float max) ComputeMinMaxInlineSizes(ConstraintSpace space, ComputedStyle style, BoxStrut borderPadding,

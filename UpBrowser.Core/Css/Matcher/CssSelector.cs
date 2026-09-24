@@ -179,8 +179,10 @@ public class CssSelector
             }
         }
 
-        // Add next chain selector's specificity
-        if (sel.Next != null && sel.Relation != CssSelectorRelation.SubSelector)
+        // Add next chain selector's specificity. Compound members are linked by
+        // SubSelector (tr → .x) and complex parts by combinators — every link in
+        // the chain contributes its simple selector's specificity.
+        if (sel.Next != null)
         {
             ComputeSpecificityRecursive(sel.Next, depth, out int na, out int nb, out int nc);
             a += na; b += nb; c += nc;

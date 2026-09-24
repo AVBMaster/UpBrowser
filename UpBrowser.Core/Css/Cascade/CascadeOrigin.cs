@@ -43,6 +43,10 @@ public readonly struct CascadePriority : IEquatable<CascadePriority>
         new(Origin, LayerOrder, TreeOrder, Position, IsImportant, generation,
             SpecificityA, SpecificityB, SpecificityC);
 
+    public CascadePriority WithImportant() =>
+        new(Origin, LayerOrder, TreeOrder, Position, true, Generation,
+            SpecificityA, SpecificityB, SpecificityC);
+
     public bool IsRelevant => Origin != CascadeOrigin.None;
 
     /// <summary>

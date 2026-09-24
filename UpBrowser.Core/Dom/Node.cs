@@ -231,6 +231,16 @@ public abstract class Node : EventTarget
         return child;
     }
 
+    /// <summary>
+    /// Adds a child reference for transient layout-only trees (anonymous blocks
+    /// created during block sizing) without mutating the DOM: the child keeps
+    /// its real parent and stays in the original parent's child list.
+    /// </summary>
+    internal void AddChildReferenceForLayout(Node child)
+    {
+        _children.Add(child);
+    }
+
     public virtual Node InsertBefore(Node newChild, Node? refChild)
     {
         if (newChild == this)

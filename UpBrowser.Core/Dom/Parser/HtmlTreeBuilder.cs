@@ -826,12 +826,14 @@ internal class HtmlTreeBuilder
                 _insertionMode = InsertionMode.InTableBody;
                 return;
             case "td": case "th": case "tr":
+                // Spec: act as if a start tag token with the tag name "tbody"
+                // had been seen, then reprocess the current token. The previous
+                // code inserted the row, popped it, and inserted a second
+                // anonymous <tr>, which orphaned the row's attributes.
                 _tree.OpenElements.PopUntilTableScopeMarker();
-                _tree.InsertHtmlelement(token);
+                _tree.InsertHtmlelement(new AtomicHtmlToken(HtmlToken.TokenType.StartTag, "tbody"));
                 _insertionMode = InsertionMode.InTableBody;
-                _tree.OpenElements.Pop();
-                _tree.InsertHtmlelement(new AtomicHtmlToken(HtmlToken.TokenType.StartTag, "tr"));
-                _insertionMode = InsertionMode.InRow;
+                ProcessStartTag(token);
                 return;
             case "table":
                 _tree.OpenElements.PopUntilPopped("table");

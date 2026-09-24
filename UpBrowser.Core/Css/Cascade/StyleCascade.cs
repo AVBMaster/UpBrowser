@@ -33,10 +33,13 @@ public class StyleCascade
             var priority = entry.Priority;
             foreach (var prop in entry.Properties.Properties)
             {
+                // Per-declaration !important outranks every normal declaration
+                // of the same property regardless of origin/specificity.
+                var propPriority = prop.IsImportant ? priority.WithImportant() : priority;
                 if (prop.Name.IsCustom)
-                    _map.Add(prop.Name.CustomName!, priority);
+                    _map.Add(prop.Name.CustomName!, propPriority);
                 else
-                    _map.Add(prop.Name.Id, priority);
+                    _map.Add(prop.Name.Id, propPriority);
             }
         }
         _needsAnalyze = false;
@@ -115,8 +118,10 @@ public class StyleCascade
         if (!priority.IsRelevant) return;
         var matchedEntry = FindMatchedEntry(priority);
         if (matchedEntry == null) return;
+        // Within one declaration block the later declaration wins (a shorthand
+        // expansion's default must not shadow an explicit longhand that follows it).
         var prop = matchedEntry.Properties.Properties
-            .FirstOrDefault(p => p.Name.Id == id && !p.Name.IsCustom);
+            .LastOrDefault(p => p.Name.Id == id && !p.Name.IsCustom);
         if (prop.Value != null)
             ApplyProperty(id, prop.Value);
     }
@@ -128,7 +133,7 @@ public class StyleCascade
         var matchedEntry = FindMatchedEntry(priority);
         if (matchedEntry == null) return;
         var prop = matchedEntry.Properties.Properties
-            .FirstOrDefault(p => p.Name.IsCustom && p.Name.CustomName == customName);
+            .LastOrDefault(p => p.Name.IsCustom && p.Name.CustomName == customName);
         if (prop.Value != null)
             _state.ApplyCustomProperty(customName, prop.Value);
     }
@@ -140,9 +145,18 @@ public class StyleCascade
 
     private MatchedRuleEntry? FindMatchedEntry(CascadePriority priority)
     {
+        // The map may carry a per-declaration !important variant of the rule's
+        // priority; match on the rule identity (origin/layer/tree/position/spec)
+        // and ignore the important bit.
         foreach (var entry in _state.MatchedRules)
-            if (entry.Priority.Equals(priority))
+        {
+            var ep = entry.Priority;
+            if (ep.Origin == priority.Origin && ep.LayerOrder == priority.LayerOrder &&
+                ep.TreeOrder == priority.TreeOrder && ep.Position == priority.Position &&
+                ep.SpecificityA == priority.SpecificityA && ep.SpecificityB == priority.SpecificityB &&
+                ep.SpecificityC == priority.SpecificityC)
                 return entry;
+        }
         return null;
     }
 
@@ -525,6 +539,7 @@ public class CascadeResolverState
         "normal" => Dom.WhiteSpaceMode.Normal, "pre" => Dom.WhiteSpaceMode.Pre,
         "nowrap" => Dom.WhiteSpaceMode.Nowrap, "pre-wrap" => Dom.WhiteSpaceMode.PreWrap,
         "pre-line" => Dom.WhiteSpaceMode.PreLine,
+        "break-spaces" => Dom.WhiteSpaceMode.BreakSpaces,
         _ => Dom.WhiteSpaceMode.Normal
     };
 

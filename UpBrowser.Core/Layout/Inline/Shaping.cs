@@ -356,11 +356,11 @@ public static class WhiteSpaceStyle
         style.WhiteSpace == WhiteSpaceMode.Normal || style.WhiteSpace == WhiteSpaceMode.Nowrap || style.WhiteSpace == WhiteSpaceMode.PreLine;
 
     public static bool ShouldPreserveWhiteSpaces(ComputedStyle style) =>
-        style.WhiteSpace == WhiteSpaceMode.Pre || style.WhiteSpace == WhiteSpaceMode.PreWrap;
+        style.WhiteSpace is WhiteSpaceMode.Pre or WhiteSpaceMode.PreWrap or WhiteSpaceMode.BreakSpaces;
 
     public static bool ShouldBreakSpaces(ComputedStyle style) => style.WhiteSpace == WhiteSpaceMode.Pre;
 
-    public static bool ShouldWrapLine(ComputedStyle style) => style.WhiteSpace is WhiteSpaceMode.Normal or WhiteSpaceMode.PreWrap or WhiteSpaceMode.PreLine;
+    public static bool ShouldWrapLine(ComputedStyle style) => style.WhiteSpace is WhiteSpaceMode.Normal or WhiteSpaceMode.PreWrap or WhiteSpaceMode.PreLine or WhiteSpaceMode.BreakSpaces;
 
     public static bool ShouldBreakOnlyAfterWhiteSpace(ComputedStyle style) => style.WhiteSpace == WhiteSpaceMode.PreLine;
 
