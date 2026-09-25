@@ -140,6 +140,9 @@ public class TabProcess : IDisposable
         _isLoading = true;
         _imageCache?.Clear();
         _typefaceCache?.Clear();
+        // Layout needs intrinsic image sizes before the first paint exists.
+        if (_imageCache != null)
+            PaintVisitor.InstallReplacedIntrinsicSizes(_imageCache, baseUrl);
 
         try
         {

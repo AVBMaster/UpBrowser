@@ -86,6 +86,11 @@ public static class RenderSnapshot
     {
         EnsureInitialized();
 
+        // Layout runs inside LoadHtmlAsync, so the intrinsic-size seam for
+        // replaced elements must be wired before the document is laid out.
+        var imageCache = new ImageCache();
+        PaintVisitor.InstallReplacedIntrinsicSizes(imageCache, baseUrl);
+
         // Parse -> style -> layout: the exact entry point the browser uses.
         var documentManager = new DocumentManager();
         var load = documentManager
@@ -132,7 +137,7 @@ public static class RenderSnapshot
         var visitor = new PaintVisitor(
             contentOffsetY: 0,
             sharedTypefaceCache: null,
-            sharedImageCache: null,
+            sharedImageCache: imageCache,
             fontFamilies: SKFontManager.Default.FontFamilies.ToArray(),
             baseUrl: baseUrl,
             viewportWidth: width,

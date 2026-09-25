@@ -74,6 +74,13 @@ public class LineBreaker
     private float _appliedTextIndent;
     private ComputedStyle _currentStyle = new();
     private ComputedStyle _lineStyle = new();
+    /// <summary>Style of the box without ::first-line, restored on later lines.</summary>
+    private ComputedStyle? _baseLineStyle;
+    /// <summary>Merged ::first-line style, used while laying out the first line.</summary>
+    private ComputedStyle? _firstLineStyle;
+
+    /// <summary>Provide the merged ::first-line style (CSS Pseudo-Elements 4 §4).</summary>
+    public void SetFirstLineStyle(ComputedStyle? firstLineStyle) => _firstLineStyle = firstLineStyle;
     private int? _hyphenIndex;
     private bool _hasAnyHyphens;
     private LineBreakState _state;
@@ -134,6 +141,9 @@ public class LineBreaker
         _hyphenIndex = null;
         _hasAnyHyphens = false;
         _lineStyle = containerLineStyle ?? ComputeInitialLineStyle(data);
+        _baseLineStyle = _lineStyle;
+        if (_firstLineStyle != null && _isFirstFormattedLine)
+            _lineStyle = _firstLineStyle;
         SetCurrentStyleForce(_lineStyle);
 
         var lines = new List<LineInfo>();
@@ -1300,6 +1310,11 @@ public class LineBreaker
             _useFirstLineStyle = false;
         }
 
+        // The first formatted line carries the ::first-line style for measurement;
+        // every later line falls back to the box style (CSS Pseudo-Elements 4 §4).
+        if (_firstLineStyle != null)
+            _lineStyle = _isFirstFormattedLine ? _firstLineStyle : _baseLineStyle ?? _lineStyle;
+
         lineInfo.SetStart(new InlineItemTextIndex { ItemIndex = _currentItemIndex, TextOffset = _currentTextOffset });
         lineInfo.SetIsFirstFormattedLine(_isFirstFormattedLine);
         lineInfo.SetLineStyleDirect(_lineStyle);
@@ -1316,7 +1331,12 @@ public class LineBreaker
 
         // Use 'text-indent' as the initial position. This lets tab positions to
         // align regardless of 'text-indent'.
-        float textIndent = _isFirstFormattedLine ? _lineStyle.TextIndent : 0;
+        // A percentage 'text-indent' resolves against the containing block's
+        // inline size, which is only known here (CSS Text 3 §5.2).
+        float indentLength = _lineStyle.TextIndent + _lineStyle.TextIndentPercent * _availableWidth;
+        float textIndent = _lineStyle.TextIndentHanging
+            ? (_isFirstFormattedLine ? 0 : indentLength)
+            : (_isFirstFormattedLine ? indentLength : 0);
         _appliedTextIndent = textIndent;
         lineInfo.SetTextIndent(textIndent);
         _position += textIndent;

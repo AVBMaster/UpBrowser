@@ -603,6 +603,11 @@ public class ComputedStyle
 
     public string? Transform { get; set; }
     public string? TransformOrigin { get; set; } = "50% 50% 0";
+    // Independent transform properties (CSS Transforms 2 §3.1-3.3). They apply in
+    // the order translate → rotate → scale → transform.
+    public string? Translate { get; set; }
+    public string? Rotate { get; set; }
+    public string? Scale { get; set; }
     public string? Transition { get; set; }
     public string? TransitionDelay { get; set; }
     public string? TransitionDuration { get; set; }
@@ -623,6 +628,12 @@ public class ComputedStyle
     public float LetterSpacing { get; set; }
     public float WordSpacing { get; set; }
     public float TextIndent { get; set; }
+    /// <summary>'text-indent: hanging' inverts the indent: the first line stays at
+    /// the start edge and the remaining lines are indented (CSS Text 3 §5.2).</summary>
+    public bool TextIndentHanging { get; set; }
+    /// <summary>Percentage part of 'text-indent', resolved against the containing
+    /// block's inline size at line-break time (CSS Text 3 §5.2).</summary>
+    public float TextIndentPercent { get; set; }
     public string TextTransform { get; set; } = "none";
     public TextOverflowType TextOverflow { get; set; } = TextOverflowType.Clip;
     public List<TextShadowValue> TextShadow { get; set; } = new();
@@ -869,6 +880,7 @@ public System.Collections.Generic.List<AppliedTextDecoration> BaseAppliedTextDec
             BoxSizing = BoxSizing, BorderCollapse = BorderCollapse,
             ListStyleType = ListStyleType, ListStyleImage = ListStyleImage, ListStylePosition = ListStylePosition,
             Transform = Transform, TransformOrigin = TransformOrigin,
+            Translate = Translate, Rotate = Rotate, Scale = Scale,
             Transition = Transition, TransitionDelay = TransitionDelay, TransitionDuration = TransitionDuration,
             TransitionProperty = TransitionProperty, TransitionTimingFunction = TransitionTimingFunction,
             Animation = Animation, AnimationName = AnimationName, AnimationDuration = AnimationDuration,
@@ -877,7 +889,8 @@ public System.Collections.Generic.List<AppliedTextDecoration> BaseAppliedTextDec
             AnimationFillMode = AnimationFillMode, AnimationPlayState = AnimationPlayState,
             PointerEvents = PointerEvents, UserSelect = UserSelect,
             Direction = Direction, LetterSpacing = LetterSpacing, WordSpacing = WordSpacing,
-            TextIndent = TextIndent, TextTransform = TextTransform,
+            TextIndent = TextIndent, TextIndentHanging = TextIndentHanging,
+            TextIndentPercent = TextIndentPercent, TextTransform = TextTransform,
             TextOverflow = TextOverflow, TextShadow = TextShadow,
             TextDecorationLine = TextDecorationLine, TextDecorationStyle = TextDecorationStyle,
             TextDecorationColor = TextDecorationColor, TextDecorationThickness = TextDecorationThickness,
@@ -924,6 +937,83 @@ public System.Collections.Generic.List<AppliedTextDecoration> BaseAppliedTextDec
         };
     }
 
+    public bool HasAnyTransform =>
+        IsTransformPropertySet(Translate) || IsTransformPropertySet(Rotate) ||
+        IsTransformPropertySet(Scale) || IsTransformPropertySet(Transform);
+
+    /// <summary>
+    /// Compose the independent transform properties into one transform-function
+    /// list. The applied order is translate, rotate, scale, transform, matching
+    /// the used-matrix order of CSS Transforms 2 §3. Percentages in 'translate'
+    /// resolve against the element's border box.
+    /// </summary>
+    public string? EffectiveTransform(float borderBoxWidth = 0, float borderBoxHeight = 0)
+    {
+        var ci = System.Globalization.CultureInfo.InvariantCulture;
+        var parts = new List<string>();
+
+        if (IsTransformPropertySet(Translate))
+        {
+            var tokens = Translate!.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            float x = ResolveTranslateComponent(tokens.Length > 0 ? tokens[0] : null, borderBoxWidth);
+            float y = ResolveTranslateComponent(tokens.Length > 1 ? tokens[1] : null, borderBoxHeight);
+            float z = ResolveTranslateComponent(tokens.Length > 2 ? tokens[2] : null, borderBoxHeight);
+            string xs = x.ToString(ci), ys = y.ToString(ci), zs = z.ToString(ci);
+            parts.Add(z != 0 ? $"translate3d({xs}px,{ys}px,{zs}px)" : $"translate({xs}px,{ys}px)");
+        }
+
+        if (IsTransformPropertySet(Rotate))
+        {
+            // The axis form (rotate: x 45deg) is flattened onto the 2D rotation
+            // this engine supports.
+            var value = Rotate!.Trim();
+            int space = value.IndexOf(' ');
+            if (space > 0 && value[..space] is "x" or "y" or "z")
+                value = value[(space + 1)..].Trim();
+            parts.Add($"rotate({value})");
+        }
+
+        if (IsTransformPropertySet(Scale))
+        {
+            var tokens = Scale!.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            float sx = ResolveScaleComponent(tokens.Length > 0 ? tokens[0] : null);
+            float sy = tokens.Length > 1 ? ResolveScaleComponent(tokens[1]) : sx;
+            parts.Add($"scale({sx.ToString(ci)},{sy.ToString(ci)})");
+        }
+
+        if (IsTransformPropertySet(Transform))
+            parts.Add(Transform!.Trim());
+
+        return parts.Count > 0 ? string.Join(" ", parts) : null;
+    }
+
+    private static bool IsTransformPropertySet(string? value) =>
+        !string.IsNullOrWhiteSpace(value) && !value.Trim().Equals("none", StringComparison.OrdinalIgnoreCase);
+
+    private static float ResolveTranslateComponent(string? token, float reference)
+    {
+        if (string.IsNullOrEmpty(token))
+            return 0;
+        if (token.EndsWith('%') &&
+            float.TryParse(token[..^1], System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out var pct))
+            return pct / 100f * reference;
+        var px = Length.Parse(token).ToPixels(16f, 16f, 0f, 0f);
+        return float.IsNaN(px) ? 0 : px;
+    }
+
+    private static float ResolveScaleComponent(string? token)
+    {
+        if (string.IsNullOrEmpty(token))
+            return 1;
+        if (token.EndsWith('%') &&
+            float.TryParse(token[..^1], System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out var pct))
+            return pct / 100f;
+        return float.TryParse(token, System.Globalization.NumberStyles.Float,
+            System.Globalization.CultureInfo.InvariantCulture, out var v) ? v : 1;
+    }
+
     public static ComputedStyle CreateDefault() => new();
 }
 
@@ -949,7 +1039,7 @@ public enum FlexWrapType { NoWrap, Wrap, WrapReverse }
 public enum JustifyContentType { FlexStart, FlexEnd, Center, SpaceBetween, SpaceAround, SpaceEvenly }
 public enum AlignItemsType { Stretch, FlexStart, FlexEnd, Center, Baseline }
 public enum AlignSelfType { Auto, Stretch, FlexStart, FlexEnd, Center, Baseline }
-public enum BackgroundRepeat { Repeat, RepeatX, RepeatY, NoRepeat }
+public enum BackgroundRepeat { Repeat, RepeatX, RepeatY, NoRepeat, Round, Space }
 public enum BackgroundAttachment { Scroll, Fixed, Local }
 public enum BoxSizingType { ContentBox, BorderBox }
 public enum ListStyleType { Disc, Circle, Square, Decimal, DecimalLeadingZero, LowerRoman, UpperRoman, LowerAlpha, UpperAlpha, None }
@@ -1020,7 +1110,7 @@ public sealed class AppliedTextDecoration
 
     public override string ToString() => $"{Line} ({Style}) R={Color.Red} G={Color.Green} B={Color.Blue}";
 }
-public enum GridAutoFlowType { Row, Column, Dense }
+public enum GridAutoFlowType { Row, Column, Dense, ColumnDense }
 public enum ZoomType { Normal, Reset }
 
 public record BoxShadowValue(SKColor Color, float OffsetX, float OffsetY, float BlurRadius, float Spread, bool Inset = false);

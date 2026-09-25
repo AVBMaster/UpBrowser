@@ -274,7 +274,11 @@ public class GridLayoutAlgorithm
 
         if (areas.Count > 0) BuildNamedAreaMap(areas, namedAreas);
 
-        bool densePacking = _containerStyle?.GridAutoFlow == GridAutoFlowType.Dense || _containerStyle?.GridAutoFlow == GridAutoFlowType.Column;
+        var autoFlow = _containerStyle?.GridAutoFlow ?? GridAutoFlowType.Row;
+        bool densePacking = autoFlow is GridAutoFlowType.Dense or GridAutoFlowType.ColumnDense;
+        // 'column' flow advances the auto-placement cursor down each column
+        // before moving to the next (CSS Grid §8.5.1).
+        bool columnFlow = autoFlow is GridAutoFlowType.Column or GridAutoFlowType.ColumnDense;
 
         int autoCursorCol = 0;
         int autoCursorRow = 0;
@@ -400,74 +404,55 @@ public class GridLayoutAlgorithm
         // (CSS Grid auto-placement step 2).
         PlaceColumnLockedItems(columnLockedItems, items, densePacking, ref maxCol, ref maxRow, ref autoCursorCol, ref autoCursorRow);
 
-        // Auto-placement with dense packing
-        if (densePacking)
+        // Auto-placement (CSS Grid §8.5.1). The cursor advances along the line
+        // axis (columns for row flow, rows for column flow) and wraps to the next
+        // cross track when the item no longer fits; dense packing restarts the
+        // scan from the beginning of the grid for every item.
+        int lineCount = Math.Max(1, columnFlow
+            ? Math.Max(explicitRowCount, maxRow)
+            : Math.Max(explicitColCount, maxCol));
+        int cursorOuter = columnFlow ? autoCursorCol : autoCursorRow;
+        int cursorInner = columnFlow ? autoCursorRow : autoCursorCol;
+        foreach (var item in autoItems)
         {
-            // Dense: place each auto item at the earliest possible position
-            foreach (var item in autoItems)
+            int lineSpan = columnFlow ? item.RowSpan : item.ColumnSpan;
+            if (lineSpan > lineCount) lineCount = lineSpan;
+            if (densePacking)
             {
-                for (int r = 0; r <= maxRow + 100; r++)
+                cursorOuter = 0;
+                cursorInner = 0;
+            }
+            bool placed = false;
+            int o = cursorOuter;
+            while (!placed)
+            {
+                for (int i = (o == cursorOuter ? cursorInner : 0); i + lineSpan <= lineCount; i++)
                 {
-                    for (int c = 0; c <= maxCol + 100; c++)
+                    int c = columnFlow ? o : i;
+                    int r = columnFlow ? i : o;
+                    if (!IsOccupied(items, c, r, item.ColumnSpan, item.RowSpan))
                     {
-                        if (!IsOccupied(items, c, r, item.ColumnSpan, item.RowSpan))
-                        {
-                            item.ColumnStart = c + 1;
-                            item.RowStart = r + 1;
-                            item.ColumnEnd = item.ColumnStart + item.ColumnSpan;
-                            item.RowEnd = item.RowStart + item.RowSpan;
-                            item.IsPlaced = true;
-                            maxCol = Math.Max(maxCol, item.ColumnEnd - 1);
-                            maxRow = Math.Max(maxRow, item.RowEnd - 1);
-                            goto nextDense;
-                        }
+                        item.ColumnStart = c + 1;
+                        item.RowStart = r + 1;
+                        item.ColumnEnd = item.ColumnStart + item.ColumnSpan;
+                        item.RowEnd = item.RowStart + item.RowSpan;
+                        item.IsPlaced = true;
+                        maxCol = Math.Max(maxCol, item.ColumnEnd - 1);
+                        maxRow = Math.Max(maxRow, item.RowEnd - 1);
+                        cursorOuter = o;
+                        cursorInner = i + lineSpan;
+                        placed = true;
+                        break;
                     }
                 }
-            nextDense:;
-                items.Add(item);
-            }
-        }
-        else
-        {
-            // Sparse auto-placement: fill each row up to the explicit column
-            // count, then wrap to the next row (the implicit grid grows in the
-            // block direction, not sideways).
-            int columnCount = Math.Max(1, Math.Max(explicitColCount, maxCol));
-            int cursorRow = autoCursorRow;
-            int cursorCol = autoCursorCol;
-            foreach (var item in autoItems)
-            {
-                if (item.ColumnSpan > columnCount) columnCount = item.ColumnSpan;
-                bool placed = false;
-                int r = cursorRow;
-                while (!placed)
+                if (!placed)
                 {
-                    for (int c = (r == cursorRow ? cursorCol : 0); c + item.ColumnSpan <= columnCount; c++)
-                    {
-                        if (!IsOccupied(items, c, r, item.ColumnSpan, item.RowSpan))
-                        {
-                            item.ColumnStart = c + 1;
-                            item.RowStart = r + 1;
-                            item.ColumnEnd = item.ColumnStart + item.ColumnSpan;
-                            item.RowEnd = item.RowStart + item.RowSpan;
-                            item.IsPlaced = true;
-                            maxCol = Math.Max(maxCol, item.ColumnEnd - 1);
-                            maxRow = Math.Max(maxRow, item.RowEnd - 1);
-                            cursorRow = r;
-                            cursorCol = c + item.ColumnSpan;
-                            placed = true;
-                            break;
-                        }
-                    }
-                    if (!placed)
-                    {
-                        r++;
-                        cursorRow = r;
-                        cursorCol = 0;
-                    }
+                    o++;
+                    cursorOuter = o;
+                    cursorInner = 0;
                 }
-                items.Add(item);
             }
+            items.Add(item);
         }
 
         return items;
@@ -888,16 +873,67 @@ public class GridLayoutAlgorithm
     }
 
     private static float[] ComputeTrackOffsets(List<GridTrack> tracks, float origin, float gap)
+        => ComputeTrackOffsets(tracks, origin, gap, 0f, 0f);
+
+    private static float[] ComputeTrackOffsets(List<GridTrack> tracks, float origin, float gap,
+        float extraGap, float leadingOffset)
     {
         var offsets = new float[tracks.Count + 1];
-        float offset = origin;
+        float offset = origin + leadingOffset;
         for (int i = 0; i < tracks.Count; i++)
         {
             offsets[i] = offset;
-            offset += tracks[i].BaseSize + gap;
+            offset += tracks[i].BaseSize + gap + extraGap;
         }
         offsets[tracks.Count] = offset;
         return offsets;
+    }
+
+    /// <summary>
+    /// CSS Grid §12.6 auto track stretching: when the container has a definite
+    /// size in an axis, the leftover space is shared equally between the
+    /// auto-sized tracks of that axis (fr tracks were already grown).
+    /// </summary>
+    private static void StretchAutoTracks(List<GridTrack> tracks, float definiteContainer, float gap, float paddingBleed)
+    {
+        if (tracks.Count == 0 || float.IsNaN(definiteContainer) || float.IsInfinity(definiteContainer))
+            return;
+        float used = paddingBleed + gap * Math.Max(0, tracks.Count - 1);
+        foreach (var t in tracks) used += t.BaseSize;
+        float free = definiteContainer - used;
+        if (free <= 0) return;
+        int autoCount = 0;
+        foreach (var t in tracks)
+            if (t.SizeType == TrackSizeType.Auto) autoCount++;
+        if (autoCount == 0) return;
+        float each = free / autoCount;
+        foreach (var t in tracks)
+            if (t.SizeType == TrackSizeType.Auto) t.BaseSize += each;
+    }
+
+    /// <summary>
+    /// Resolve `align-content` / `justify-content` for the track grid: returns the
+    /// extra gap inserted between tracks and the leading offset of the first track.
+    /// </summary>
+    private static (float extraGap, float leading) ContentAlignment(string mode, float free, int trackCount)
+    {
+        if (free <= 0 || trackCount == 0) return (0f, 0f);
+        return (mode ?? "normal").Trim().ToLowerInvariant() switch
+        {
+            "center" => (0f, free / 2f),
+            "end" or "flex-end" or "right" => (0f, free),
+            "space-between" => trackCount > 1 ? (free / (trackCount - 1), 0f) : (0f, 0f),
+            "space-around" => (free / trackCount, free / trackCount / 2f),
+            "space-evenly" => (free / (trackCount + 1), free / (trackCount + 1)),
+            _ => (0f, 0f),
+        };
+    }
+
+    private static float TrackGroupSize(List<GridTrack> tracks, float gap)
+    {
+        float size = gap * Math.Max(0, tracks.Count - 1);
+        foreach (var t in tracks) size += t.BaseSize;
+        return size;
     }
 
     /// <summary>
@@ -924,11 +960,23 @@ public class GridLayoutAlgorithm
 
     private void PositionItems(List<GridItem> items, List<GridTrack> columns, List<GridTrack> rows, LayoutBox containerBox, float columnGap, float rowGap)
     {
+        var containerStyle0 = _containerStyle!;
+
+        // §12.6 auto track stretching first, so `align-content: stretch` (the
+        // default) grows auto tracks instead of leaving them content-sized.
+        StretchAutoTracks(columns, containerBox.ContentBox.Width, columnGap, 0f);
+        StretchAutoTracks(rows, containerBox.ContentBox.Height, rowGap, 0f);
+
+        float colFree = containerBox.ContentBox.Width - TrackGroupSize(columns, columnGap);
+        float rowFree = containerBox.ContentBox.Height - TrackGroupSize(rows, rowGap);
+        var (colExtraGap, colLeading) = ContentAlignment(containerStyle0.JustifyContent.ToString(), colFree, columns.Count);
+        var (rowExtraGap, rowLeading) = ContentAlignment(containerStyle0.AlignContent, rowFree, rows.Count);
+
         // Compute column offsets
-        var colOffsets = ComputeTrackOffsets(columns, containerBox.ContentBox.Left, columnGap);
+        var colOffsets = ComputeTrackOffsets(columns, containerBox.ContentBox.Left, columnGap, colExtraGap, colLeading);
 
         // Compute row offsets
-        var rowOffsets = ComputeTrackOffsets(rows, containerBox.ContentBox.Top, rowGap);
+        var rowOffsets = ComputeTrackOffsets(rows, containerBox.ContentBox.Top, rowGap, rowExtraGap, rowLeading);
 
         var containerStyle = _containerStyle!;
         var justifyItems = ParseJustifyItems(containerStyle.JustifyItems);
@@ -1104,10 +1152,12 @@ public class GridLayoutAlgorithm
         }
     }
 
+    // The container style carries the DOM enum (FlexStart/FlexEnd); accept both
+    // that spelling and the logical keywords.
     private static JustifyItemsType ParseJustifyItems(string value) => value.ToLowerInvariant() switch
     {
-        "start" => JustifyItemsType.Start,
-        "end" => JustifyItemsType.End,
+        "start" or "flexstart" or "flex-start" or "left" => JustifyItemsType.Start,
+        "end" or "flexend" or "flex-end" or "right" => JustifyItemsType.End,
         "center" => JustifyItemsType.Center,
         "stretch" => JustifyItemsType.Stretch,
         _ => JustifyItemsType.Stretch
@@ -1115,8 +1165,8 @@ public class GridLayoutAlgorithm
 
     private static AlignItemsType ParseAlignItems(string value) => value.ToLowerInvariant() switch
     {
-        "start" => AlignItemsType.Start,
-        "end" => AlignItemsType.End,
+        "start" or "flexstart" or "flex-start" => AlignItemsType.Start,
+        "end" or "flexend" or "flex-end" => AlignItemsType.End,
         "center" => AlignItemsType.Center,
         "stretch" => AlignItemsType.Stretch,
         "baseline" => AlignItemsType.Baseline,
@@ -1126,8 +1176,8 @@ public class GridLayoutAlgorithm
     private static JustifyItemsType ParseJustifySelf(string value, JustifyItemsType parent) => value.ToLowerInvariant() switch
     {
         "auto" => parent,
-        "start" => JustifyItemsType.Start,
-        "end" => JustifyItemsType.End,
+        "start" or "flexstart" or "flex-start" => JustifyItemsType.Start,
+        "end" or "flexend" or "flex-end" => JustifyItemsType.End,
         "center" => JustifyItemsType.Center,
         "stretch" => JustifyItemsType.Stretch,
         _ => parent

@@ -10,19 +10,7 @@ public static class JsEngineDownloader
 {
     private static readonly HttpClient _http = new();
 
-    private static string BaseDir
-    {
-        get
-        {
-            string appData;
-#if WINDOWS
-            appData = WindowsFolderProvider.GetAppDataPath();
-#else
-            appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-#endif
-            return Path.Combine(appData, "UpBrowser", "engines");
-        }
-    }
+    private static string BaseDir => Path.Combine(AppPaths.AppDataDir, "engines");
 
     public static string EngineDir(JsEngineType type) =>
         Path.Combine(BaseDir, type.ToString().ToLowerInvariant());

@@ -134,9 +134,14 @@ public class OutOfFlowLayoutPart
             // Compute the border box size of the OOF box.
             var (inlineSize, blockSize) = AbsoluteUtils.ComputeOutOfFlowSize(style, paddingBoxSize, bp);
 
-            // Resolve the box origin. The returned offsets are relative to the
-            // container's CONTENT box (the convention fragment offsets use).
-            var (x, y) = ComputePosition(style, inlineSize, blockSize, paddingBoxSize, candidate, _containerBuilder);
+            // An auto size on an absolutely positioned box is shrink-to-fit
+            // (CSS 2.1 §10.3.7), not the containing block's extent; only a box
+            // with both insets on the axis stretches instead.
+            bool autoInline = style.Width is AutoLength &&
+                !(style.Left is not AutoLength && style.Right is not AutoLength);
+            bool autoBlock = style.Height is AutoLength &&
+                !(style.Top is not AutoLength && style.Bottom is not AutoLength);
+            bool hasDefiniteBlock = !autoBlock;
 
             // Create the fragment for this OOF box. The element is laid out with
             // its real algorithm (block/flex/grid/replaced) so children render,
@@ -147,15 +152,20 @@ public class OutOfFlowLayoutPart
             {
                 float contentInline2 = Math.Max(0, inlineSize - bp.HorizontalSum);
                 float contentBlock2 = Math.Max(0, blockSize - bp.VerticalSum);
-                bool hasDefiniteBlock = style.Height is PixelLength or PercentLength;
                 var childSpace = new ConstraintSpace(
                     availableInlineSize: contentInline2,
                     availableBlockSize: hasDefiniteBlock ? contentBlock2 : float.PositiveInfinity,
-                    isFixedInlineSize: true,
-                    isFixedBlockSize: hasDefiniteBlock
+                    isFixedInlineSize: !autoInline,
+                    isFixedBlockSize: hasDefiniteBlock,
+                    isShrinkToFit: autoInline
                 );
-                var result = BlockLayoutAlgorithm.LayoutAtomicInlineRoot(element, childSpace);
-                fragment = result.Fragment;
+                fragment = BlockLayoutAlgorithm.LayoutAtomicInlineRoot(element, childSpace).Fragment;
+
+                if (autoInline)
+                    inlineSize = Math.Min(paddingBoxSize.InlineSize, fragment.InlineSize);
+                if (autoBlock)
+                    blockSize = fragment.BlockSize;
+
                 fragment.InlineSize = inlineSize;
                 fragment.BlockSize = blockSize;
             }
@@ -168,6 +178,10 @@ public class OutOfFlowLayoutPart
                     Element = element,
                 };
             }
+
+            // Resolve the box origin. The returned offsets are relative to the
+            // container's CONTENT box (the convention fragment offsets use).
+            var (x, y) = ComputePosition(style, inlineSize, blockSize, paddingBoxSize, candidate, _containerBuilder);
             fragment.InlineOffset = x;
             fragment.BlockOffset = y;
             fragment.IsOutOfFlowPositioned = true;

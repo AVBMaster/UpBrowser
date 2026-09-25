@@ -101,6 +101,10 @@ public static class AuroraFragmentConverter
                         Baseline = run.BaselineShift != 0 ? line.Baseline - run.BaselineShift : run.BaselineOffset,
                         IsText = run.Text != null,
                         Node = run.Node ?? run.Element,
+                        FontSize = run.FontSize,
+                        FontFamily = run.FontFamily,
+                        FontWeight = run.FontWeight,
+                        Color = run.Color,
                     });
 
                     // An atomic inline (inline-block / replaced) carries its own

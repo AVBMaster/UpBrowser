@@ -97,20 +97,62 @@ public static class PlatformFactory
         try
         {
             var display = XOpenDisplay(IntPtr.Zero);
-            if (display != IntPtr.Zero)
+            if (display == IntPtr.Zero)
+                return 1.0f;
+
+            try
             {
+                // Desktop environments publish the user's text-scaling factor
+                // as the Xft.dpi resource — the same source GTK/Qt read.
+                XrmInitialize();
+                IntPtr resourceString = XResourceManagerString(display);
+                // XrmGetStringDatabase crashes on a NULL database string (e.g. bare
+                // X servers without an Xft.dpi publisher); only call it with data.
+                IntPtr rdb = resourceString != IntPtr.Zero ? XrmGetStringDatabase(resourceString) : IntPtr.Zero;
+                if (rdb != IntPtr.Zero)
+                {
+                    try
+                    {
+                        IntPtr value = IntPtr.Zero;
+                        IntPtr namePtr = Marshal.StringToHGlobalAnsi("Xft.dpi");
+                        IntPtr typePtr = Marshal.AllocHGlobal(16);
+                        try
+                        {
+                            if (XrmGetResource(rdb, namePtr, typePtr, out IntPtr valuePtr, out _) != 0)
+                                value = valuePtr;
+                        }
+                        finally
+                        {
+                            Marshal.FreeHGlobal(typePtr);
+                            Marshal.FreeHGlobal(namePtr);
+                        }
+                        if (value != IntPtr.Zero &&
+                            float.TryParse(Marshal.PtrToStringAnsi(value),
+                                System.Globalization.NumberStyles.Float,
+                                System.Globalization.CultureInfo.InvariantCulture,
+                                out float xftDpi) &&
+                            xftDpi >= 48f && xftDpi <= 768f)
+                        {
+                            return xftDpi / 96.0f;
+                        }
+                    }
+                    finally { XrmDestroyDatabase(rdb); }
+                }
+
+                // Fallback: derive from the physical panel size.
                 int screen = XDefaultScreen(display);
                 int widthMm = XDisplayWidthMM(display, screen);
                 int widthPx = XDisplayWidth(display, screen);
-
-                XCloseDisplay(display);
-
                 if (widthMm > 0)
                 {
                     float dpi = widthPx * 25.4f / widthMm;
-                    return dpi / 96.0f;
+                    // Physical-size estimation is wildly wrong on virtual/scaling
+                    // displays; only trust it if it lands in a sane range.
+                    if (dpi >= 48f && dpi <= 400f)
+                        return dpi / 96.0f;
                 }
             }
+            finally { XCloseDisplay(display); }
         }
         catch { }
         return 1.0f;
@@ -169,4 +211,19 @@ public static class PlatformFactory
 
     [DllImport(libX11)]
     private static extern int XDisplayWidth(IntPtr display, int screen);
+
+    [DllImport("libXt.so.6")]
+    private static extern void XrmInitialize();
+
+    [DllImport("libXt.so.6")]
+    private static extern IntPtr XResourceManagerString(IntPtr display);
+
+    [DllImport("libXt.so.6")]
+    private static extern IntPtr XrmGetStringDatabase(IntPtr data);
+
+    [DllImport("libXt.so.6")]
+    private static extern int XrmGetResource(IntPtr database, IntPtr resourceName, IntPtr resourceClass, out IntPtr valueReturn, out IntPtr typeReturn);
+
+    [DllImport("libXt.so.6")]
+    private static extern void XrmDestroyDatabase(IntPtr database);
 }

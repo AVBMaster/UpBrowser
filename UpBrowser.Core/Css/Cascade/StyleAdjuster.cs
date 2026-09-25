@@ -17,7 +17,24 @@ public class StyleAdjuster
         AdjustForTextElements(style, element);
         AdjustForReplacedElements(style, element);
         AdjustTouchAction(style, element);
+        AdjustZIndex(style, parentStyle);
         ResolveCurrentColors(style);
+    }
+
+    /// <summary>
+    /// CSS 2.1 §E.1: 'z-index' applies only to positioned elements; flex and grid
+    /// items also honor it with position:static (css-flexbox §4.3, css-grid §6).
+    /// Elsewhere it computes to auto so the element cannot escape the paint order.
+    /// </summary>
+    private static void AdjustZIndex(ComputedStyle style, ComputedStyle? parentStyle)
+    {
+        if (style.Position == PositionType.Static)
+        {
+            bool parentIsFlexOrGrid = parentStyle?.Display is DisplayType.Flex or DisplayType.InlineFlex
+                or DisplayType.Grid or DisplayType.InlineGrid;
+            if (!parentIsFlexOrGrid)
+                style.ZIndex = null;
+        }
     }
 
     /// <summary>

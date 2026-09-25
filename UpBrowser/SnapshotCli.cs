@@ -104,6 +104,9 @@ internal static class SnapshotCli
         var baseUrl = new Uri(full).AbsoluteUri;
 
         RenderSnapshot.EnsureInitialized();
+        // Layout runs before painting, so the intrinsic-size seam needs a cache now.
+        var imageCache = new UpBrowser.Rendering.ImageCache();
+        PaintVisitor.InstallReplacedIntrinsicSizes(imageCache, baseUrl);
         var dm = new UpBrowser.Core.Dom.DocumentManager();
         var load = dm.LoadHtmlAsync(html, baseUrl, width, height, 1f).GetAwaiter().GetResult();
 
@@ -162,6 +165,9 @@ internal static class SnapshotCli
         var baseUrl = new Uri(full).AbsoluteUri;
 
         RenderSnapshot.EnsureInitialized();
+        // Layout runs before painting, so the intrinsic-size seam needs a cache now.
+        var imageCache = new UpBrowser.Rendering.ImageCache();
+        PaintVisitor.InstallReplacedIntrinsicSizes(imageCache, baseUrl);
         var dm = new UpBrowser.Core.Dom.DocumentManager();
         var load = dm.LoadHtmlAsync(html, baseUrl, width, height, 1f).GetAwaiter().GetResult();
         new UpBrowser.Core.Layout.LayoutEngine().Layout(load.Document, width, height);
@@ -169,7 +175,7 @@ internal static class SnapshotCli
         var visitor = new PaintVisitor(
             contentOffsetY: 0,
             sharedTypefaceCache: null,
-            sharedImageCache: null,
+            sharedImageCache: imageCache,
             fontFamilies: SkiaSharp.SKFontManager.Default.FontFamilies.ToArray(),
             baseUrl: baseUrl,
             viewportWidth: width,

@@ -185,7 +185,7 @@ public class PaintPropertyTreeBuilder
     }
 
     private static bool NeedsTransform(ComputedStyle style) =>
-        !string.IsNullOrEmpty(style.Transform) && style.Transform != "none";
+        style.HasAnyTransform;
 
     private static bool NeedsClip(ComputedStyle style)
     {

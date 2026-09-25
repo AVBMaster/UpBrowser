@@ -425,11 +425,53 @@ public class InlineItemsBuilder
             string slice = _text.ToString(_startIndexText, end - _startIndexText);
             // Use the style captured when this run started, not the block's style,
             // so an inline run keeps its own font.
-            _data.Items.Add(MakeTextItem(slice, slice.Length, _startIndexText, _pendingRunStyle ?? _style, _lastLayoutText ?? new LayoutText(null, slice)));
+            AddTextRunSlicingFirstLetter(slice, _startIndexText, _pendingRunStyle ?? _style,
+                _lastLayoutText ?? new LayoutText(null, slice));
             _startIndexText = -1;
             _pendingRunStyle = null;
             _hasContent = true;
         }
+    }
+
+    private bool _firstLetterApplied;
+
+    /// <summary>
+    /// Emit a text run, splitting off the block's first letter so that
+    /// ::first-letter participates in measurement (CSS Pseudo-Elements 4 §3):
+    /// leading whitespace is skipped and the first remaining character carries the
+    /// merged pseudo-element style.
+    /// </summary>
+    private void AddTextRunSlicingFirstLetter(string slice, int startOffset, ComputedStyle style, LayoutText layoutText)
+    {
+        if (slice.Length == 0 || _firstLetterApplied || _block.FirstLetterStyles is not { Count: > 0 })
+        {
+            _data.Items.Add(MakeTextItem(slice, slice.Length, startOffset, style, layoutText));
+            return;
+        }
+
+        int letterIndex = 0;
+        while (letterIndex < slice.Length && char.IsWhiteSpace(slice[letterIndex]))
+            letterIndex++;
+        if (letterIndex >= slice.Length)
+        {
+            _data.Items.Add(MakeTextItem(slice, slice.Length, startOffset, style, layoutText));
+            return;
+        }
+
+        _firstLetterApplied = true;
+        var letterStyle = UpBrowser.Core.Css.PseudoStyleMerger.Merge(style, _block.FirstLetterStyles) ?? style;
+        var node = layoutText.Node;
+
+        if (letterIndex > 0)
+            AddPlainRun(slice[..letterIndex], startOffset, style, node);
+        AddPlainRun(slice[letterIndex..(letterIndex + 1)], startOffset + letterIndex, letterStyle, node);
+        if (letterIndex + 1 < slice.Length)
+            AddPlainRun(slice[(letterIndex + 1)..], startOffset + letterIndex + 1, style, node);
+    }
+
+    private void AddPlainRun(string text, int offset, ComputedStyle style, Node? node)
+    {
+        _data.Items.Add(MakeTextItem(text, text.Length, offset, style, new LayoutText(node, text)));
     }
 
     private ComputedStyle? _lastStyle;

@@ -10,7 +10,7 @@ namespace UpBrowser.Rendering;
 internal sealed class ScopedPaintState : IDisposable
 {
     private readonly DisplayList _displayList;
-    private readonly List<StateType> _states = new();
+    private readonly List<LayerState> _states = new();
     private bool _disposed;
 
     public SKPoint PaintOffset { get; }
@@ -39,7 +39,7 @@ internal sealed class ScopedPaintState : IDisposable
         op.BlendMode = blendMode;
         op.Bounds = bounds;
         _displayList.Add(op);
-        _states.Add(StateType.Layer);
+        _states.Add(new LayerState(StateType.Layer, maskImage, bounds));
     }
 
     public bool PushTransform(SKMatrix matrix, SKRect bounds)
@@ -51,7 +51,7 @@ internal sealed class ScopedPaintState : IDisposable
         op.Matrix = matrix;
         op.Bounds = bounds;
         _displayList.Add(op);
-        _states.Add(StateType.Transform);
+        _states.Add(new LayerState(StateType.Transform, null, SKRect.Empty));
         return true;
     }
 
@@ -64,7 +64,7 @@ internal sealed class ScopedPaintState : IDisposable
         op.ClipRect = clipRect;
         op.Bounds = clipRect;
         _displayList.Add(op);
-        _states.Add(StateType.Clip);
+        _states.Add(new LayerState(StateType.Clip, null, clipRect));
         CullRect.Intersect(clipRect);
         return true;
     }
@@ -76,7 +76,19 @@ internal sealed class ScopedPaintState : IDisposable
 
         for (int i = _states.Count - 1; i >= 0; i--)
         {
-            PaintOp op = _states[i] switch
+            var state = _states[i];
+            // The mask multiplies everything the layer accumulated so far, so it
+            // goes inside the layer: emitted just before the matching pop.
+            if (state.Type == StateType.Layer && state.Mask != null)
+            {
+                var maskOp = PaintOpPool.GetMaskApplyOp();
+                maskOp.Mask = state.Mask;
+                maskOp.Rect = state.Bounds;
+                maskOp.Bounds = state.Bounds;
+                _displayList.Add(maskOp);
+            }
+
+            PaintOp op = state.Type switch
             {
                 StateType.Layer => PaintOpPool.GetPopLayerOp(),
                 StateType.Clip => PaintOpPool.GetPopClipOp(),
@@ -87,6 +99,8 @@ internal sealed class ScopedPaintState : IDisposable
 
         _disposed = true;
     }
+
+    private readonly record struct LayerState(StateType Type, SKImage? Mask, SKRect Bounds);
 
     private enum StateType
     {

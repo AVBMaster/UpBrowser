@@ -396,6 +396,21 @@ public class StyleResolver
         }
     }
 
+    private static bool HasPseudoElement(string selectorText, string name)
+    {
+        string twoColons = "::" + name;
+        string oneColon = ":" + name;
+        int at = selectorText.IndexOf(twoColons, StringComparison.OrdinalIgnoreCase);
+        if (at >= 0)
+            return true;
+        at = selectorText.IndexOf(oneColon, StringComparison.OrdinalIgnoreCase);
+        if (at < 0)
+            return false;
+        // A single colon counts only when it is not part of a double colon of a
+        // different pseudo-element (e.g. "::before" handled above).
+        return at == 0 || selectorText[at - 1] != ':';
+    }
+
     /// <summary>Matches a style rule and, when it wins, records it with the
     /// matching selector's specificity and a monotonically increasing position
     /// so equal-specificity rules resolve by source order (per CSS cascading).</summary>
@@ -415,17 +430,40 @@ public class StyleResolver
                 // Pseudo-element rules (::before / ::after) style generated content,
                 // not the element itself: route their declarations to the element's
                 // side-car exactly like the string cascade does, and skip the cascade.
-                if (selectorText.Contains("::before", StringComparison.OrdinalIgnoreCase))
+                // The single-colon legacy spelling is accepted for these three
+                // (CSS Selectors 3 §6.1, for backwards compatibility).
+                if (HasPseudoElement(selectorText, "before"))
                 {
                     foreach (var p in rule.Properties.Properties)
                         (element.BeforeStyles ??= new Dictionary<string, string>())
                             [p.Name.ToCssString()] = p.Value.CssText();
                     return;
                 }
-                if (selectorText.Contains("::after", StringComparison.OrdinalIgnoreCase))
+                if (HasPseudoElement(selectorText, "after"))
                 {
                     foreach (var p in rule.Properties.Properties)
                         (element.AfterStyles ??= new Dictionary<string, string>())
+                            [p.Name.ToCssString()] = p.Value.CssText();
+                    return;
+                }
+                if (HasPseudoElement(selectorText, "marker"))
+                {
+                    foreach (var p in rule.Properties.Properties)
+                        (element.MarkerStyles ??= new Dictionary<string, string>())
+                            [p.Name.ToCssString()] = p.Value.CssText();
+                    return;
+                }
+                if (HasPseudoElement(selectorText, "first-line"))
+                {
+                    foreach (var p in rule.Properties.Properties)
+                        (element.FirstLineStyles ??= new Dictionary<string, string>())
+                            [p.Name.ToCssString()] = p.Value.CssText();
+                    return;
+                }
+                if (HasPseudoElement(selectorText, "first-letter"))
+                {
+                    foreach (var p in rule.Properties.Properties)
+                        (element.FirstLetterStyles ??= new Dictionary<string, string>())
                             [p.Name.ToCssString()] = p.Value.CssText();
                     return;
                 }
@@ -648,6 +686,8 @@ public class StyleResolver
         style.LetterSpacing = parent.LetterSpacing;
         style.WordSpacing = parent.WordSpacing;
         style.TextIndent = parent.TextIndent;
+        style.TextIndentHanging = parent.TextIndentHanging;
+        style.TextIndentPercent = parent.TextIndentPercent;
         style.Cursor = parent.Cursor;
         style.ListStyleType = parent.ListStyleType;
         style.ListStylePosition = parent.ListStylePosition;
@@ -656,6 +696,9 @@ public class StyleResolver
         style.FontVariant = parent.FontVariant;
         style.FontKerning = parent.FontKerning;
         style.FontStretch = parent.FontStretch;
+        // 'quotes' is inherited so descendants' open-quote/close-quote resolve
+        // against the same quote set (CSS GCP §4.1).
+        style.Quotes = parent.Quotes;
     }
 
     private static void CollectNonDefaultProperties(ComputedStyle source, CssPropertyValueSet target)

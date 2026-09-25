@@ -45,7 +45,7 @@
 			<JsEngineHostOutDir Condition="$([MSBuild]::IsOSPlatform('Windows'))">$(MSBuildThisFileDirectory)..\UpBrowser.JsEngineHost\bin\$(Configuration)\net10.0-windows\</JsEngineHostOutDir>
 			<JsEngineHostOutDir Condition="!$([MSBuild]::IsOSPlatform('Windows'))">$(MSBuildThisFileDirectory)..\UpBrowser.JsEngineHost\bin\$(Configuration)\net10.0\</JsEngineHostOutDir>
 		</PropertyGroup>
-		<Exec Command="dotnet restore &quot;..\UpBrowser.JsEngineHost\UpBrowser.JsEngineHost.csproj&quot;" />
+		<Exec Command="dotnet restore &quot;$([MSBuild]::NormalizePath('$(MSBuildThisFileDirectory)', '..\UpBrowser.JsEngineHost\UpBrowser.JsEngineHost.csproj'))&quot;" />
 		<!--
 		  Plain build with an explicit framework-dependent override: the host
 		  csproj defaults to SelfContained=true, which silently pushes its output
@@ -55,7 +55,7 @@
 		  SelfContained=false keeps the flat TFM folder as the single output
 		  location, framework-dependent like the installed shared runtime.
 		-->
-		<Exec Command="dotnet build &quot;..\UpBrowser.JsEngineHost\UpBrowser.JsEngineHost.csproj&quot; -c $(Configuration) -f $(JsEngineHostTFM) -p:SelfContained=false" />
+		<Exec Command="dotnet build &quot;$([MSBuild]::NormalizePath('$(MSBuildThisFileDirectory)', '..\UpBrowser.JsEngineHost\UpBrowser.JsEngineHost.csproj'))&quot; -c $(Configuration) -f $(JsEngineHostTFM) -p:SelfContained=false" />
 	</Target>
 
 	<Target Name="CopyJsEngineHostOutput" AfterTargets="Build" DependsOnTargets="EnsureJsEngineHostBuilt">
@@ -73,7 +73,7 @@
 
 	<!-- 发布时自动编译 JsEngineHost 并复制到输出目录 -->
 	<Target Name="PublishJsEngineHost" AfterTargets="Publish" Condition="'$(RuntimeIdentifier)' != ''">
-		<Exec Command="dotnet publish &quot;..\UpBrowser.JsEngineHost\UpBrowser.JsEngineHost.csproj&quot; -c $(Configuration) -r $(RuntimeIdentifier) -o &quot;$(PublishDir)&quot;" />
+		<Exec Command="dotnet publish &quot;$([MSBuild]::NormalizePath('$(MSBuildThisFileDirectory)', '..\UpBrowser.JsEngineHost\UpBrowser.JsEngineHost.csproj'))&quot; -c $(Configuration) -r $(RuntimeIdentifier) -o &quot;$(PublishDir)&quot;" />
 		<Message Text="JsEngineHost published to $(PublishDir)" Importance="high" />
 	</Target>
 

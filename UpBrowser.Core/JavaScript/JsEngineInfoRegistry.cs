@@ -6,19 +6,7 @@ namespace UpBrowser.Core.JavaScript;
 /// </summary>
 public static class JsEngineInfoRegistry
 {
-    private static string RegistryPath
-    {
-        get
-        {
-            string appData;
-#if WINDOWS
-            appData = WindowsFolderProvider.GetAppDataPath();
-#else
-            appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-#endif
-            return Path.Combine(appData, "UpBrowser", "engine_registry.txt");
-        }
-    }
+    private static string RegistryPath => Path.Combine(AppPaths.AppDataDir, "engine_registry.txt");
 
     private static EngineRegistry? _data;
 

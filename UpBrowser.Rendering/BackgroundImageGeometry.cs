@@ -14,6 +14,9 @@ public sealed class BackgroundImageGeometry
     public SKSize TileSize;
     public SKPoint Phase;
     public SKSize SpaceSize;
+    /// <summary>Resolved repeat per axis; no-repeat is not periodic, so its phase is used verbatim.</summary>
+    public FillRepeat RepeatX = FillRepeat.Repeat;
+    public FillRepeat RepeatY = FillRepeat.Repeat;
 
     public static BackgroundImageGeometry Empty => new();
 
@@ -125,9 +128,10 @@ public sealed class BackgroundImageGeometry
         }
         else
         {
-            // Otherwise, if the offset is negative use it to move the image under
-            // the dest rect (since we can't paint outside the paint rect).
-            SetPhaseX(-xOffset);
+            // Negative offset: the image starts outside the destination rect, so
+            // keep the raw (negative) shift — the tiler slides the tile left and
+            // crops what falls outside.
+            SetPhaseX(xOffset);
 
             // Reduce the width of the dest rect to draw only the portion of the
             // tile that remains visible after offsetting the image.
@@ -153,7 +157,7 @@ public sealed class BackgroundImageGeometry
         }
         else
         {
-            SetPhaseY(-yOffset);
+            SetPhaseY(yOffset);
             UnsnappedDestRect = new SKRect(UnsnappedDestRect.Left, UnsnappedDestRect.Top, UnsnappedDestRect.Right, UnsnappedDestRect.Top + TileSize.Height + yOffset);
             SnappedDestRect = new SKRect(SnappedDestRect.Left, SnappedDestRect.Top, SnappedDestRect.Right, SnappedDestRect.Top + TileSize.Height + snappedYOffset);
         }
@@ -374,6 +378,10 @@ public sealed class BackgroundImageGeometry
             case FillBoxOrigin.Border:
                 // All adjustments remain 0.
                 boxOutset = default;
+                break;
+            case FillBoxOrigin.Content:
+                // The positioning area is the content box: inset by border + padding.
+                boxOutset = SnappedAndUnsnappedOutsets.From(paintContext.BorderPaddingOutsets);
                 break;
             default:
                 boxOutset = default;
@@ -610,16 +618,28 @@ public sealed class BackgroundImageGeometry
             float snappedYOffset = ResolveYPosition(fillLayer, snappedAvailableHeight, offsetInBackground.Y);
             SetNoRepeatY(fillLayer, unsnappedBoxOffset.Y + yOffset, snappedBoxOffset.Y + snappedYOffset);
         }
+
+        RepeatX = backgroundRepeatX;
+        RepeatY = backgroundRepeatY;
     }
 
     /// <summary>
     /// Compute the phase to paint, no more than one size + space in magnitude.
+    /// A no-repeat axis is not periodic, so its raw (possibly negative) shift is
+    /// kept to slide the first tile out under the destination rect.
     /// </summary>
     public SKPoint ComputePhase()
     {
         float stepX = TileSize.Width + SpaceSize.Width;
         float stepY = TileSize.Height + SpaceSize.Height;
-        return new SKPoint(IntMod(-Phase.X, stepX), IntMod(-Phase.Y, stepY));
+        return new SKPoint(PhaseForAxis(Phase.X, stepX, RepeatX), PhaseForAxis(Phase.Y, stepY, RepeatY));
+    }
+
+    private static float PhaseForAxis(float phase, float step, FillRepeat repeat)
+    {
+        if (repeat == FillRepeat.NoRepeat)
+            return Math.Min(phase, 0f);
+        return step > 0 ? IntMod(-phase, step) : 0;
     }
 
     /// <summary>Build a FillLayer chain from a ComputedStyle.</summary>
@@ -681,11 +701,15 @@ public static FillLayer? FromStyle(ComputedStyle style, bool isMask = false)
                     RepeatX = style.BackgroundRepeat switch
                     {
                         BackgroundRepeat.NoRepeat or BackgroundRepeat.RepeatY => FillRepeat.NoRepeat,
+                        BackgroundRepeat.Round => FillRepeat.Round,
+                        BackgroundRepeat.Space => FillRepeat.Space,
                         _ => FillRepeat.Repeat,
                     },
                     RepeatY = style.BackgroundRepeat switch
                     {
                         BackgroundRepeat.NoRepeat or BackgroundRepeat.RepeatX => FillRepeat.NoRepeat,
+                        BackgroundRepeat.Round => FillRepeat.Round,
+                        BackgroundRepeat.Space => FillRepeat.Space,
                         _ => FillRepeat.Repeat,
                     },
                 };

@@ -105,6 +105,7 @@ _scrollableAreaPainter = new ScrollableAreaPainter(_displayList);
         _imageCache = sharedImageCache ?? new ImageCache();
         _imagePainter = new ImagePainter(_displayList, _imageCache, baseUrl);
         _replacedPainter = new ReplacedPainter(_displayList, _imageCache, baseUrl);
+        InstallReplacedIntrinsicSizes(_imageCache, baseUrl);
         _highlightPainter = new HighlightPainter(_displayList);
         _maskPainter = new MaskPainter(_imageCache, baseUrl);
         _linkHighlight = new LinkHighlightImpl(_displayList);
@@ -115,6 +116,25 @@ _scrollableAreaPainter = new ScrollableAreaPainter(_displayList);
     }
 
     public void SetFocusedElement(Core.Dom.Element? element) => _focusedElement = element;
+
+    /// <summary>
+    /// Wire the layout-side seam that asks the decoder for a replaced element's
+    /// intrinsic size. Layout runs before painting, so the host must install this
+    /// before the first layout pass of a document.
+    /// </summary>
+    public static void InstallReplacedIntrinsicSizes(ImageCache imageCache, string? baseUrl)
+    {
+        Core.Layout.ReplacedIntrinsicSizes.Resolver = source =>
+        {
+            var resolved = UrlResolver.Resolve(source, baseUrl);
+            if (resolved == null)
+                return null;
+            var task = imageCache.GetImageAsync(resolved);
+            if (!task.Wait(TimeSpan.FromSeconds(2)) || task.Result == null)
+                return null;
+            return new Core.Layout.Geometry.PhysicalSize(task.Result.Width, task.Result.Height);
+        };
+    }
 
     /// <summary>
     /// Opt-in link tap-flash overlay. NOT invoked by the default paint pipeline;
@@ -1035,38 +1055,84 @@ _scrollableAreaPainter = new ScrollableAreaPainter(_displayList);
 
     private void DrawListMarker(Element element, LayoutBox box, ComputedStyle style)
     {
-        if (style.ListStyleType == ListStyleType.None) return;
-        if (element.Parent is not Element parent || parent.LayoutBox == null) return;
+        bool hasMarkerImage = ExtractListStyleImageUrl(style.ListStyleImage) != null;
+        if (style.ListStyleType == ListStyleType.None && !hasMarkerImage) return;
 
+        bool markerInside = style.ListStylePosition == ListStylePosition.Inside;
+        LayoutBox? parentBox = null;
         int itemIndex = 0;
-        foreach (var child in parent.Children)
+        if (element.Parent is Element parent)
         {
-            if (child is Element childElement && childElement.ComputedStyle?.Display == DisplayType.ListItem)
+            parentBox = parent.LayoutBox;
+            foreach (var child in parent.Children)
             {
-                if (childElement == element) break;
-                itemIndex++;
+                if (child is Element childElement && childElement.ComputedStyle?.Display == DisplayType.ListItem)
+                {
+                    if (childElement == element) break;
+                    itemIndex++;
+                }
+            }
+        }
+        // Outside markers hang into the parent's padding area, so they need the
+        // parent's content edge; inside markers flow with the item's own content.
+        if (!markerInside && parentBox == null) return;
+
+        float markerGap = UpBrowser.Core.Layout.List.ListMarker.MarkerGap;
+        float markerWidth = UpBrowser.Core.Layout.List.ListMarker.MarkerWidth(
+            style.ListStyleType, style.ListStylePosition, style.FontSize);
+        float markerHeight = style.FontSize;
+
+        // list-style-image wins over the type glyph; the type is only the
+        // fallback when the image is missing or fails to load (CSS Lists 3 §4.1).
+        string? markerImageSource = ExtractListStyleImageUrl(style.ListStyleImage);
+        SKImage? markerImage = null;
+        if (markerImageSource != null)
+        {
+            var resolved = UrlResolver.Resolve(markerImageSource, _baseUrl);
+            if (resolved != null)
+            {
+                var task = _imageCache.GetImageAsync(resolved);
+                if (task.Wait(TimeSpan.FromSeconds(2)))
+                    markerImage = task.Result;
+            }
+            if (markerImage != null)
+            {
+                markerWidth = markerImage.Width;
+                markerHeight = markerImage.Height;
             }
         }
 
-        float markerWidth = style.ListStyleType switch
-        {
-            ListStyleType.Disc or ListStyleType.Circle or ListStyleType.Square => 12f,
-            ListStyleType.Decimal => ((itemIndex + 1).ToString() + ".").Length * style.FontSize * 0.6f,
-            ListStyleType.DecimalLeadingZero => ((itemIndex + 1).ToString().PadLeft(2, '0') + ".").Length * style.FontSize * 0.6f,
-            ListStyleType.LowerRoman or ListStyleType.UpperRoman => (ToRoman(itemIndex + 1) + ".").Length * style.FontSize * 0.6f,
-            ListStyleType.LowerAlpha or ListStyleType.UpperAlpha => 2 * style.FontSize * 0.6f,
-            _ => 12f
-        };
+        float markerX = markerInside
+            ? box.ContentBox.Left
+            : parentBox!.ContentBox.Left - markerWidth - markerGap;
 
-        float markerGap = 8f;
-        float markerX = parent.LayoutBox.ContentBox.Left - markerWidth - markerGap;
-        
         float markerY;
         if (box.Lines != null && box.Lines.Count > 0 && box.Lines[0].Baseline > 0)
             markerY = box.Lines[0].Baseline;
         else
             markerY = box.ContentBox.Top + Core.Fonts.LineBoxMetrics.GetBaseline(style);
-        
+
+        if (markerImage != null)
+        {
+            // An image marker is centred on the first line box rather than sitting
+            // on the text baseline like a glyph.
+            float lineTop = box.Lines != null && box.Lines.Count > 0
+                ? box.Lines[0].Y
+                : box.ContentBox.Top;
+            float lineHeight = box.Lines != null && box.Lines.Count > 0
+                ? box.Lines[0].Height
+                : Core.Fonts.LineBoxMetrics.GetLineHeight(style);
+            float imageTop = lineTop + MathF.Max(0, (lineHeight - markerHeight) / 2);
+            var imageOp = PaintOpPool.GetDrawImageOp();
+            imageOp.Image = markerImage;
+            imageOp.SourceRect = new SKRect(0, 0, markerImage.Width, markerImage.Height);
+            imageOp.DestRect = new SKRect(markerX, imageTop, markerX + markerWidth, imageTop + markerHeight);
+            imageOp.Fit = ImageFit.Fill;
+            imageOp.Bounds = imageOp.DestRect;
+            _displayList.Add(imageOp);
+            return;
+        }
+
         string markerText = style.ListStyleType switch
         {
             ListStyleType.Disc => "\u2022",
@@ -1080,15 +1146,48 @@ _scrollableAreaPainter = new ScrollableAreaPainter(_displayList);
             ListStyleType.UpperAlpha => ((char)('A' + (itemIndex % 26))).ToString() + ".",
             _ => "\u2022"
         };
+
+        // ::marker may restyle the generated marker (CSS Lists 3 §7.1); only a
+        // small set of properties apply, so they are read from the side-car.
+        SKColor markerColor = style.Color;
+        float markerFontSize = style.FontSize;
+        string markerFamily = style.FontFamily ?? "Arial";
+        if (element.MarkerStyles != null)
+        {
+            if (element.MarkerStyles.TryGetValue("color", out var colorText))
+                markerColor = ColorParser.Parse(colorText);
+            if (element.MarkerStyles.TryGetValue("font-size", out var sizeText))
+            {
+                float resolved = Length.Parse(sizeText.Trim()).ToPixels(style.FontSize, style.FontSize, 0, 0);
+                if (!float.IsNaN(resolved) && resolved > 0)
+                    markerFontSize = resolved;
+            }
+            if (element.MarkerStyles.TryGetValue("font-family", out var familyText))
+                markerFamily = familyText.Trim();
+        }
+
         var op = PaintOpPool.GetDrawTextOp();
         op.Text = markerText;
         op.X = markerX;
         op.Y = markerY + TotalOffsetY;
-        op.Color = style.Color;
-        op.FontSize = style.FontSize;
-        op.FontFamily = style.FontFamily ?? "Arial";
-        op.Bounds = new SKRect(markerX, markerY, markerX + markerWidth, markerY + style.FontSize);
+        op.Color = markerColor;
+        op.FontSize = markerFontSize;
+        op.FontFamily = markerFamily;
+        op.Bounds = new SKRect(markerX, markerY, markerX + markerWidth, markerY + markerFontSize);
         _displayList.Add(op);
+    }
+
+    /// <summary>Pull the URL out of a list-style-image value ('url(...)' or 'none').</summary>
+    private static string? ExtractListStyleImageUrl(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value) || value.Trim().Equals("none", StringComparison.OrdinalIgnoreCase))
+            return null;
+        var trimmed = value.Trim();
+        int open = trimmed.IndexOf('(');
+        int close = trimmed.LastIndexOf(')');
+        if (open < 0 || close <= open)
+            return trimmed;
+        return trimmed[(open + 1)..close].Trim().Trim('"', '\'');
     }
 
     private string ToRoman(int number)
@@ -1139,7 +1238,27 @@ _scrollableAreaPainter = new ScrollableAreaPainter(_displayList);
         // Push clip to background clip rect
         bool needsClip = style.BackgroundClip != null && style.BackgroundClip != "" &&
                          style.BackgroundClip.ToLowerInvariant() != "padding-box";
-        if (needsClip)
+
+        // background-clip: text paints the fill through the element's glyph
+        // outlines only (css-backgrounds-3 §4.7). Without text there is nothing
+        // to reveal, so the whole background is skipped.
+        SKPath? textClipPath = null;
+        if (needsClip && style.BackgroundClip!.Equals("text", StringComparison.OrdinalIgnoreCase))
+        {
+            textClipPath = BuildTextClipPath(box);
+            if (textClipPath == null)
+                return;
+        }
+
+        bool rectClip = textClipPath == null && needsClip;
+        if (textClipPath != null)
+        {
+            var layerOp = PaintOpPool.GetPushLayerOp();
+            layerOp.ClipPath = textClipPath;
+            layerOp.Bounds = borderRect;
+            _displayList.Add(layerOp);
+        }
+        else if (rectClip)
         {
             var clipOp = PaintOpPool.GetPushClipOp();
             clipOp.ClipRect = bgClipRect;
@@ -1151,7 +1270,14 @@ _scrollableAreaPainter = new ScrollableAreaPainter(_displayList);
         // paint after the background (over it), mirroring box_painter_base.cc.
         _boxPainter.PaintNormalBoxShadow(borderRect, style);
 
-        if (skipBackgroundLayers) return;
+        if (skipBackgroundLayers)
+        {
+            if (textClipPath != null)
+                _displayList.Add(PaintOpPool.GetPopLayerOp());
+            else if (rectClip)
+                _displayList.Add(PaintOpPool.GetPopClipOp());
+            return;
+        }
 
         bool hasBackgroundColor = style.BackgroundColor.HasValue && style.BackgroundColor.Value.Alpha > 0;
         bool hasBackgroundImage = style.BackgroundImage is { Count: > 0 };
@@ -1185,12 +1311,105 @@ _scrollableAreaPainter = new ScrollableAreaPainter(_displayList);
         _boxPainter.PaintInsetBoxShadowWithBorderRect(borderRect, style);
 
         // Pop clip if we pushed one
-        if (needsClip)
+        if (textClipPath != null)
+        {
+            var popOp = PaintOpPool.GetPopLayerOp();
+            popOp.Bounds = borderRect;
+            _displayList.Add(popOp);
+        }
+        else if (rectClip)
         {
             var popOp = PaintOpPool.GetPopClipOp();
             popOp.Bounds = borderRect;
             _displayList.Add(popOp);
         }
+    }
+
+    /// <summary>
+    /// Union of the glyph outlines painted by |box| and its descendants, in page
+    /// coordinates. Used as the clip for background-clip: text.
+    /// </summary>
+    private SKPath? BuildTextClipPath(LayoutBox box)
+    {
+        SKPath? path = null;
+        CollectTextClipPath(box, ref path);
+        return path;
+    }
+
+    private void CollectTextClipPath(LayoutBox box, ref SKPath? path)
+    {
+        if (box.Lines != null)
+        {
+            foreach (var line in box.Lines)
+            {
+                float currentX = line.X;
+                foreach (var run in line.Runs)
+                {
+                    if (run.IsText && run.Node is TextNode textNode)
+                    {
+                        var runStyle = textNode.ParentElement?.ComputedStyle;
+                        if (runStyle != null && runStyle.Visibility != VisibilityType.Hidden)
+                        {
+                            string text = ApplyTextTransform(run.Text, runStyle.TextTransform);
+                            float size = run.FontSize ?? runStyle.FontSize;
+                            float baselineY = (run.Baseline > 0 ? run.Baseline : line.Baseline) + TotalOffsetY;
+                            AppendRunGlyphPath(ref path, text, currentX + line.TextAlignOffsetX, baselineY,
+                                size, run.FontFamily ?? runStyle.FontFamily, run.FontWeight);
+                        }
+                    }
+                    currentX += run.Width;
+                }
+            }
+        }
+        else if (box.LineRuns != null)
+        {
+            float x = box.ContentBox.Left;
+            float fallbackBaseline = box.ContentBox.Top + TotalOffsetY +
+                Core.Fonts.LineBoxMetrics.GetBaselineForLineHeight(box.Dimensions?.Style, box.LineHeight);
+            foreach (var run in box.LineRuns)
+            {
+                if (run.IsText && run.Node is TextNode textNode)
+                {
+                    var runStyle = textNode.ParentElement?.ComputedStyle;
+                    if (runStyle != null && runStyle.Visibility != VisibilityType.Hidden)
+                    {
+                        string text = ApplyTextTransform(run.Text, runStyle.TextTransform);
+                        float size = run.FontSize ?? runStyle.FontSize;
+                        float baselineY = run.Baseline > 0 ? run.Baseline + TotalOffsetY : fallbackBaseline;
+                        AppendRunGlyphPath(ref path, text, x, baselineY, size,
+                            run.FontFamily ?? runStyle.FontFamily, run.FontWeight);
+                    }
+                }
+                x += run.Width;
+            }
+        }
+
+        foreach (var child in box.Children)
+            CollectTextClipPath(child, ref path);
+    }
+
+    private static void AppendRunGlyphPath(ref SKPath? target, string text, float x, float baselineY,
+        float size, string? family, FontWeight weight)
+    {
+        if (string.IsNullOrEmpty(text))
+            return;
+
+        var typeface = Core.Fonts.FontManager.GetOrCreateTypeface(
+            string.IsNullOrEmpty(family) ? "Arial" : family, weight);
+        if (!Core.Fonts.FontManager.HasCharacter(typeface, text[0]))
+            typeface = Core.Fonts.FontManager.GetFallbackTypeface(text[0]) ?? typeface;
+
+        var font = new SKFont(typeface, size);
+        var glyphPath = font.GetTextPath(text, new SKPoint(x, baselineY));
+        if (glyphPath == null || glyphPath.IsEmpty)
+        {
+            glyphPath?.Dispose();
+            return;
+        }
+
+        target ??= new SKPath();
+        target.AddPath(glyphPath);
+        glyphPath.Dispose();
     }
 
     /// <summary>
@@ -1395,7 +1614,7 @@ private static SKBlendMode MixBlendModeToSkBlendMode(MixBlendModeType mode) => m
         bool hasMask = _maskPainter.HasMask(style);
         SKImage? maskImage = null;
         if (hasMask)
-            maskImage = _maskPainter.TryLoadMaskImage(style);
+            maskImage = _maskPainter.TryBuildMaskImage(style, offsetBorderBox);
 
         bool hasFilter = !string.IsNullOrEmpty(style.Filter) && style.Filter != "none";
         SKImageFilter? elementFilter = null;
@@ -1413,10 +1632,11 @@ private static SKBlendMode MixBlendModeToSkBlendMode(MixBlendModeType mode) => m
         }
 
         // Apply CSS transform BEFORE background so the entire element (including background) is transformed
-        if (!string.IsNullOrEmpty(style.Transform) && style.Transform != "none")
+        if (style.HasAnyTransform)
         {
             var transformOrigin = ParseTransformOrigin(style.TransformOrigin, layoutBox);
-            var operations = TransformParser.Parse(style.Transform);
+            var operations = TransformParser.Parse(style.EffectiveTransform(
+                layoutBox.BorderBox.Width, layoutBox.BorderBox.Height));
             if (operations.Count > 0)
             {
                 var transformMatrix = TransformParser.ToMatrix(operations, transformOrigin.X, transformOrigin.Y);
@@ -3419,18 +3639,129 @@ private static SKBlendMode MixBlendModeToSkBlendMode(MixBlendModeType mode) => m
         return s.Trim();
     }
 
+    /// <summary>
+    /// Paint the background of an inline box behind one of its text runs. Inline
+    /// elements have no box of their own in this engine, so the decoration is
+    /// drawn per run over the font content area (CSS 2.1 §10.6.1: the background
+    /// of an inline box covers its content area plus padding).
+    /// </summary>
+    private void PaintInlineRunBackground(Element? owner, ComputedStyle? style,
+        float left, float right, float baselineY)
+    {
+        // Only inline boxes are decorated per run: a block's own background and
+        // borders already come from its box painting phase, and inline-level
+        // boxes with their own layout box (inline-block) paint through that path.
+        if (owner == null || style == null || style.Display != DisplayType.Inline)
+            return;
+        bool hasColor = style.BackgroundColor.HasValue && style.BackgroundColor.Value.Alpha > 0;
+        bool hasImage = style.BackgroundImage is { Count: > 0 } &&
+                        style.BackgroundImage!.Any(s => !string.IsNullOrEmpty(s) && s != "none");
+        bool hasBorder = (style.BorderTopWidth > 0 && style.BorderTopStyle != BorderStyle.None) ||
+                         (style.BorderRightWidth > 0 && style.BorderRightStyle != BorderStyle.None) ||
+                         (style.BorderBottomWidth > 0 && style.BorderBottomStyle != BorderStyle.None) ||
+                         (style.BorderLeftWidth > 0 && style.BorderLeftStyle != BorderStyle.None);
+        if (!hasColor && !hasImage && !hasBorder)
+            return;
+
+        float fs = style.FontSize;
+        float padL = ResolveInlinePadding(style.PaddingLeft, fs);
+        float padR = ResolveInlinePadding(style.PaddingRight, fs);
+        float padT = ResolveInlinePadding(style.PaddingTop, fs);
+        float padB = ResolveInlinePadding(style.PaddingBottom, fs);
+
+        var metrics = Core.Fonts.LineBoxMetrics.GetFontMetrics(style);
+        var rect = new SKRect(
+            left - padL,
+            baselineY - metrics.FloatAscent - padT,
+            right + padR,
+            baselineY + metrics.FloatDescent + padB);
+        if (rect.Width <= 0 || rect.Height <= 0)
+            return;
+
+        if (hasColor)
+        {
+            var op = PaintOpPool.GetDrawRectOp();
+            op.Rect = rect;
+            op.FillColor = style.BackgroundColor!.Value;
+            op.Bounds = rect;
+            _displayList.Add(op);
+        }
+        if (hasImage)
+            DrawBackgroundImage(owner, style, rect);
+
+        if (hasBorder)
+            PaintInlineRunBorder(style, rect);
+    }
+
+    /// <summary>
+    /// Draw the inline box's borders around one fragment. Vertical borders do not
+    /// affect the line box (CSS 2.1 §10.6.1), so they only paint.
+    /// </summary>
+    private void PaintInlineRunBorder(ComputedStyle style, SKRect paddingRect)
+    {
+        float bt = style.BorderTopWidth, br = style.BorderRightWidth;
+        float bb = style.BorderBottomWidth, bl = style.BorderLeftWidth;
+        if (bt <= 0 && br <= 0 && bb <= 0 && bl <= 0)
+            return;
+        if (style.BorderTopStyle == BorderStyle.None && style.BorderRightStyle == BorderStyle.None &&
+            style.BorderBottomStyle == BorderStyle.None && style.BorderLeftStyle == BorderStyle.None)
+            return;
+
+        var outer = new SKRect(paddingRect.Left - bl, paddingRect.Top - bt,
+            paddingRect.Right + br, paddingRect.Bottom + bb);
+
+        void Edge(SKRect rect, SKColor color, BorderStyle borderStyle)
+        {
+            if (rect.Width <= 0 || rect.Height <= 0)
+                return;
+            var op = PaintOpPool.GetDrawRectOp();
+            op.Rect = rect;
+            op.FillColor = color;
+            op.Bounds = rect;
+            _displayList.Add(op);
+        }
+
+        if (bt > 0)
+            Edge(new SKRect(outer.Left, outer.Top, outer.Right, paddingRect.Top), style.BorderTopColor, style.BorderTopStyle);
+        if (bb > 0)
+            Edge(new SKRect(outer.Left, paddingRect.Bottom, outer.Right, outer.Bottom), style.BorderBottomColor, style.BorderBottomStyle);
+        if (bl > 0)
+            Edge(new SKRect(outer.Left, outer.Top, paddingRect.Left, outer.Bottom), style.BorderLeftColor, style.BorderLeftStyle);
+        if (br > 0)
+            Edge(new SKRect(paddingRect.Right, outer.Top, outer.Right, outer.Bottom), style.BorderRightColor, style.BorderRightStyle);
+    }
+
+    private static float ResolveInlinePadding(Length? length, float fontSize)
+    {
+        if (length == null)
+            return 0;
+        float px = length.ToPixels(fontSize, fontSize, 0, 0);
+        return float.IsNaN(px) || px < 0 ? 0 : px;
+    }
+
     private void DrawInlineRuns(LayoutBox box)
     {
         if (box.LineRuns == null && (box.Lines == null || box.Lines.Count == 0))
             return;
 
         float boxTop = box.ContentBox.Top + TotalOffsetY;
+
+        // ::first-line was already applied to measurement by the line breaker, so
+        // painting has to resolve the same merged style for the first line's runs.
+        ComputedStyle? firstLineOverride = null;
+        var boxOwner = box.Dimensions?.Element;
+        if (boxOwner?.FirstLineStyles is { Count: > 0 } && boxOwner.ComputedStyle != null)
+            firstLineOverride = Core.Css.PseudoStyleMerger.Merge(boxOwner.ComputedStyle, boxOwner.FirstLineStyles);
+
         if (box.Lines != null)
         {
             TextNode? lastTextNode = null;
             int runStartOffset = 0;
+            int lineIndex = -1;
             foreach (var line in box.Lines)
             {
+                lineIndex++;
+                ComputedStyle? lineOverride = lineIndex == 0 ? firstLineOverride : null;
                 float lineY = line.Y + TotalOffsetY;
                 float baseline = line.Baseline + TotalOffsetY;
                 float lineOffsetX = line.TextAlignOffsetX;
@@ -3452,26 +3783,27 @@ private static SKBlendMode MixBlendModeToSkBlendMode(MixBlendModeType mode) => m
                             currentX += run.Width;
                             continue;
                         }
-                        var actualFontSize = run.FontSize ?? parentStyle?.FontSize ?? 16;
-                        var runText = ApplyTextTransform(run.Text, parentStyle?.TextTransform);
+                        var effectiveStyle = lineOverride ?? parentStyle;
+                        var actualFontSize = run.FontSize ?? effectiveStyle?.FontSize ?? 16;
+                        var runText = ApplyTextTransform(run.Text, effectiveStyle?.TextTransform);
                         float runY = run.Baseline > 0 ? run.Baseline + TotalOffsetY : baseline;
                         var op = PaintOpPool.GetDrawTextOp();
                         op.Text = runText;
                         op.X = currentX + lineOffsetX;
                         op.Y = runY;
-                        op.Color = run.Color ?? parentStyle?.Color ?? SKColors.Black;
+                        op.Color = run.Color ?? effectiveStyle?.Color ?? SKColors.Black;
                         op.FontSize = actualFontSize;
-                        op.FontFamily = run.FontFamily ?? parentStyle?.FontFamily ?? "Arial";
+                        op.FontFamily = run.FontFamily ?? effectiveStyle?.FontFamily ?? "Arial";
                         op.FontWeight = run.FontWeight;
-                        op.Underline = parentStyle?.TextDecorationLine == TextDecorationLineType.Underline || parentStyle?.TextDecoration == TextDecorationType.Underline;
-                        op.LineThrough = parentStyle?.TextDecorationLine == TextDecorationLineType.LineThrough || parentStyle?.TextDecoration == TextDecorationType.LineThrough;
-                        op.Overline = parentStyle?.TextDecorationLine == TextDecorationLineType.Overline || parentStyle?.TextDecoration == TextDecorationType.Overline;
-                        if (parentStyle != null) op.UnderlineColor = parentStyle.TextDecorationColor;
-                        op.DecorationStyle = parentStyle?.TextDecorationStyle ?? TextDecorationStyleType.Solid;
-                        op.LetterSpacing = parentStyle?.LetterSpacing ?? 0;
-                        op.Italic = parentStyle?.FontStyle == FontStyleType.Italic || parentStyle?.FontStyle == FontStyleType.Oblique;
-                        if (parentStyle?.TextShadow != null && parentStyle.TextShadow.Count > 0)
-                            op.TextShadows = parentStyle.TextShadow;
+                        op.Underline = effectiveStyle?.TextDecorationLine == TextDecorationLineType.Underline || effectiveStyle?.TextDecoration == TextDecorationType.Underline;
+                        op.LineThrough = effectiveStyle?.TextDecorationLine == TextDecorationLineType.LineThrough || effectiveStyle?.TextDecoration == TextDecorationType.LineThrough;
+                        op.Overline = effectiveStyle?.TextDecorationLine == TextDecorationLineType.Overline || effectiveStyle?.TextDecoration == TextDecorationType.Overline;
+                        if (effectiveStyle != null) op.UnderlineColor = effectiveStyle.TextDecorationColor;
+                        op.DecorationStyle = effectiveStyle?.TextDecorationStyle ?? TextDecorationStyleType.Solid;
+                        op.LetterSpacing = effectiveStyle?.LetterSpacing ?? 0;
+                        op.Italic = effectiveStyle?.FontStyle == FontStyleType.Italic || effectiveStyle?.FontStyle == FontStyleType.Oblique;
+                        if (effectiveStyle?.TextShadow != null && effectiveStyle.TextShadow.Count > 0)
+                            op.TextShadows = effectiveStyle.TextShadow;
                         op.EmphasisMark = GetTextEmphasisMarkString(parentStyle);
                         if (!string.IsNullOrEmpty(op.EmphasisMark))
                         {
@@ -3488,6 +3820,8 @@ private static SKBlendMode MixBlendModeToSkBlendMode(MixBlendModeType mode) => m
                         _highlightPainter.PaintHighlight(textNode, runText, op.Bounds,
                             op.FontSize, op.FontFamily, op.FontWeight, runStartOffset);
 
+                        PaintInlineRunBackground(textNode.ParentElement, parentStyle,
+                            currentX + lineOffsetX, currentX + run.Width + lineOffsetX, runY);
                         _displayList.Add(op);
                         runStartOffset += runText.Length;
                     }
@@ -3560,6 +3894,9 @@ private static SKBlendMode MixBlendModeToSkBlendMode(MixBlendModeType mode) => m
                     // Add selection highlight clipped to the overlapping region
                     _highlightPainter.PaintHighlight(textNode, runText, op.Bounds,
                         op.FontSize, op.FontFamily, op.FontWeight, runStartOffset);
+
+                    PaintInlineRunBackground(textNode.ParentElement, parentStyle,
+                        x, x + run.Width, runY);
 
                     _displayList.Add(op);
                     runStartOffset += runText.Length;

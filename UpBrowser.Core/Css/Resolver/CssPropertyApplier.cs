@@ -218,9 +218,18 @@ public static class CssPropertyApplier
             case "align-items": style.AlignItems = ParseAlignItems(value); break;
             case "align-self": style.AlignSelf = ParseAlignSelf(value); break;
             case "align-content": style.AlignContent = value.ToLowerInvariant(); break;
-            case "place-content": style.PlaceContent = value.ToLowerInvariant(); break;
-            case "place-items": style.PlaceItems = value.ToLowerInvariant(); break;
-            case "place-self": style.PlaceSelf = value.ToLowerInvariant(); break;
+            case "place-content":
+                style.PlaceContent = value.ToLowerInvariant();
+                ApplyPlace(value, v => style.AlignContent = v, v => style.JustifyContent = ParseJustifyContent(v));
+                break;
+            case "place-items":
+                style.PlaceItems = value.ToLowerInvariant();
+                ApplyPlace(value, v => style.AlignItems = ParseAlignItems(v), v => style.JustifyItems = v);
+                break;
+            case "place-self":
+                style.PlaceSelf = value.ToLowerInvariant();
+                ApplyPlace(value, v => style.AlignSelf = ParseAlignSelf(v), v => style.JustifySelf = v);
+                break;
             case "gap": ParseGap(value, style); break;
             case "row-gap": if (Length.TryParse(value, out var rg)) style.RowGap = rg; break;
             case "column-gap": if (Length.TryParse(value, out var cg)) style.ColumnGap = cg; break;
@@ -270,6 +279,11 @@ public static class CssPropertyApplier
             case "cursor": style.Cursor = value; break;
             case "transform": style.Transform = value; break;
             case "transform-origin": style.TransformOrigin = value; break;
+            // Independent transform properties (CSS Transforms 2 §3): stored raw
+            // and composed with 'transform' at paint time by ComputedStyle.
+            case "translate": style.Translate = value; break;
+            case "rotate": style.Rotate = value; break;
+            case "scale": style.Scale = value; break;
             case "transition": style.Transition = value; break;
             case "transition-delay": style.TransitionDelay = value; break;
             case "transition-duration": style.TransitionDuration = value; break;
@@ -287,8 +301,34 @@ public static class CssPropertyApplier
             case "pointer-events": style.PointerEvents = value; break;
             case "user-select": style.UserSelect = value; break;
             case "text-indent":
-                if (Length.TryParse(value, out var ti))
-                    style.TextIndent = ti.ToPixels(0, 0, 0, 0);
+                {
+                    // [ each-line || hanging ] <length>  (CSS Text 3 §5.2)
+                    var indentTokens = value.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                    style.TextIndentHanging = false;
+                    var rest = new List<string>();
+                    foreach (var token in indentTokens)
+                    {
+                        if (token.Equals("hanging", StringComparison.OrdinalIgnoreCase))
+                            style.TextIndentHanging = true;
+                        else if (token.Equals("each-line", StringComparison.OrdinalIgnoreCase))
+                            continue;
+                        else
+                            rest.Add(token);
+                    }
+                    if (Length.TryParse(string.Join(" ", rest), out var ti))
+                    {
+                        if (ti is PercentLength tip)
+                        {
+                            style.TextIndent = 0;
+                            style.TextIndentPercent = tip.Value;
+                        }
+                        else
+                        {
+                            style.TextIndent = ti.ToPixels(0, 0, 0, 0);
+                            style.TextIndentPercent = 0;
+                        }
+                    }
+                }
                 break;
             case "letter-spacing":
                 if (value == "normal") style.LetterSpacing = 0;
@@ -599,11 +639,32 @@ public static class CssPropertyApplier
         _ => OverflowType.Visible
     };
 
-    public static BackgroundRepeat ParseBackgroundRepeat(string value) => value.ToLowerInvariant() switch
+    public static BackgroundRepeat ParseBackgroundRepeat(string value)
+    {
+        var parts = value.ToLowerInvariant().Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length == 1)
+            return SingleRepeat(parts[0]);
+        if (parts.Length >= 2)
+        {
+            var (x, y) = (parts[0], parts[1]);
+            if (x == y)
+                return SingleRepeat(x);
+            if ((x, y) == ("repeat", "no-repeat")) return BackgroundRepeat.RepeatX;
+            if ((x, y) == ("no-repeat", "repeat")) return BackgroundRepeat.RepeatY;
+            // Mixed one-value axes (e.g. "round no-repeat") keep the x-axis mode
+            // rather than dropping tiling entirely.
+            return SingleRepeat(x);
+        }
+        return BackgroundRepeat.Repeat;
+    }
+
+    private static BackgroundRepeat SingleRepeat(string keyword) => keyword switch
     {
         "repeat-x" => BackgroundRepeat.RepeatX,
         "repeat-y" => BackgroundRepeat.RepeatY,
         "no-repeat" => BackgroundRepeat.NoRepeat,
+        "round" => BackgroundRepeat.Round,
+        "space" => BackgroundRepeat.Space,
         _ => BackgroundRepeat.Repeat
     };
 
@@ -701,7 +762,7 @@ public static class CssPropertyApplier
                 {
                     style.BackgroundColor = ColorParser.Parse(part);
                 }
-                else if (lower is "repeat" or "repeat-x" or "repeat-y" or "no-repeat")
+                else if (lower is "repeat" or "repeat-x" or "repeat-y" or "no-repeat" or "round" or "space")
                 {
                     style.BackgroundRepeat = ParseBackgroundRepeat(part);
                 }
@@ -893,6 +954,19 @@ public static class CssPropertyApplier
         "justify" => TextAlignLastType.Justify,
         _ => TextAlignLastType.Auto,
     };
+
+    /// <summary>`place-*` shorthands take `<block-axis> <inline-axis>`, with the
+    /// inline-axis value defaulting to the block-axis one (CSS Box Alignment §6).</summary>
+    private static void ApplyPlace(string value, Action<string> setBlockAxis, Action<string> setInlineAxis)
+    {
+        var parts = value.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length == 0) return;
+        var block = parts[0].ToLowerInvariant();
+        var inlineAxis = (parts.Length > 1 ? parts[1] : parts[0]).ToLowerInvariant();
+        // `normal`/`stretch` are per-property keywords; only forward real values.
+        if (block != "normal") setBlockAxis(block);
+        if (inlineAxis != "normal") setInlineAxis(inlineAxis);
+    }
 
     public static void ParseBorderSide(ComputedStyle style, string side, string value)
     {
@@ -1098,17 +1172,17 @@ public static class CssPropertyApplier
 
     public static AlignItemsType ParseAlignItems(string value) => value.ToLowerInvariant() switch
     {
-        "flex-start" => AlignItemsType.FlexStart,
-        "flex-end" => AlignItemsType.FlexEnd,
+        "flex-start" or "start" or "left" => AlignItemsType.FlexStart,
+        "flex-end" or "end" or "right" => AlignItemsType.FlexEnd,
         "center" => AlignItemsType.Center,
-        "baseline" => AlignItemsType.Baseline,
+        "baseline" or "first baseline" => AlignItemsType.Baseline,
         _ => AlignItemsType.Stretch
     };
 
     public static AlignSelfType ParseAlignSelf(string value) => value.ToLowerInvariant() switch
     {
-        "flex-start" => AlignSelfType.FlexStart,
-        "flex-end" => AlignSelfType.FlexEnd,
+        "flex-start" or "start" => AlignSelfType.FlexStart,
+        "flex-end" or "end" => AlignSelfType.FlexEnd,
         "center" => AlignSelfType.Center,
         "baseline" => AlignSelfType.Baseline,
         "stretch" => AlignSelfType.Stretch,
@@ -1329,8 +1403,10 @@ public static class CssPropertyApplier
     public static GridAutoFlowType ParseGridAutoFlow(string value)
     {
         var lower = value.ToLowerInvariant();
-        if (lower.Contains("column")) return GridAutoFlowType.Column;
-        if (lower.Contains("dense")) return GridAutoFlowType.Dense;
+        bool column = lower.Contains("column");
+        bool dense = lower.Contains("dense");
+        if (column) return dense ? GridAutoFlowType.ColumnDense : GridAutoFlowType.Column;
+        if (dense) return GridAutoFlowType.Dense;
         return GridAutoFlowType.Row;
     }
 
@@ -1750,7 +1826,9 @@ public static class CssPropertyApplier
             "line-height" => true,
             "letter-spacing" => true,
             "list-style" or "list-style-type" or "list-style-position" or "list-style-image" => true,
-            _ => true // unknown properties are assumed supported
+            // An unknown property is NOT supported: @supports must report false
+            // for declarations the engine has no handling for (CSS Conditional 3 §4).
+            _ => UpBrowser.Core.Css.Properties.CssPropertyIdExtensions.FromString(propName) != UpBrowser.Core.Css.Properties.CssPropertyId.Invalid
         };
     }
 

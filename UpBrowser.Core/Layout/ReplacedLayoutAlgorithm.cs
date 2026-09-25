@@ -50,9 +50,15 @@ public class ReplacedLayoutAlgorithm : LayoutAlgorithm
     {
         var tag = element.TagName;
 
-        if (tag == "IMG" && element is HTMLImageElement img)
+        if (tag == "IMG")
         {
-            var size = new PhysicalSize(img.NaturalWidth, img.NaturalHeight);
+            // Synthetic generated images (content: url()) are plain elements, so the
+            // attribute/decoder lookup must not depend on the concrete DOM class.
+            var size = element is HTMLImageElement img
+                ? new PhysicalSize(img.NaturalWidth, img.NaturalHeight)
+                : PhysicalSize.Zero;
+            if (size.Width <= 0 || size.Height <= 0)
+                size = ReplacedIntrinsicSizes.Lookup(element.GetAttribute("src")) ?? size;
             if (size.Width > 0 && size.Height > 0)
                 return new IntrinsicSizingInfo(size, size, true, true);
             return new IntrinsicSizingInfo(PhysicalSize.Zero, size, false, false);

@@ -117,6 +117,12 @@ public abstract class Element : Node
     public Dictionary<string, string> Style { get; } = new(StringComparer.OrdinalIgnoreCase);
     public Dictionary<string, string>? BeforeStyles { get; set; }
     public Dictionary<string, string>? AfterStyles { get; set; }
+    /// <summary>Collected ::marker declarations (color/font of the generated marker).</summary>
+    public Dictionary<string, string>? MarkerStyles { get; set; }
+    /// <summary>Collected ::first-line declarations, merged with the box style at layout time.</summary>
+    public Dictionary<string, string>? FirstLineStyles { get; set; }
+    /// <summary>Collected ::first-letter declarations (CSS Pseudo-Elements 4 §3).</summary>
+    public Dictionary<string, string>? FirstLetterStyles { get; set; }
 
     /// <summary>Collected ::-webkit-scrollbar-* part styles (side-car).</summary>
     public ScrollbarStyles? ScrollbarCustom { get; set; }

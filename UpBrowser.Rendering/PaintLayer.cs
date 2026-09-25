@@ -114,7 +114,7 @@ public class PaintLayer
             return true;
 
         // Transform
-        if (style.Transform != null && style.Transform != "none")
+        if (style.HasAnyTransform)
             return true;
 
         // Will-change
@@ -185,8 +185,23 @@ public class PaintLayer
     /// <summary>Returns children in CSS paint order (negative → auto → positive, each ascending).</summary>
     public IEnumerable<PaintLayer> ChildrenInPaintOrder =>
         SortByOrder(NegativeZOrder).OrderBy(l => l.ZIndex)
-            .Concat(SortByOrder(NormalFlow))
+            .Concat(FlowThenPositioned(SortByOrder(NormalFlow)))
             .Concat(SortByOrder(PositiveZOrder).OrderBy(l => l.ZIndex));
+
+    /// <summary>
+    /// CSS 2.1 §E.2: inside the z:auto group the in-flow, non-positioned boxes
+    /// (steps 4-7) paint before positioned descendants (step 8).
+    /// </summary>
+    internal static IEnumerable<PaintLayer> FlowThenPositioned(IEnumerable<PaintLayer> layers)
+    {
+        var list = layers as IReadOnlyList<PaintLayer> ?? layers.ToList();
+        for (int i = 0; i < list.Count; i++)
+            if (!list[i].IsPositioned)
+                yield return list[i];
+        for (int i = 0; i < list.Count; i++)
+            if (list[i].IsPositioned)
+                yield return list[i];
+    }
 }
 
 /// <summary>
@@ -276,8 +291,9 @@ public class PaintLayerTree
         // 2. The layer itself (background, borders, content)
         order.Add(layer);
 
-        // 3. Normal flow children (block backgrounds, floats, inline, auto-z)
-        foreach (var child in PaintLayer.SortByOrder(layer.NormalFlow))
+        // 3. Normal flow children (block backgrounds, floats, inline, auto-z);
+        // in-flow boxes first, positioned z:auto boxes last (§E.2 step 8).
+        foreach (var child in PaintLayer.FlowThenPositioned(PaintLayer.SortByOrder(layer.NormalFlow)))
             CollectPaintOrder(child, order);
 
         // 4. Positive z-index children

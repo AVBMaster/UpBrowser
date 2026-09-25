@@ -1502,6 +1502,8 @@ namespace UpBrowser;
             try
             {
                 var docManager = new DocumentManager();
+                // Layout needs image intrinsic sizes during (not after) the load.
+                PaintVisitor.InstallReplacedIntrinsicSizes(_sharedImageCache, baseUrl);
                 loadResult = await docManager.LoadHtmlAsync(html, baseUrl, viewportWidthCss_cap, viewportHeightCss_cap, _dpiScale);
             }
             catch (Exception ex)

@@ -443,6 +443,9 @@ public enum CssPropertyId
     OffsetAnchor,
     OffsetRotate,
     OffsetPositionNormal,
+    /// <summary>The `all` shorthand (CSS Properties 4 §all): resets every property
+    /// except direction/unicode-bidi to a CSS-wide keyword value.</summary>
+    All,
     MaxProperties
 }
 

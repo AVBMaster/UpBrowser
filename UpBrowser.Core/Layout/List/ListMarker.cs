@@ -96,6 +96,23 @@ public class ListMarker
         }
     }
 
+    /// <summary>Space between the marker glyph and the item's content.</summary>
+    public const float MarkerGap = 8f;
+
+    /// <summary>
+    /// list-style-position: inside puts the marker in the first line box, so the
+    /// text starts after it (CSS 2.1 §10.7.1).
+    /// </summary>
+    public static bool GeneratesInsideMarker(ComputedStyle style) =>
+        style.Display == DisplayType.ListItem &&
+        style.ListStylePosition == ListStylePosition.Inside &&
+        style.ListStyleType != ListStyleType.None;
+
+    public static float InsideMarkerIndent(ComputedStyle style) =>
+        GeneratesInsideMarker(style)
+            ? MarkerWidth(style.ListStyleType, ListStylePosition.Inside, style.FontSize) + MarkerGap
+            : 0;
+
     /// <summary>Estimate the marker width in pixels based on list-style-type and font size.</summary>
     public static float MarkerWidth(ListStyleType type, ListStylePosition position, float fontSize)
     {

@@ -10,15 +10,7 @@ public static class RenderingSettingsConfig
 {
     private static string GetConfigPath()
     {
-        string appData;
-#if WINDOWS 
-        //WinXP没有这个API，需要使用WindowsFolderProvider.GetAppDataPath()来获取AppData路径
-        //这个方法会直接调用WinXP支持的SHGetFolderPath API来获取AppData路径
-        appData = WindowsFolderProvider.GetAppDataPath();
-#else
-        appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-#endif
-        var dir = Path.Combine(appData, "UpBrowser");
+        var dir = AppPaths.AppDataDir;
         Directory.CreateDirectory(dir);
         return Path.Combine(dir, "settings.json");
     }

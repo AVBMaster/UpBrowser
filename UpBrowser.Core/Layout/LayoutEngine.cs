@@ -163,7 +163,8 @@ public class LayoutEngine
                 SaveScrollContainers(ce, into);
     }
 
-    private void GeneratePseudoElementsForTree(Element element, Dictionary<string, int>? counters = null)
+    private void GeneratePseudoElementsForTree(Element element, Dictionary<string, int>? counters = null,
+        int quoteDepth = 0)
     {
         counters ??= new Dictionary<string, int>();
 
@@ -176,12 +177,18 @@ public class LayoutEngine
             }
 
             var dummy = new LayoutBox();
-            GeneratePseudoElementContent(element, dummy, element.ComputedStyle, counters);
+            GeneratePseudoElementContent(element, dummy, element.ComputedStyle, counters, quoteDepth);
+
+            if (element.BeforeStyles != null && element.BeforeStyles.TryGetValue("content", out var before))
+                quoteDepth += QuoteDepthDelta(before);
+            if (element.AfterStyles != null && element.AfterStyles.TryGetValue("content", out var after))
+                quoteDepth += QuoteDepthDelta(after);
+            if (quoteDepth < 0) quoteDepth = 0;
         }
         foreach (var child in element.Children)
         {
             if (child is Element childEl)
-                GeneratePseudoElementsForTree(childEl, counters);
+                GeneratePseudoElementsForTree(childEl, counters, quoteDepth);
         }
     }
 
@@ -292,7 +299,8 @@ public class LayoutEngine
             _contentHeight = box.MarginBox.Bottom;
     }
 
-    private void GeneratePseudoElementContent(Element element, LayoutBox box, ComputedStyle style, Dictionary<string, int> counters)
+    private void GeneratePseudoElementContent(Element element, LayoutBox box, ComputedStyle style,
+        Dictionary<string, int> counters, int quoteDepth)
     {
         // Counter properties declared on a pseudo-element apply to (and are
         // visible in) that pseudo-element's own content (CSS 2.1 §10.4).
@@ -301,7 +309,7 @@ public class LayoutEngine
 
         if (element.BeforeStyles != null && element.BeforeStyles.TryGetValue("content", out var beforeContent) && !element.HasGeneratedBefore)
         {
-            var result = BuildPseudoElement(element, style, beforeContent, isBefore: true, counters);
+            var result = BuildPseudoElement(element, style, beforeContent, isBefore: true, counters, quoteDepth);
             if (result is Element el)
             {
                 element.Children.Insert(0, el);
@@ -314,13 +322,23 @@ public class LayoutEngine
 
         if (element.AfterStyles != null && element.AfterStyles.TryGetValue("content", out var afterContent) && !element.HasGeneratedAfter)
         {
-            var result = BuildPseudoElement(element, style, afterContent, isBefore: false, counters);
+            var result = BuildPseudoElement(element, style, afterContent, isBefore: false, counters, quoteDepth);
             if (result is Element el)
             {
                 element.Children.Add(el);
                 element.HasGeneratedAfter = true;
             }
         }
+    }
+
+    /// <summary>Quote nesting change contributed by one generated-content value:
+    /// an element that opens a quote places its descendants one level deeper
+    /// (CSS GCP §4.1); its own close-quote belongs to the current level.</summary>
+    private static int QuoteDepthDelta(string? content)
+    {
+        if (string.IsNullOrEmpty(content))
+            return 0;
+        return content.Contains("open-quote", StringComparison.OrdinalIgnoreCase) ? 1 : 0;
     }
 
     private static void ApplyCounterDeclarations(Dictionary<string, string> declarations, Dictionary<string, int> counters)
@@ -333,12 +351,13 @@ public class LayoutEngine
             ParseCounterSetProperty(set, counters);
     }
 
-    private static Node? BuildPseudoElement(Element parent, ComputedStyle parentStyle, string rawContent, bool isBefore, Dictionary<string, int> counters)
+    private Node? BuildPseudoElement(Element parent, ComputedStyle parentStyle, string rawContent, bool isBefore,
+        Dictionary<string, int> counters, int quoteDepth)
     {
         var props = isBefore ? parent.BeforeStyles : parent.AfterStyles;
         if (props == null) return null;
 
-        var content = DecodeCssContent(rawContent, counters, parent);
+        var content = DecodeCssContent(rawContent, counters, parent, quoteDepth);
         if (content == "none" || content == null) return null;
 
         // Build a ComputedStyle by cloning the parent and applying ::before/::after props.
@@ -372,14 +391,19 @@ public class LayoutEngine
         // so that the pseudo-element's own styles (color, font-weight, etc.) are
         // applied — a bare TextNode would inherit the parent's style and ignore
         // the ::before/::after declarations.
-        var pseudoEl = new HtmlElement("pseudo-" + (isBefore ? "before" : "after"))
+        // A lone url() makes the generated box a replaced element (CSS GCP §4.2),
+        // which reuses the image layout/paint pipeline and its intrinsic size.
+        bool isImageContent = TryExtractSingleUrl(content, out string imageUrl);
+        var pseudoEl = new HtmlElement(isImageContent ? "img" : "pseudo-" + (isBefore ? "before" : "after"))
         {
             ComputedStyle = pseudoStyle,
             Parent = parent,
         };
+        if (isImageContent)
+            pseudoEl.SetAttribute("src", imageUrl);
 
         // Add the text content as a child text node.
-        if (!string.IsNullOrEmpty(content))
+        if (!isImageContent && !string.IsNullOrEmpty(content))
         {
             var textNode = new TextNode(content);
             textNode.Parent = pseudoEl;
@@ -387,6 +411,22 @@ public class LayoutEngine
         }
 
         return pseudoEl;
+    }
+
+    /// <summary>True when the whole content value is a single url() token.</summary>
+    private static bool TryExtractSingleUrl(string? content, out string url)
+    {
+        url = "";
+        if (string.IsNullOrWhiteSpace(content))
+            return false;
+        var trimmed = content.Trim();
+        if (!trimmed.StartsWith("url(", StringComparison.OrdinalIgnoreCase))
+            return false;
+        int close = trimmed.IndexOf(')');
+        if (close < 0 || trimmed[(close + 1)..].Trim().Length > 0)
+            return false;
+        url = trimmed[(trimmed.IndexOf('(') + 1)..close].Trim().Trim('"', '\'');
+        return url.Length > 0;
     }
 
     private static void ApplyPseudoProperty(ComputedStyle style, string name, string value)
@@ -530,7 +570,8 @@ public class LayoutEngine
         style.BoxShadow = new List<BoxShadowValue> { new BoxShadowValue(color, ox, oy, br, sp, inset) };
     }
 
-    private static string DecodeCssContent(string content, Dictionary<string, int>? counters = null, Element? owner = null)
+    private string DecodeCssContent(string content, Dictionary<string, int>? counters = null, Element? owner = null,
+        int quoteDepth = 0)
     {
         var trimmed = content.Trim();
 
@@ -642,6 +683,14 @@ public class LayoutEngine
                     i++;
                 }
             }
+            else if (TryQuoteKeyword(trimmed, i, out QuoteType quoteType, out int quoteEnd))
+            {
+                // An element's own open and close marks use the pair at its
+                // nesting level; its descendants are one level deeper (CSS GCP §4.1).
+                string? quotesData = owner?.ComputedStyle?.Quotes;
+                sb.Append(LayoutQuote.ResolveQuote(quoteType, quoteDepth, quotesData));
+                i = quoteEnd;
+            }
             else
             {
                 sb.Append(trimmed[i]);
@@ -651,6 +700,40 @@ public class LayoutEngine
 
         return sb.ToString();
     }
+
+    /// <summary>Match one of the four quote keywords at |index|, honouring the
+    /// longest token first and refusing to split a longer identifier.</summary>
+    private static bool TryQuoteKeyword(string s, int index, out QuoteType type, out int end)
+    {
+        type = QuoteType.OpenQuote;
+        end = index;
+        if (index > 0 && (char.IsLetterOrDigit(s[index - 1]) || s[index - 1] == '-' || s[index - 1] == '_'))
+            return false;
+
+        ReadOnlySpan<char> rest = s.AsSpan(index);
+        string? matched = null;
+        foreach (var (keyword, quoteType) in QuoteKeywords)
+        {
+            if (!rest.StartsWith(keyword, StringComparison.OrdinalIgnoreCase))
+                continue;
+            int after = index + keyword.Length;
+            if (after < s.Length && (char.IsLetterOrDigit(s[after]) || s[after] == '-' || s[after] == '_'))
+                continue;
+            matched = keyword;
+            type = quoteType;
+            end = after;
+            break;
+        }
+        return matched != null;
+    }
+
+    private static readonly (string Keyword, QuoteType Type)[] QuoteKeywords =
+    {
+        ("no-open-quote", QuoteType.NoOpenQuote),
+        ("no-close-quote", QuoteType.NoCloseQuote),
+        ("open-quote", QuoteType.OpenQuote),
+        ("close-quote", QuoteType.CloseQuote),
+    };
 
     private static int FindMatchingParen(string s, int openPos)
     {

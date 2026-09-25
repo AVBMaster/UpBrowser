@@ -217,6 +217,7 @@ public static class ShorthandExpander
         // layers on top-level commas first, then tokenize each layer by space.
         var layers = SplitTopLevel(value, ',');
         var images = new List<string>();
+        var repeats = new List<string>();
 
         foreach (var layer in layers)
         {
@@ -230,8 +231,8 @@ public static class ShorthandExpander
                     images.Add(p);
                 else if (ColorParser.LooksLikeColor(p))
                     result["background-color"] = p;
-                else if (p == "repeat" || p == "no-repeat" || p == "repeat-x" || p == "repeat-y")
-                    result["background-repeat"] = p;
+                else if (p == "repeat" || p == "no-repeat" || p == "repeat-x" || p == "repeat-y" || p == "round" || p == "space")
+                    repeats.Add(p);
                 else if (p == "scroll" || p == "fixed" || p == "local")
                     result["background-attachment"] = p;
                 else if (p == "cover" || p == "contain")
@@ -249,6 +250,9 @@ public static class ShorthandExpander
 
         if (images.Count > 0)
             result["background-image"] = string.Join(", ", images);
+
+        if (repeats.Count > 0)
+            result["background-repeat"] = string.Join(" ", repeats);
 
         result.TryAdd("background-repeat", "repeat");
         result.TryAdd("background-attachment", "scroll");

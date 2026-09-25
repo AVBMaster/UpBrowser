@@ -192,7 +192,10 @@ public class MmapTransport : IDisposable
 
     private static SharedMmap OpenFileMmap(string key, int capacity)
     {
-        var shm = MemoryMappedFile.CreateFromFile(key, FileMode.OpenOrCreate, key, (long)(capacity > 0 ? capacity : PageSize), MemoryMappedFileAccess.ReadWrite);
+        // Unix/macOS have no named-section concept: the backing file path alone
+        // identifies the shared mapping across processes, so mapName must be null
+        // (a non-null name throws "Named maps are not supported" off Windows).
+        var shm = MemoryMappedFile.CreateFromFile(key, FileMode.OpenOrCreate, null, (long)(capacity > 0 ? capacity : PageSize), MemoryMappedFileAccess.ReadWrite);
         return new SharedMmap(key, shm);
     }
 

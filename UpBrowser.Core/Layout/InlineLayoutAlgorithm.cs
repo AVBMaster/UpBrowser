@@ -11,6 +11,8 @@ namespace UpBrowser.Core.Layout;
 /// </summary>
 public class InlineLayoutAlgorithm : LayoutAlgorithm
 {
+    /// <summary>Merged ::first-line style of this block, when declared.</summary>
+    private ComputedStyle? _firstLineStyle;
     private readonly LayoutAlgorithm _parent;
     private readonly List<BoxLine> _lines = new();
     private float _currentLineInlineOffset;
@@ -219,6 +221,10 @@ public class InlineLayoutAlgorithm : LayoutAlgorithm
 
         var lineBreaker = new LineBreaker();
         lineBreaker.SetUnitContext(Space.RootFontSize, Space.ViewportWidth, Space.ViewportHeight);
+        // ::first-line changes measurement (font-size/weight/letter-spacing), so the
+        // merged style has to reach the line breaker, not just painting.
+        _firstLineStyle = UpBrowser.Core.Css.PseudoStyleMerger.Merge(Style, Node.FirstLineStyles);
+        lineBreaker.SetFirstLineStyle(_firstLineStyle);
         var lines = lineBreaker.BreakLines(data, availInline, Style);
 
         var stateStack = new InlineLayoutStateStack();
@@ -259,7 +265,10 @@ public class InlineLayoutAlgorithm : LayoutAlgorithm
 
             var boxLine = new BoxLine
             {
-                InlineOffset = paddingLeft + (info.IsFirstFormattedLine() ? info.TextIndent() : 0),
+                // The line breaker already gates 'text-indent' (including the
+                // hanging variant) to the lines it applies to.
+                InlineOffset = paddingLeft + info.TextIndent()
+                    + (info.IsFirstFormattedLine() ? List.ListMarker.InsideMarkerIndent(Style) : 0),
                 BlockOffset = _currentLineBlockOffset,
                 InlineSize = info.InlineSize,
                 BlockSize = lineBlockSize,
@@ -338,6 +347,11 @@ public class InlineLayoutAlgorithm : LayoutAlgorithm
                         // keeps the run on the line box's absolute baseline.
                         float vaShift = ComputeVerticalAlignShift(
                             item.InlineItem?.GetLayoutObject()?.Node, item.Size.BlockSize);
+                        // Paint resolves per-run fonts, so the ::first-line style has
+                        // to be folded in here for the first line's runs.
+                        var runStyle = item.InlineItem?.StyleOverride ?? Style;
+                        if (_firstLineStyle != null && info.IsFirstFormattedLine())
+                            runStyle = UpBrowser.Core.Css.PseudoStyleMerger.Merge(runStyle, Node.FirstLineStyles) ?? runStyle;
                         boxLine.Runs.Add(new BoxRun
                         {
                             Text = text,
@@ -347,7 +361,14 @@ public class InlineLayoutAlgorithm : LayoutAlgorithm
                             BlockOffset = _currentLineBlockOffset,
                             BlockSize = Math.Max(Style.FontSize, item.Size.BlockSize),
                             BaselineOffset = 0,
-                            BaselineShift = vaShift
+                            BaselineShift = vaShift,
+                            // Carry the item's resolved style (per-run font, and the
+                            // ::first-letter override) so painting matches measuring.
+                            FontSize = runStyle.FontSize,
+                            FontFamily = runStyle.FontFamily,
+                            FontWeight = runStyle.FontWeight,
+                            Italic = runStyle.FontStyle == FontStyleType.Italic || runStyle.FontStyle == FontStyleType.Oblique,
+                            Color = runStyle.Color,
                         });
                         itemsBuilder.Add(new FragmentItem(FragmentItem.ItemType.Text)
                         {

@@ -57,14 +57,19 @@ internal sealed class ImagePainter
             return;
         }
 
-        var rect = BuildDestRect(element, style, box);
+        var (objectRect, objectSrc) = ComputeObjectRects(style, box.ContentBox, image.Width, image.Height);
+        if (objectRect.Width <= 0 || objectRect.Height <= 0)
+            return;
+
         var op = PaintOpPool.GetDrawImageOp();
         op.Image = image;
-        op.SourceRect = new SKRect(0, 0, image.Width, image.Height);
-        op.DestRect = rect;
-        op.Fit = MapObjectFitToImageFit(style.ObjectFit);
+        op.SourceRect = objectSrc;
+        op.DestRect = objectRect;
+        // The concrete object size is already resolved above, so the op maps
+        // source -> dest 1:1 (this also carries the object-fit clipping).
+        op.Fit = ImageFit.Fill;
         op.ZIndex = style.ZIndex ?? 0;
-        op.Bounds = rect;
+        op.Bounds = objectRect;
         _displayList.Add(op);
     }
 
@@ -75,84 +80,74 @@ internal sealed class ImagePainter
         await _imageCache.GetImageAsync(resolvedSrc);
     }
 
-    private static SKRect BuildDestRect(Element element, ComputedStyle style, LayoutBox box)
+    /// <summary>
+    /// Resolve the concrete object size for <paramref name="intrinsicW"/>×
+    /// <paramref name="intrinsicH"/> content inside |contentBox| honoring
+    /// object-fit and object-position (css-images-3 §4.1..§4.3). Returns the
+    /// destination rect (already clipped to the content box) together with the
+    /// matching sub-rect of the source, so cover/none crop instead of overflow.
+    /// </summary>
+    internal static (SKRect Dest, SKRect Src) ComputeObjectRects(
+        ComputedStyle style, SKRect contentBox, float intrinsicW, float intrinsicH)
     {
-        // Honour object-fit and object-position.
-        float left = box.ContentBox.Left;
-        float top = box.ContentBox.Top;
-        float right = box.ContentBox.Right;
-        float bottom = box.ContentBox.Bottom;
+        var fullSrc = new SKRect(0, 0, Math.Max(1, intrinsicW), Math.Max(1, intrinsicH));
+        if (intrinsicW <= 0 || intrinsicH <= 0 || contentBox.Width <= 0 || contentBox.Height <= 0)
+            return (contentBox, fullSrc);
 
-        // Use the content-box size as the base (the layout has already sized
-        // the box to the CSS 'width'/'height' or the default 300×150).
-        float conW = right - left;
-        float conH = bottom - top;
-        if (conW <= 0) conW = 300;
-        if (conH <= 0) conH = 150;
-
-        // Get the intrinsic image size from the box's storage.  LayoutImage
-        // stores the intrinsic size through LayoutReplaced.IntrinsicSize,
-        // but at paint time we only have the LayoutBox.  Fall back to the
-        // content-box size (which already reflects the layout sizing).
-        float intW = conW;
-        float intH = conH;
-        var attrWidth = element.GetAttribute("width");
-        var attrHeight = element.GetAttribute("height");
-        if (!string.IsNullOrEmpty(attrWidth) && float.TryParse(attrWidth, out var aw))
-            intW = aw;
-        if (!string.IsNullOrEmpty(attrHeight) && float.TryParse(attrHeight, out var ah))
-            intH = ah;
-
-        if (intW <= 0 || intH <= 0)
-            return new SKRect(left, top, right, bottom);
-
-        // object-fit scaling (mirrors LayoutReplaced.ComputeReplacedContentRect).
-        float scaleX = conW / intW;
-        float scaleY = conH / intH;
-        float scale = style.ObjectFit switch
+        float scaleX, scaleY;
+        switch (style.ObjectFit)
         {
-            ObjectFitType.Contain => Math.Min(scaleX, scaleY),
-            ObjectFitType.Cover => Math.Max(scaleX, scaleY),
-            ObjectFitType.Fill => 1f,
-            _ => 1f,
-        };
-
-        float fitW = style.ObjectFit == ObjectFitType.Fill
-            ? conW
-            : Math.Max(1, intW * scale);
-        float fitH = style.ObjectFit == ObjectFitType.Fill
-            ? conH
-            : Math.Max(1, intH * scale);
-
-        if (style.ObjectFit == ObjectFitType.None)
-        {
-            fitW = Math.Min(intW, conW);
-            fitH = Math.Min(intH, conH);
+            case ObjectFitType.Contain:
+                scaleX = scaleY = Math.Min(contentBox.Width / intrinsicW, contentBox.Height / intrinsicH);
+                break;
+            case ObjectFitType.Cover:
+                scaleX = scaleY = Math.Max(contentBox.Width / intrinsicW, contentBox.Height / intrinsicH);
+                break;
+            case ObjectFitType.None:
+                scaleX = scaleY = 1f;
+                break;
+            case ObjectFitType.ScaleDown:
+                scaleX = scaleY = Math.Min(1f, Math.Min(contentBox.Width / intrinsicW, contentBox.Height / intrinsicH));
+                break;
+            default: // fill: stretch both axes independently
+                scaleX = contentBox.Width / intrinsicW;
+                scaleY = contentBox.Height / intrinsicH;
+                break;
         }
 
-        // object-position (default 50% 50%).
-        float posX = 0.5f, posY = 0.5f;
-        if (style.ObjectPositionX is Length lx)
-            posX = ResolveObjectPosition(lx, conW - fitW);
-        if (style.ObjectPositionY is Length ly)
-            posY = ResolveObjectPosition(ly, conH - fitH);
+        float fitW = intrinsicW * scaleX;
+        float fitH = intrinsicH * scaleY;
+        float offX = ObjectPositionOffset(style.ObjectPositionX, contentBox.Width, fitW, style.FontSize);
+        float offY = ObjectPositionOffset(style.ObjectPositionY, contentBox.Height, fitH, style.FontSize);
 
-        float destLeft = left + posX * (conW - fitW);
-        float destTop = top + posY * (conH - fitH);
-        return new SKRect(destLeft, destTop, destLeft + fitW, destTop + fitH);
+        var scaled = new SKRect(contentBox.Left + offX, contentBox.Top + offY,
+            contentBox.Left + offX + fitW, contentBox.Top + offY + fitH);
+        var dest = SKRect.Intersect(scaled, contentBox);
+        if (dest.Width <= 0 || dest.Height <= 0)
+            return (SKRect.Empty, SKRect.Empty);
+
+        var src = new SKRect(
+            (dest.Left - scaled.Left) / scaleX,
+            (dest.Top - scaled.Top) / scaleY,
+            (dest.Right - scaled.Left) / scaleX,
+            (dest.Bottom - scaled.Top) / scaleY);
+        return (dest, src);
     }
 
-    private static float ResolveObjectPosition(Length length, float availableDiff)
+    private static float ObjectPositionOffset(Length? position, float boxSize, float imageSize, float fontSize)
     {
-        if (length is PercentLength pct)
-            return pct.Value;
-        float px = length.ToPixels(16f, 16f, 0f, 0f);
-        return availableDiff > 0 && px != float.NaN ? px / availableDiff : 0;
+        float free = boxSize - imageSize;
+        if (position == null)
+            return free * 0.5f;
+        if (position is PercentLength percent)
+            return free * percent.Value;
+        float px = position.ToPixels(fontSize, fontSize, 0f, 0f);
+        return float.IsNaN(px) ? free * 0.5f : px;
     }
 
     private void PaintAltText(Element element, ComputedStyle style, LayoutBox box)
     {
-        var rect = BuildDestRect(element, style, box);
+        var rect = box.ContentBox;
         if (rect.Width <= 2 || rect.Height <= 2) return;
 
         var alt = element.GetAttribute("alt");
@@ -172,7 +167,9 @@ internal sealed class ImagePainter
 
     private void PaintMissingImagePlaceholder(Element element, ComputedStyle style, LayoutBox box)
     {
-        var rect = BuildDestRect(element, style, box);
+        // Per css-images the alt content / broken-image indicator is laid out in
+        // the content box; object-fit only scales the image itself.
+        var rect = box.ContentBox;
         if (rect.Width <= 2 || rect.Height <= 2) return;
 
         var op = PaintOpPool.GetDrawRectOp();
@@ -191,14 +188,4 @@ internal sealed class ImagePainter
     }
 
     private string? ResolveImageUrl(string url) => UrlResolver.Resolve(url, _baseUrl);
-
-    private static ImageFit MapObjectFitToImageFit(ObjectFitType objectFit) => objectFit switch
-    {
-        ObjectFitType.Fill => ImageFit.Fill,
-        ObjectFitType.Contain => ImageFit.Contain,
-        ObjectFitType.Cover => ImageFit.Cover,
-        ObjectFitType.None => ImageFit.None,
-        ObjectFitType.ScaleDown => ImageFit.ScaleDown,
-        _ => ImageFit.Fill
-    };
 }

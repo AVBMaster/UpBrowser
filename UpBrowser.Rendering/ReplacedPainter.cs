@@ -187,13 +187,17 @@ internal static class ReplacedPaintHelpers
 
     public static void AddImage(DisplayList displayList, SKImage image, SKRect dest, ComputedStyle style)
     {
+        var (destRect, srcRect) = ImagePainter.ComputeObjectRects(style, dest, image.Width, image.Height);
+        if (destRect.Width <= 0 || destRect.Height <= 0)
+            return;
+
         var op = PaintOpPool.GetDrawImageOp();
         op.Image = image;
-        op.SourceRect = new SKRect(0, 0, image.Width, image.Height);
-        op.DestRect = dest;
-        op.Fit = ImageFit.Contain;
+        op.SourceRect = srcRect;
+        op.DestRect = destRect;
+        op.Fit = ImageFit.Fill;
         op.ZIndex = style.ZIndex ?? 0;
-        op.Bounds = dest;
+        op.Bounds = destRect;
         displayList.Add(op);
     }
 

@@ -54,6 +54,14 @@ public static class CssPropertyTraits
         "list-style-type", "list-style-position", "list-style-image",
     };
 
+    /// <summary>Handles `all: <keyword>` — every property the cascade knows about
+    /// except direction/unicode-bidi (CSS Properties 4 §all).</summary>
+    private static readonly string[] AllResetProperties =
+        Known.Union(Inherited)
+            .Where(p => p != "direction" && p != "unicode-bidi")
+            .OrderBy(p => p, StringComparer.Ordinal)
+            .ToArray();
+
     /// <summary>Copies a property value from a source style into a target style.</summary>
     public static void Copy(ComputedStyle to, ComputedStyle from, string property)
     {
@@ -143,7 +151,8 @@ public static class CssPropertyTraits
             case "overflow-wrap": to.OverflowWrap = from.OverflowWrap; break;
             case "letter-spacing": to.LetterSpacing = from.LetterSpacing; break;
             case "word-spacing": to.WordSpacing = from.WordSpacing; break;
-            case "text-indent": to.TextIndent = from.TextIndent; break;
+            case "text-indent": to.TextIndent = from.TextIndent; to.TextIndentHanging = from.TextIndentHanging;
+                to.TextIndentPercent = from.TextIndentPercent; break;
             case "text-transform": to.TextTransform = from.TextTransform; break;
             case "direction": to.Direction = from.Direction; break;
             case "writing-mode": to.WritingMode = from.WritingMode; break;
@@ -156,6 +165,13 @@ public static class CssPropertyTraits
     /// <summary>Restores a property to its initial (default) value.</summary>
     public static void SetInitial(ComputedStyle to, string property)
     {
+        // 'display' has the initial value 'inline' (CSS 2.1 §9.7), while a fresh
+        // ComputedStyle models the engine's default box as block.
+        if (property == "display")
+        {
+            to.Display = DisplayType.Inline;
+            return;
+        }
         Copy(to, new ComputedStyle(), property);
     }
 
@@ -166,6 +182,9 @@ public static class CssPropertyTraits
     /// </summary>
     public static bool TryApplyCssWideKeyword(ComputedStyle style, string name, string value, ComputedStyle? parentStyle)
     {
+        if (name == "all")
+            return TryApplyAll(style, value.Trim(), parentStyle);
+
         switch (value.Trim())
         {
             case "inherit":
@@ -189,6 +208,35 @@ public static class CssPropertyTraits
                     Copy(style, parentStyle ?? new ComputedStyle(), name);
                 else if (IsKnown(name))
                     SetInitial(style, name);
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    private static bool TryApplyAll(ComputedStyle style, string value, ComputedStyle? parentStyle)
+    {
+        var source = parentStyle ?? new ComputedStyle();
+        switch (value)
+        {
+            case "inherit":
+                foreach (var property in AllResetProperties)
+                    Copy(style, source, property);
+                return true;
+            case "initial":
+                foreach (var property in AllResetProperties)
+                    SetInitial(style, property);
+                return true;
+            case "unset":
+            case "revert":
+            case "revert-layer":
+                foreach (var property in AllResetProperties)
+                {
+                    if (IsInherited(property))
+                        Copy(style, source, property);
+                    else
+                        SetInitial(style, property);
+                }
                 return true;
             default:
                 return false;

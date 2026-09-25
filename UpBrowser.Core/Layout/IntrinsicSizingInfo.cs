@@ -78,6 +78,14 @@ public static class ReplacedSizeUtils
             return new PhysicalSize(defaultObjectSize.Width, h);
         }
 
-        return defaultObjectSize;
+        // Neither width nor height known and no aspect ratio: fall back to the
+        // default object size — 300x150 constrained by the containing block
+        // (CSS Sizing 3 §4.4). An indefinite available size must not leak through
+        // as an infinite box.
+        float Default(float available, float fallback) =>
+            float.IsPositiveInfinity(available) || float.IsNaN(available)
+                ? fallback
+                : Math.Min(available, fallback);
+        return new PhysicalSize(Default(defaultObjectSize.Width, 300), Default(defaultObjectSize.Height, 150));
     }
 }

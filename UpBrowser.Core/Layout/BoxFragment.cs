@@ -1,4 +1,5 @@
-﻿using UpBrowser.Core.Dom;
+﻿using SkiaSharp;
+using UpBrowser.Core.Dom;
 using UpBrowser.Core.Layout.Inline;
 
 namespace UpBrowser.Core.Layout;
@@ -113,6 +114,13 @@ public class BoxRun
     /// the converter against the line's resolved baseline so both layout paths agree.</summary>
     public float BaselineShift { get; set; }
     public bool IsLineBreak { get; set; }
+    /// <summary>Resolved font of the run (per inline element, or a ::first-letter
+    /// override), so painting matches what the line breaker measured.</summary>
+    public float? FontSize { get; set; }
+    public string? FontFamily { get; set; }
+    public FontWeight FontWeight { get; set; } = FontWeight.Normal;
+    public bool Italic { get; set; }
+    public SKColor? Color { get; set; }
 }
 
 // LayoutResult and the EStatus enum are defined in LayoutResult.cs

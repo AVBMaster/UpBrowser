@@ -355,13 +355,8 @@ public class CascadeResolverState
         _ => Dom.WritingModeType.HorizontalTb
     };
 
-    private static Dom.BackgroundRepeat ParseBackgroundRepeat(string value) => value.ToLowerInvariant() switch
-    {
-        "repeat-x" => Dom.BackgroundRepeat.RepeatX,
-        "repeat-y" => Dom.BackgroundRepeat.RepeatY,
-        "no-repeat" => Dom.BackgroundRepeat.NoRepeat,
-        _ => Dom.BackgroundRepeat.Repeat
-    };
+    private static Dom.BackgroundRepeat ParseBackgroundRepeat(string value)
+        => CssPropertyApplier.ParseBackgroundRepeat(value);
 
     private static Dom.BackgroundAttachment ParseBackgroundAttachment(string value) => value.ToLowerInvariant() switch
     {

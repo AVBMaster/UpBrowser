@@ -1502,11 +1502,8 @@ public class PushLayerOp : PaintOp
         if (BlendMode != SKBlendMode.SrcOver)
             paint.BlendMode = BlendMode;
 
-        if (MaskImage != null)
-        {
-            paint.Shader = SKShader.CreateImage(MaskImage, SKShaderTileMode.Clamp, SKShaderTileMode.Clamp);
-            paint.BlendMode = SKBlendMode.SrcIn;
-        }
+        // Masking is applied inside the layer by MaskApplyOp (DstIn), because a
+        // SaveLayer paint cannot itself act as a mask source.
 
         canvas.SaveLayer(paint);
 
@@ -1514,6 +1511,39 @@ public class PushLayerOp : PaintOp
             canvas.ClipPath(ClipPath, SKClipOperation.Intersect, true);
         else if (HasClipRect && ClipRect.Width > 0 && ClipRect.Height > 0)
             canvas.ClipRect(ClipRect, SKClipOperation.Intersect, true);
+    }
+}
+
+/// <summary>
+/// Multiplies the enclosing layer by a mask image's alpha (CSS Masking 1 §11):
+/// emitted inside a push/pop layer pair, after the element's own content.
+/// </summary>
+public class MaskApplyOp : PaintOp
+{
+    public SKImage? Mask { get; set; }
+    public SKRect Rect { get; set; }
+
+    public override void Reset()
+    {
+        base.Reset();
+        Mask = null;
+        Rect = default;
+    }
+
+    public override void Execute(SKCanvas canvas)
+    {
+        if (Mask == null || Rect.Width <= 0 || Rect.Height <= 0)
+            return;
+
+        using var paint = new SKPaint
+        {
+            Color = SKColors.Black,
+            BlendMode = SKBlendMode.DstIn,
+        };
+        paint.Shader = SKShader.CreateImage(Mask, SKShaderTileMode.Clamp, SKShaderTileMode.Clamp,
+            new SKSamplingOptions(SKFilterMode.Linear, SKMipmapMode.None),
+            SKMatrix.CreateTranslation(Rect.Left, Rect.Top));
+        canvas.DrawRect(Rect, paint);
     }
 }
 
@@ -1817,6 +1847,7 @@ public static class PaintOpPool
     private static readonly ConcurrentStack<DrawShadowOp> _shadowOps = new();
     private static readonly ConcurrentStack<PushLayerOp> _layerOps = new();
     private static readonly ConcurrentStack<PopLayerOp> _popLayerOps = new();
+    private static readonly ConcurrentStack<MaskApplyOp> _maskApplyOps = new();
 
     public static DrawRectOp GetDrawRectOp() => _rectOps.TryPop(out var op) ? op : new DrawRectOp();
     public static DrawTextOp GetDrawTextOp() => _textOps.TryPop(out var op) ? op : new DrawTextOp();
@@ -1831,6 +1862,8 @@ public static class PaintOpPool
     public static PushLayerOp GetPushLayerOp() => _layerOps.TryPop(out var op) ? op : new PushLayerOp();
     public static PopLayerOp GetPopLayerOp() => _popLayerOps.TryPop(out var op) ? op : new PopLayerOp();
 
+    public static MaskApplyOp GetMaskApplyOp() => _maskApplyOps.TryPop(out var op) ? op : new MaskApplyOp();
+
     public static void Return(DrawRectOp op) { op.Reset(); if (_rectOps.Count < MaxPoolSize) _rectOps.Push(op); }
     public static void Return(DrawTextOp op) { op.Reset(); if (_textOps.Count < MaxPoolSize) _textOps.Push(op); }
     public static void Return(DrawImageOp op) { op.Reset(); if (_imageOps.Count < MaxPoolSize) _imageOps.Push(op); }
@@ -1843,6 +1876,7 @@ public static class PaintOpPool
     public static void Return(DrawShadowOp op) { op.Reset(); if (_shadowOps.Count < MaxPoolSize) _shadowOps.Push(op); }
     public static void Return(PushLayerOp op) { op.Reset(); if (_layerOps.Count < MaxPoolSize) _layerOps.Push(op); }
     public static void Return(PopLayerOp op) { op.Reset(); if (_popLayerOps.Count < MaxPoolSize) _popLayerOps.Push(op); }
+    public static void Return(MaskApplyOp op) { op.Reset(); if (_maskApplyOps.Count < MaxPoolSize) _maskApplyOps.Push(op); }
 
     public static void ReturnOp(PaintOp op)
     {
@@ -1860,6 +1894,7 @@ public static class PaintOpPool
             case DrawShadowOp o: Return(o); break;
             case PushLayerOp o: Return(o); break;
             case PopLayerOp o: Return(o); break;
+            case MaskApplyOp o: Return(o); break;
         }
     }
 
@@ -1877,6 +1912,7 @@ public static class PaintOpPool
         _shadowOps.Clear();
         _layerOps.Clear();
         _popLayerOps.Clear();
+        _maskApplyOps.Clear();
         DrawShadowOp.ClearBlurCache();
     }
 }
