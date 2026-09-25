@@ -12,7 +12,7 @@ public static class ColorParser
     private static readonly Regex RgbFuncRegex = new(@"rgba?\s*\(", RegexOptions.Compiled | RegexOptions.IgnoreCase);
     private static readonly Regex HslFuncRegex = new(@"hsla?\s*\(", RegexOptions.Compiled | RegexOptions.IgnoreCase);
     private static readonly Regex HwbRegex = new(@"hwb\s*\(\s*([\d.]+)\s*,\s*([\d.]+)%\s*,\s*([\d.]+)%\s*(?:\s*/\s*([\d.]+%?))?\s*\)", RegexOptions.Compiled | RegexOptions.IgnoreCase);
-    private static readonly Regex LabRegex = new(@"lab\s*\(\s*([\d.]+)%?\s*([+-]\s*[\d.]+)\s*([+-]\s*[\d.]+)\s*(?:\s*/\s*([\d.]+))?\s*\)", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+    private static readonly Regex LabRegex = new(@"lab\s*\(\s*([\d.]+)%?\s*([+-]?\s*[\d.]+)\s*([+-]?\s*[\d.]+)\s*(?:\s*/\s*([\d.]+%?))?\s*\)", RegexOptions.Compiled | RegexOptions.IgnoreCase);
     private static readonly Regex LchRegex = new(@"lch\s*\(\s*([\d.]+)%?\s*([\d.]+)\s*([\d.]+)\s*(?:\s*/\s*([\d.]+))?\s*\)", RegexOptions.Compiled | RegexOptions.IgnoreCase);
     private static readonly Regex OklabRegex = new(@"oklab\s*\(\s*([\d.]+)\s*([+-]\s*[\d.]+)\s*([+-]\s*[\d.]+)\s*(?:\s*/\s*([\d.]+))?\s*\)", RegexOptions.Compiled | RegexOptions.IgnoreCase);
     private static readonly Regex OklchRegex = new(@"oklch\s*\(\s*([\d.]+)\s*([\d.]+)\s*([\d.]+)\s*(?:\s*/\s*([\d.]+))?\s*\)", RegexOptions.Compiled | RegexOptions.IgnoreCase);
@@ -178,27 +178,33 @@ public static class ColorParser
     private static List<string> ParseColorFunctionArgs(string inner)
     {
         var result = new List<string>();
-        int depth = 0;
-        int start = 0;
 
+        // CSS Color 4 allows whitespace-separated channels with the alpha introduced
+        // by a top-level '/': "rgb(255 128 0 / 50%)". Legacy comma syntax keeps working.
+        string main = inner;
+        string? alphaPart = null;
+        int depth = 0;
         for (int i = 0; i < inner.Length; i++)
         {
-            if (inner[i] == '(') depth++;
-            else if (inner[i] == ')') depth--;
-            else if (depth == 0 && inner[i] == ',')
+            char c = inner[i];
+            if (c == '(') depth++;
+            else if (c == ')') depth--;
+            else if (c == '/' && depth == 0)
             {
-                result.Add(inner[start..i].Trim());
-                start = i + 1;
-            }
-            else if (depth == 0 && inner[i] == '/')
-            {
-                result.Add(inner[start..i].Trim());
-                start = i + 1;
+                main = inner[..i];
+                alphaPart = inner[(i + 1)..];
+                break;
             }
         }
 
-        var last = inner[start..].Trim();
-        if (last.Length > 0) result.Add(last);
+        foreach (var part in main.Split(',', StringSplitOptions.RemoveEmptyEntries))
+            foreach (var tok in part.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries))
+                result.Add(tok.Trim());
+
+        if (alphaPart != null)
+            foreach (var tok in alphaPart.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries))
+                result.Add(tok.Trim());
+
         return result;
     }
 
@@ -457,6 +463,13 @@ public static class ColorParser
         var (color1, pct1) = ParseColorMixArg(args[0].Trim());
         var (color2, pct2) = ParseColorMixArg(args[1].Trim());
 
+        // A missing percentage means "the value that makes the two sum to 100%"
+        // (CSS Color 5 §1). Only when neither side specifies one do both default
+        // to 50%.
+        if (pct1 < 0 && pct2 >= 0) pct1 = 1f - pct2;
+        else if (pct2 < 0 && pct1 >= 0) pct2 = 1f - pct1;
+        else if (pct1 < 0 && pct2 < 0) { pct1 = 0.5f; pct2 = 0.5f; }
+
         float total = pct1 + pct2;
         if (total == 0) { pct1 = 0.5f; pct2 = 0.5f; }
         else { pct1 /= total; pct2 /= total; }
@@ -477,7 +490,7 @@ public static class ColorParser
             var colorStr = arg.Replace(pctMatch.Value, "").Trim();
             return (Parse(colorStr), pct);
         }
-        return (Parse(arg), 1f);
+        return (Parse(arg), -1f);
     }
 
     private static SKColor? ParseColorFunction(string value)
@@ -586,6 +599,26 @@ public static class ColorParser
     }
 
     public static bool IsColorName(string name) => KnownColors.Get(name).HasValue;
+
+    /// <summary>True when a shorthand token is (or starts) a color value: a hex
+    /// literal, a named color, or one of the functional color notations
+    /// (rgb/hsl/hwb/lab/lch/oklab/oklch/color()/color-mix()).</summary>
+    public static bool LooksLikeColor(string value)
+    {
+        var v = value.TrimStart().TrimEnd(',').Trim();
+        if (v.Length == 0) return false;
+        if (v[0] == '#') return true;
+        if (IsColorName(v)) return true;
+        foreach (var fn in FunctionalColorPrefixes)
+            if (v.StartsWith(fn, StringComparison.OrdinalIgnoreCase)) return true;
+        return false;
+    }
+
+    private static readonly string[] FunctionalColorPrefixes =
+    {
+        "rgb(", "rgba(", "hsl(", "hsla(", "hwb(", "lab(", "lch(",
+        "oklab(", "oklch(", "color(", "color-mix(", "light-dark(",
+    };
 }
 
 public static class KnownColors

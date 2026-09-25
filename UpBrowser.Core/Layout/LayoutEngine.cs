@@ -163,19 +163,75 @@ public class LayoutEngine
                 SaveScrollContainers(ce, into);
     }
 
-    private void GeneratePseudoElementsForTree(Element element)
+    private void GeneratePseudoElementsForTree(Element element, Dictionary<string, int>? counters = null)
     {
-        // Generate pseudo-elements for this element (needs a dummy box just for
-        // the style reference — the actual layout box will be created later).
+        counters ??= new Dictionary<string, int>();
+
         if (element.ComputedStyle != null)
         {
+            var tagName = element.TagName ?? "";
+            if (!tagName.StartsWith("pseudo-", StringComparison.OrdinalIgnoreCase))
+            {
+                ApplyCounterProperties(element.ComputedStyle, counters);
+            }
+
             var dummy = new LayoutBox();
-            GeneratePseudoElementContent(element, dummy, element.ComputedStyle);
+            GeneratePseudoElementContent(element, dummy, element.ComputedStyle, counters);
         }
         foreach (var child in element.Children)
         {
             if (child is Element childEl)
-                GeneratePseudoElementsForTree(childEl);
+                GeneratePseudoElementsForTree(childEl, counters);
+        }
+    }
+
+    private static void ApplyCounterProperties(ComputedStyle style, Dictionary<string, int> counters)
+    {
+        ParseCounterProperty(style.CounterReset, counters, reset: true);
+        ParseCounterProperty(style.CounterIncrement, counters, reset: false);
+        ParseCounterSetProperty(style.CounterSet, counters);
+    }
+
+    private static void ParseCounterProperty(string value, Dictionary<string, int> counters, bool reset)
+    {
+        if (string.IsNullOrEmpty(value) || value == "none") return;
+
+        var parts = value.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        int i = 0;
+        while (i < parts.Length)
+        {
+            var name = parts[i];
+            int delta = reset ? 0 : 1;
+            if (i + 1 < parts.Length && int.TryParse(parts[i + 1], out var v))
+            {
+                delta = v;
+                i++;
+            }
+            if (reset)
+                counters[name] = delta;
+            else
+                counters[name] = counters.GetValueOrDefault(name, 0) + delta;
+            i++;
+        }
+    }
+
+    private static void ParseCounterSetProperty(string value, Dictionary<string, int> counters)
+    {
+        if (string.IsNullOrEmpty(value) || value == "none") return;
+
+        var parts = value.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        int i = 0;
+        while (i < parts.Length)
+        {
+            var name = parts[i];
+            int val = 0;
+            if (i + 1 < parts.Length && int.TryParse(parts[i + 1], out var v))
+            {
+                val = v;
+                i++;
+            }
+            counters[name] = val;
+            i++;
         }
     }
 
@@ -236,11 +292,16 @@ public class LayoutEngine
             _contentHeight = box.MarginBox.Bottom;
     }
 
-    private void GeneratePseudoElementContent(Element element, LayoutBox box, ComputedStyle style)
+    private void GeneratePseudoElementContent(Element element, LayoutBox box, ComputedStyle style, Dictionary<string, int> counters)
     {
+        // Counter properties declared on a pseudo-element apply to (and are
+        // visible in) that pseudo-element's own content (CSS 2.1 §10.4).
+        if (element.BeforeStyles != null)
+            ApplyCounterDeclarations(element.BeforeStyles, counters);
+
         if (element.BeforeStyles != null && element.BeforeStyles.TryGetValue("content", out var beforeContent) && !element.HasGeneratedBefore)
         {
-            var result = BuildPseudoElement(element, style, beforeContent, isBefore: true);
+            var result = BuildPseudoElement(element, style, beforeContent, isBefore: true, counters);
             if (result is Element el)
             {
                 element.Children.Insert(0, el);
@@ -248,9 +309,12 @@ public class LayoutEngine
             }
         }
 
+        if (element.AfterStyles != null)
+            ApplyCounterDeclarations(element.AfterStyles, counters);
+
         if (element.AfterStyles != null && element.AfterStyles.TryGetValue("content", out var afterContent) && !element.HasGeneratedAfter)
         {
-            var result = BuildPseudoElement(element, style, afterContent, isBefore: false);
+            var result = BuildPseudoElement(element, style, afterContent, isBefore: false, counters);
             if (result is Element el)
             {
                 element.Children.Add(el);
@@ -259,12 +323,22 @@ public class LayoutEngine
         }
     }
 
-    private static Node? BuildPseudoElement(Element parent, ComputedStyle parentStyle, string rawContent, bool isBefore)
+    private static void ApplyCounterDeclarations(Dictionary<string, string> declarations, Dictionary<string, int> counters)
+    {
+        if (declarations.TryGetValue("counter-reset", out var reset) && !string.IsNullOrEmpty(reset))
+            ParseCounterProperty(reset, counters, reset: true);
+        if (declarations.TryGetValue("counter-increment", out var inc) && !string.IsNullOrEmpty(inc))
+            ParseCounterProperty(inc, counters, reset: false);
+        if (declarations.TryGetValue("counter-set", out var set) && !string.IsNullOrEmpty(set))
+            ParseCounterSetProperty(set, counters);
+    }
+
+    private static Node? BuildPseudoElement(Element parent, ComputedStyle parentStyle, string rawContent, bool isBefore, Dictionary<string, int> counters)
     {
         var props = isBefore ? parent.BeforeStyles : parent.AfterStyles;
         if (props == null) return null;
 
-        var content = DecodeCssContent(rawContent);
+        var content = DecodeCssContent(rawContent, counters, parent);
         if (content == "none" || content == null) return null;
 
         // Build a ComputedStyle by cloning the parent and applying ::before/::after props.
@@ -456,64 +530,170 @@ public class LayoutEngine
         style.BoxShadow = new List<BoxShadowValue> { new BoxShadowValue(color, ox, oy, br, sp, inset) };
     }
 
-    private static string DecodeCssContent(string content)
+    private static string DecodeCssContent(string content, Dictionary<string, int>? counters = null, Element? owner = null)
     {
-        // Handle attr(...) — extract attribute value from the element.
-        // The element context is passed only at generation time; the raw
-        // attr() text is left as-is and resolved later by the caller.
         var trimmed = content.Trim();
-        if (trimmed.StartsWith("attr(", StringComparison.OrdinalIgnoreCase) && trimmed.EndsWith(")"))
-        {
-            // Extract the attribute name: attr(data-*) → data-*
-            var attrName = trimmed[5..^1].Trim();
-            return "attr(" + attrName + ")";
-        }
 
-        // Handle url(...) — image references.
         if (trimmed.StartsWith("url(", StringComparison.OrdinalIgnoreCase) && trimmed.EndsWith(")"))
         {
-            // Keep the url as-is for the image loader.
             return trimmed;
         }
 
-        content = content.Trim('"', '\'');
-        if (string.IsNullOrEmpty(content)) return content;
-
-        // Decode CSS unicode escapes: \201C -> "
-        var result = new System.Text.StringBuilder();
-        for (int i = 0; i < content.Length; i++)
+        var sb = new StringBuilder();
+        int i = 0;
+        while (i < trimmed.Length)
         {
-            if (content[i] == '\\' && i + 1 < content.Length)
+            if (trimmed[i] == '"')
             {
-                // Read hex digits for CSS unicode escape
-                int hexStart = i + 1;
-                int hexEnd = hexStart;
-                while (hexEnd < content.Length && IsHexDigit(content[hexEnd]) && hexEnd - hexStart < 6)
-                    hexEnd++;
-                if (hexEnd > hexStart)
-                {
-                    var hexStr = content[hexStart..hexEnd];
-                    if (int.TryParse(hexStr, System.Globalization.NumberStyles.HexNumber, null, out var codePoint)
-                        && codePoint > 0 && codePoint <= 0x10FFFF)
-                    {
-                        result.Append(char.ConvertFromUtf32(codePoint));
-                        // A single whitespace after the hex digits is part of the escape.
-                        if (hexEnd < content.Length && content[hexEnd] == ' ')
-                            hexEnd++;
-                        i = hexEnd - 1;
-                        continue;
-                    }
-                }
-                // Non-hex escape: the backslash escapes the following character.
                 i++;
-                result.Append(content[i]);
+                while (i < trimmed.Length && trimmed[i] != '"')
+                {
+                    if (trimmed[i] == '\\' && i + 1 < trimmed.Length)
+                    {
+                        i++;
+                        sb.Append(trimmed[i]);
+                    }
+                    else
+                    {
+                        sb.Append(trimmed[i]);
+                    }
+                    i++;
+                }
+                if (i < trimmed.Length) i++;
+            }
+            else if (trimmed[i] == '\'')
+            {
+                i++;
+                while (i < trimmed.Length && trimmed[i] != '\'')
+                {
+                    if (trimmed[i] == '\\' && i + 1 < trimmed.Length)
+                    {
+                        i++;
+                        sb.Append(trimmed[i]);
+                    }
+                    else
+                    {
+                        sb.Append(trimmed[i]);
+                    }
+                    i++;
+                }
+                if (i < trimmed.Length) i++;
+            }
+            else if (i + 4 <= trimmed.Length && trimmed.Substring(i, 4).Equals("attr", StringComparison.OrdinalIgnoreCase)
+                     && i + 4 < trimmed.Length && trimmed[i + 4] == '(')
+            {
+                // attr(name) resolves against the originating element; a missing
+                // attribute contributes an empty string (CSS Values 4 §11.1).
+                int parenStart = i + 4;
+                int parenEnd = FindMatchingParen(trimmed, parenStart);
+                if (parenEnd > parenStart)
+                {
+                    var attrName = trimmed.Substring(parenStart + 1, parenEnd - parenStart - 1).Trim();
+                    int space = attrName.IndexOfAny(new[] { ' ', '	' });
+                    if (space > 0) attrName = attrName[..space];
+                    if (owner != null && owner.HasAttribute(attrName))
+                        sb.Append(owner.GetAttribute(attrName));
+                    i = parenEnd + 1;
+                }
+                else
+                {
+                    sb.Append(trimmed[i]);
+                    i++;
+                }
+            }
+            else if (i + 8 <= trimmed.Length && trimmed.Substring(i, 8).Equals("counters", StringComparison.OrdinalIgnoreCase)
+                     && i + 8 < trimmed.Length && trimmed[i + 8] == '(')
+            {
+                int parenStart = i + 8;
+                int parenEnd = FindMatchingParen(trimmed, parenStart);
+                if (parenEnd > parenStart)
+                {
+                    var args = trimmed.Substring(parenStart + 1, parenEnd - parenStart - 1);
+                    var argParts = SplitCounterArgs(args);
+                    var counterName = argParts.Count > 0 ? argParts[0].Trim() : "";
+                    var separator = argParts.Count > 1 ? argParts[1].Trim().Trim('"', '\'') : ".";
+                    int val = counters != null && counters.ContainsKey(counterName) ? counters[counterName] : 0;
+                    sb.Append(val);
+                    i = parenEnd + 1;
+                }
+                else
+                {
+                    sb.Append(trimmed[i]);
+                    i++;
+                }
+            }
+            else if (i + 7 <= trimmed.Length && trimmed.Substring(i, 7).Equals("counter", StringComparison.OrdinalIgnoreCase)
+                     && i + 7 < trimmed.Length && trimmed[i + 7] == '(')
+            {
+                int parenStart = i + 7;
+                int parenEnd = FindMatchingParen(trimmed, parenStart);
+                if (parenEnd > parenStart)
+                {
+                    var args = trimmed.Substring(parenStart + 1, parenEnd - parenStart - 1);
+                    var argParts = SplitCounterArgs(args);
+                    var counterName = argParts.Count > 0 ? argParts[0].Trim() : "";
+                    int val = counters != null && counters.ContainsKey(counterName) ? counters[counterName] : 0;
+                    sb.Append(val);
+                    i = parenEnd + 1;
+                }
+                else
+                {
+                    sb.Append(trimmed[i]);
+                    i++;
+                }
             }
             else
             {
-                result.Append(content[i]);
+                sb.Append(trimmed[i]);
+                i++;
             }
         }
-        return result.ToString();
+
+        return sb.ToString();
+    }
+
+    private static int FindMatchingParen(string s, int openPos)
+    {
+        int depth = 0;
+        for (int i = openPos; i < s.Length; i++)
+        {
+            if (s[i] == '(') depth++;
+            else if (s[i] == ')') { depth--; if (depth == 0) return i; }
+        }
+        return -1;
+    }
+
+    private static List<string> SplitCounterArgs(string args)
+    {
+        var result = new List<string>();
+        var sb = new StringBuilder();
+        bool inQuote = false;
+        char quoteChar = '"';
+        for (int i = 0; i < args.Length; i++)
+        {
+            if (inQuote)
+            {
+                if (args[i] == quoteChar) inQuote = false;
+                sb.Append(args[i]);
+            }
+            else if (args[i] == '"' || args[i] == '\'')
+            {
+                inQuote = true;
+                quoteChar = args[i];
+                sb.Append(args[i]);
+            }
+            else if (args[i] == ',')
+            {
+                result.Add(sb.ToString());
+                sb.Clear();
+            }
+            else
+            {
+                sb.Append(args[i]);
+            }
+        }
+        if (sb.Length > 0) result.Add(sb.ToString());
+        return result;
     }
 
     private static bool IsHexDigit(char c) =>

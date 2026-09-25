@@ -79,20 +79,108 @@ public static class GradientRenderer
             if (inner == null) return null;
 
             var parts = SplitGradientParts(inner);
-            var stops = ParseColorStops(parts);
-            if (stops.Count == 0) return null;
+            if (parts.Count == 0) return null;
 
             float cx = rect.MidX, cy = rect.MidY;
-            float radius = Math.Max(rect.Width, rect.Height) / 2f;
+            float radius = MathF.Max(rect.Width, rect.Height) / 2f;
 
+            // The first part is the position/size preamble when it carries no
+            // color (starts with `circle`/`ellipse` or contains `at`).
+            int stopsStart = 0;
+            var first = parts[0];
+            bool isPreamble = (first.StartsWith("circle", StringComparison.OrdinalIgnoreCase) ||
+                               first.StartsWith("ellipse", StringComparison.OrdinalIgnoreCase) ||
+                               first.Contains("at ", StringComparison.OrdinalIgnoreCase)) &&
+                              ParseColor(first) == null;
+            if (isPreamble)
+            {
+                stopsStart = 1;
+                int atIdx = first.IndexOf(" at ", StringComparison.OrdinalIgnoreCase);
+                string sizePart = atIdx >= 0 ? first[..atIdx] : first;
+                if (atIdx >= 0)
+                {
+                    var posTokens = first[(atIdx + 4)..].Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                    if (posTokens.Length >= 2 &&
+                        TryGradientCoord(posTokens[0], rect.Width, out var dx) &&
+                        TryGradientCoord(posTokens[1], rect.Height, out var dy))
+                    {
+                        cx = rect.Left + dx;
+                        cy = rect.Top + dy;
+                    }
+                }
+                // Default radius: farthest-corner from the center.
+                radius = FarthestCornerRadius(cx, cy, rect);
+                var sizeTokens = sizePart.Split(' ', StringSplitOptions.RemoveEmptyEntries)
+                    .Where(t => !t.Equals("circle", StringComparison.OrdinalIgnoreCase) &&
+                                !t.Equals("ellipse", StringComparison.OrdinalIgnoreCase)).ToArray();
+                if (sizeTokens.Length >= 1 && !sizeTokens[0].Equals("at", StringComparison.OrdinalIgnoreCase))
+                {
+                    var kw = sizeTokens[0].ToLowerInvariant();
+                    if (kw == "closest-side")
+                        radius = Math.Min(Math.Min(cx - rect.Left, rect.Right - cx), Math.Min(cy - rect.Top, rect.Bottom - cy));
+                    else if (kw == "farthest-side")
+                        radius = Math.Max(Math.Max(cx - rect.Left, rect.Right - cx), Math.Max(cy - rect.Top, rect.Bottom - cy));
+                    else if (kw == "closest-corner")
+                        radius = ClosestCornerRadius(cx, cy, rect);
+                    else if (kw == "farthest-corner")
+                        radius = FarthestCornerRadius(cx, cy, rect);
+                    else if (TryGradientCoord(kw, rect.Width, out var rv))
+                        radius = rv;
+                }
+            }
+
+            var stops = ParseColorStops(parts.Skip(stopsStart).ToList());
+            if (stops.Count == 0) return null;
+
+            float lineLen = MathF.Max(1f, radius);
             var colors = stops.Select(s => s.Color).ToArray();
-            var positions = stops.Select(s => s.Position).ToArray();
+            var positions = stops.Select(s => s.Px >= 0 ? Math.Clamp(s.Px / lineLen, 0f, 1f) : s.Position).ToArray();
 
             return SKShader.CreateRadialGradient(
-                new SKPoint(cx, cy), radius,
+                new SKPoint(cx, cy), MathF.Max(1f, radius),
                 colors, positions, SKShaderTileMode.Clamp);
         }
         catch { return null; }
+    }
+
+    private static bool TryGradientCoord(string token, float basis, out float value)
+    {
+        token = token.Trim();
+        if (token.EndsWith("%"))
+        {
+            if (float.TryParse(token[..^1], System.Globalization.NumberStyles.Float,
+                    System.Globalization.CultureInfo.InvariantCulture, out var pct))
+            {
+                value = pct / 100f * basis;
+                return true;
+            }
+            value = 0;
+            return false;
+        }
+        if (token.EndsWith("px", StringComparison.OrdinalIgnoreCase))
+            return float.TryParse(token[..^2], System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out value);
+        return float.TryParse(token, System.Globalization.NumberStyles.Float,
+            System.Globalization.CultureInfo.InvariantCulture, out value);
+    }
+
+    private static float FarthestCornerRadius(float cx, float cy, SKRect rect)
+    {
+        float dx = Math.Max(cx - rect.Left, rect.Right - cx);
+        float dy = Math.Max(cy - rect.Top, rect.Bottom - cy);
+        return MathF.Sqrt(dx * dx + dy * dy);
+    }
+
+    private static float ClosestCornerRadius(float cx, float cy, SKRect rect)
+    {
+        float best = float.MaxValue;
+        foreach (var corner in new[] { new SKPoint(rect.Left, rect.Top), new SKPoint(rect.Right, rect.Top),
+                                       new SKPoint(rect.Left, rect.Bottom), new SKPoint(rect.Right, rect.Bottom) })
+        {
+            float d = Dist(new SKPoint(cx, cy), corner);
+            if (d < best) best = d;
+        }
+        return best;
     }
 
     private static SKShader? CreateConicGradient(string input, SKRect rect)
@@ -218,8 +306,10 @@ public static class GradientRenderer
 
             float position = -1;
             float px = -1;
-            // A stop may carry two position tokens ("#000 0 10px" — a range
-            // hint); the first one is the stop's own position.
+            float pxEnd = -1;
+            // A stop may carry two position tokens ("#000 0 10px" — a hard-stop
+            // range); the first is the stop's own position, the second the end
+            // of its flat span.
             var posTokens = posPart.Split(' ', StringSplitOptions.RemoveEmptyEntries);
             if (posTokens.Length > 0)
             {
@@ -239,8 +329,32 @@ public static class GradientRenderer
                 else if (tok == "0")
                     px = 0;
             }
+            if (posTokens.Length > 1 && posTokens[1].EndsWith("px"))
+            {
+                if (float.TryParse(posTokens[1][..^2], System.Globalization.NumberStyles.Float,
+                        System.Globalization.CultureInfo.InvariantCulture, out var pxev))
+                    pxEnd = pxev;
+            }
 
-            stops.Add(new ColorStop { Color = color.Value, Position = position, Px = px });
+            stops.Add(new ColorStop { Color = color.Value, Position = position, Px = px, PxEnd = pxEnd });
+        }
+
+        // Expand double-position stops: "red 0 20px" becomes a flat red span
+        // from 0 to 20px followed by a hard edge (the same color repeated at
+        // the end position, so the next stop starts blending from there).
+        for (int i = 0; i < stops.Count; i++)
+        {
+            if (stops[i].PxEnd > 0 && stops[i].PxEnd > stops[i].Px)
+            {
+                stops.Insert(i + 1, new ColorStop
+                {
+                    Color = stops[i].Color,
+                    Position = -1,
+                    Px = stops[i].PxEnd,
+                    PxEnd = -1,
+                });
+                i++;
+            }
         }
 
         if (stops.Count > 0)
@@ -309,7 +423,9 @@ public static class GradientRenderer
         }
 
         var namedColor = ColorParser.Parse(s);
-        if (namedColor.Alpha != 0 || s == "transparent")
+        // ColorParser.Parse falls back to black for unknown names; only accept
+        // the result when the token is a real color keyword.
+        if (ColorParser.IsColorName(s))
             return namedColor;
 
         if (s.StartsWith("rgb", StringComparison.OrdinalIgnoreCase))
@@ -338,5 +454,7 @@ public static class GradientRenderer
         public float Position;
         /// <summary>Explicit pixel position (first position token), or -1.</summary>
         public float Px;
+        /// <summary>Explicit end pixel of a double-position (hard) stop, or -1.</summary>
+        public float PxEnd;
     }
 }

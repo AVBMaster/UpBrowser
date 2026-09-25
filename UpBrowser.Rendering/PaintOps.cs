@@ -1655,6 +1655,7 @@ public class DrawShadowOp : PaintOp
         using var paint = new SKPaint
         {
             Color = Color,
+            Style = SKPaintStyle.Fill,
             IsAntialias = true,
             ImageFilter = blurFilter
         };

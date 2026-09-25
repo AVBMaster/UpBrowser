@@ -12,6 +12,14 @@ public abstract class Length
         if (string.IsNullOrEmpty(value) || value == "auto" || value == "inherit" || value == "initial")
             return AutoLength.Instance;
 
+        value = value.Trim();
+        if (value.Equals("max-content", StringComparison.OrdinalIgnoreCase))
+            return new IntrinsicLength(IntrinsicSizeKind.MaxContent);
+        if (value.Equals("min-content", StringComparison.OrdinalIgnoreCase))
+            return new IntrinsicLength(IntrinsicSizeKind.MinContent);
+        if (value.Equals("fit-content", StringComparison.OrdinalIgnoreCase))
+            return new IntrinsicLength(IntrinsicSizeKind.FitContent);
+
         try
         {
             // Check longest units first to avoid false matches
@@ -181,6 +189,23 @@ public class AutoLength : Length
     public static readonly AutoLength Instance = new();
     public override float ToPixels(float reference, float rootFontSize, float viewportWidth, float viewportHeight) => float.NaN;
     public override string ToString() => "auto";
+}
+
+public enum IntrinsicSizeKind { MaxContent, MinContent, FitContent }
+
+/// <summary>`width/height: max-content | min-content | fit-content` (CSS Sizing 3 §4).
+/// Resolves from the box's own intrinsic contributions, so it carries no length.</summary>
+public class IntrinsicLength : Length
+{
+    public IntrinsicSizeKind Kind { get; }
+    public IntrinsicLength(IntrinsicSizeKind kind) => Kind = kind;
+    public override float ToPixels(float reference, float rootFontSize, float viewportWidth, float viewportHeight) => float.NaN;
+    public override string ToString() => Kind switch
+    {
+        IntrinsicSizeKind.MaxContent => "max-content",
+        IntrinsicSizeKind.MinContent => "min-content",
+        _ => "fit-content",
+    };
 }
 
 public class PixelLength : Length
@@ -527,6 +552,7 @@ public class ComputedStyle
     public BackgroundAttachment BackgroundAttachment { get; set; } = BackgroundAttachment.Scroll;
 
     public TextAlignType TextAlign { get; set; } = TextAlignType.Start;
+    public TextAlignLastType TextAlignLast { get; set; } = TextAlignLastType.Auto;
     public TextDecorationType TextDecoration { get; set; } = TextDecorationType.None;
     public VerticalAlignType VerticalAlign { get; set; } = VerticalAlignType.Baseline;
     public WhiteSpaceMode WhiteSpace { get; set; } = WhiteSpaceMode.Normal;
@@ -663,6 +689,27 @@ public System.Collections.Generic.List<AppliedTextDecoration> BaseAppliedTextDec
     public string Quotes { get; set; } = "auto";
 
     public int Order { get; set; }
+
+    /// <summary>Bit set of color properties whose declared value was the keyword
+    /// `currentcolor`. The used value can only be known after inheritance, so the
+    /// cascade records the slots here and StyleAdjuster resolves them against the
+    /// computed `color` (CSS Color 3 §4.4).</summary>
+    public uint CurrentColorSlots { get; set; }
+
+    [Flags]
+    public enum CurrentColorSlot : uint
+    {
+        None = 0,
+        BorderTop = 1 << 0,
+        BorderRight = 1 << 1,
+        BorderBottom = 1 << 2,
+        BorderLeft = 1 << 3,
+        Outline = 1 << 4,
+        TextDecoration = 1 << 5,
+        ColumnRule = 1 << 6,
+        Caret = 1 << 7,
+        AllBorders = BorderTop | BorderRight | BorderBottom | BorderLeft,
+    }
     public float AspectRatio { get; set; }
     public ObjectFitType ObjectFit { get; set; } = ObjectFitType.Fill;
     public Length? ObjectPositionX { get; set; }
@@ -807,7 +854,7 @@ public System.Collections.Generic.List<AppliedTextDecoration> BaseAppliedTextDec
             Color = Color, BackgroundColor = BackgroundColor, BackgroundImage = BackgroundImage,
             BackgroundPositionX = BackgroundPositionX, BackgroundPositionY = BackgroundPositionY,
             BackgroundRepeat = BackgroundRepeat, BackgroundAttachment = BackgroundAttachment,
-            TextAlign = TextAlign, TextDecoration = TextDecoration, VerticalAlign = VerticalAlign,
+            TextAlign = TextAlign, TextAlignLast = TextAlignLast, TextDecoration = TextDecoration, VerticalAlign = VerticalAlign,
             WhiteSpace = WhiteSpace, WordBreak = WordBreak, OverflowWrap = OverflowWrap,
             ScrollbarWidth = ScrollbarWidth, ScrollbarThumbColor = ScrollbarThumbColor,
             ScrollbarTrackColor = ScrollbarTrackColor, ScrollbarCustom = ScrollbarCustom,
@@ -844,7 +891,7 @@ public System.Collections.Generic.List<AppliedTextDecoration> BaseAppliedTextDec
             OutlineWidth = OutlineWidth, OutlineColor = OutlineColor, OutlineStyle = OutlineStyle, OutlineOffset = OutlineOffset,
             TableLayout = TableLayout, CaptionSide = CaptionSide, EmptyCells = EmptyCells, Content = Content,
             CounterIncrement = CounterIncrement, CounterReset = CounterReset, CounterSet = CounterSet, Quotes = Quotes,
-            Order = Order, AspectRatio = AspectRatio, ObjectFit = ObjectFit,
+            Order = Order, CurrentColorSlots = CurrentColorSlots, AspectRatio = AspectRatio, ObjectFit = ObjectFit,
             ObjectPositionX = ObjectPositionX, ObjectPositionY = ObjectPositionY,
             FlexFlow = FlexFlow, AlignContent = AlignContent, JustifyItems = JustifyItems, JustifySelf = JustifySelf,
             PlaceContent = PlaceContent, PlaceItems = PlaceItems, PlaceSelf = PlaceSelf,
@@ -888,6 +935,8 @@ public enum BorderStyle { None, Solid, Dashed, Dotted, Double, Groove, Ridge, In
 public enum FontWeight { Normal = 400, Bold = 700 }
 public enum FontStyleType { Normal, Italic, Oblique }
 public enum TextAlignType { Start, End, Left, Right, Center, Justify }
+
+public enum TextAlignLastType { Auto, Start, End, Left, Right, Center, Justify }
 public enum TextDecorationType { None, Underline, Overline, LineThrough }
 public enum VerticalAlignType { Baseline, Top, Middle, Bottom, Sub, Super, TextTop, TextBottom, Inherit }
 public enum WhiteSpaceMode { Normal, Nowrap, Pre, PreWrap, PreLine, BreakSpaces }

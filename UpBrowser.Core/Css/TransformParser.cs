@@ -39,7 +39,10 @@ public static class TransformParser
             var m = OperationToMatrix(op);
             var toOrigin = SKMatrix.CreateTranslation(-originX, -originY);
             var fromOrigin = SKMatrix.CreateTranslation(originX, originY);
-            matrix = SKMatrix.Concat(matrix, fromOrigin);
+            // CSS: p' = fromOrigin · m · toOrigin · p (shift to origin, apply op,
+            // shift back). SKMatrix.Concat(a, b) = a · b (verified), so build the
+            // product left-to-right: fromOrigin, then m, then toOrigin applied last.
+            matrix = SKMatrix.Concat(fromOrigin, matrix);
             matrix = SKMatrix.Concat(matrix, m);
             matrix = SKMatrix.Concat(matrix, toOrigin);
         }
@@ -60,7 +63,8 @@ public static class TransformParser
             "rotatex" => CreateRotateX(args.ElementAtOrDefault(0)),
             "rotatey" => CreateRotateY(args.ElementAtOrDefault(0)),
             "rotatez" => SKMatrix.CreateRotationDegrees(args.ElementAtOrDefault(0)),
-            "scale" or "scale3d" => SKMatrix.CreateScale(args.Length > 0 ? args[0] : 1f, args.Length > 1 ? args[1] : 1f),
+            // scale(s) with one argument applies to BOTH axes (CSS Transforms §6).
+            "scale" or "scale3d" => SKMatrix.CreateScale(args.Length > 0 ? args[0] : 1f, args.Length > 1 ? args[1] : (args.Length > 0 ? args[0] : 1f)),
             "scalex" => SKMatrix.CreateScale(args.Length > 0 ? args[0] : 1f, 1),
             "scaley" => SKMatrix.CreateScale(1, args.Length > 0 ? args[0] : 1f),
             "skew" => CreateSkew(args.ElementAtOrDefault(0), args.ElementAtOrDefault(1)),

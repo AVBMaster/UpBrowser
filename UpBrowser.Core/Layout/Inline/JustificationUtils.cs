@@ -48,7 +48,8 @@ public static class JustificationUtils
                 ShiftAll(items, free / 2f);
                 break;
 
-            case TextAlignType.Justify when !info.IsLastLine():
+            case TextAlignType.Justify when !info.IsLastLine() ||
+                info.LineStyle().TextAlignLast == TextAlignLastType.Justify:
                 ApplyJustifyExpansion(info, items, contentBoxInlineSize, naturalExtent);
                 break;
         }

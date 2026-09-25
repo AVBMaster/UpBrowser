@@ -316,6 +316,9 @@ public class ColumnLayoutAlgorithm : LayoutAlgorithm
             {
                 var contentResult = new BlockLayoutAlgorithm(Node, contentSpace).Layout();
                 allLines = new List<BoxLine>(contentResult.Fragment.Lines);
+                // Block-level children (e.g. <p>) carry their own lines; collect
+                // them recursively so the column distributor has content to place.
+                CollectChildLines(contentResult.Fragment, allLines);
             }
         }
         catch
@@ -381,6 +384,19 @@ public class ColumnLayoutAlgorithm : LayoutAlgorithm
     /// column absorbs the remainder), producing an anonymous, side-by-side child
     /// box whose lines are shifted to start at the column's top.
     /// </summary>
+    private static void CollectChildLines(BoxFragment fragment, List<BoxLine> into)
+    {
+        foreach (var child in fragment.Children)
+        {
+            foreach (var line in child.Lines)
+            {
+                line.BlockOffset += child.BlockOffset;
+                into.Add(line);
+            }
+            CollectChildLines(child, into);
+        }
+    }
+
     private List<BoxFragment> DistributeLinesToColumns(List<BoxLine> allLines, float columnBlockSize,
         float colInlineSize, float colProgression, int colCount, BoxStrut bp)
     {

@@ -109,6 +109,9 @@ public class BoxRun
     public bool IsAtomicInline { get; set; }
     public BoxFragment? AtomicInlineBox { get; set; }
     public float BaselineOffset { get; set; }
+    /// <summary>vertical-align baseline shift (positive raises the run). Applied by
+    /// the converter against the line's resolved baseline so both layout paths agree.</summary>
+    public float BaselineShift { get; set; }
     public bool IsLineBreak { get; set; }
 }
 

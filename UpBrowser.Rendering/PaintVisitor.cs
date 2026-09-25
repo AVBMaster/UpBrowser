@@ -618,7 +618,8 @@ _scrollableAreaPainter = new ScrollableAreaPainter(_displayList);
 
             bool isInline = style.Display == DisplayType.Inline;
             bool skipSelfDecorations = ReferenceEquals(element, _skipSelfDecorationsRoot);
-            if (!isInline && !isVisibilityHidden && !skipSelfDecorations)
+            bool hideCell = TablePainter.ShouldHideEmptyCell(element, style);
+            if (!isInline && !isVisibilityHidden && !skipSelfDecorations && !hideCell)
             {
                 bool transfersToView = _currentDocument != null &&
                     ViewPainter.BackgroundTransfersToView(element, _currentDocument);
@@ -1158,8 +1159,6 @@ _scrollableAreaPainter = new ScrollableAreaPainter(_displayList);
         if (hasBackgroundColor)
         {
             SKColor bgColor = style.BackgroundColor.Value;
-            if (style.Opacity < 1.0f)
-                bgColor = bgColor.WithAlpha((byte)(bgColor.Alpha * style.Opacity));
 
             var op = PaintOpPool.GetDrawRectOp();
             op.Rect = paddingRect;
@@ -1167,6 +1166,11 @@ _scrollableAreaPainter = new ScrollableAreaPainter(_displayList);
             op.BorderRadius = Math.Max(style.BorderTopLeftRadius, Math.Max(style.BorderTopRightRadius, Math.Max(style.BorderBottomLeftRadius, style.BorderBottomRightRadius)));
             op.CornerRadii = ResolveBackgroundCornerRadii(style, borderRect);
             op.Bounds = borderRect;
+            // The BODY background belongs at the very bottom of the page z-order
+            // (just above the canvas), so negative-z-index content such as outset
+            // box shadows paints on top of it (CSS 2.1 §E.2).
+            if (_currentDocument != null && ReferenceEquals(element, _currentDocument.Body))
+                op.ZIndex = int.MinValue + 1;
             _displayList.Add(op);
         }
 
@@ -1240,8 +1244,6 @@ _scrollableAreaPainter = new ScrollableAreaPainter(_displayList);
         if (hasBackgroundColor)
         {
             SKColor bgColor = style.BackgroundColor.Value;
-            if (style.Opacity < 1.0f)
-                bgColor = bgColor.WithAlpha((byte)(bgColor.Alpha * style.Opacity));
 
             var op = PaintOpPool.GetDrawRectOp();
             op.Rect = paddingRect;
@@ -1503,29 +1505,93 @@ private static SKBlendMode MixBlendModeToSkBlendMode(MixBlendModeType mode) => m
 
     private void DrawGradientBackground(ComputedStyle style, SKRect rect)
     {
-        var shader = GradientRenderer.CreateGradient(style.BackgroundImage?.FirstOrDefault() ?? "", rect);
-        if (shader == null) return;
+        var images = style.BackgroundImage;
+        if (images == null || images.Count == 0) return;
 
         float maxRadius = Math.Max(style.BorderTopLeftRadius, Math.Max(style.BorderTopRightRadius,
             Math.Max(style.BorderBottomLeftRadius, style.BorderBottomRightRadius)));
 
-        var path = new SKPath();
-        if (maxRadius > 0)
-            path.AddRoundRect(rect, maxRadius, maxRadius);
-        else
-            path.AddRect(rect);
+        // Resolve background-size into a concrete image size, then background-position
+        // into an offset within the element box. The gradient is painted into that
+        // sized/positioned rectangle, clipped to the element bounds.
+        float fs = style.FontSize > 0 ? style.FontSize : 16;
+        var (gw, gh) = ResolveBackgroundImageSize(style, rect.Width, rect.Height, fs);
+        bool sized = style.BackgroundSize != BackgroundSizeType.Auto || gw < rect.Width || gh < rect.Height;
 
-        var op = PaintOpPool.GetDrawPathOp();
-        op.Path.Dispose();
-        op.Path = path;
-        op.FillPaint = new SKPaint
+        // CSS paints background layers from last (bottom) to first (top).
+        for (int i = images.Count - 1; i >= 0; i--)
         {
-            Style = SKPaintStyle.Fill,
-            Shader = shader,
-            IsAntialias = true
-        };
-        op.Bounds = rect;
-        _displayList.Add(op);
+            SKRect gradRect = rect;
+            if (sized)
+            {
+                float ox = ResolveBackgroundOffset(style.BackgroundPositionX, rect.Width, gw, fs);
+                float oy = ResolveBackgroundOffset(style.BackgroundPositionY, rect.Height, gh, fs);
+                gradRect = new SKRect(rect.Left + ox, rect.Top + oy, rect.Left + ox + gw, rect.Top + oy + gh);
+            }
+
+            var shader = GradientRenderer.CreateGradient(images[i], gradRect);
+            if (shader == null) continue;
+
+            var path = new SKPath();
+            if (maxRadius > 0)
+                path.AddRoundRect(rect, maxRadius, maxRadius);
+            else
+                path.AddRect(rect);
+
+            var op = PaintOpPool.GetDrawPathOp();
+            op.Path.Dispose();
+            op.Path = path;
+            op.FillPaint = new SKPaint
+            {
+                Style = SKPaintStyle.Fill,
+                Shader = shader,
+                IsAntialias = true
+            };
+            op.Bounds = rect;
+            _displayList.Add(op);
+        }
+    }
+
+    // Resolve background-size into concrete pixel dimensions for the image.
+    private static (float w, float h) ResolveBackgroundImageSize(ComputedStyle style, float boxW, float boxH, float fs)
+    {
+        float w = boxW, h = boxH;
+        bool hasW = style.BackgroundSizeWidth is not null and not AutoLength;
+        bool hasH = style.BackgroundSizeHeight is not null and not AutoLength;
+
+        switch (style.BackgroundSize)
+        {
+            case BackgroundSizeType.Length:
+                if (hasW) w = style.BackgroundSizeWidth!.ToPixels(fs, fs, boxW, boxH);
+                if (hasH) h = style.BackgroundSizeHeight!.ToPixels(fs, fs, boxW, boxH);
+                if (!hasW && hasH) w = h;           // auto width scales with height
+                else if (hasW && !hasH) h = w;      // auto height scales with width
+                break;
+            case BackgroundSizeType.Cover:
+            {
+                float s = Math.Max(boxW / w, boxH / h);
+                w *= s; h *= s;
+                break;
+            }
+            case BackgroundSizeType.Contain:
+            {
+                float s = Math.Min(boxW / w, boxH / h);
+                w *= s; h *= s;
+                break;
+            }
+        }
+        return (Math.Max(1, w), Math.Max(1, h));
+    }
+
+    // Resolve a background-position length/keyword into a pixel offset within the
+    // box, given the image size. Percentages resolve against (box - image).
+    private static float ResolveBackgroundOffset(Length? pos, float boxSize, float imageSize, float fs)
+    {
+        if (pos is null or AutoLength) return 0;
+        // Parser encodes keywords: 0=left/top, 0.5=center, 1=right/bottom as fractions
+        // via percentage; a plain pixel length is an absolute offset.
+        float px = pos.ToPixels(fs, fs, boxSize - imageSize, boxSize - imageSize);
+        return Math.Max(0, px);
     }
 
     /// <summary>
@@ -1563,6 +1629,14 @@ private static SKBlendMode MixBlendModeToSkBlendMode(MixBlendModeType mode) => m
         if (NinePieceImagePainter.HasBorderImage(style))
         {
             NinePieceImagePainter.Paint(_displayList, _imageCache, style, borderRect, _baseUrl);
+            return;
+        }
+
+        // border-collapse: collapse — the cell's borders are resolved against the
+        // facing borders of its neighbours and centered on the shared grid line.
+        if (TablePainter.IsTableCell(element) && TablePainter.InCollapsedTable(element))
+        {
+            TablePainter.PaintCollapsedCellBorders(_displayList, element, style, borderRect, TotalOffsetY);
             return;
         }
 
@@ -3355,12 +3429,12 @@ private static SKBlendMode MixBlendModeToSkBlendMode(MixBlendModeType mode) => m
         {
             TextNode? lastTextNode = null;
             int runStartOffset = 0;
-            float currentX = box.ContentBox.Left;
             foreach (var line in box.Lines)
             {
                 float lineY = line.Y + TotalOffsetY;
                 float baseline = line.Baseline + TotalOffsetY;
                 float lineOffsetX = line.TextAlignOffsetX;
+                float currentX = line.X;
                 foreach (var run in line.Runs)
                 {
                     if (run.IsText && run.Node is TextNode textNode)
@@ -3424,7 +3498,6 @@ private static SKBlendMode MixBlendModeToSkBlendMode(MixBlendModeType mode) => m
                     }
                     currentX += run.Width;
                 }
-                currentX = box.ContentBox.Left;
             }
         }
 

@@ -55,7 +55,9 @@ internal sealed class PaintLayerPainter
         // visibility:hidden element: its descendants may re-declare visible.
         _visitor.PushObjectEffects(style, layoutBox, offsetBorderBox, effectState);
 
-        PaintLayerBackground(element, layoutBox, style, contentOffsetY);
+        // empty-cells: hide skips decorations but the (empty) content still paints.
+        if (!TablePainter.ShouldHideEmptyCell(element, style))
+            PaintLayerBackground(element, layoutBox, style, contentOffsetY);
 
         if (layered)
         {
@@ -108,6 +110,7 @@ internal sealed class PaintLayerPainter
     {
         if (style.Visibility != VisibilityType.Visible) return;
         if (style.Display == DisplayType.Inline) return;
+        if (TablePainter.ShouldHideEmptyCell(element, style)) return;
 
         var offsetBorderBox = new SKRect(
             box.BorderBox.Left,
@@ -118,12 +121,14 @@ internal sealed class PaintLayerPainter
         bool transfersToView = _visitor.GetCurrentDocument() != null &&
             ViewPainter.BackgroundTransfersToView(element, _visitor.GetCurrentDocument()!);
 
+        // Background fill is skipped when the background was propagated to the
+        // canvas (FramePainter paints it at the bottom of the z-order). Painting
+        // it again on the element's own box would cover negative-z-index content
+        // such as outset box shadows.
         if (!transfersToView)
-        {
             _visitor.PaintLayerBackgroundFill(element, style, offsetBorderBox);
-            _visitor.PaintLayerBorder(element, style, offsetBorderBox);
-            _visitor.PaintLayerOutline(element, style, offsetBorderBox);
-        }
+        _visitor.PaintLayerBorder(element, style, offsetBorderBox);
+        _visitor.PaintLayerOutline(element, style, offsetBorderBox);
     }
 
     private void PaintLayerContent(Element element, LayoutBox box, ComputedStyle style, float contentOffsetY)

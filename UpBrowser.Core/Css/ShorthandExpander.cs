@@ -212,31 +212,43 @@ public static class ShorthandExpander
 
     private static void ExpandBackground(Dictionary<string, string> result, string value)
     {
-        var parts = SplitShorthand(value);
-        foreach (var part in parts)
-        {
-            var p = part.Trim();
-            if (string.IsNullOrEmpty(p)) continue;
+        // The background shorthand may carry multiple comma-separated layers, each
+        // of which can itself contain spaces inside gradient functions. Split into
+        // layers on top-level commas first, then tokenize each layer by space.
+        var layers = SplitTopLevel(value, ',');
+        var images = new List<string>();
 
-            if (p.StartsWith("url(") || p.StartsWith("linear-gradient") || p.StartsWith("radial-gradient") || p.StartsWith("conic-gradient") || p.StartsWith("repeating-linear-gradient") || p.StartsWith("repeating-radial-gradient") || p.StartsWith("repeating-conic-gradient"))
-                result["background-image"] = p;
-            else if (p.StartsWith("#") || p.StartsWith("rgb") || IsNamedColor(p))
-                result["background-color"] = p;
-            else if (p == "repeat" || p == "no-repeat" || p == "repeat-x" || p == "repeat-y")
-                result["background-repeat"] = p;
-            else if (p == "scroll" || p == "fixed" || p == "local")
-                result["background-attachment"] = p;
-            else if (p == "cover" || p == "contain")
-                result["background-size"] = p;
-            else if (p.Contains('/'))
+        foreach (var layer in layers)
+        {
+            var parts = SplitShorthand(layer);
+            foreach (var raw in parts)
             {
-                var posSize = p.Split('/', StringSplitOptions.RemoveEmptyEntries);
-                if (posSize.Length >= 1) result["background-position"] = posSize[0].Trim();
-                if (posSize.Length >= 2) result["background-size"] = posSize[1].Trim();
+                var p = raw.Trim().TrimEnd(',').Trim();
+                if (string.IsNullOrEmpty(p)) continue;
+
+                if (p.StartsWith("url(") || p.StartsWith("linear-gradient") || p.StartsWith("radial-gradient") || p.StartsWith("conic-gradient") || p.StartsWith("repeating-linear-gradient") || p.StartsWith("repeating-radial-gradient") || p.StartsWith("repeating-conic-gradient"))
+                    images.Add(p);
+                else if (ColorParser.LooksLikeColor(p))
+                    result["background-color"] = p;
+                else if (p == "repeat" || p == "no-repeat" || p == "repeat-x" || p == "repeat-y")
+                    result["background-repeat"] = p;
+                else if (p == "scroll" || p == "fixed" || p == "local")
+                    result["background-attachment"] = p;
+                else if (p == "cover" || p == "contain")
+                    result["background-size"] = p;
+                else if (p.Contains('/') && !p.Contains("("))
+                {
+                    var posSize = p.Split('/', StringSplitOptions.RemoveEmptyEntries);
+                    if (posSize.Length >= 1) result["background-position"] = posSize[0].Trim();
+                    if (posSize.Length >= 2) result["background-size"] = posSize[1].Trim();
+                }
+                else if (p.Contains('%') || p == "center" || p == "left" || p == "right" || p == "top" || p == "bottom")
+                    result["background-position"] = p;
             }
-            else if (p.Contains('%') || p == "center" || p == "left" || p == "right" || p == "top" || p == "bottom")
-                result["background-position"] = p;
         }
+
+        if (images.Count > 0)
+            result["background-image"] = string.Join(", ", images);
 
         result.TryAdd("background-repeat", "repeat");
         result.TryAdd("background-attachment", "scroll");
@@ -601,6 +613,27 @@ public static class ShorthandExpander
             }
         }
         if (start < value.Length) parts.Add(value[start..]);
+        return parts;
+    }
+
+    // Split on a top-level delimiter, ignoring occurrences nested inside
+    // parentheses (so commas inside gradient/color functions are preserved).
+    private static List<string> SplitTopLevel(string value, char delimiter)
+    {
+        var parts = new List<string>();
+        int depth = 0;
+        int start = 0;
+        for (int i = 0; i < value.Length; i++)
+        {
+            if (value[i] == '(') depth++;
+            else if (value[i] == ')') depth--;
+            else if (value[i] == delimiter && depth == 0)
+            {
+                parts.Add(value[start..i]);
+                start = i + 1;
+            }
+        }
+        parts.Add(value[start..]);
         return parts;
     }
 

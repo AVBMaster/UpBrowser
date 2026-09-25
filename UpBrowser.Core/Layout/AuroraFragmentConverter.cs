@@ -98,7 +98,7 @@ public static class AuroraFragmentConverter
                         X = lineLeft + run.InlineOffset,
                         Width = run.InlineSize,
                         Height = run.BlockSize,
-                        Baseline = run.BaselineOffset,
+                        Baseline = run.BaselineShift != 0 ? line.Baseline - run.BaselineShift : run.BaselineOffset,
                         IsText = run.Text != null,
                         Node = run.Node ?? run.Element,
                     });
@@ -132,7 +132,7 @@ public static class AuroraFragmentConverter
                         X = lineLeft + run.InlineOffset,
                         Width = run.InlineSize,
                         Height = run.BlockSize,
-                        Baseline = run.BaselineOffset,
+                        Baseline = run.BaselineShift != 0 ? line.Baseline - run.BaselineShift : run.BaselineOffset,
                         IsText = true,
                         Node = run.Node ?? run.Element,
                     });

@@ -17,6 +17,27 @@ public class StyleAdjuster
         AdjustForTextElements(style, element);
         AdjustForReplacedElements(style, element);
         AdjustTouchAction(style, element);
+        ResolveCurrentColors(style);
+    }
+
+    /// <summary>
+    /// `currentcolor` can only be resolved once inheritance has produced the
+    /// used 'color' (CSS Color 3 §4.4): the cascade records which color slots
+    /// carried the keyword and the values are substituted here.
+    /// </summary>
+    private static void ResolveCurrentColors(ComputedStyle style)
+    {
+        uint slots = style.CurrentColorSlots;
+        if (slots == 0) return;
+        var c = style.Color;
+        if ((slots & (uint)ComputedStyle.CurrentColorSlot.BorderTop) != 0) style.BorderTopColor = c;
+        if ((slots & (uint)ComputedStyle.CurrentColorSlot.BorderRight) != 0) style.BorderRightColor = c;
+        if ((slots & (uint)ComputedStyle.CurrentColorSlot.BorderBottom) != 0) style.BorderBottomColor = c;
+        if ((slots & (uint)ComputedStyle.CurrentColorSlot.BorderLeft) != 0) style.BorderLeftColor = c;
+        if ((slots & (uint)ComputedStyle.CurrentColorSlot.Outline) != 0) style.OutlineColor = c;
+        if ((slots & (uint)ComputedStyle.CurrentColorSlot.TextDecoration) != 0) style.TextDecorationColor = c;
+        if ((slots & (uint)ComputedStyle.CurrentColorSlot.ColumnRule) != 0) style.ColumnRuleColor = c;
+        if ((slots & (uint)ComputedStyle.CurrentColorSlot.Caret) != 0) style.CaretColor = c;
     }
 
     /// <summary>

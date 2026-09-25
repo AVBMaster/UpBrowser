@@ -420,6 +420,13 @@ public class BlockLayoutAlgorithm : LayoutAlgorithm
     private AdjoiningObjectTypes _adjoiningObjectTypes = AdjoiningObjectTypes.None;
     private bool _hasAdjoiningObjectDescendants;
     private bool _isPushedByFloats;
+
+    // Current float line (CSS 2.1 §9.5.1): consecutive floats that start at the
+    // bottom of the previous float join this line side by side.
+    private float _floatLineBlock = float.NaN;
+    private float _floatLineBottom;
+    private float _floatLineLeftUsed;
+    private float _floatLineRightUsed;
     private bool _subtreeModifiedMarginStrut;
 
     private float? _containerBfcBlockOffset;
@@ -1277,6 +1284,19 @@ public class BlockLayoutAlgorithm : LayoutAlgorithm
         if (LengthUtils.IsIndefinite(inlineSize))
             inlineSize = Space.AvailableInlineSize;
 
+        // width: max-content / min-content / fit-content resolve from the box's
+        // own intrinsic contributions (CSS Sizing 3 §4).
+        if (Style.Width is IntrinsicLength intrinsicWidth)
+        {
+            var mmI = ComputeMinMaxSizes(new MinMaxSizesFloatInput()).Sizes;
+            inlineSize = intrinsicWidth.Kind switch
+            {
+                IntrinsicSizeKind.MaxContent => mmI.MaxSize,
+                IntrinsicSizeKind.MinContent => mmI.MinSize,
+                _ => Math.Min(Math.Max(mmI.MinSize, Space.AvailableInlineSize), mmI.MaxSize),
+            };
+        }
+
         // Shrink-to-fit: an atomic inline / float / inline-block with auto inline
         // size sizes to its content, not to the full available width. The block
         // algorithm otherwise resolves auto width to the available size, which
@@ -1298,14 +1318,13 @@ public class BlockLayoutAlgorithm : LayoutAlgorithm
         float blockSize = LengthUtils.ComputeBlockSizeForFragment(Space, Style, _borderPadding,
             previouslyConsumedBlockSize + _intrinsicBlockSize, _inlineSize);
 
-        // Aspect-ratio based sizing (kept from the engine's previous model).
-        if ((LengthUtils.IsIndefinite(blockSize) || blockSize <= 0) && Style.AspectRatio > 0)
+        // Aspect-ratio: when the block-axis size is auto and aspect-ratio is set,
+        // derive the block size from the resolved inline size (content-box ratio).
+        if (Style.AspectRatio > 0 && Style.Height is AutoLength or null
+            && !float.IsNaN(_inlineSize) && _inlineSize > 0)
         {
-            float aspectInline = LengthUtils.ComputeInlineSizeForFragment(Space, Style, _borderPadding,
-                t => new MinMaxSizesResult(new MinMaxSizes(ChildAvailableInlineSize, ChildAvailableInlineSize)));
-            if (LengthUtils.IsIndefinite(aspectInline))
-                aspectInline = Space.AvailableInlineSize;
-            blockSize = (aspectInline - _borderPadding.HorizontalSum) / Style.AspectRatio + _borderPadding.VerticalSum;
+            float contentInline = Math.Max(0, _inlineSize - _borderPadding.HorizontalSum);
+            blockSize = contentInline / Style.AspectRatio + _borderPadding.VerticalSum;
         }
         if (LengthUtils.IsIndefinite(blockSize))
             blockSize = _intrinsicBlockSize;
@@ -1732,13 +1751,49 @@ public class BlockLayoutAlgorithm : LayoutAlgorithm
         // be the container's OWN content inline size (a width:400 box does not
         // right-align at its parent's 684px available width).
         float borderBoxBlockOffset = (originBfcOffset.BlockOffset - ContainerBfcOffset().BlockOffset) + marginTopBlock;
-        float inlineOffset = isLeft
-            ? 0
-            : Math.Max(0, OwnContentInlineSize()) - childInlineSize;
+
+        // Same-line float placement: consecutive floats whose natural offset lands
+        // exactly at the bottom of the current float line join that line beside
+        // the earlier floats (CSS 2.1 §9.5.1), instead of stacking below them.
+        bool sameFloatLine = !float.IsNaN(_floatLineBlock)
+            && Math.Abs(borderBoxBlockOffset - _floatLineBottom) < 0.5f;
+        if (!sameFloatLine)
+        {
+            _floatLineBlock = borderBoxBlockOffset;
+            _floatLineBottom = borderBoxBlockOffset;
+            _floatLineLeftUsed = 0;
+            _floatLineRightUsed = 0;
+        }
+
+        float contentInline = OwnContentInlineSize();
+        float floatInlineOffset;
+        bool fitsOnLine = isLeft
+            ? _floatLineLeftUsed + childInlineSize <= contentInline - _floatLineRightUsed
+            : _floatLineRightUsed + childInlineSize <= contentInline - _floatLineLeftUsed;
+        if (!fitsOnLine && sameFloatLine)
+        {
+            // Does not fit beside the earlier floats: break below the whole line.
+            _floatLineBlock = borderBoxBlockOffset;
+            _floatLineBottom = borderBoxBlockOffset;
+            _floatLineLeftUsed = 0;
+            _floatLineRightUsed = 0;
+        }
+        float floatBlockOffset = _floatLineBlock;
+        if (isLeft)
+        {
+            floatInlineOffset = _floatLineLeftUsed;
+            _floatLineLeftUsed += childInlineSize;
+        }
+        else
+        {
+            floatInlineOffset = Math.Max(0, contentInline - _floatLineRightUsed - childInlineSize);
+            _floatLineRightUsed += childInlineSize;
+        }
+        float inlineOffset = floatInlineOffset;
 
         // Set margins on the fragment, matching the engine's previous behavior
         // (only the block-start margin participates).
-        fragment.BlockOffset = borderBoxBlockOffset;
+        fragment.BlockOffset = floatBlockOffset;
         fragment.InlineOffset = inlineOffset;
         fragment.MarginTop = marginTopBlock;
         fragment.MarginBottom = marginBottomBlock;
@@ -1747,14 +1802,15 @@ public class BlockLayoutAlgorithm : LayoutAlgorithm
 
         // The float advances the in-flow line (engine model: floats push all
         // following content below them).
-        float floatLogicalBottom = borderBoxBlockOffset + childBlockSize + marginBottomBlock;
+        float floatLogicalBottom = floatBlockOffset + childBlockSize + marginBottomBlock;
+        _floatLineBottom = Math.Max(_floatLineBottom, floatLogicalBottom);
         previousInflowPosition.logical_block_offset = Math.Max(previousInflowPosition.logical_block_offset, floatLogicalBottom);
 
         // Record the float in the exclusion space so that clearance and layout
         // opportunities can take it into account.
         float bfcLineStart = inlineStartOfFloat(inlineOffset);
         float bfcLineEnd = bfcLineStart + childInlineSize;
-        float bfcBlockStart = originBfcOffset.BlockOffset;
+        float bfcBlockStart = ContainerBfcOffset().BlockOffset + floatBlockOffset;
         float bfcBlockEnd = bfcBlockStart + childBlockSize;
         _exclusionSpace.Add(ExclusionArea.Create(
             new BfcRect(new BfcOffset(bfcLineStart, bfcBlockStart), new BfcOffset(bfcLineEnd, bfcBlockEnd)),

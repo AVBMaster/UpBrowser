@@ -904,6 +904,7 @@ public class CascadeResolver
         child.LineHeightIsNormal = parent.LineHeightIsNormal;
         child.LineHeightPx = parent.LineHeightPx;
         child.TextAlign = parent.TextAlign;
+        child.TextAlignLast = parent.TextAlignLast;
         child.WhiteSpace = parent.WhiteSpace;
         child.WordBreak = parent.WordBreak;
         child.OverflowWrap = parent.OverflowWrap;

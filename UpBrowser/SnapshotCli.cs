@@ -203,8 +203,18 @@ internal static class SnapshotCli
         int x1 = int.Parse(args[4]);
         using var bmp = SkiaSharp.SKBitmap.Decode(path);
         if (bmp == null) { Console.Error.WriteLine($"[pixels] cannot decode {path}"); return 1; }
+        if (y < 0 || y >= bmp.Height)
+        {
+            Console.Error.WriteLine($"[pixels] y={y} out of range [0, {bmp.Height})");
+            return 1;
+        }
         for (int x = x0; x <= x1; x++)
         {
+            if (x < 0 || x >= bmp.Width)
+            {
+                Console.Error.WriteLine($"[pixels] x={x} out of range [0, {bmp.Width})");
+                continue;
+            }
             var c = bmp.GetPixel(x, y);
             Console.WriteLine($"[px] x={x} y={y} rgb=({c.Red},{c.Green},{c.Blue})");
         }

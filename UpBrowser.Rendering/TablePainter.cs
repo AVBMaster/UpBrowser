@@ -24,6 +24,190 @@ internal static class TablePainter
     public static bool IsTableCell(Element element) =>
         element.TagName is "TD" or "TH";
 
+    /// <summary>
+    /// empty-cells: hide — an empty table cell paints no borders or background
+    /// (CSS 2.1 §17.6.3); its box still occupies space.
+    /// </summary>
+    public static bool ShouldHideEmptyCell(Element element, ComputedStyle style)
+    {
+        if (!IsTableCell(element) || style.EmptyCells != "hide")
+            return false;
+        foreach (var child in element.Children)
+        {
+            if (child is UpBrowser.Core.Dom.TextNode text)
+            {
+                if (!string.IsNullOrWhiteSpace(text.Data))
+                    return false;
+            }
+            else if (child is Element el)
+            {
+                if (el.ComputedStyle == null || el.ComputedStyle.Display != UpBrowser.Core.Dom.DisplayType.None)
+                    return false;
+            }
+        }
+        return true;
+    }
+
+    /// <summary>True when the element is a cell of a border-collapse: collapse table.</summary>
+    public static bool InCollapsedTable(Element element)
+    {
+        var row = element.ParentElement;
+        var table = row == null ? null : (row.ParentElement?.TagName is "TBODY" or "THEAD" or "TFOOT"
+            ? row.ParentElement?.ParentElement : row);
+        return table != null && IsTable(table) && table.ComputedStyle?.BorderCollapse == true;
+    }
+
+    /// <summary>
+    /// Paints the collapsed borders of one table cell (CSS 2.1 §17.6.2.1). Each
+    /// shared grid line gets a single border: the wider of the two facing borders
+    /// wins, ties go to the earlier element in document order (the cell above /
+    /// to the left). The winning border is drawn centered on the grid line, so
+    /// both neighbours resolve the same strip and painting it twice is idempotent.
+    /// </summary>
+    public static void PaintCollapsedCellBorders(DisplayList displayList, Element cell, ComputedStyle style,
+        SKRect rect, float contentOffsetY)
+    {
+        var above = FacingCell(cell, above: true);
+        var below = FacingCell(cell, above: false);
+        var (prev, next) = HorizontalNeighbors(cell);
+
+        PaintCollapsedSide(displayList, rect, Side.Top,
+            (style.BorderTopWidth, style.BorderTopColor),
+            FacingEdge(above, Side.Top, contentOffsetY), neighborWinsTies: true);
+        PaintCollapsedSide(displayList, rect, Side.Bottom,
+            (style.BorderBottomWidth, style.BorderBottomColor),
+            FacingEdge(below, Side.Bottom, contentOffsetY), neighborWinsTies: false);
+        PaintCollapsedSide(displayList, rect, Side.Left,
+            (style.BorderLeftWidth, style.BorderLeftColor),
+            FacingEdge(prev, Side.Left, contentOffsetY), neighborWinsTies: true);
+        PaintCollapsedSide(displayList, rect, Side.Right,
+            (style.BorderRightWidth, style.BorderRightColor),
+            FacingEdge(next, Side.Right, contentOffsetY), neighborWinsTies: false);
+    }
+
+    private enum Side { Top, Bottom, Left, Right }
+
+    /// <summary>The facing border of a neighbour plus the grid line it shares with
+    /// the current cell (the midpoint of the two cells' edges, so the resolved
+    /// strip lands at the same place no matter which side computes it).</summary>
+    private static (float width, SKColor color, float line)? FacingEdge(Element? neighbor, Side side, float contentOffsetY)
+    {
+        if (neighbor?.LayoutBox == null || neighbor.ComputedStyle == null)
+            return null;
+        var n = neighbor.LayoutBox.BorderBox;
+        float line = side switch
+        {
+            Side.Top => n.Bottom + contentOffsetY,
+            Side.Bottom => n.Top + contentOffsetY,
+            Side.Left => n.Right,
+            _ => n.Left,
+        };
+        var e = Edge(neighbor, side);
+        return (e.width, e.color, line);
+    }
+
+    private static (float width, SKColor color) Edge(Element cell, Side side)
+    {
+        var s = cell.ComputedStyle!;
+        return side switch
+        {
+            Side.Top => (s.BorderTopWidth, s.BorderTopColor),
+            Side.Bottom => (s.BorderBottomWidth, s.BorderBottomColor),
+            Side.Left => (s.BorderLeftWidth, s.BorderLeftColor),
+            _ => (s.BorderRightWidth, s.BorderRightColor),
+        };
+    }
+
+    private static void PaintCollapsedSide(DisplayList displayList, SKRect rect, Side side,
+        (float width, SKColor color) own, (float width, SKColor color, float line)? neighbor, bool neighborWinsTies)
+    {
+        var winner = own;
+        if (neighbor != null &&
+            (neighbor.Value.width > own.width ||
+             (neighbor.Value.width == own.width && neighborWinsTies)))
+            winner = (neighbor.Value.width, neighbor.Value.color);
+        if (winner.width <= 0 || winner.color.Alpha == 0)
+            return;
+
+        // The collapsed border is centered on the shared grid line; both facing
+        // cells resolve the same winner and line, so the strip is painted twice
+        // identically.
+        float half = winner.width / 2f;
+        float ownEdge = side switch
+        {
+            Side.Top => rect.Top,
+            Side.Bottom => rect.Bottom,
+            Side.Left => rect.Left,
+            _ => rect.Right,
+        };
+        // Grid line = midpoint between this cell's edge and the neighbour's facing
+        // edge (they coincide when there is no slack between the cells).
+        float line = neighbor == null ? ownEdge : (ownEdge + neighbor.Value.line) / 2f;
+        var strip = side switch
+        {
+            Side.Top => new SKRect(rect.Left - half, line - half, rect.Right + half, line + half),
+            Side.Bottom => new SKRect(rect.Left - half, line - half, rect.Right + half, line + half),
+            Side.Left => new SKRect(line - half, rect.Top - half, line + half, rect.Bottom + half),
+            _ => new SKRect(line - half, rect.Top - half, line + half, rect.Bottom + half),
+        };
+        var op = PaintOpPool.GetDrawRectOp();
+        op.Rect = strip;
+        op.FillColor = winner.color;
+        op.Bounds = strip;
+        displayList.Add(op);
+    }
+
+    private static Element? FacingCell(Element cell, bool above)
+    {
+        var row = cell.ParentElement;
+        var rowParent = row?.ParentElement;
+        if (row == null || rowParent == null) return null;
+        var rows = DirectRows(rowParent);
+        int rowIndex = rows.IndexOf(row);
+        int colIndex = DirectCells(row).IndexOf(cell);
+        if (rowIndex < 0 || colIndex < 0) return null;
+        for (int i = rowIndex + (above ? -1 : 1); i >= 0 && i < rows.Count; i += above ? -1 : 1)
+        {
+            var cells = DirectCells(rows[i]);
+            if (colIndex < cells.Count)
+                return cells[colIndex];
+        }
+        return null;
+    }
+
+    private static (Element? prev, Element? next) HorizontalNeighbors(Element cell)
+    {
+        var row = cell.ParentElement;
+        if (row == null) return (null, null);
+        var cells = DirectCells(row);
+        int idx = cells.IndexOf(cell);
+        return (idx > 0 ? cells[idx - 1] : null,
+                idx >= 0 && idx + 1 < cells.Count ? cells[idx + 1] : null);
+    }
+
+    private static List<Element> DirectRows(Element rowParent)
+    {
+        var rows = new List<Element>();
+        foreach (var child in rowParent.Children)
+        {
+            if (child is not Element el) continue;
+            if (IsTableRow(el)) rows.Add(el);
+            else if (IsTableSection(el))
+                foreach (var r in el.Children)
+                    if (r is Element re && IsTableRow(re)) rows.Add(re);
+        }
+        return rows;
+    }
+
+    private static List<Element> DirectCells(Element row)
+    {
+        var cells = new List<Element>();
+        foreach (var child in row.Children)
+            if (child is Element el && IsTableCell(el))
+                cells.Add(el);
+        return cells;
+    }
+
     public static void PaintTableBackground(DisplayList displayList, Element element, ComputedStyle style, LayoutBox box, float contentOffsetY)
     {
         if (!IsTable(element)) return;

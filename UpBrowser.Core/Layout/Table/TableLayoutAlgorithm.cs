@@ -33,8 +33,10 @@ public class TableLayoutAlgorithm : LayoutAlgorithm
     {
         var style = Style;
         bool isFixedLayout = style.TableLayout == "fixed";
-        float borderSpacing = isFixedLayout ? 0 : Math.Max(0, style.BorderSpacing);
         bool hasCollapsedBorders = style.BorderCollapse;
+        // border-spacing is ignored only by border-collapse: collapse; the
+        // table-layout algorithm choice does not affect it (CSS 2.1 §17.5).
+        float borderSpacing = hasCollapsedBorders ? 0 : Math.Max(0, style.BorderSpacing);
 
         var groupedChildren = new TableGroupedChildren(Node);
         var tableBorders = TableBorders.ComputeTableBorders(Node);
@@ -155,16 +157,15 @@ public class TableLayoutAlgorithm : LayoutAlgorithm
 
     private float ComputeAssignableTableInlineSize(TableTypes.Caption captionConstraint, float undistributableSpace, bool isFixedLayout)
     {
-        float availableInline = ViewportWidth;
-        if (Space.IsFixedInlineSize)
-        {
-            return ClampNeg(Math.Max(0, availableInline) - undistributableSpace);
-        }
+        float availableInline = Space.HasDefiniteInlineSize ? Space.AvailableInlineSize : ViewportWidth;
 
         var gridMinMax = TableLayoutUtils.ComputeGridInlineMinMax(isFixedLayout, _columnConstraints, undistributableSpace,
             /* allowColumnPercentages */ true);
         float used = ResolveUsedTableInlineSize(availableInline, gridMinMax);
-        used = Math.Max(used, gridMinMax.MinSize);
+        // A specified table width wins over the grid's min-content contribution
+        // (CSS 2.1 §17.5.2.1): the content overflows instead of inflating the box.
+        if (!HasSpecifiedInlineSize(availableInline))
+            used = Math.Max(used, gridMinMax.MinSize);
         used = Math.Max(used, captionConstraint.min_inline_size);
         return ClampNeg(used - undistributableSpace);
     }
@@ -189,8 +190,17 @@ public class TableLayoutAlgorithm : LayoutAlgorithm
             used = Math.Min(Math.Max(availableInline, gridMinMax.MinSize), gridMinMax.MaxSize);
             used = Math.Clamp(used, gridMinMax.MinSize, gridMinMax.MaxSize);
         }
-        used = Math.Clamp(used, gridMinMax.MinSize, Math.Max(gridMinMax.MinSize, gridMinMax.MaxSize));
+        if (!HasSpecifiedInlineSize(availableInline))
+            used = Math.Clamp(used, gridMinMax.MinSize, Math.Max(gridMinMax.MinSize, gridMinMax.MaxSize));
         return used;
+    }
+
+    /// <summary>True when the table's own inline size comes from a specified
+    /// width/height rather than from its content.</summary>
+    private bool HasSpecifiedInlineSize(float availableInline)
+    {
+        var width = Style.Width;
+        return width.IsFixed() || (width.IsPercent() && TableTypes.IsKnown(availableInline));
     }
 
     private void LayoutCaptions(TableGroupedChildren groupedChildren, float availableInline, List<BoxFragment> captions)

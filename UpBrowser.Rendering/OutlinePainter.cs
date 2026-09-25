@@ -65,9 +65,11 @@ public sealed class OutlinePainter
         {
             var rect = r;
             var offs = AdjustedOutlineOffset(rect, outlineOffset);
+            // Positive outline-offset expands the outline OUTWARD: top/left edges
+            // move to smaller coordinates, bottom/right to larger.
             rect = new SKRect(
-                rect.Left + offs[0].X - additionalOutset,
-                rect.Top + offs[0].Y - additionalOutset,
+                rect.Left - offs[0].X - additionalOutset,
+                rect.Top - offs[0].Y - additionalOutset,
                 rect.Right + offs[1].X + additionalOutset,
                 rect.Bottom + offs[1].Y + additionalOutset);
             var irect = new SKRectI((int)rect.Left, (int)rect.Top, (int)rect.Right, (int)rect.Bottom);
@@ -365,11 +367,13 @@ public sealed class OutlinePainter
         if (width <= 0)
             return;
 
+        // The ring is painted as a stroke of `width` centered on this rect, so the
+        // centerline must sit at offset + width/2 for the band to span [offset, offset+width].
         var outlineRect = new SKRect(
-            borderRect.Left - outlineOffset - width,
-            borderRect.Top - outlineOffset - width,
-            borderRect.Right + outlineOffset + width,
-            borderRect.Bottom + outlineOffset + width);
+            borderRect.Left - outlineOffset - width / 2,
+            borderRect.Top - outlineOffset - width / 2,
+            borderRect.Right + outlineOffset + width / 2,
+            borderRect.Bottom + outlineOffset + width / 2);
 
         float maxRadius = Math.Max(style.BorderTopLeftRadius, Math.Max(style.BorderTopRightRadius,
             Math.Max(style.BorderBottomLeftRadius, style.BorderBottomRightRadius)));
@@ -400,6 +404,29 @@ public sealed class OutlinePainter
             ringOp.FillPaint = null;
             ringOp.Bounds = outlineRect;
             _displayList.Add(ringOp);
+            return;
+        }
+
+        // Dashed / dotted outlines stroke the same centerline with a dash
+        // pattern, matching the border painter's ratios (BoxBorderPainter).
+        if (style.OutlineStyle == BorderStyle.Dashed || style.OutlineStyle == BorderStyle.Dotted)
+        {
+            float[] interval = style.OutlineStyle == BorderStyle.Dashed
+                ? new[] { width * 2, width }
+                : new[] { width, width };
+            var dashOp = PaintOpPool.GetDrawPathOp();
+            dashOp.Path.Dispose();
+            dashOp.Path = path;
+            dashOp.StrokePaint = new SKPaint
+            {
+                Color = style.OutlineColor,
+                Style = SKPaintStyle.Stroke,
+                StrokeWidth = width,
+                IsAntialias = true,
+                PathEffect = SKPathEffect.CreateDash(interval, 0),
+            };
+            dashOp.Bounds = outlineRect;
+            _displayList.Add(dashOp);
             return;
         }
 

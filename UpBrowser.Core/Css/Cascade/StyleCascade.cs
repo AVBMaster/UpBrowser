@@ -84,17 +84,19 @@ public class StyleCascade
 
     private void ApplyMatchResult(CascadeFilter? filter)
     {
+        // Apply custom properties FIRST so that var() references in regular
+        // properties resolve against the current element's declarations.
+        foreach (var customName in _map.CustomNames)
+        {
+            if (filter?.Rejects(new CssPropertyName(customName)) == true) continue;
+            ApplyCustomIfPresent(customName);
+        }
         foreach (var id in _map.NativeIds)
         {
             if (filter?.Rejects(new CssPropertyName(id)) == true) continue;
             if (HighPriorityProperties.Contains(id)) continue;
             if (id is CssPropertyId.Direction or CssPropertyId.WritingMode or CssPropertyId.Zoom) continue;
             ApplyIfPresent(id);
-        }
-        foreach (var customName in _map.CustomNames)
-        {
-            if (filter?.Rejects(new CssPropertyName(customName)) == true) continue;
-            ApplyCustomIfPresent(customName);
         }
     }
 

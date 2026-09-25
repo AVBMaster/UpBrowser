@@ -477,6 +477,16 @@ public class StyleResolver
 
             string name = p.Name.ToCssString();
             string text = p.Value.CssText();
+
+            // Shorthand values containing var() cannot be expanded until the
+            // variables are resolved (which happens at apply time). Pass the
+            // shorthand through as-is so the evaluator substitutes first.
+            if (text.Contains("var(", StringComparison.OrdinalIgnoreCase))
+            {
+                result.SetLonghandProperty(p);
+                continue;
+            }
+
             var expanded = ShorthandExpander.ExpandProperty(name, text);
             // A shorthand resets every longhand it controls: declarations that
             // were already in the set (from earlier rules) must be removed before
@@ -626,10 +636,15 @@ public class StyleResolver
         style.LineHeightIsNormal = parent.LineHeightIsNormal;
         style.LineHeightPx = parent.LineHeightPx;
         style.TextAlign = parent.TextAlign;
+        style.TextAlignLast = parent.TextAlignLast;
         style.Visibility = parent.Visibility;
         style.WhiteSpace = parent.WhiteSpace;
         style.Direction = parent.Direction;
         style.TextTransform = parent.TextTransform;
+        // Inherited table properties: caption placement and empty-cell rendering
+        // must flow from the table to rows/cells (CSS 2.1 §17.6).
+        style.CaptionSide = parent.CaptionSide;
+        style.EmptyCells = parent.EmptyCells;
         style.LetterSpacing = parent.LetterSpacing;
         style.WordSpacing = parent.WordSpacing;
         style.TextIndent = parent.TextIndent;

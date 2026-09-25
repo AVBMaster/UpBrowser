@@ -54,6 +54,7 @@ public class TableLayoutAlgorithm
         var builder = ConstraintSpace.Builder(avail, float.PositiveInfinity);
         builder.SetIsFixedInlineSize(true);
         builder.SetIsNewFormattingContext(true);
+        builder.SetViewportSize(avail, avail);
 
         var result = new UpBrowser.Core.Layout.Table.TableLayoutAlgorithm(tableElement, builder.ToConstraintSpace()).Layout();
         var frag = result.Fragment;

@@ -403,11 +403,19 @@ public static class TableTypes
     // Factory helpers (mirrors the Create* functions in table_layout_algorithm_types.cc).
     // ==========================================================================
 
+    /// <summary>True when the cell inherits `visibility: collapse` from its own
+    /// &lt;tr&gt; (row-level collapse) rather than declaring it itself.</summary>
+    private static bool InCollapsedRow(Element cell)
+    {
+        var row = cell.ParentElement;
+        return row != null && row.TagName.Equals("TR", StringComparison.OrdinalIgnoreCase)
+            && row.ComputedStyle?.Visibility == VisibilityType.Collapse;
+    }
+
     public static CellInlineConstraint CreateCellInlineConstraint(
         List<Column> columnConstraints, int startColumn, int span, Element cell)
     {
-        CellInlineConstraint constraint = new();
-        // |constraint.is_initial_constraint| is reset by this loop.
+        CellInlineConstraint constraint = new();        // |constraint.is_initial_constraint| is reset by this loop.
         var style = cell.ComputedStyle;
         var borderPadding = ComputeCellBorderPadding(cell);
 
@@ -447,7 +455,12 @@ public static class TableTypes
         }
 
         constraint.is_constrained = is_constrained || (style != null && style.Width.IsSpecified());
-        constraint.is_collapsed = style != null && style.Visibility == VisibilityType.Collapse;
+        // `visibility: collapse` on a cell removes its COLUMN; on a row it removes
+        // the ROW only. Computed visibility is inherited, so a cell inside a
+        // collapsed row must not be mistaken for a collapsed column, which would
+        // shrink every column of the table to zero (CSS 2.1 §17.6.3).
+        constraint.is_collapsed = style != null && style.Visibility == VisibilityType.Collapse
+            && !InCollapsedRow(cell);
         constraint.is_table_fixed = style != null && style.TableLayout == "fixed";
 
         // Colspan cells are treated as a single column (the one that spans them).

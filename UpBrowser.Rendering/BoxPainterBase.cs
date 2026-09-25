@@ -390,14 +390,22 @@ public sealed class BoxPainterBase
             };
             roundedFill.OutsetForMarginOrShadow(shadow.Spread);
 
-            var shadowOp = PaintOpPool.GetDrawShadowOp();
+            // Emit as a DrawPathOp (proven raster path) with the shadow offset baked
+            // into the geometry and an optional blur filter. DrawShadowOp's translate
+            // + ImageFilter combination was not compositing on the raster canvas.
+            var shadowPath = roundedFill.ToPath(hasBorderRadius);
+            shadowPath.Offset(shadow.X, shadow.Y);
+            var shadowOp = PaintOpPool.GetDrawPathOp();
             shadowOp.Path.Dispose();
-            shadowOp.Path = roundedFill.ToPath(hasBorderRadius);
-            shadowOp.Color = shadowColor;
-            shadowOp.BlurRadius = Math.Max(1, shadow.Blur);
-            shadowOp.OffsetX = shadow.X;
-            shadowOp.OffsetY = shadow.Y;
-            shadowOp.Inset = false;
+            shadowOp.Path = shadowPath;
+            shadowOp.FillPaint = new SKPaint
+            {
+                Color = shadowColor,
+                Style = SKPaintStyle.Fill,
+                IsAntialias = true,
+                ImageFilter = shadow.Blur > 0 ? SKImageFilter.CreateBlur(shadow.Blur, shadow.Blur) : null
+            };
+            shadowOp.StrokePaint = null;
             shadowOp.ZIndex = -1;
             shadowOp.Bounds = new SKRect(
                 paintRect.Left + shadow.X - shadow.Blur - shadow.Spread,
@@ -493,11 +501,14 @@ public sealed class BoxPainterBase
             _displayList.Add(clipOp);
 
             // Draw the shadow-colored region between the outer bounds and the
-            // inner hole (blurred shadow around the hole).
+            // inner hole (blurred shadow around the hole). The hole is the shrunk
+            // box moved by the shadow offset; the painted band is the box area
+            // outside that offset hole.
             SKColor fillColor = new(shadowColor.Red, shadowColor.Green, shadowColor.Blue, shadowColor.Alpha);
             SKRect outerRect = AreaCastingShadowInHole(bounds.Rect, shadow);
 
             var holePath = innerRounded.ToPath(innerRounded.IsRounded);
+            holePath.Offset(shadow.X, shadow.Y);
             var ringPath = new SKPath();
             var outerPath = new SKPath();
             outerPath.AddRect(outerRect);

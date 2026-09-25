@@ -74,13 +74,33 @@ public class GridLayoutAlgorithm
     {
         var areas = new List<string[]>();
         if (string.IsNullOrEmpty(areasStr)) return areas;
-        var rows = areasStr.Split(',', StringSplitOptions.RemoveEmptyEntries);
-        foreach (var row in rows)
+
+        // Extract quoted strings: each "..." is one row.
+        int pos = 0;
+        while (pos < areasStr.Length)
         {
-            var trimmed = row.Trim().Trim('"', '\'');
-            if (string.IsNullOrEmpty(trimmed)) continue;
-            areas.Add(trimmed.Split(' ', StringSplitOptions.RemoveEmptyEntries));
+            int qStart = areasStr.IndexOf('"', pos);
+            if (qStart < 0) break;
+            int qEnd = areasStr.IndexOf('"', qStart + 1);
+            if (qEnd < 0) break;
+            var row = areasStr[(qStart + 1)..qEnd].Trim();
+            if (!string.IsNullOrEmpty(row))
+                areas.Add(row.Split(' ', StringSplitOptions.RemoveEmptyEntries));
+            pos = qEnd + 1;
         }
+
+        // Fallback: if no quoted strings found, try comma-separated format.
+        if (areas.Count == 0)
+        {
+            var rows = areasStr.Split(',', StringSplitOptions.RemoveEmptyEntries);
+            foreach (var row in rows)
+            {
+                var trimmed = row.Trim().Trim('"', '\'');
+                if (string.IsNullOrEmpty(trimmed)) continue;
+                areas.Add(trimmed.Split(' ', StringSplitOptions.RemoveEmptyEntries));
+            }
+        }
+
         return areas;
     }
 
@@ -128,6 +148,11 @@ public class GridLayoutAlgorithm
 
                 if (autoFill)
                 {
+                    // Initialize track base sizes so minmax(80px, 1fr) reports 80
+                    // (not 0) in the fitting computation below.
+                    foreach (var t in repeatTracks)
+                        t.Initialize(containerSize, _containerStyle?.FontSize ?? 16, _viewportWidth, _viewportHeight);
+
                     float totalGap = _containerStyle?.ColumnGap.ToPixels(_containerStyle.FontSize, _rootFontSize, _viewportWidth, _viewportHeight) ?? 0;
                     float totalTrackSize = 0;
                     foreach (var t in repeatTracks)

@@ -347,13 +347,18 @@ public static class TableLayoutUtils
                 if (!ignoreBecauseOfFixedLayout)
                 {
                     var constraint = TableTypes.CreateCellInlineConstraint(new List<TableTypes.Column>(), startColumn, colspan, cell);
-                    // Fold in content-based min/max sizes: the factory only
-                    // considers css widths, the engine additionally measures content.
-                    var (contentMin, contentMax) = ComputeContentMinMax(cell);
-                    var cellBorderPadding = TableTypes.ComputeCellBorderPadding(cell);
-                    float bpSum = cellBorderPadding.HorizontalSum;
-                    constraint.min_inline_size = MaxMin(constraint.min_inline_size, contentMin + bpSum);
-                    constraint.max_inline_size = MaxMin(constraint.max_inline_size, contentMax + bpSum);
+                    // Content-based min/max sizes only feed the grid in auto
+                    // layout. With table-layout: fixed the column widths come from
+                    // the specified widths alone and the rest is shared equally
+                    // (CSS 2.1 §17.5.2.1).
+                    if (!isFixedLayout)
+                    {
+                        var (contentMin, contentMax) = ComputeContentMinMax(cell);
+                        var cellBorderPadding = TableTypes.ComputeCellBorderPadding(cell);
+                        float bpSum = cellBorderPadding.HorizontalSum;
+                        constraint.min_inline_size = MaxMin(constraint.min_inline_size, contentMin + bpSum);
+                        constraint.max_inline_size = MaxMin(constraint.max_inline_size, contentMax + bpSum);
+                    }
                     constraint.min_inline_size = K(constraint.min_inline_size);
                     constraint.max_inline_size = Math.Max(K(constraint.max_inline_size), K(constraint.min_inline_size));
 
@@ -390,6 +395,13 @@ public static class TableLayoutUtils
     {
         // Satisfy prerequisites for cell merging: a column constraint must exist
         // for each cell.
+        // The cell traversal reserves one trailing empty slot (the border-spacing
+        // after the last column); it is not a real column, so drop it here. Auto
+        // layout used to remove it again via the mergeable trim below, but fixed
+        // layout marks its columns non-mergeable and would keep a phantom column.
+        while (cellConstraints.Count > 0 && cellConstraints[^1] == null)
+            cellConstraints.RemoveAt(cellConstraints.Count - 1);
+
         if (columnConstraints.Count < cellConstraints.Count)
         {
             int columnCount = cellConstraints.Count - columnConstraints.Count;

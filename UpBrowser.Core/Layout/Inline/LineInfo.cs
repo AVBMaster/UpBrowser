@@ -223,7 +223,26 @@ public class LineInfo
     public void SetTextIndent(float indent) => _textIndent = indent;
     public float TextIndent() => _textIndent;
 
-    public TextAlignType TextAlign() => _textAlign;
+    public TextAlignType TextAlign()
+    {
+        // `text-align-last` overrides the last line's alignment (CSS Text 3
+        // §5.11.1). It is applied here rather than in UpdateTextAlign() because
+        // the line is not known to be the last one until after that update.
+        if (_isLastLine && _lineStyle != null && _lineStyle.TextAlignLast != TextAlignLastType.Auto)
+        {
+            return _lineStyle.TextAlignLast switch
+            {
+                TextAlignLastType.Start => TextAlignType.Start,
+                TextAlignLastType.End => TextAlignType.End,
+                TextAlignLastType.Left => TextAlignType.Left,
+                TextAlignLastType.Right => TextAlignType.Right,
+                TextAlignLastType.Center => TextAlignType.Center,
+                TextAlignLastType.Justify => TextAlignType.Justify,
+                _ => _textAlign,
+            };
+        }
+        return _textAlign;
+    }
 
     /// <summary>Update |TextAlign()| and related fields.</summary>
     public void UpdateTextAlign()

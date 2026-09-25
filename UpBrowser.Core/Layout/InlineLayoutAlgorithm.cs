@@ -59,6 +59,23 @@ public class InlineLayoutAlgorithm : LayoutAlgorithm
                 availInline = Math.Max(0, ownBorderBox - bp.HorizontalSum);
         }
 
+        // width: max-content / min-content / fit-content on an inline-formatting
+        // context root: measure the content's intrinsic inline size with an
+        // unconstrained / fully-constrained pass, then lay out at that width.
+        if (Style.Width is IntrinsicLength intrinsicWidth && !_measuringIntrinsics)
+        {
+            float maxContent = MeasureIntrinsicInlineSize(minContent: false, bp);
+            float minContent = MeasureIntrinsicInlineSize(minContent: true, bp);
+            float resolved = intrinsicWidth.Kind switch
+            {
+                IntrinsicSizeKind.MaxContent => maxContent,
+                IntrinsicSizeKind.MinContent => minContent,
+                _ => Math.Min(Math.Max(minContent, availInline + bp.HorizontalSum), maxContent),
+            };
+            if (resolved > 0 && !float.IsNaN(resolved))
+                availInline = Math.Max(0, resolved - bp.HorizontalSum);
+        }
+
         float curInlineSize = 0, curBlockSize = 0, curBaseline = 0, maxBlockSize = 0;
 
         if (TryLayoutLinesWithNgPipeline(availInline, padding.Left, padding.Top))
@@ -97,6 +114,18 @@ public class InlineLayoutAlgorithm : LayoutAlgorithm
             t => new MinMaxSizesResult(new MinMaxSizes(availInline, availInline)));
         if (LengthUtils.IsIndefinite(inlineSize)) inlineSize = availInline;
 
+        // Intrinsic width keywords: the line breaking above already ran at the
+        // measured content width, so the box takes that width (plus the box
+        // model struts) rather than stretching to the container.
+        if (Style.Width is IntrinsicLength)
+        {
+            float widestLine = 0;
+            foreach (var l in _lines)
+                widestLine = Math.Max(widestLine, l.InlineSize);
+            if (widestLine > 0)
+                inlineSize = widestLine + bp.HorizontalSum;
+        }
+
         // Shrink-to-fit auto width (atomic inline / inline-block / float): the box
         // sizes to its content (the widest line), not to the full available
         // width. Without this an inline-block such as a <button> stretches across
@@ -107,13 +136,26 @@ public class InlineLayoutAlgorithm : LayoutAlgorithm
             foreach (var l in _lines)
                 maxLineInline = Math.Max(maxLineInline, l.InlineSize);
             float contentBorderBox = maxLineInline + bp.HorizontalSum;
-            if (contentBorderBox > 0)
-                inlineSize = Math.Min(inlineSize, contentBorderBox);
+            // An empty atomic inline shrinks to zero; keeping the available width
+            // here would push it onto its own line and break the surrounding text.
+            inlineSize = Math.Min(inlineSize, contentBorderBox);
         }
 
         var (minI, maxI) = LengthUtils.ComputeMinMaxInlineSizes(Space, Style, bp,
             t => new MinMaxSizesResult(new MinMaxSizes(availInline, availInline)));
         Builder.InlineSize = Math.Clamp(inlineSize, minI, maxI);
+
+        // Aspect-ratio with auto height: derive the block size from the resolved
+        // inline size. Mirrors the block path; runs here because an inline
+        // formatting-context root is sized by this algorithm, not LayoutMain.
+        if (Style.AspectRatio > 0 && Style.Height is AutoLength or null
+            && !float.IsNaN(Builder.InlineSize) && Builder.InlineSize > 0)
+        {
+            float contentInline = Math.Max(0, Builder.InlineSize - bp.HorizontalSum);
+            float arBlock = contentInline / Style.AspectRatio + bp.VerticalSum;
+            Builder.BlockSize = Math.Clamp(arBlock, minB, maxB);
+            Builder.IntrinsicBlockSize = arBlock;
+        }
 
         // Absolutely/fixed-positioned children of an inline formatting context
         // root are not inline items: position them against this container after
@@ -217,7 +259,7 @@ public class InlineLayoutAlgorithm : LayoutAlgorithm
 
             var boxLine = new BoxLine
             {
-                InlineOffset = paddingLeft,
+                InlineOffset = paddingLeft + (info.IsFirstFormattedLine() ? info.TextIndent() : 0),
                 BlockOffset = _currentLineBlockOffset,
                 InlineSize = info.InlineSize,
                 BlockSize = lineBlockSize,
@@ -294,6 +336,8 @@ public class InlineLayoutAlgorithm : LayoutAlgorithm
                         // renderer (DrawInlineRuns) can paint it and resolve the
                         // per-text-node style/selection state. BaselineOffset 0
                         // keeps the run on the line box's absolute baseline.
+                        float vaShift = ComputeVerticalAlignShift(
+                            item.InlineItem?.GetLayoutObject()?.Node, item.Size.BlockSize);
                         boxLine.Runs.Add(new BoxRun
                         {
                             Text = text,
@@ -302,7 +346,8 @@ public class InlineLayoutAlgorithm : LayoutAlgorithm
                             InlineSize = itemInlineSize,
                             BlockOffset = _currentLineBlockOffset,
                             BlockSize = Math.Max(Style.FontSize, item.Size.BlockSize),
-                            BaselineOffset = 0
+                            BaselineOffset = 0,
+                            BaselineShift = vaShift
                         });
                         itemsBuilder.Add(new FragmentItem(FragmentItem.ItemType.Text)
                         {
@@ -387,6 +432,55 @@ public class InlineLayoutAlgorithm : LayoutAlgorithm
             };
             run.BlockOffset = boxLine.BlockOffset + top;
         }
+    }
+
+    private static bool _measuringIntrinsics;
+
+    /// <summary>Runs a throwaway inline pass to measure the content's intrinsic
+    /// inline size: unconstrained (max-content) or squeezed to 1px (min-content,
+    /// where every break opportunity is taken).</summary>
+    private float MeasureIntrinsicInlineSize(bool minContent, BoxStrut bp)
+    {
+        if (_measuringIntrinsics) return float.NaN;
+        float probe = minContent ? 1f : 100000f;
+        var space = Space.InheritBuilder(probe, float.PositiveInfinity).ToConstraintSpace();
+        _measuringIntrinsics = true;
+        try
+        {
+            var measure = new InlineLayoutAlgorithm(Node, space, _parent);
+            measure.Layout();
+            float widest = 0;
+            foreach (var l in measure._lines)
+                widest = Math.Max(widest, l.InlineSize);
+            return widest + bp.HorizontalSum;
+        }
+        finally
+        {
+            _measuringIntrinsics = false;
+        }
+    }
+
+    /// <summary>
+    /// Baseline shift (positive = raised) for a text run whose element declares a
+    /// non-baseline vertical-align. Font-metric approximations per CSS 2.1 §10.8.1:
+    /// middle raises by half the parent x-height, text-top/bottom align the em-box
+    /// edges, sub/super use the conventional 1/5 / 1/3 parent-font offsets.
+    /// </summary>
+    private float ComputeVerticalAlignShift(Node? node, float runBlockSize)
+    {
+        var elStyle = (node as Element)?.ComputedStyle ?? (node as TextNode)?.ParentElement?.ComputedStyle;
+        if (elStyle == null) return 0;
+        float parentFs = Style.FontSize;
+        float runFs = elStyle.FontSize > 0 ? elStyle.FontSize : parentFs;
+        return elStyle.VerticalAlign switch
+        {
+            VerticalAlignType.Middle => parentFs * 0.25f,
+            VerticalAlignType.TextTop => 0.8f * (parentFs - runFs),
+            VerticalAlignType.TextBottom => 0.2f * (runFs - parentFs),
+            VerticalAlignType.Sub => -parentFs / 5f,
+            VerticalAlignType.Super => parentFs / 3f,
+            _ => 0f,
+        };
     }
 
     private BoxLine ProcessText(TextNode textNode, BoxLine currentLine, float availInline,

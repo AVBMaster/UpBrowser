@@ -1,6 +1,7 @@
 ﻿using SkiaSharp;
 using UpBrowser.Core.Dom;
 using UpBrowser.Core.Css.ElementStyles;
+using CurrentColorSlot = UpBrowser.Core.Dom.ComputedStyle.CurrentColorSlot;
 
 namespace UpBrowser.Core.Css.Resolver;
 
@@ -39,6 +40,14 @@ public static class CssPropertyApplier
             case "min-height": style.MinHeight = Length.Parse(value); break;
             case "max-width": style.MaxWidth = Length.Parse(value); break;
             case "max-height": style.MaxHeight = Length.Parse(value); break;
+            // Logical sizing properties map to the physical ones for the
+            // horizontal writing modes the engine supports (CSS Logical §1.2).
+            case "inline-size": style.Width = Length.Parse(value); break;
+            case "block-size": style.Height = Length.Parse(value); break;
+            case "min-inline-size": style.MinWidth = Length.Parse(value); break;
+            case "min-block-size": style.MinHeight = Length.Parse(value); break;
+            case "max-inline-size": style.MaxWidth = Length.Parse(value); break;
+            case "max-block-size": style.MaxHeight = Length.Parse(value); break;
             case "display": style.Display = ParseDisplay(value); break;
             case "position": style.Position = ParsePosition(value); break;
             case "float": style.Float = ParseFloat(value); break;
@@ -73,7 +82,7 @@ public static class CssPropertyApplier
             case "padding-inline-end": style.PaddingRight = Length.Parse(value); break;
             case "color": style.Color = ColorParser.Parse(value); break;
             case "accent-color": style.AccentColor = value == "auto" ? null : ColorParser.Parse(value); break;
-            case "caret-color": style.CaretColor = value == "auto" ? null : ColorParser.Parse(value); break;
+            case "caret-color": style.CaretColor = value == "auto" ? null : ColorParser.Parse(value); MarkCurrentColor(style, CurrentColorSlot.Caret, value); break;
 
             // Standard scrollbar properties.
             case "scrollbar-width":
@@ -98,8 +107,6 @@ public static class CssPropertyApplier
             case "background-image":
                 if (value == "none")
                     style.BackgroundImage = null;
-                else if (CssFunctionEvaluator.IsGradient(value))
-                    style.BackgroundImage = new List<string> { value };
                 else
                     style.BackgroundImage = SplitCommaOutsideParens(value).Select(s => s.Trim()).ToList();
                 break;
@@ -113,6 +120,7 @@ public static class CssPropertyApplier
             case "background-origin": style.BackgroundOrigin = value.ToLowerInvariant(); break;
             case "background-blend-mode": style.BackgroundBlendMode = ParseBackgroundBlendMode(value); break;
             case "text-align": style.TextAlign = ParseTextAlign(value); break;
+            case "text-align-last": style.TextAlignLast = ParseTextAlignLast(value); break;
             case "text-decoration": ParseTextDecorationShorthand(value, style); break;
             case "text-decoration-line":
                 style.TextDecorationLine = ParseTextDecorationLine(value);
@@ -125,7 +133,7 @@ public static class CssPropertyApplier
                 };
                 break;
             case "text-decoration-style": style.TextDecorationStyle = ParseTextDecorationStyle(value); break;
-            case "text-decoration-color": style.TextDecorationColor = ColorParser.Parse(value); break;
+            case "text-decoration-color": style.TextDecorationColor = ColorParser.Parse(value); MarkCurrentColor(style, CurrentColorSlot.TextDecoration, value); break;
             case "text-decoration-thickness":
                 if (value == "auto") style.TextDecorationThickness = 0;
                 else if (Length.TryParse(value, out var tdt)) style.TextDecorationThickness = tdt.ToPixels(0, 0, 0, 0);
@@ -161,6 +169,10 @@ public static class CssPropertyApplier
             case "border-bottom": ParseBorderSide(style, "bottom", value); break;
             case "border-left": ParseBorderSide(style, "left", value); break;
             case "border-right": ParseBorderSide(style, "right", value); break;
+            case "border-block-start": ParseBorderSide(style, "top", value); break;
+            case "border-block-end": ParseBorderSide(style, "bottom", value); break;
+            case "border-inline-start": ParseBorderSide(style, "left", value); break;
+            case "border-inline-end": ParseBorderSide(style, "right", value); break;
             case "border-width": ParseBorderWidth(value, style); break;
             case "border-color": ParseBorderColor(value, style); break;
             case "border-style": ParseBorderStyle(value, style); break;
@@ -172,10 +184,10 @@ public static class CssPropertyApplier
             case "border-right-style": style.BorderRightStyle = ParseBorderStyleValue(value); break;
             case "border-bottom-style": style.BorderBottomStyle = ParseBorderStyleValue(value); break;
             case "border-left-style": style.BorderLeftStyle = ParseBorderStyleValue(value); break;
-            case "border-top-color": style.BorderTopColor = ColorParser.Parse(value); break;
-            case "border-right-color": style.BorderRightColor = ColorParser.Parse(value); break;
-            case "border-bottom-color": style.BorderBottomColor = ColorParser.Parse(value); break;
-            case "border-left-color": style.BorderLeftColor = ColorParser.Parse(value); break;
+            case "border-top-color": style.BorderTopColor = ColorParser.Parse(value); MarkCurrentColor(style, CurrentColorSlot.BorderTop, value); break;
+            case "border-right-color": style.BorderRightColor = ColorParser.Parse(value); MarkCurrentColor(style, CurrentColorSlot.BorderRight, value); break;
+            case "border-bottom-color": style.BorderBottomColor = ColorParser.Parse(value); MarkCurrentColor(style, CurrentColorSlot.BorderBottom, value); break;
+            case "border-left-color": style.BorderLeftColor = ColorParser.Parse(value); MarkCurrentColor(style, CurrentColorSlot.BorderLeft, value); break;
             case "border-radius": ParseBorderRadius(value, style); break;
             case "border-top-left-radius": style.BorderTopLeftRadius = ParseRadiusValue(value) ?? 0; break;
             case "border-top-right-radius": style.BorderTopRightRadius = ParseRadiusValue(value) ?? 0; break;
@@ -224,7 +236,7 @@ public static class CssPropertyApplier
                 else style.ColumnRuleWidth = ParseSize(value) ?? 3f;
                 break;
             case "column-rule-style": style.ColumnRuleStyle = ParseBorderStyleValue(value); break;
-            case "column-rule-color": style.ColumnRuleColor = ColorParser.Parse(value); break;
+            case "column-rule-color": style.ColumnRuleColor = ColorParser.Parse(value); MarkCurrentColor(style, CurrentColorSlot.ColumnRule, value); break;
             case "grid": style.Grid = value; break;
             case "grid-template": ParseGridTemplateShorthand(value, style); break;
             case "grid-template-columns": style.GridTemplateColumns = value == "none" ? null : value; break;
@@ -315,7 +327,7 @@ public static class CssPropertyApplier
                 if (float.TryParse(value.Replace("px", ""), out var ow))
                     style.OutlineWidth = ow;
                 break;
-            case "outline-color": style.OutlineColor = ColorParser.Parse(value); break;
+            case "outline-color": style.OutlineColor = ColorParser.Parse(value); MarkCurrentColor(style, CurrentColorSlot.Outline, value); break;
             case "outline-style": style.OutlineStyle = ParseBorderStyleValue(value); break;
             case "outline-offset": style.OutlineOffset = ParseSize(value) ?? 0; break;
             case "table-layout": style.TableLayout = value.ToLowerInvariant() == "fixed" ? "fixed" : "auto"; break;
@@ -328,6 +340,12 @@ public static class CssPropertyApplier
             case "quotes": style.Quotes = value; break;
             case "aspect-ratio":
                 if (value == "auto") style.AspectRatio = 0;
+                else if (value.Contains('/'))
+                {
+                    var parts = value.Split('/', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+                    if (parts.Length == 2 && float.TryParse(parts[0], out var aw) && float.TryParse(parts[1], out var ah) && ah > 0)
+                        style.AspectRatio = aw / ah;
+                }
                 else if (float.TryParse(value, out var ar)) style.AspectRatio = ar;
                 break;
             case "object-fit": style.ObjectFit = ParseObjectFit(value); break;
@@ -412,6 +430,7 @@ public static class CssPropertyApplier
                 || ColorParser.IsColorName(p))
             {
                 style.ColumnRuleColor = ColorParser.Parse(p);
+                MarkCurrentColor(style, CurrentColorSlot.ColumnRule, p);
                 continue;
             }
 
@@ -627,44 +646,109 @@ public static class CssPropertyApplier
 
     public static void ParseBackgroundShorthand(string value, ComputedStyle style)
     {
-        var parts = value.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        var positionTokens = new List<string>();
-        foreach (var part in parts)
+        // Split by commas outside parentheses to get individual layers.
+        var layers = SplitCommaOutsideParens(value);
+        var images = new List<string>();
+
+        foreach (var layer in layers)
         {
-            var lower = part.ToLowerInvariant();
-            if (lower == "none" || lower == "transparent")
+            var trimmed = layer.Trim();
+            if (string.IsNullOrEmpty(trimmed)) continue;
+
+            // Extract gradient/url from the layer before splitting by space.
+            string? image = null;
+            string remaining = trimmed;
+
+            int gradIdx = FindGradientStart(trimmed);
+            if (gradIdx >= 0)
             {
-                style.BackgroundColor = SKColors.Transparent;
-                style.BackgroundImage = null;
+                int end = FindMatchingParenEnd(trimmed, gradIdx);
+                if (end > gradIdx)
+                {
+                    image = trimmed[gradIdx..(end + 1)];
+                    remaining = (trimmed[..gradIdx] + " " + trimmed[(end + 1)..]).Trim();
+                }
             }
-            else if (lower.StartsWith("#") || lower.StartsWith("rgb") || lower.StartsWith("rgba") || ColorParser.IsColorName(lower))
+            else
             {
-                style.BackgroundColor = ColorParser.Parse(part);
+                int urlIdx = trimmed.IndexOf("url(", StringComparison.OrdinalIgnoreCase);
+                if (urlIdx >= 0)
+                {
+                    int end = FindMatchingParenEnd(trimmed, urlIdx + 4);
+                    if (end > urlIdx)
+                    {
+                        image = ParseUrl(trimmed[urlIdx..(end + 1)]);
+                        remaining = (trimmed[..urlIdx] + " " + trimmed[(end + 1)..]).Trim();
+                    }
+                }
             }
-            else if (lower.StartsWith("url("))
+
+            if (image != null)
+                images.Add(image);
+
+            // Parse remaining tokens for color, repeat, position, size. The split
+            // is parenthesis-aware so functional colors keep their inner spaces.
+            var parts = ShorthandExpander.SplitShorthand(remaining);
+            var positionTokens = new List<string>();
+            foreach (var part in parts)
             {
-                style.BackgroundImage = new List<string> { ParseUrl(part) };
+                var lower = part.ToLowerInvariant();
+                if (lower == "none" || lower == "transparent")
+                {
+                    style.BackgroundColor = SKColors.Transparent;
+                }
+                else if (ColorParser.LooksLikeColor(part))
+                {
+                    style.BackgroundColor = ColorParser.Parse(part);
+                }
+                else if (lower is "repeat" or "repeat-x" or "repeat-y" or "no-repeat")
+                {
+                    style.BackgroundRepeat = ParseBackgroundRepeat(part);
+                }
+                else if (lower is "scroll" or "fixed" or "local")
+                {
+                    style.BackgroundAttachment = ParseBackgroundAttachment(part);
+                }
+                else if (lower is "cover" or "contain")
+                {
+                    style.BackgroundSize = lower == "cover" ? BackgroundSizeType.Cover : BackgroundSizeType.Contain;
+                }
+                else if (lower is "left" or "right" or "center" or "top" or "bottom" ||
+                         lower.EndsWith("%") || lower.EndsWith("px") || lower.StartsWith("calc("))
+                {
+                    positionTokens.Add(part);
+                }
             }
-            else if (lower is "repeat" or "repeat-x" or "repeat-y" or "no-repeat")
-            {
-                style.BackgroundRepeat = ParseBackgroundRepeat(part);
-            }
-            else if (lower is "scroll" or "fixed" or "local")
-            {
-                style.BackgroundAttachment = ParseBackgroundAttachment(part);
-            }
-            else if (lower is "cover" or "contain")
-            {
-                style.BackgroundSize = lower == "cover" ? BackgroundSizeType.Cover : BackgroundSizeType.Contain;
-            }
-            else if (lower is "left" or "right" or "center" or "top" or "bottom" ||
-                     lower.EndsWith("%") || lower.EndsWith("px") || lower.StartsWith("calc("))
-            {
-                positionTokens.Add(part);
-            }
+            if (positionTokens.Count > 0)
+                ParseBackgroundPosition(string.Join(" ", positionTokens), style);
         }
-        if (positionTokens.Count > 0)
-            ParseBackgroundPosition(string.Join(" ", positionTokens), style);
+
+        if (images.Count > 0)
+            style.BackgroundImage = images;
+    }
+
+    private static int FindGradientStart(string s)
+    {
+        string[] funcs = { "linear-gradient", "radial-gradient", "conic-gradient",
+                           "repeating-linear-gradient", "repeating-radial-gradient", "repeating-conic-gradient" };
+        int best = -1;
+        foreach (var f in funcs)
+        {
+            int idx = s.IndexOf(f + "(", StringComparison.OrdinalIgnoreCase);
+            if (idx >= 0 && (best < 0 || idx < best)) best = idx;
+        }
+        return best;
+    }
+
+    private static int FindMatchingParenEnd(string s, int openPos)
+    {
+        int depth = 0;
+        for (int i = openPos; i < s.Length; i++)
+        {
+            if (s[i] == '(') depth++;
+            else if (s[i] == ')') { depth--; if (depth == 0) return i; }
+        }
+        return -1;
     }
 
     public static string? ParseUrl(string value)
@@ -700,6 +784,7 @@ public static class CssPropertyApplier
                 var color = ColorParser.Parse(part);
                 style.BorderTopColor = color; style.BorderRightColor = color;
                 style.BorderBottomColor = color; style.BorderLeftColor = color;
+                MarkCurrentColor(style, CurrentColorSlot.AllBorders, part);
             }
         }
     }
@@ -788,6 +873,27 @@ public static class CssPropertyApplier
         style.BorderImageRepeat = repeat.Count > 0 ? string.Join(" ", repeat) : "stretch";
     }
 
+    /// <summary>Records that a color property was declared as the `currentcolor`
+    /// keyword; StyleAdjuster substitutes the computed color after inheritance.</summary>
+    internal static void MarkCurrentColor(ComputedStyle style, ComputedStyle.CurrentColorSlot slot, string token)
+    {
+        if (token.Trim().Equals("currentcolor", StringComparison.OrdinalIgnoreCase))
+            style.CurrentColorSlots |= (uint)slot;
+        else
+            style.CurrentColorSlots &= ~(uint)slot;
+    }
+
+    private static TextAlignLastType ParseTextAlignLast(string value) => value.Trim().ToLowerInvariant() switch
+    {
+        "start" => TextAlignLastType.Start,
+        "end" => TextAlignLastType.End,
+        "left" => TextAlignLastType.Left,
+        "right" => TextAlignLastType.Right,
+        "center" => TextAlignLastType.Center,
+        "justify" => TextAlignLastType.Justify,
+        _ => TextAlignLastType.Auto,
+    };
+
     public static void ParseBorderSide(ComputedStyle style, string side, string value)
     {
         var parts = value.Split(' ', StringSplitOptions.RemoveEmptyEntries);
@@ -816,6 +922,14 @@ public static class CssPropertyApplier
             else
             {
                 var color = ColorParser.Parse(part);
+                var slot = side switch
+                {
+                    "top" => CurrentColorSlot.BorderTop,
+                    "bottom" => CurrentColorSlot.BorderBottom,
+                    "left" => CurrentColorSlot.BorderLeft,
+                    _ => CurrentColorSlot.BorderRight,
+                };
+                MarkCurrentColor(style, slot, part);
                 if (side == "top") style.BorderTopColor = color;
                 else if (side == "bottom") style.BorderBottomColor = color;
                 else if (side == "left") style.BorderLeftColor = color;
@@ -845,6 +959,17 @@ public static class CssPropertyApplier
     {
         var colors = value.Split(' ', StringSplitOptions.RemoveEmptyEntries);
         var c = colors.Select(ColorParser.Parse).ToList();
+        for (int ci = 0; ci < colors.Length && ci < 4; ci++)
+        {
+            var slot = ci switch
+            {
+                0 => CurrentColorSlot.BorderTop,
+                1 => CurrentColorSlot.BorderRight,
+                2 => CurrentColorSlot.BorderBottom,
+                _ => CurrentColorSlot.BorderLeft,
+            };
+            MarkCurrentColor(style, slot, colors[ci]);
+        }
         style.BorderTopColor = c.Count > 0 ? c[0] : SKColors.Black;
         style.BorderRightColor = c.Count > 1 ? c[1] : c[0];
         style.BorderBottomColor = c.Count > 2 ? c[2] : c[0];
@@ -1084,6 +1209,7 @@ public static class CssPropertyApplier
             else
             {
                 style.OutlineColor = ColorParser.Parse(part);
+                MarkCurrentColor(style, CurrentColorSlot.Outline, part);
             }
         }
     }
