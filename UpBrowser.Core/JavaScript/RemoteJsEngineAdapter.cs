@@ -1,3 +1,4 @@
+#if USE_MULTIPLE_JS_ENGINE
 using System.Diagnostics;
 using System.Text.Json;
 using UpBrowser.JsEngineProtocol;
@@ -2390,3 +2391,4 @@ public class DomProxyStore
         }
     }
 }
+#endif

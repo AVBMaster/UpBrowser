@@ -21,8 +21,14 @@
     <EmbeddedResource Include="Resources\Css\*.css" />
   </ItemGroup>
 
-  <ItemGroup>
+  <ItemGroup Condition="'$(UseMultipleJsEngine)' == 'true'">
     <ProjectReference Include="..\UpBrowser.JsEngineProtocol\UpBrowser.JsEngineProtocol.csproj" />
+  </ItemGroup>
+
+  <!-- Single-process mode: the built-in Jint engine runs inside the browser process -->
+  <ItemGroup Condition="'$(UseMultipleJsEngine)' != 'true'">
+    <ProjectReference Include="..\third_party\jint\Jint\Jint.csproj" />
+    <TrimmerRootAssembly Include="Jint" />
   </ItemGroup>
 
   <ItemGroup>

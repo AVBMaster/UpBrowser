@@ -27,3 +27,28 @@ public interface IJavaScriptEngineAdapter : IDisposable
     /// <summary>JS console output: (method like "console.log", message)</summary>
     event Action<string, string>? OnConsoleLog;
 }
+
+/// <summary>
+/// Central place for adapter-kind checks so call sites stay compilable in
+/// both single-process (no RemoteJsEngineAdapter) and multi-process builds.
+/// </summary>
+internal static class JsEngineBridge
+{
+    public static bool IsRemote(IJavaScriptEngineAdapter? adapter)
+    {
+#if USE_MULTIPLE_JS_ENGINE
+        return adapter is RemoteJsEngineAdapter;
+#else
+        return false;
+#endif
+    }
+
+    public static bool IsRemoteNotReady(IJavaScriptEngineAdapter? adapter)
+    {
+#if USE_MULTIPLE_JS_ENGINE
+        return adapter is RemoteJsEngineAdapter remote && !remote.IsReady;
+#else
+        return false;
+#endif
+    }
+}

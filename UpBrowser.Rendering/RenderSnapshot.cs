@@ -174,7 +174,7 @@ public static class RenderSnapshot
     /// rasterization.
     /// </summary>
     /// <remarks>
-    /// The shell lets <see cref="EngineProcessManager"/> start the engine host in
+    /// The shell lets <c>EngineProcessManager</c> start the engine host in
     /// the background because a live page outlives the startup latency anyway.
     /// A headless capture does not have that luxury - scripts would run against
     /// a disconnected engine and their DOM changes would silently vanish. So the
@@ -262,6 +262,7 @@ public static class RenderSnapshot
     /// </summary>
     private static IJavaScriptEngineAdapter CreateReadyAdapter()
     {
+#if USE_MULTIPLE_JS_ENGINE
         var engineType = JsEngineConfig.EffectiveEngineType;
         int pid = Environment.ProcessId;
         int channel = Interlocked.Increment(ref _snapshotChannelCounter);
@@ -277,9 +278,15 @@ public static class RenderSnapshot
         }
         Console.WriteLine($"[snapshot] JS engine ready ({engineType})");
         return adapter;
+#else
+        // Single-process mode: the built-in Jint engine is ready immediately.
+        return new JintEngineAdapter();
+#endif
     }
 
+#if USE_MULTIPLE_JS_ENGINE
     private static int _snapshotChannelCounter;
+#endif
 
     /// <summary>
     /// Quiet-window length: how long the page must stay mutation-free before the
@@ -293,7 +300,7 @@ public static class RenderSnapshot
     /// painted frame in the interactive shell.
     /// </summary>
     /// <remarks>
-    /// Remote-engine timers are scheduled inside <see cref="RemoteJsEngineAdapter"/>
+    /// Remote-engine timers are scheduled inside <c>RemoteJsEngineAdapter</c>
     /// (a fire-and-forget Task.Delay per setTimeout), so they are invisible to the
     /// engine's own timer queues. Activity is therefore tracked via
     /// <see cref="JavaScriptEngine.NeedsReLayout"/> - every JS-driven DOM/style

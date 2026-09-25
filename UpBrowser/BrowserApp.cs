@@ -5254,7 +5254,9 @@ namespace UpBrowser;
         _skiaRenderer.Dispose();
         _window.Dispose();
         _jsEngine.Dispose();
+#if USE_MULTIPLE_JS_ENGINE
         EngineProcessManager.Release(-1);
+#endif
         _eventLoop.Stop();
         if (_renderingSettings != null)
             _skiaRenderer.Settings = null;

@@ -30,6 +30,14 @@
 		<TrimmerRootAssembly Include="UpBrowser.Rendering" />
 	</ItemGroup>
 
+	<!-- Single-process mode: root Jint so its reflection-based CLR interop survives AOT trimming -->
+	<ItemGroup Condition="'$(UseMultipleJsEngine)' != 'true'">
+		<TrimmerRootAssembly Include="Jint" />
+	</ItemGroup>
+	<PropertyGroup Condition="'$(UseMultipleJsEngine)' != 'true'">
+		<NoWarn>$(NoWarn);IL2026;IL2111</NoWarn>
+	</PropertyGroup>
+
 	<ItemGroup>
 		<ProjectReference Include="..\UpBrowser.Rendering\UpBrowser.Rendering.csproj" />
 		<ProjectReference Include="..\UpBrowser.Core\UpBrowser.Core.csproj" />
@@ -37,15 +45,15 @@
 		<!-- JsEngineHost 以独立进程运行，不作为程序集引用，也不加 ProjectReference（避免 AOT/SelfContained 冲突） -->
 	</ItemGroup>
 
-	<!-- 构建时确保 JsEngineHost 已编译，并复制到输出目录 -->
-	<Target Name="EnsureJsEngineHostBuilt" BeforeTargets="CopyJsEngineHostOutput">
+	<!-- 构建时确保 JsEngineHost 已编译，并复制到输出目录（仅多进程模式） -->
+	<Target Name="EnsureJsEngineHostBuilt" BeforeTargets="CopyJsEngineHostOutput" Condition="'$(UseMultipleJsEngine)' == 'true'">
 		<PropertyGroup>
 			<JsEngineHostTFM Condition="$([MSBuild]::IsOSPlatform('Windows'))">net10.0-windows</JsEngineHostTFM>
 			<JsEngineHostTFM Condition="!$([MSBuild]::IsOSPlatform('Windows'))">net10.0</JsEngineHostTFM>
 			<JsEngineHostOutDir Condition="$([MSBuild]::IsOSPlatform('Windows'))">$(MSBuildThisFileDirectory)..\UpBrowser.JsEngineHost\bin\$(Configuration)\net10.0-windows\</JsEngineHostOutDir>
 			<JsEngineHostOutDir Condition="!$([MSBuild]::IsOSPlatform('Windows'))">$(MSBuildThisFileDirectory)..\UpBrowser.JsEngineHost\bin\$(Configuration)\net10.0\</JsEngineHostOutDir>
 		</PropertyGroup>
-		<Exec Command="dotnet restore &quot;$([MSBuild]::NormalizePath('$(MSBuildThisFileDirectory)', '..\UpBrowser.JsEngineHost\UpBrowser.JsEngineHost.csproj'))&quot;" />
+		<Exec Command="dotnet restore &quot;$([MSBuild]::NormalizePath('$(MSBuildThisFileDirectory)', '..\UpBrowser.JsEngineHost\UpBrowser.JsEngineHost.csproj'))&quot; -p:UseMultipleJsEngine=true" />
 		<!--
 		  Plain build with an explicit framework-dependent override: the host
 		  csproj defaults to SelfContained=true, which silently pushes its output
@@ -55,10 +63,10 @@
 		  SelfContained=false keeps the flat TFM folder as the single output
 		  location, framework-dependent like the installed shared runtime.
 		-->
-		<Exec Command="dotnet build &quot;$([MSBuild]::NormalizePath('$(MSBuildThisFileDirectory)', '..\UpBrowser.JsEngineHost\UpBrowser.JsEngineHost.csproj'))&quot; -c $(Configuration) -f $(JsEngineHostTFM) -p:SelfContained=false" />
+		<Exec Command="dotnet build &quot;$([MSBuild]::NormalizePath('$(MSBuildThisFileDirectory)', '..\UpBrowser.JsEngineHost\UpBrowser.JsEngineHost.csproj'))&quot; -c $(Configuration) -f $(JsEngineHostTFM) -p:SelfContained=false -p:UseMultipleJsEngine=true" />
 	</Target>
 
-	<Target Name="CopyJsEngineHostOutput" AfterTargets="Build" DependsOnTargets="EnsureJsEngineHostBuilt">
+	<Target Name="CopyJsEngineHostOutput" AfterTargets="Build" DependsOnTargets="EnsureJsEngineHostBuilt" Condition="'$(UseMultipleJsEngine)' == 'true'">
 		<PropertyGroup>
 			<JsEngineHostOutDir Condition="$([MSBuild]::IsOSPlatform('Windows'))">$(MSBuildThisFileDirectory)..\UpBrowser.JsEngineHost\bin\$(Configuration)\net10.0-windows\</JsEngineHostOutDir>
 			<JsEngineHostOutDir Condition="!$([MSBuild]::IsOSPlatform('Windows'))">$(MSBuildThisFileDirectory)..\UpBrowser.JsEngineHost\bin\$(Configuration)\net10.0\</JsEngineHostOutDir>
@@ -71,9 +79,9 @@
 		<Message Text="Copied @(JsEngineHostFiles->Count()) JsEngineHost files from $(JsEngineHostOutDir) to $(TargetDir)" Importance="high" />
 	</Target>
 
-	<!-- 发布时自动编译 JsEngineHost 并复制到输出目录 -->
-	<Target Name="PublishJsEngineHost" AfterTargets="Publish" Condition="'$(RuntimeIdentifier)' != ''">
-		<Exec Command="dotnet publish &quot;$([MSBuild]::NormalizePath('$(MSBuildThisFileDirectory)', '..\UpBrowser.JsEngineHost\UpBrowser.JsEngineHost.csproj'))&quot; -c $(Configuration) -r $(RuntimeIdentifier) -o &quot;$(PublishDir)&quot;" />
+	<!-- 发布时自动编译 JsEngineHost 并复制到输出目录（仅多进程模式） -->
+	<Target Name="PublishJsEngineHost" AfterTargets="Publish" Condition="'$(RuntimeIdentifier)' != '' and '$(UseMultipleJsEngine)' == 'true'">
+		<Exec Command="dotnet publish &quot;$([MSBuild]::NormalizePath('$(MSBuildThisFileDirectory)', '..\UpBrowser.JsEngineHost\UpBrowser.JsEngineHost.csproj'))&quot; -c $(Configuration) -r $(RuntimeIdentifier) -p:UseMultipleJsEngine=true -o &quot;$(PublishDir)&quot;" />
 		<Message Text="JsEngineHost published to $(PublishDir)" Importance="high" />
 	</Target>
 

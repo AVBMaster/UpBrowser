@@ -11,7 +11,7 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\UpBrowser.Core\UpBrowser.Core.csproj" />
-    <ProjectReference Include="..\UpBrowser.JsEngineProtocol\UpBrowser.JsEngineProtocol.csproj" />
+    <ProjectReference Condition="'$(UseMultipleJsEngine)' == 'true'" Include="..\UpBrowser.JsEngineProtocol\UpBrowser.JsEngineProtocol.csproj" />
     <ProjectReference Include="..\UpBrowser.Rendering\UpBrowser.Rendering.csproj" />
   </ItemGroup>
 </Project>

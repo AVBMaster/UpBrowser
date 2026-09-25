@@ -6,6 +6,11 @@
     <IsTrimmable>false</IsTrimmable>
   </PropertyGroup>
 
+  <!-- Single-process mode (default): the IPC protocol is not compiled at all -->
+  <PropertyGroup Condition="'$(UseMultipleJsEngine)' != 'true'">
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+  </PropertyGroup>
+
   <ItemGroup>
     <PackageReference Include="System.Text.Json" Version="*" />
     <PackageReference Include="VC-LTL" Version="5.3.1" />

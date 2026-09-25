@@ -62,7 +62,9 @@ public class ProcessManager : IDisposable
         {
             proc.OnUpdated -= OnProcessUpdated;
             proc.Dispose();
+#if USE_MULTIPLE_JS_ENGINE
             EngineProcessManager.Release(tabIndex);
+#endif
         }
     }
 

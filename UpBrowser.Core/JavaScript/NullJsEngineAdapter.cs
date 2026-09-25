@@ -1,5 +1,3 @@
-using UpBrowser.JsEngineProtocol;
-
 namespace UpBrowser.Core.JavaScript;
 
 /// <summary>

@@ -21,9 +21,14 @@ public static class JsEngineConfig
     {
         get
         {
+#if !USE_MULTIPLE_JS_ENGINE
+            // Single-process mode always runs the built-in Jint engine
+            return JsEngineType.Jint;
+#else
             if (_defaultEngineType != JsEngineType.Jint && !JsEngineDownloader.IsEngineDownloaded(_defaultEngineType))
                 return JsEngineType.Jint;
             return _defaultEngineType;
+#endif
         }
     }
 

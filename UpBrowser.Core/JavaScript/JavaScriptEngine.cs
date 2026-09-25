@@ -64,6 +64,7 @@ public class JavaScriptEngine : IDisposable
         _integrationService = new JsIntegrationService(adapter);
         _integrationService.SetJsEngine(this);
 
+#if USE_MULTIPLE_JS_ENGINE
         if (adapter is RemoteJsEngineAdapter remote)
         {
             remote.OnAlert = msg => ShowDialog?.Invoke(msg, "alert");
@@ -80,6 +81,7 @@ public class JavaScriptEngine : IDisposable
                     ?? "{\"success\":false,\"error\":\"no handler\"}";
             };
         }
+#endif
 
         SetupGlobals();
     }
@@ -91,6 +93,7 @@ public class JavaScriptEngine : IDisposable
 
     private static IJavaScriptEngineAdapter CreateDefaultAdapter(int tabIndex)
     {
+#if USE_MULTIPLE_JS_ENGINE
         var effectiveType = JsEngineConfig.EffectiveEngineType;
 
         // 尝试使用远程 JS 引擎（通过 IPC 与 JsEngineHost 进程通信）
@@ -100,8 +103,13 @@ public class JavaScriptEngine : IDisposable
         // 远程引擎不可用时，使用 NullAdapter 兜底，避免 UI 进程因 JS 问题崩溃
         Console.WriteLine("[JS] Remote engine unavailable, using NullAdapter (graceful degradation)");
         return NullJsEngineAdapter.Instance;
+#else
+        // 单进程模式：直接使用浏览器内置的 Jint 引擎，无 IPC 开销
+        return new JintEngineAdapter();
+#endif
     }
 
+#if USE_MULTIPLE_JS_ENGINE
     private static bool TryCreateRemoteAdapter(JsEngineType type, int tabIndex, out IJavaScriptEngineAdapter adapter)
     {
         adapter = null!;
@@ -165,6 +173,7 @@ public class JavaScriptEngine : IDisposable
 
         return null;
     }
+#endif
 
     private void SetupGlobals()
     {
@@ -172,7 +181,7 @@ public class JavaScriptEngine : IDisposable
 
         _adapter.Execute(JsCallbackStore.JsSetup);
 
-        if (_adapter is RemoteJsEngineAdapter)
+        if (JsEngineBridge.IsRemote(_adapter))
         {
             _adapter.Execute(GetSetupScript());
             return;
@@ -206,6 +215,7 @@ public class JavaScriptEngine : IDisposable
         if (_adapter != null)
         {
             ClearState();
+#if USE_MULTIPLE_JS_ENGINE
             var remoteAdapter = _adapter as RemoteJsEngineAdapter;
             if (remoteAdapter != null)
             {
@@ -214,9 +224,10 @@ public class JavaScriptEngine : IDisposable
                 remoteAdapter.DomStore.Clear();
                 remoteAdapter.DomStore.SetDocument(_documentHost);
             }
+#endif
             _integrationService?.LoadDocument(document);
             ReapplyGlobals();
-            if (_adapter is not RemoteJsEngineAdapter)
+            if (!JsEngineBridge.IsRemote(_adapter))
                 _adapter.SetGlobal("document", _documentHost);
         }
 
@@ -232,7 +243,7 @@ public class JavaScriptEngine : IDisposable
 
         _adapter.Execute(JsCallbackStore.JsSetup);
 
-        if (_adapter is RemoteJsEngineAdapter)
+        if (JsEngineBridge.IsRemote(_adapter))
         {
             _adapter.Execute(GetSetupScript());
             return;

@@ -107,14 +107,14 @@ namespace UpBrowser.Core.JavaScript;
 
             var docHost = new DocumentHost(document);
             // 远程引擎已在 DomSetup.js 中定义 document，无需通过 SetGlobal 发送 .NET 对象
-            if (_facade.Adapter is not RemoteJsEngineAdapter)
+            if (!JsEngineBridge.IsRemote(_facade.Adapter))
             {
                 _facade.SetGlobalObject("document", docHost);
             }
 
             // 远程引擎的 document 已在 JsEngineHost 的 DomSetup.js 中定义，
             // 无需执行 window.document = document 和原型修复
-            if (_facade.Adapter is not RemoteJsEngineAdapter)
+            if (!JsEngineBridge.IsRemote(_facade.Adapter))
             {
                 _facade.Execute("window.document = document;");
                 _facade.Execute("window.__fixProto(document);");
@@ -167,7 +167,7 @@ namespace UpBrowser.Core.JavaScript;
     {
         try
         {
-            if (_facade.Adapter is RemoteJsEngineAdapter) return;
+            if (JsEngineBridge.IsRemote(_facade.Adapter)) return;
             var id = Interlocked.Increment(ref _fixProtoCounter);
             var tmpName = $"__tmp_fp_{id}";
             _facade.SetGlobalObject(tmpName, host);

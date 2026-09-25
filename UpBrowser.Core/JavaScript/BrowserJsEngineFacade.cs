@@ -65,7 +65,7 @@ public class BrowserJsEngineFacade : IDisposable
     {
         if (_disposed || string.IsNullOrEmpty(code)) return;
         // 远程引擎未就绪时跳过执行，避免阻塞 UI
-        if (_adapter is RemoteJsEngineAdapter remote && !remote.IsReady)
+        if (JsEngineBridge.IsRemoteNotReady(_adapter))
             return;
         Current = _adapter;
         try
@@ -88,7 +88,7 @@ public class BrowserJsEngineFacade : IDisposable
     public object? Evaluate(string expression, string? sourceUrl = null)
     {
         if (_disposed || string.IsNullOrEmpty(expression)) return null;
-        if (_adapter is RemoteJsEngineAdapter remote && !remote.IsReady) return null;
+        if (JsEngineBridge.IsRemoteNotReady(_adapter)) return null;
         Current = _adapter;
         try
         {
@@ -109,7 +109,7 @@ public class BrowserJsEngineFacade : IDisposable
     public object? CallFunction(string functionName, params object?[] args)
     {
         if (_disposed) return null;
-        if (_adapter is RemoteJsEngineAdapter remote && !remote.IsReady) return null;
+        if (JsEngineBridge.IsRemoteNotReady(_adapter)) return null;
         Current = _adapter;
         try
         {
@@ -135,7 +135,7 @@ public class BrowserJsEngineFacade : IDisposable
     public void InvokeJsFunction(int callbackId, params object?[] args)
     {
         if (_disposed) return;
-        if (_adapter is RemoteJsEngineAdapter remote && !remote.IsReady) return;
+        if (JsEngineBridge.IsRemoteNotReady(_adapter)) return;
         Current = _adapter;
         try
         {

@@ -13,6 +13,16 @@
     <NoWarn>$(NoWarn);IL2026;IL2111</NoWarn>
   </PropertyGroup>
 
+  <!-- Single-process mode (default): the engine host is not compiled at all -->
+  <PropertyGroup Condition="'$(UseMultipleJsEngine)' != 'true'">
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <OutputType>Library</OutputType>
+    <PublishSingleFile>false</PublishSingleFile>
+    <SelfContained>false</SelfContained>
+    <PublishAot>false</PublishAot>
+    <IsTrimmable>false</IsTrimmable>
+  </PropertyGroup>
+
   <PropertyGroup Condition="$([MSBuild]::IsOSPlatform('Windows'))">
     <TargetFramework>net10.0-windows</TargetFramework>
     <SupportedOSPlatformVersion>5.1</SupportedOSPlatformVersion>
@@ -27,7 +37,7 @@
     <PackageReference Include="VC-LTL" Version="5.3.1" />
   </ItemGroup>
 
-  <ItemGroup>
+  <ItemGroup Condition="'$(UseMultipleJsEngine)' == 'true'">
     <ProjectReference Include="..\third_party\jint\Jint\Jint.csproj" />
     <ProjectReference Include="..\UpBrowser.JsEngineProtocol\UpBrowser.JsEngineProtocol.csproj" />
     <TrimmerRootAssembly Include="Jint" />

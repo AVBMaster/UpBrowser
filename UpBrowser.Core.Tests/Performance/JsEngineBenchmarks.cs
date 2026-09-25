@@ -1,3 +1,4 @@
+#if USE_MULTIPLE_JS_ENGINE
 using System.Diagnostics;
 using System.Text.Json;
 using UpBrowser.Core.JavaScript;
@@ -151,3 +152,4 @@ public class JsEngineBenchmarks
         public float Height;
     }
 }
+#endif

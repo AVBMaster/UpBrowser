@@ -1,3 +1,4 @@
+#if USE_MULTIPLE_JS_ENGINE
 namespace UpBrowser.Core.JavaScript;
 
 /// <summary>
@@ -84,3 +85,4 @@ public static class EngineProcessManager
         }
     }
 }
+#endif
